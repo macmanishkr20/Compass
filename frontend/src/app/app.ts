@@ -36,6 +36,21 @@ import {
 const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
+/** A rendered timeline block: either a standalone item (user/assistant bubble,
+ * permission card, meaningful notice) or a collapsed "activity" group folding
+ * the background tool work — the analog of Claude's "Ran a command, used a
+ * tool ⌄" caret. */
+type RenderBlock =
+  | { kind: 'single'; item: TimelineItem }
+  | {
+      kind: 'activity';
+      id: string;
+      items: TimelineItem[];
+      summary: string;
+      running: boolean;
+      count: number;
+    };
+
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -148,6 +163,91 @@ export class App {
     }
     return null;
   });
+
+  // -- activity grouping (collapsible background work)
+  readonly expandedActivities = signal<Set<string>>(new Set());
+
+  readonly renderBlocks = computed<RenderBlock[]>(() => {
+    const blocks: RenderBlock[] = [];
+    let group: TimelineItem[] = [];
+    const flush = () => {
+      if (group.length) {
+        const tools = group.filter((g) => g.kind === 'tool') as ToolCardVM[];
+        blocks.push({
+          kind: 'activity',
+          id: group[0].id,
+          items: group,
+          summary: this.summarizeActivity(tools),
+          running: tools.some((t) => t.status === 'running'),
+          count: tools.length,
+        });
+      }
+      group = [];
+    };
+    for (const it of this.timeline()) {
+      const isBackground =
+        it.kind === 'tool' ||
+        (it.kind === 'notice' && (it as NoticeVM).tone === 'compaction');
+      if (isBackground) {
+        group.push(it);
+      } else {
+        flush();
+        blocks.push({ kind: 'single', item: it });
+      }
+    }
+    flush();
+    return blocks;
+  });
+
+  toggleActivity(id: string): void {
+    this.expandedActivities.update((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  isActivityExpanded = (id: string): boolean => this.expandedActivities().has(id);
+
+  private summarizeActivity(tools: ToolCardVM[]): string {
+    if (!tools.length) return 'Working…';
+    const counts: Record<string, number> = {};
+    for (const t of tools) {
+      const cat = this.toolCategory(t.name);
+      counts[cat] = (counts[cat] ?? 0) + 1;
+    }
+    const n = (c: number, one: string, many: string) =>
+      `${c} ${c === 1 ? one : many}`;
+    const phrases: Record<string, (c: number) => string> = {
+      read: (c) => `Read ${n(c, 'file', 'files')}`,
+      searched: () => 'Searched the code',
+      ran: (c) => `Ran ${n(c, 'command', 'commands')}`,
+      edited: (c) => `Edited ${n(c, 'file', 'files')}`,
+      wrote: (c) => `Wrote ${n(c, 'file', 'files')}`,
+      planned: () => 'Updated the plan',
+      delegated: (c) => `Delegated to ${n(c, 'subagent', 'subagents')}`,
+      used: (c) => `Used ${n(c, 'tool', 'tools')}`,
+    };
+    const order = ['ran', 'edited', 'wrote', 'read', 'searched', 'delegated', 'planned', 'used'];
+    const parts = order
+      .filter((k) => counts[k])
+      .map((k) => phrases[k](counts[k]));
+    return parts.slice(0, 3).join(' · ') || 'Used a tool';
+  }
+
+  private toolCategory(name: string): string {
+    if (name === 'file_read') return 'read';
+    if (name === 'glob' || name === 'grep') return 'searched';
+    if (name === 'bash') return 'ran';
+    if (name === 'file_edit') return 'edited';
+    if (name === 'file_write') return 'wrote';
+    if (name === 'todo_write') return 'planned';
+    if (name === 'agent') return 'delegated';
+    return 'used';
+  }
+
+  trackBlock = (_: number, b: RenderBlock): string =>
+    b.kind === 'activity' ? 'a:' + b.id : 's:' + b.item.id;
 
   /** Pinned conversations, always shown first as their own group. */
   readonly pinnedGroup = computed<SessionGroup | null>(() => {

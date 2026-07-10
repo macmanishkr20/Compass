@@ -536,6 +536,63 @@
 .caret.on { opacity: 1; animation: blink 1s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
+/* ===================== Activity (collapsed tools) ================== */
+.activity {
+  align-self: stretch;
+  max-width: min(78ch, 94%);
+}
+.activity-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.activity-head:hover { border-color: var(--border-strong); color: var(--ink); }
+.activity-caret {
+  color: var(--faint);
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+.activity.open .activity-caret { transform: rotate(90deg); }
+.activity-ico { color: var(--accent); flex-shrink: 0; }
+.activity-summary {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-count {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+.activity-spin {
+  width: 12px; height: 12px; flex-shrink: 0;
+  border: 2px solid color-mix(in oklab, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 4px 4px 14px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border);
+}
+
 /* ============================= Thinking ============================ */
 .thinking-row { align-items: center; }
 .avatar.thinking { border-color: var(--accent-line); }

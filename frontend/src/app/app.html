@@ -327,7 +327,33 @@
         </section>
       }
 
-      @for (item of timeline(); track trackItem($index, item)) {
+      @for (block of renderBlocks(); track trackBlock($index, block)) {
+        @if (block.kind === 'activity') {
+          <div class="activity" [class.open]="isActivityExpanded(block.id)">
+            <button class="activity-head" (click)="toggleActivity(block.id)">
+              <svg class="activity-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              @if (block.running) {
+                <span class="activity-spin"></span>
+              } @else {
+                <svg class="activity-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              }
+              <span class="activity-summary">{{ block.summary }}</span>
+              <span class="activity-count">{{ block.count }} step{{ block.count === 1 ? '' : 's' }}</span>
+            </button>
+            @if (isActivityExpanded(block.id)) {
+              <div class="activity-body">
+                @for (item of block.items; track item.id) {
+                  <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: item }" />
+                }
+              </div>
+            }
+          </div>
+        } @else {
+          <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: block.item }" />
+        }
+      }
+
+      <ng-template #itemTpl let-item>
         @switch (item.kind) {
 
           @case ('bubble') {
@@ -423,7 +449,7 @@
             </div>
           }
         }
-      }
+      </ng-template>
 
       @if (thinking()) {
         <div class="row thinking-row">
