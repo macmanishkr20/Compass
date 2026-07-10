@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass</title>
+<style>
+  :root {
+    --ground:#FAF8F5; --panel:#FFFFFF; --panel2:#F1EDE7; --ink:#1F1B16;
+    --muted:#6E6459; --line:#E4DED6; --accent:#C2593A; --accent-soft:#F6E4DC;
+    --ok:#3E8E87; --ok-soft:#E1EFED; --warn:#9A6A1B; --warn-soft:#F5EAD2;
+    --err:#A83B3B; --err-soft:#F5DEDE;
+    --mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground:#141210; --panel:#1C1916; --panel2:#211E19; --ink:#E8E2DA;
+      --muted:#9A9088; --line:#2C2822; --accent:#E38B67; --accent-soft:#3A241B;
+      --ok:#5FB3AB; --ok-soft:#1B2E2C; --warn:#D9A648; --warn-soft:#322A17;
+      --err:#D97070; --err-soft:#351D1D;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans);
+         display:flex; flex-direction:column; height:100vh; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 18px;
+           border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; }
+  header h1 { font-family:var(--mono); font-size:1rem; margin:0; letter-spacing:.02em; }
+  header h1::before { content:"➜ "; color:var(--accent); }
+  .hstat { font-family:var(--mono); font-size:.7rem; color:var(--muted); }
+  select,button,textarea {
+    font-family:inherit; font-size:.85rem; color:var(--ink);
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:7px 12px;
+  }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button.danger  { color:var(--err); }
+  #log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column;
+         gap:12px; max-width:900px; width:100%; margin:0 auto; }
+  .msg { max-width:72ch; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+         padding:10px 14px; border-radius:10px; font-size:.92rem; }
+  .msg.user { background:var(--accent-soft); align-self:flex-end; }
+  .msg.assistant { background:var(--panel); border:1px solid var(--line); align-self:flex-start; }
+  .card { border:1px solid var(--line); border-radius:10px; background:var(--panel);
+          padding:10px 14px; font-size:.8rem; align-self:stretch; }
+  .card .head { font-family:var(--mono); font-size:.75rem; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .card pre { margin:8px 0 0; background:var(--panel2); border-radius:6px; padding:8px 10px;
+              overflow-x:auto; font-size:.72rem; max-height:180px; overflow-y:auto; }
+  .pill { font-family:var(--mono); font-size:.62rem; font-weight:700; letter-spacing:.05em;
+          padding:2px 8px; border-radius:999px; text-transform:uppercase; }
+  .pill.run  { background:var(--warn-soft); color:var(--warn); }
+  .pill.ok   { background:var(--ok-soft);  color:var(--ok); }
+  .pill.err  { background:var(--err-soft); color:var(--err); }
+  .pill.side { background:var(--panel2); color:var(--muted); }
+  .perm { border-color:var(--warn); }
+  .perm .actions { margin-top:10px; display:flex; gap:8px; }
+  .chip { align-self:center; font-family:var(--mono); font-size:.68rem; color:var(--muted); }
+  footer { border-top:1px solid var(--line); background:var(--panel); padding:12px 18px; }
+  .composer { display:flex; gap:10px; max-width:900px; margin:0 auto; }
+  textarea { flex:1; resize:none; min-height:44px; max-height:160px; }
+  #usage { max-width:900px; margin:6px auto 0; font-family:var(--mono); font-size:.68rem; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>compass</h1>
+  <select id="sessionPicker" aria-label="Resume session"><option value="">new session…</option></select>
+  <button id="newBtn">New</button>
+  <button id="abortBtn" class="danger" disabled>Abort</button>
+  <span class="hstat" id="status">connecting…</span>
+</header>
+
+<main id="log" aria-live="polite"></main>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" placeholder="Ask Compass… (Enter to send, Shift+Enter for newline)"></textarea>
+    <button id="sendBtn" class="primary">Send</button>
+  </div>
+  <div id="usage"></div>
+</footer>
+
+<script>
+const log = document.getElementById("log");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const abortBtn = document.getElementById("abortBtn");
+const statusEl = document.getElementById("status");
+const picker = document.getElementById("sessionPicker");
+let sessionId = null, streaming = false, currentBubble = null;
+const toolCards = new Map();
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function scroll() { log.scrollTop = log.scrollHeight; }
+
+async function api(path, body, method = "POST") {
+  const res = await fetch(path, {
+    method, headers: {"content-type": "application/json"},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  return res.json();
+}
+
+async function refreshHealth() {
+  try {
+    const h = await api("/healthz", undefined, "GET");
+    statusEl.textContent =
+      `${h.mock_model ? "mock" : h.deployment} · store:${h.storage_backend}` +
+      ` · mcp:${Object.keys(h.mcp_servers).length}` + (h.telemetry ? " · appinsights" : "");
+  } catch { statusEl.textContent = "server unreachable"; }
+}
+
+async function refreshSessions() {
+  try {
+    const data = await api("/v1/sessions", undefined, "GET");
+    picker.innerHTML = '<option value="">new session…</option>';
+    for (const sid of data.sessions) {
+      const opt = el("option"); opt.value = sid; opt.textContent = sid.slice(0, 13) + "…";
+      picker.appendChild(opt);
+    }
+    if (sessionId) picker.value = "";
+  } catch {}
+}
+
+async function newSession(resumeId) {
+  const body = resumeId ? {resume: true, session_id: resumeId} : {};
+  const data = await api("/v1/sessions", body);
+  sessionId = data.session_id;
+  log.innerHTML = ""; toolCards.clear();
+  if (resumeId) {
+    const t = await api(`/v1/sessions/${sessionId}/transcript`, undefined, "GET");
+    for (const m of t.messages) {
+      if (m.role === "user" && !(m.meta || {}).synthetic && !(m.meta || {}).compact_boundary)
+        log.appendChild(el("div", "msg user", m.content || ""));
+      else if (m.role === "assistant" && m.content)
+        log.appendChild(el("div", "msg assistant", m.content));
+    }
+    log.appendChild(el("div", "chip", `resumed ${data.resumed_messages} messages`));
+  }
+  scroll();
+}
+
+function handleEvent(type, data) {
+  const side = data.agent_id ? ` <span class="pill side">agent ${data.agent_id}</span>` : "";
+  if (type === "text_delta") {
+    if (data.agent_id) return; // sidechain text stays in its tool card
+    if (!currentBubble) { currentBubble = el("div", "msg assistant", ""); log.appendChild(currentBubble); }
+    currentBubble.textContent += data.text; scroll();
+  } else if (type === "assistant_message") {
+    if (!data.agent_id) currentBubble = null;
+  } else if (type === "tool_call_started") {
+    const card = el("div", "card");
+    card.innerHTML = `<div class="head"><span class="pill run">tool</span>` +
+      `<b>${data.tool_name}</b>${side}</div>`;
+    const pre = el("pre", "", JSON.stringify(data.arguments));
+    card.appendChild(pre); toolCards.set(data.tool_call_id, card);
+    log.appendChild(card); scroll();
+  } else if (type === "tool_progress") {
+    const card = toolCards.get(data.tool_call_id); if (!card) return;
+    let out = card.querySelector("pre.out");
+    if (!out) { out = el("pre", "out"); card.appendChild(out); }
+    out.textContent += data.data; scroll();
+  } else if (type === "tool_result") {
+    const card = toolCards.get(data.tool_call_id); if (!card) return;
+    const pill = card.querySelector(".pill");
+    pill.className = "pill " + (data.is_error ? "err" : "ok");
+    pill.textContent = data.is_error ? "error" : `${data.duration_ms}ms`;
+    if (data.is_error) { const p = el("pre", "", data.content); card.appendChild(p); }
+    scroll();
+  } else if (type === "permission_request") {
+    const card = el("div", "card perm");
+    card.innerHTML = `<div class="head"><span class="pill run">permission</span>` +
+      `<b>${data.tool_name}</b> <span>${data.reason}</span>${side}</div>`;
+    card.appendChild(el("pre", "", JSON.stringify(data.arguments)));
+    const actions = el("div", "actions");
+    for (const behavior of ["allow", "deny"]) {
+      const b = el("button", behavior === "allow" ? "primary" : "danger",
+                   behavior === "allow" ? "Allow" : "Deny");
+      b.onclick = async () => {
+        await api(`/v1/sessions/${sessionId}/permissions/${data.request_id}`, {behavior});
+        actions.replaceWith(el("div", "chip", behavior === "allow" ? "allowed" : "denied"));
+      };
+      actions.appendChild(b);
+    }
+    card.appendChild(actions); log.appendChild(card); scroll();
+  } else if (type === "compaction") {
+    log.appendChild(el("div", "chip",
+      `⇣ ${data.stage}: ${data.tokens_before} → ${data.tokens_after} tokens`)); scroll();
+  } else if (type === "usage_report") {
+    document.getElementById("usage").textContent =
+      `tokens: ${data.prompt_tokens} in (${data.cached_prompt_tokens} cached) / ` +
+      `${data.completion_tokens} out · $${data.cost_usd}`;
+  } else if (type === "turn_complete") {
+    log.appendChild(el("div", "chip", `— ${data.reason} (${data.turns} turns) —`)); scroll();
+  } else if (type === "error") {
+    const card = el("div", "card");
+    card.innerHTML = `<div class="head"><span class="pill err">error</span></div>`;
+    card.appendChild(el("pre", "", data.message)); log.appendChild(card); scroll();
+  }
+}
+
+async function send() {
+  const content = input.value.trim();
+  if (!content || streaming) return;
+  if (!sessionId) await newSession();
+  input.value = ""; streaming = true;
+  sendBtn.disabled = true; abortBtn.disabled = false; currentBubble = null;
+  log.appendChild(el("div", "msg user", content)); scroll();
+  try {
+    const res = await fetch(`/v1/sessions/${sessionId}/messages`, {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({content}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, idx); buffer = buffer.slice(idx + 2);
+        let type = "", payload = "";
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event: ")) type = line.slice(7);
+          else if (line.startsWith("data: ")) payload += line.slice(6);
+        }
+        if (type && payload) { try { handleEvent(type, JSON.parse(payload)); } catch {} }
+      }
+    }
+  } catch (err) {
+    handleEvent("error", {message: String(err)});
+  } finally {
+    streaming = false; sendBtn.disabled = false; abortBtn.disabled = true;
+    refreshSessions();
+  }
+}
+
+sendBtn.onclick = send;
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+abortBtn.onclick = () => sessionId && api(`/v1/sessions/${sessionId}/abort`, {});
+document.getElementById("newBtn").onclick = () => { picker.value = ""; newSession(); };
+picker.onchange = () => picker.value && newSession(picker.value);
+
+refreshHealth(); refreshSessions(); newSession();
+</script>
+</body>
+</html>

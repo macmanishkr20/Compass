@@ -1,0 +1,245 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { AuthService } from './auth.service';
+import {
+  CompassEvent,
+  GithubRepo,
+  HealthInfo,
+  PermissionBehavior,
+  SessionCard,
+  Workspace,
+} from './models';
+
+interface CreateSessionResponse {
+  session_id: string;
+  resumed_messages: number;
+}
+interface TranscriptResponse {
+  session_id: string;
+  messages: Array<{
+    uuid: string;
+    role: string;
+    content: string | null;
+    meta?: Record<string, unknown>;
+  }>;
+}
+
+@Injectable({ providedIn: 'root' })
+export class CompassApiService {
+  private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
+
+  health(): Promise<HealthInfo> {
+    return firstValueFrom(this.http.get<HealthInfo>('/healthz'));
+  }
+
+  listSessions(): Promise<{ sessions: SessionCard[] }> {
+    return firstValueFrom(
+      this.http.get<{ sessions: SessionCard[] }>('/v1/sessions'),
+    );
+  }
+
+  updateSession(
+    sessionId: string,
+    patch: Partial<
+      Pick<
+        SessionCard,
+        | 'title'
+        | 'pinned'
+        | 'archived'
+        | 'group'
+        | 'mode'
+        | 'effort'
+        | 'model'
+        | 'workspace'
+      >
+    >,
+  ): Promise<SessionCard> {
+    return firstValueFrom(
+      this.http.patch<SessionCard>(`/v1/sessions/${sessionId}`, patch),
+    );
+  }
+
+  deleteSession(sessionId: string): Promise<unknown> {
+    return firstValueFrom(this.http.delete(`/v1/sessions/${sessionId}`));
+  }
+
+  forkSession(sessionId: string, upToUuid?: string): Promise<{ session_id: string }> {
+    return firstValueFrom(
+      this.http.post<{ session_id: string }>(`/v1/sessions/${sessionId}/fork`, {
+        up_to_uuid: upToUuid ?? null,
+      }),
+    );
+  }
+
+  createSession(opts: {
+    resume?: boolean;
+    sessionId?: string;
+    permissionMode?: string;
+    effort?: string;
+    model?: string;
+    workspaceId?: string;
+  } = {}): Promise<CreateSessionResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSessionResponse>('/v1/sessions', {
+        resume: opts.resume ?? false,
+        session_id: opts.sessionId,
+        permission_mode: opts.permissionMode,
+        effort: opts.effort,
+        model: opts.model,
+        workspace_id: opts.workspaceId,
+      }),
+    );
+  }
+
+  listWorkspaces(): Promise<{ workspaces: Workspace[] }> {
+    return firstValueFrom(
+      this.http.get<{ workspaces: Workspace[] }>('/v1/workspaces'),
+    );
+  }
+
+  addFolderWorkspace(body: { path?: string; name?: string }): Promise<Workspace> {
+    return firstValueFrom(this.http.post<Workspace>('/v1/workspaces/folder', body));
+  }
+
+  deleteWorkspace(id: string): Promise<unknown> {
+    return firstValueFrom(this.http.delete(`/v1/workspaces/${id}`));
+  }
+
+  githubRepos(): Promise<{ repos: GithubRepo[] }> {
+    return firstValueFrom(this.http.get<{ repos: GithubRepo[] }>('/v1/github/repos'));
+  }
+
+  githubClone(fullName: string, branch?: string): Promise<Workspace> {
+    return firstValueFrom(
+      this.http.post<Workspace>('/v1/github/clone', {
+        full_name: fullName,
+        branch: branch ?? null,
+      }),
+    );
+  }
+
+  transcript(sessionId: string): Promise<TranscriptResponse> {
+    return firstValueFrom(
+      this.http.get<TranscriptResponse>(
+        `/v1/sessions/${sessionId}/transcript`,
+      ),
+    );
+  }
+
+  resolvePermission(
+    sessionId: string,
+    requestId: string,
+    behavior: Exclude<PermissionBehavior, 'timeout'>,
+  ): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(
+        `/v1/sessions/${sessionId}/permissions/${requestId}`,
+        { behavior },
+      ),
+    );
+  }
+
+  abort(sessionId: string): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(`/v1/sessions/${sessionId}/abort`, {}),
+    );
+  }
+
+  /**
+   * Send a message and stream the SSE response. Each parsed CompassEvent is
+   * delivered to `onEvent`. The returned AbortController lets the caller stop
+   * reading (the turn itself is stopped via abort()). Uses fetch streaming —
+   * EventSource can't POST.
+   */
+  async streamMessage(
+    sessionId: string,
+    content: string,
+    onEvent: (event: CompassEvent) => void,
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/sessions/${sessionId}/messages`,
+      { content },
+      onEvent,
+    );
+  }
+
+  /** Edit a past user prompt and re-run from that checkpoint. */
+  async streamEdit(
+    sessionId: string,
+    messageUuid: string,
+    content: string,
+    onEvent: (event: CompassEvent) => void,
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/sessions/${sessionId}/messages/${messageUuid}/edit`,
+      { content },
+      onEvent,
+    );
+  }
+
+  /** Re-run the last user turn, discarding the previous answer. */
+  async streamRegenerate(
+    sessionId: string,
+    onEvent: (event: CompassEvent) => void,
+  ): Promise<void> {
+    return this.streamPost(`/v1/sessions/${sessionId}/regenerate`, {}, onEvent);
+  }
+
+  private async streamPost(
+    url: string,
+    body: unknown,
+    onEvent: (event: CompassEvent) => void,
+  ): Promise<void> {
+    // Raw fetch (EventSource can't POST, HttpClient buffers) — so the bearer
+    // token is attached here directly; the interceptor can't see this call.
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+    const token = this.auth.token;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (res.status === 401) {
+      this.auth.sessionExpired();
+      throw new Error('authentication required');
+    }
+    if (!res.ok || !res.body) {
+      throw new Error((await res.text()) || res.statusText);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const event = this.parseFrame(frame);
+        if (event) onEvent(event);
+      }
+    }
+  }
+
+  private parseFrame(frame: string): CompassEvent | null {
+    let type = '';
+    let data = '';
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event: ')) type = line.slice(7).trim();
+      else if (line.startsWith('data: ')) data += line.slice(6);
+    }
+    if (!type || !data) return null;
+    try {
+      return { ...(JSON.parse(data) as object), type } as CompassEvent;
+    } catch {
+      return null;
+    }
+  }
+}

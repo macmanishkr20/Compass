@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "compass-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start", "--prefix", "frontend", "--", "--port", "4310"],
+      "port": 4310,
+      "autoPort": false
+    }
+  ]
+}

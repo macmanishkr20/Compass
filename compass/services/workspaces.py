@@ -1,0 +1,194 @@
+"""Workspace registry — the set of directories the agent can operate in.
+
+A *workspace* is a root folder: the built-in Compass repo ("default"), a
+local folder the user points at, or a GitHub repo the app cloned. Each session
+targets one workspace; its file tools and shell are scoped to that root, so
+"edit code and commit" works against whichever project is selected.
+
+Stored as a single JSON registry (data/workspaces.json), mirroring the session
+metadata store. Paths are absolute and validated on read.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+from compass.config import get_settings
+
+logger = logging.getLogger("compass.workspaces")
+
+DEFAULT_ID = "default"
+
+
+@dataclass
+class Workspace:
+    id: str
+    name: str
+    path: str
+    kind: str = "local"  # "local" | "github"
+    remote_url: str = ""  # github html/clone url (token stripped)
+    branch: str = ""
+    created_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        p = Path(self.path)
+        d["exists"] = p.is_dir()
+        d["is_git"] = (p / ".git").exists()
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Workspace":
+        known = {k: d[k] for k in cls.__dataclass_fields__ if k in d}
+        return cls(**known)
+
+
+class WorkspaceRegistry:
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._cache: dict[str, Workspace] | None = None
+
+    def _path(self) -> Path:
+        return get_settings().workspace_root / get_settings().data_dir / "workspaces.json"
+
+    def _default(self) -> Workspace:
+        root = get_settings().workspace_root
+        return Workspace(
+            id=DEFAULT_ID, name="Compass (this repo)", path=str(root), kind="local"
+        )
+
+    def _load(self) -> dict[str, Workspace]:
+        if self._cache is not None:
+            return self._cache
+        data: dict[str, Workspace] = {DEFAULT_ID: self._default()}
+        path = self._path()
+        if path.is_file():
+            try:
+                raw = json.loads(path.read_text())
+                for wid, d in raw.items():
+                    data[wid] = Workspace.from_dict({**d, "id": wid})
+            except (OSError, json.JSONDecodeError) as err:
+                logger.error("could not read workspaces.json: %s", err)
+        self._cache = data
+        return data
+
+    def _flush(self) -> None:
+        assert self._cache is not None
+        # Never persist the built-in default; it's derived from settings.
+        payload = {
+            wid: w.to_dict()
+            for wid, w in self._cache.items()
+            if wid != DEFAULT_ID
+        }
+        for w in payload.values():
+            w.pop("exists", None)
+            w.pop("is_git", None)
+        path = self._path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2))
+
+    async def list(self) -> list[Workspace]:
+        async with self._lock:
+            return list(self._load().values())
+
+    async def get(self, workspace_id: str) -> Workspace | None:
+        async with self._lock:
+            return self._load().get(workspace_id)
+
+    async def resolve_root(self, workspace_id: str | None) -> Path:
+        """Absolute path for a session's workspace, falling back to default."""
+        if workspace_id:
+            ws = await self.get(workspace_id)
+            if ws and Path(ws.path).is_dir():
+                return Path(ws.path).resolve()
+        return get_settings().workspace_root
+
+    async def add_local(self, path: str, name: str | None = None) -> Workspace:
+        resolved = Path(path).expanduser().resolve()
+        if not resolved.is_dir():
+            raise ValueError(f"not a directory: {resolved}")
+        ws = Workspace(
+            id=str(uuid.uuid4())[:8],
+            name=name or resolved.name,
+            path=str(resolved),
+            kind="local",
+            branch=_current_branch(resolved),
+            remote_url=_origin_url(resolved),
+        )
+        async with self._lock:
+            self._load()[ws.id] = ws
+            self._flush()
+        return ws
+
+    async def create_folder(self, name: str) -> Workspace:
+        safe = "".join(c for c in name if c.isalnum() or c in "-_ ").strip() or "project"
+        dest = get_settings().workspaces_dir / safe
+        dest.mkdir(parents=True, exist_ok=True)
+        return await self.add_local(str(dest), name=safe)
+
+    async def register_clone(
+        self, name: str, path: Path, remote_url: str, branch: str
+    ) -> Workspace:
+        ws = Workspace(
+            id=str(uuid.uuid4())[:8],
+            name=name,
+            path=str(path),
+            kind="github",
+            remote_url=remote_url,
+            branch=branch,
+        )
+        async with self._lock:
+            self._load()[ws.id] = ws
+            self._flush()
+        return ws
+
+    async def delete(self, workspace_id: str) -> None:
+        if workspace_id == DEFAULT_ID:
+            raise ValueError("cannot remove the default workspace")
+        async with self._lock:
+            if self._load().pop(workspace_id, None) is not None:
+                self._flush()
+
+
+def _run_git(args: list[str], cwd: Path) -> str:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=8
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def _current_branch(path: Path) -> str:
+    return _run_git(["branch", "--show-current"], path)
+
+
+def _origin_url(path: Path) -> str:
+    url = _run_git(["remote", "get-url", "origin"], path)
+    return _strip_token(url)
+
+
+def _strip_token(url: str) -> str:
+    # https://x-access-token:TOKEN@github.com/o/r.git -> https://github.com/o/r.git
+    import re
+
+    return re.sub(r"https://[^@/]+@", "https://", url)
+
+
+_registry: WorkspaceRegistry | None = None
+
+
+def get_workspace_registry() -> WorkspaceRegistry:
+    global _registry
+    if _registry is None:
+        _registry = WorkspaceRegistry()
+    return _registry

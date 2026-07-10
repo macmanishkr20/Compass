@@ -1,0 +1,4 @@
+{
+  "/v1": { "target": "http://localhost:8000", "secure": false },
+  "/healthz": { "target": "http://localhost:8000", "secure": false }
+}

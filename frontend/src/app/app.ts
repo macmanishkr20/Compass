@@ -1,0 +1,800 @@
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+  ElementRef,
+  ChangeDetectionStrategy,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
+import { AuthService } from './auth.service';
+import { CompassApiService } from './compass-api.service';
+import { ThemeService } from './theme.service';
+import { TiltDirective } from './tilt.directive';
+import { CompassMark } from './compass-mark/compass-mark';
+import { Markdown } from './markdown/markdown';
+import {
+  ChatBubble,
+  CompassEvent,
+  GithubRepo,
+  GroupBy,
+  HealthInfo,
+  NoticeVM,
+  PermissionVM,
+  SessionCard,
+  SessionGroup,
+  SortBy,
+  TimelineItem,
+  ToolCardVM,
+  UsageVM,
+  Workspace,
+} from './models';
+
+const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
+const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+
+@Component({
+  selector: 'app-root',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [FormsModule, NgTemplateOutlet, TiltDirective, CompassMark, Markdown],
+  templateUrl: './app.html',
+  styleUrl: './app.css',
+})
+export class App {
+  private readonly api = inject(CompassApiService);
+  readonly theme = inject(ThemeService);
+  readonly auth = inject(AuthService);
+
+  readonly modes = MODES;
+  readonly efforts = EFFORTS;
+  readonly modeLabels: Record<string, string> = {
+    default: 'Default',
+    accept_edits: 'Accept edits',
+    plan: 'Plan',
+    bypass: 'Bypass',
+  };
+
+  // -- login form + avatar menu
+  readonly loginUsername = signal('');
+  readonly loginPassword = signal('');
+  readonly userMenuOpen = signal(false);
+
+  // -- global state
+  readonly health = signal<HealthInfo | null>(null);
+  readonly sessionId = signal<string | null>(null);
+  readonly timeline = signal<TimelineItem[]>([]);
+  readonly usage = signal<UsageVM | null>(null);
+  readonly streaming = signal(false);
+  readonly draft = signal('');
+  readonly connError = signal<string | null>(null);
+
+  // -- "thinking" loader (shown until the first token / tool / permission)
+  readonly thinking = signal(false);
+  readonly thinkingMsg = signal('');
+  private readonly thinkingLines = [
+    'Consulting the schema…',
+    'Tracing the query plan…',
+    'Weighing the approaches…',
+    'Composing a response…',
+    'Checking the edge cases…',
+    'Lining up the syntax…',
+    'Thinking it through…',
+  ];
+  private thinkingIdx = 0;
+
+  // -- per-session controls
+  readonly activeMode = signal('default');
+  readonly activeEffort = signal('medium');
+  readonly activeModel = signal('');
+  readonly models = signal<string[]>([]);
+
+  // -- workspaces
+  readonly workspaces = signal<Workspace[]>([]);
+  readonly activeWorkspaceId = signal('default');
+  readonly workspacePanelOpen = signal(false);
+  readonly githubRepos = signal<GithubRepo[]>([]);
+  readonly githubLoading = signal(false);
+  readonly githubEnabled = signal(false);
+  readonly workspaceBusy = signal<string | null>(null); // status text
+  readonly newFolderName = signal('');
+
+  readonly activeWorkspace = computed(() =>
+    this.workspaces().find((w) => w.id === this.activeWorkspaceId()),
+  );
+
+  // -- sidebar / history
+  readonly sidebarOpen = signal(true);
+  readonly cards = signal<SessionCard[]>([]);
+  readonly groupBy = signal<GroupBy>('none');
+  readonly sortBy = signal<SortBy>('recent');
+  readonly showArchived = signal(false);
+  readonly historyMenuOpen = signal(false);
+
+  // -- transient row editors
+  readonly menuOpenId = signal<string | null>(null);
+  readonly renamingId = signal<string | null>(null);
+  readonly groupingId = signal<string | null>(null);
+
+  readonly suggestions = [
+    'Summarize the files in this workspace',
+    'Find every TODO and list them by file',
+    'Run the test suite and report failures',
+  ];
+
+  readonly mcpCount = computed(() => {
+    const h = this.health();
+    return h ? Object.keys(h.mcp_servers).length : 0;
+  });
+  readonly canSend = computed(
+    () => this.draft().trim().length > 0 && !this.streaming(),
+  );
+  readonly activeCard = computed(() =>
+    this.cards().find((c) => c.id === this.sessionId()),
+  );
+  readonly knownGroups = computed(() => {
+    const set = new Set<string>();
+    for (const c of this.cards()) if (c.group) set.add(c.group);
+    return [...set].sort();
+  });
+
+  readonly lastAssistantId = computed(() => {
+    const items = this.timeline();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'bubble' && it.role === 'assistant') return it.id;
+    }
+    return null;
+  });
+
+  /** Pinned conversations, always shown first as their own group. */
+  readonly pinnedGroup = computed<SessionGroup | null>(() => {
+    const pins = this.cards().filter((c) => c.pinned && !c.archived);
+    return pins.length
+      ? { label: 'Pinned', cards: this.sortCards(pins) }
+      : null;
+  });
+
+  /** The remaining conversations, grouped and sorted per the controls. */
+  readonly groups = computed<SessionGroup[]>(() => {
+    const rest = this.cards().filter(
+      (c) => !c.pinned && (this.showArchived() ? true : !c.archived),
+    );
+    const by = this.groupBy();
+    let buckets: SessionGroup[];
+    if (by === 'group') {
+      const map = new Map<string, SessionCard[]>();
+      for (const c of rest) {
+        const key = c.group || 'Ungrouped';
+        (map.get(key) ?? map.set(key, []).get(key)!).push(c);
+      }
+      buckets = [...map.entries()]
+        .sort((a, b) =>
+          a[0] === 'Ungrouped' ? 1 : b[0] === 'Ungrouped' ? -1 : a[0].localeCompare(b[0]),
+        )
+        .map(([label, cards]) => ({ label, cards: this.sortCards(cards) }));
+    } else if (by === 'date') {
+      const order = ['Today', 'Yesterday', 'Previous 7 days', 'Older'];
+      const map = new Map<string, SessionCard[]>();
+      for (const c of rest) {
+        const key = this.dateBucket(c.updated_at);
+        (map.get(key) ?? map.set(key, []).get(key)!).push(c);
+      }
+      buckets = order
+        .filter((k) => map.has(k))
+        .map((label) => ({ label, cards: this.sortCards(map.get(label)!) }));
+    } else {
+      buckets = [{ label: 'Conversations', cards: this.sortCards(rest) }];
+    }
+    return buckets;
+  });
+
+  private sortCards(cards: SessionCard[]): SessionCard[] {
+    const by = this.sortBy();
+    const copy = [...cards];
+    if (by === 'title') copy.sort((a, b) => a.title.localeCompare(b.title));
+    else if (by === 'created') copy.sort((a, b) => b.created_at - a.created_at);
+    else copy.sort((a, b) => b.updated_at - a.updated_at);
+    return copy;
+  }
+
+  private dateBucket(ts: number): string {
+    const now = Date.now() / 1000;
+    const day = 86400;
+    const startOfToday = now - (now % day);
+    if (ts >= startOfToday) return 'Today';
+    if (ts >= startOfToday - day) return 'Yesterday';
+    if (ts >= startOfToday - 7 * day) return 'Previous 7 days';
+    return 'Older';
+  }
+
+  private readonly logEl = viewChild<ElementRef<HTMLElement>>('log');
+  private currentBubble: ChatBubble | null = null;
+
+  constructor() {
+    void this.boot();
+    effect(() => {
+      this.timeline();
+      this.thinking();
+      queueMicrotask(() => {
+        const el = this.logEl()?.nativeElement;
+        el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+      });
+    });
+    // Rotate the thinking message while we await the first token.
+    effect((onCleanup) => {
+      if (!this.thinking()) return;
+      this.thinkingIdx = 0;
+      this.thinkingMsg.set(this.thinkingLines[0]);
+      const id = setInterval(() => {
+        this.thinkingIdx = (this.thinkingIdx + 1) % this.thinkingLines.length;
+        this.thinkingMsg.set(this.thinkingLines[this.thinkingIdx]);
+      }, 2400);
+      onCleanup(() => clearInterval(id));
+    });
+  }
+
+  // -- boot / auth ---------------------------------------------------------
+
+  private async boot(): Promise<void> {
+    try {
+      const h = await this.api.health();
+      this.health.set(h);
+      this.models.set(h.models ?? []);
+      this.activeModel.set(h.deployment ?? '');
+      this.githubEnabled.set(h.github ?? false);
+      await this.auth.restore(h.auth ?? true);
+      if (this.auth.user()) await this.enterWorkspace();
+    } catch (err) {
+      this.connError.set(
+        'Backend unreachable. Start it with: uvicorn compass.api.server:app --port 8000',
+      );
+      console.error(err);
+    } finally {
+      this.auth.checking.set(false);
+    }
+  }
+
+  private async enterWorkspace(): Promise<void> {
+    await this.refreshWorkspaces();
+    await this.refreshSessions();
+    await this.newSession();
+  }
+
+  async refreshWorkspaces(): Promise<void> {
+    try {
+      this.workspaces.set((await this.api.listWorkspaces()).workspaces);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  async signIn(): Promise<void> {
+    const ok = await this.auth.login(
+      this.loginUsername().trim(),
+      this.loginPassword(),
+    );
+    if (ok) {
+      this.loginPassword.set('');
+      await this.enterWorkspace();
+    }
+  }
+
+  onLoginKeydown(ev: KeyboardEvent): void {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      void this.signIn();
+    }
+  }
+
+  signOut(): void {
+    this.userMenuOpen.set(false);
+    this.auth.logout();
+    this.sessionId.set(null);
+    this.timeline.set([]);
+    this.usage.set(null);
+    this.cards.set([]);
+  }
+
+  // -- sessions ------------------------------------------------------------
+
+  async refreshSessions(): Promise<void> {
+    try {
+      this.cards.set((await this.api.listSessions()).sessions);
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  async newSession(): Promise<void> {
+    this.activeMode.set('default');
+    this.activeEffort.set('medium');
+    // Keep the currently-selected model and workspace for the new conversation.
+    const res = await this.api.createSession({
+      permissionMode: 'default',
+      effort: 'medium',
+      model: this.activeModel() || undefined,
+      workspaceId: this.activeWorkspaceId(),
+    });
+    this.sessionId.set(res.session_id);
+    this.timeline.set([]);
+    this.usage.set(null);
+    this.currentBubble = null;
+  }
+
+  async resumeSession(id: string): Promise<void> {
+    if (!id) return this.newSession();
+    const card = this.cards().find((c) => c.id === id);
+    this.activeMode.set(card?.mode ?? 'default');
+    this.activeEffort.set(card?.effort ?? 'medium');
+    if (card?.model) this.activeModel.set(card.model);
+    if (card?.workspace) this.activeWorkspaceId.set(card.workspace);
+    const res = await this.api.createSession({
+      resume: true,
+      sessionId: id,
+      permissionMode: card?.mode,
+      effort: card?.effort,
+      model: card?.model || this.activeModel() || undefined,
+      workspaceId: card?.workspace || this.activeWorkspaceId(),
+    });
+    this.sessionId.set(res.session_id);
+    this.currentBubble = null;
+    const t = await this.api.transcript(id);
+    const items: TimelineItem[] = [];
+    for (const m of t.messages) {
+      const meta = m.meta ?? {};
+      if (m.role === 'user' && !meta['synthetic'] && !meta['compact_boundary']) {
+        items.push(this.bubble('user', m.content ?? '', false, m.uuid));
+      } else if (m.role === 'assistant' && m.content) {
+        items.push(this.bubble('assistant', m.content));
+      }
+    }
+    this.timeline.set(items);
+  }
+
+  // -- conversation actions (menu) ----------------------------------------
+
+  toggleSidebar(): void {
+    this.sidebarOpen.update((v) => !v);
+  }
+  openMenu(id: string, ev: Event): void {
+    ev.stopPropagation();
+    this.menuOpenId.update((cur) => (cur === id ? null : id));
+  }
+  closeMenu(): void {
+    this.menuOpenId.set(null);
+  }
+
+  async togglePin(card: SessionCard, ev?: Event): Promise<void> {
+    ev?.stopPropagation();
+    this.closeMenu();
+    await this.api.updateSession(card.id, { pinned: !card.pinned });
+    await this.refreshSessions();
+  }
+
+  async toggleArchive(card: SessionCard): Promise<void> {
+    this.closeMenu();
+    await this.api.updateSession(card.id, { archived: !card.archived });
+    await this.refreshSessions();
+  }
+
+  startRename(card: SessionCard): void {
+    this.closeMenu();
+    this.renamingId.set(card.id);
+  }
+  async commitRename(value: string): Promise<void> {
+    const id = this.renamingId();
+    const title = value.trim();
+    this.renamingId.set(null);
+    if (id && title) {
+      await this.api.updateSession(id, { title });
+      await this.refreshSessions();
+    }
+  }
+
+  startMoveGroup(card: SessionCard): void {
+    this.closeMenu();
+    this.groupingId.set(card.id);
+  }
+  async commitMoveGroup(value: string): Promise<void> {
+    const id = this.groupingId();
+    const group = value.trim();
+    this.groupingId.set(null);
+    if (id) {
+      await this.api.updateSession(id, { group });
+      if (group && this.groupBy() === 'none') this.groupBy.set('group');
+      await this.refreshSessions();
+    }
+  }
+
+  async forkConversation(card: SessionCard): Promise<void> {
+    this.closeMenu();
+    const { session_id } = await this.api.forkSession(card.id);
+    await this.refreshSessions();
+    await this.resumeSession(session_id);
+  }
+
+  async deleteConversation(card: SessionCard): Promise<void> {
+    this.closeMenu();
+    await this.api.deleteSession(card.id);
+    await this.refreshSessions();
+    if (this.sessionId() === card.id) await this.newSession();
+  }
+
+  // -- mode / effort -------------------------------------------------------
+
+  async setMode(mode: string): Promise<void> {
+    this.activeMode.set(mode);
+    const sid = this.sessionId();
+    if (sid) {
+      await this.api.updateSession(sid, { mode });
+      await this.refreshSessions();
+    }
+  }
+  async setEffort(effort: string): Promise<void> {
+    this.activeEffort.set(effort);
+    const sid = this.sessionId();
+    if (sid) {
+      await this.api.updateSession(sid, { effort });
+      await this.refreshSessions();
+    }
+  }
+
+  async setModel(model: string): Promise<void> {
+    this.activeModel.set(model);
+    const sid = this.sessionId();
+    if (sid) {
+      await this.api.updateSession(sid, { model });
+      await this.refreshSessions();
+    }
+  }
+
+  // -- workspaces ----------------------------------------------------------
+
+  toggleWorkspacePanel(): void {
+    this.workspacePanelOpen.update((v) => !v);
+  }
+
+  async selectWorkspace(ws: Workspace): Promise<void> {
+    this.activeWorkspaceId.set(ws.id);
+    const sid = this.sessionId();
+    // If the current conversation has no messages yet, just retarget it;
+    // otherwise open a fresh conversation in the new workspace.
+    if (sid && this.timeline().length === 0) {
+      await this.api.updateSession(sid, { workspace: ws.id });
+    } else {
+      await this.newSession();
+    }
+    this.workspacePanelOpen.set(false);
+  }
+
+  async addFolder(): Promise<void> {
+    const name = this.newFolderName().trim();
+    if (!name) return;
+    this.workspaceBusy.set('Creating folder…');
+    try {
+      const ws = await this.api.addFolderWorkspace({ name });
+      this.newFolderName.set('');
+      await this.refreshWorkspaces();
+      await this.selectWorkspace(ws);
+    } catch (err) {
+      this.workspaceBusy.set(`Failed: ${err}`);
+      return;
+    } finally {
+      this.workspaceBusy.set(null);
+    }
+  }
+
+  async loadGithubRepos(): Promise<void> {
+    if (!this.githubEnabled()) return;
+    this.githubLoading.set(true);
+    try {
+      this.githubRepos.set((await this.api.githubRepos()).repos);
+    } catch (err) {
+      this.workspaceBusy.set(`GitHub: ${err}`);
+    } finally {
+      this.githubLoading.set(false);
+    }
+  }
+
+  async cloneRepo(repo: GithubRepo): Promise<void> {
+    this.workspaceBusy.set(`Cloning ${repo.full_name}…`);
+    try {
+      const ws = await this.api.githubClone(repo.full_name, repo.default_branch);
+      await this.refreshWorkspaces();
+      await this.selectWorkspace(ws);
+    } catch (err) {
+      this.workspaceBusy.set(`Clone failed: ${err}`);
+      return;
+    } finally {
+      this.workspaceBusy.set(null);
+    }
+  }
+
+  async removeWorkspace(ws: Workspace, ev: Event): Promise<void> {
+    ev.stopPropagation();
+    if (ws.id === 'default') return;
+    await this.api.deleteWorkspace(ws.id);
+    if (this.activeWorkspaceId() === ws.id) this.activeWorkspaceId.set('default');
+    await this.refreshWorkspaces();
+  }
+
+  // -- sending / editing / regenerating -----------------------------------
+
+  async send(): Promise<void> {
+    if (!this.canSend()) return;
+    const content = this.draft().trim();
+    const sid = this.sessionId();
+    if (!sid) return;
+    this.draft.set('');
+    this.push(this.bubble('user', content));
+    await this.runStream(sid, (cb) => this.api.streamMessage(sid, content, cb));
+  }
+
+  async regenerate(): Promise<void> {
+    const sid = this.sessionId();
+    if (!sid || this.streaming()) return;
+    // Drop everything after the last user bubble, then re-run.
+    this.timeline.update((items) => {
+      let lastUser = -1;
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        if (it.kind === 'bubble' && it.role === 'user') {
+          lastUser = i;
+          break;
+        }
+      }
+      return lastUser >= 0 ? items.slice(0, lastUser + 1) : items;
+    });
+    await this.runStream(sid, (cb) => this.api.streamRegenerate(sid, cb));
+  }
+
+  startEdit(bubble: ChatBubble): void {
+    this.patch(bubble.id, (b) => ({
+      ...(b as ChatBubble),
+      editing: true,
+    }));
+    this.draft.set(''); // avoid confusion with composer
+  }
+  cancelEdit(bubble: ChatBubble): void {
+    this.patch(bubble.id, (b) => ({ ...(b as ChatBubble), editing: false }));
+  }
+  async commitEdit(bubble: ChatBubble, newText: string): Promise<void> {
+    const sid = this.sessionId();
+    const text = newText.trim();
+    if (!sid || !text || !bubble.msgUuid) {
+      this.cancelEdit(bubble);
+      return;
+    }
+    // Truncate the timeline at the edited bubble, replace with the new prompt.
+    this.timeline.update((items) => {
+      const idx = items.findIndex((it) => it.id === bubble.id);
+      const head = idx >= 0 ? items.slice(0, idx) : items;
+      return [...head, this.bubble('user', text)];
+    });
+    await this.runStream(sid, (cb) =>
+      this.api.streamEdit(sid, bubble.msgUuid!, text, cb),
+    );
+  }
+
+  /** Shared streaming driver used by send/edit/regenerate. */
+  private async runStream(
+    sid: string,
+    start: (cb: (ev: CompassEvent) => void) => Promise<void>,
+  ): Promise<void> {
+    this.streaming.set(true);
+    this.thinking.set(true);
+    this.currentBubble = null;
+    try {
+      await start((ev) => this.onEvent(ev));
+    } catch (err) {
+      this.push({
+        kind: 'notice',
+        id: crypto.randomUUID(),
+        tone: 'error',
+        text: String(err),
+      });
+    } finally {
+      this.streaming.set(false);
+      this.thinking.set(false);
+      await this.backfillUuids(sid);
+      await this.refreshSessions();
+    }
+  }
+
+  /** After a turn, assign server message uuids to user bubbles in order so
+   *  they can be edited. */
+  private async backfillUuids(sid: string): Promise<void> {
+    try {
+      const t = await this.api.transcript(sid);
+      const uuids = t.messages
+        .filter(
+          (m) =>
+            m.role === 'user' &&
+            !(m.meta ?? {})['synthetic'] &&
+            !(m.meta ?? {})['compact_boundary'],
+        )
+        .map((m) => m.uuid);
+      let i = 0;
+      this.timeline.update((items) =>
+        items.map((it) => {
+          if (it.kind === 'bubble' && it.role === 'user') {
+            const u = uuids[i++];
+            return u ? { ...it, msgUuid: u } : it;
+          }
+          return it;
+        }),
+      );
+    } catch {
+      /* best effort */
+    }
+  }
+
+  abort(): void {
+    const sid = this.sessionId();
+    if (sid) void this.api.abort(sid);
+  }
+
+  async resolve(perm: PermissionVM, behavior: 'allow' | 'deny'): Promise<void> {
+    const sid = this.sessionId();
+    if (!sid) return;
+    await this.api.resolvePermission(sid, perm.id, behavior);
+    this.patch(perm.id, (p) => ({ ...(p as PermissionVM), resolved: behavior }));
+  }
+
+  onKeydown(ev: KeyboardEvent): void {
+    if (ev.key === 'Enter' && !ev.shiftKey) {
+      ev.preventDefault();
+      void this.send();
+    }
+  }
+
+  // -- SSE event reducer ---------------------------------------------------
+
+  private onEvent(ev: CompassEvent): void {
+    const agentId = (ev['agent_id'] as string | null) ?? null;
+    // First sign of real output dismisses the thinking loader.
+    if (
+      this.thinking() &&
+      (ev.type === 'text_delta' ||
+        ev.type === 'tool_call_started' ||
+        ev.type === 'permission_request' ||
+        ev.type === 'assistant_message')
+    ) {
+      this.thinking.set(false);
+    }
+    switch (ev.type) {
+      case 'text_delta': {
+        if (agentId) return;
+        if (!this.currentBubble) {
+          this.currentBubble = this.bubble('assistant', '', true);
+          this.push(this.currentBubble);
+        }
+        const text = (ev['text'] as string) ?? '';
+        this.patch(this.currentBubble.id, (b) => ({
+          ...(b as ChatBubble),
+          text: (b as ChatBubble).text + text,
+        }));
+        break;
+      }
+      case 'assistant_message':
+        if (!agentId && this.currentBubble) {
+          this.patch(this.currentBubble.id, (b) => ({
+            ...(b as ChatBubble),
+            streaming: false,
+          }));
+          this.currentBubble = null;
+        }
+        break;
+      case 'tool_call_started': {
+        const name = (ev['tool_name'] as string) ?? 'tool';
+        this.push({
+          kind: 'tool',
+          id: (ev['tool_call_id'] as string) ?? crypto.randomUUID(),
+          name,
+          args: JSON.stringify(ev['arguments'] ?? {}),
+          output: '',
+          status: 'running',
+          agentId,
+          isMcp: name.startsWith('mcp__'),
+        });
+        break;
+      }
+      case 'tool_progress':
+        this.patch(ev['tool_call_id'] as string, (c) => ({
+          ...(c as ToolCardVM),
+          output: (c as ToolCardVM).output + ((ev['data'] as string) ?? ''),
+        }));
+        break;
+      case 'tool_result':
+        this.patch(ev['tool_call_id'] as string, (c) => ({
+          ...(c as ToolCardVM),
+          status: (ev['is_error'] as boolean) ? 'error' : 'ok',
+          durationMs: ev['duration_ms'] as number,
+          output: (ev['is_error'] as boolean)
+            ? ((ev['content'] as string) ?? (c as ToolCardVM).output)
+            : (c as ToolCardVM).output,
+        }));
+        break;
+      case 'permission_request':
+        this.push({
+          kind: 'permission',
+          id: (ev['request_id'] as string) ?? crypto.randomUUID(),
+          toolCallId: (ev['tool_call_id'] as string) ?? '',
+          toolName: (ev['tool_name'] as string) ?? 'tool',
+          args: JSON.stringify(ev['arguments'] ?? {}),
+          reason: (ev['reason'] as string) ?? '',
+          agentId,
+        });
+        break;
+      case 'compaction':
+        this.push({
+          kind: 'notice',
+          id: crypto.randomUUID(),
+          tone: 'compaction',
+          text: `context compacted (${ev['stage']}): ${ev['tokens_before']} → ${ev['tokens_after']} tokens`,
+        });
+        break;
+      case 'usage_report':
+        this.usage.set({
+          promptTokens: (ev['prompt_tokens'] as number) ?? 0,
+          cachedPromptTokens: (ev['cached_prompt_tokens'] as number) ?? 0,
+          completionTokens: (ev['completion_tokens'] as number) ?? 0,
+          costUsd: (ev['cost_usd'] as number) ?? 0,
+        });
+        break;
+      case 'turn_complete':
+        this.push({
+          kind: 'notice',
+          id: crypto.randomUUID(),
+          tone: 'complete',
+          text: `${ev['reason']} · ${ev['turns']} turns`,
+        });
+        break;
+      case 'error':
+        this.push({
+          kind: 'notice',
+          id: crypto.randomUUID(),
+          tone: 'error',
+          text: (ev['message'] as string) ?? 'unknown error',
+        });
+        break;
+    }
+  }
+
+  // -- timeline helpers ----------------------------------------------------
+
+  private bubble(
+    role: 'user' | 'assistant',
+    text: string,
+    streaming = false,
+    msgUuid?: string,
+  ): ChatBubble {
+    return {
+      kind: 'bubble',
+      id: crypto.randomUUID(),
+      role,
+      text,
+      streaming,
+      msgUuid,
+    };
+  }
+
+  private push(item: TimelineItem): void {
+    this.timeline.update((t) => [...t, item]);
+  }
+
+  private patch(id: string, fn: (item: TimelineItem) => TimelineItem): void {
+    this.timeline.update((t) => t.map((it) => (it.id === id ? fn(it) : it)));
+  }
+
+  asBubble = (i: TimelineItem): ChatBubble => i as ChatBubble;
+  asTool = (i: TimelineItem): ToolCardVM => i as ToolCardVM;
+  asPerm = (i: TimelineItem): PermissionVM => i as PermissionVM;
+  asNotice = (i: TimelineItem): NoticeVM => i as NoticeVM;
+
+  trackItem = (_: number, i: TimelineItem): string => i.id;
+  trackCard = (_: number, c: SessionCard): string => c.id;
+}

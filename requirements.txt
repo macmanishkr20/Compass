@@ -1,0 +1,15 @@
+# Core
+fastapi>=0.115
+uvicorn[standard]>=0.30
+openai>=1.55
+pydantic>=2.7
+httpx>=0.27               # GitHub API calls (also an openai dependency)
+python-dotenv>=1.0        # auto-loads .env so credentials work without `source`
+
+# MCP (Model Context Protocol) client + sample server
+mcp>=1.2
+
+# Azure integrations — imported lazily, active only when configured in .env
+azure-cosmos>=4.7            # transcript persistence (COMPASS_STORAGE_BACKEND=cosmos)
+azure-storage-blob>=12.20    # large tool-result artifacts
+azure-monitor-opentelemetry>=1.6  # Application Insights telemetry
