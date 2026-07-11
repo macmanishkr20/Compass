@@ -110,6 +110,12 @@
   appearance: none;
 }
 .ctl select:hover, .seg select:hover { border-color: var(--accent); }
+/* Selects keep :focus-visible after mouse selection (Chrome quirk) — suppress
+   the global focus ring; the wrapper's border tint is the focus cue instead. */
+.ctl select:focus, .ctl select:focus-visible,
+.seg select:focus, .seg select:focus-visible { outline: none; }
+.ctl:focus-within select { border-color: var(--accent); }
+.seg:focus-within { border-color: var(--accent-line); }
 .ctl-toggle {
   display: grid; place-items: center;
   width: 28px; height: 28px;
@@ -295,6 +301,11 @@
   gap: 12px;
   padding: 11px 16px;
   backdrop-filter: blur(12px);
+  /* backdrop-filter traps children (account/workspace menus) in the topbar's
+     stacking context; lift the whole context above the log so dropdowns are
+     never painted under chat bubbles. */
+  position: relative;
+  z-index: 30;
 }
 .topbar-title { flex: 1; min-width: 0; }
 .crumb {
