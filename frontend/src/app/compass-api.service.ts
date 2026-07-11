@@ -21,6 +21,7 @@ interface TranscriptResponse {
     uuid: string;
     role: string;
     content: string | null;
+    timestamp?: number; // epoch seconds
     meta?: Record<string, unknown>;
   }>;
 }

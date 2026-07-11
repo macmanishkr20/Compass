@@ -460,12 +460,18 @@
 .row.mine { justify-content: flex-end; }
 .bubble-wrap { display: flex; flex-direction: column; gap: 4px; max-width: min(70ch, 82%); }
 .bubble-wrap.mine { align-items: flex-end; }
-.bubble-actions { display: flex; gap: 4px; height: 22px; }
+.bubble-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 22px;
+}
+.bubble-actions.mine { justify-content: flex-end; }
 .msg-act {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 7px;
+  padding: 4px 6px;
   font-size: 0.68rem;
   font-weight: 550;
   color: var(--muted);
@@ -474,10 +480,38 @@
   border-radius: 6px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
 }
-.row:hover .msg-act { opacity: 0.8; }
-.msg-act:hover { opacity: 1; color: var(--accent); border-color: var(--border); }
+/* Reveal actions when hovering the row, or keep them if actively speaking. */
+.row:hover .msg-act,
+.msg-act.on { opacity: 0.75; }
+.msg-act:hover {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--border);
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+}
+.msg-act.on { color: var(--accent); }
+/* Timestamp (user prompts) — reveal on hover, like Claude. */
+.msg-time {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.row:hover .msg-time { opacity: 0.85; }
+/* Per-response duration + tokens — persistently shown once the turn ends. */
+.msg-stats {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  padding: 0 4px;
+  margin-left: auto;
+  white-space: nowrap;
+}
 
 .edit-box {
   width: min(70ch, 82%);
@@ -617,18 +651,15 @@
 
 /* ============================= Thinking ============================ */
 .thinking-row { align-items: center; }
+/* Borderless, quiet — just the shimmering thought text next to the radar. */
 .thinking {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 14px;
-  border-radius: 13px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-bottom-left-radius: 4px;
+  gap: 8px;
+  padding: 2px 0;
 }
 .thinking-text {
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   font-weight: 500;
   background: linear-gradient(
     90deg,

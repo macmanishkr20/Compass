@@ -320,6 +320,12 @@ export class App {
 
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('log');
   private currentBubble: ChatBubble | null = null;
+  private turnStartMs = 0;
+  private turnStartCompletion = 0;
+
+  // copy / read-aloud transient state (keyed by bubble id)
+  readonly copiedId = signal<string | null>(null);
+  readonly speakingId = signal<string | null>(null);
   private turnAborted = false;
 
   constructor() {
@@ -454,10 +460,11 @@ export class App {
     const items: TimelineItem[] = [];
     for (const m of t.messages) {
       const meta = m.meta ?? {};
+      const at = m.timestamp ? m.timestamp * 1000 : undefined;
       if (m.role === 'user' && !meta['synthetic'] && !meta['compact_boundary']) {
-        items.push(this.bubble('user', m.content ?? '', false, m.uuid));
+        items.push(this.bubble('user', m.content ?? '', false, m.uuid, at));
       } else if (m.role === 'assistant' && m.content) {
-        items.push(this.bubble('assistant', m.content));
+        items.push(this.bubble('assistant', m.content, false, undefined, at));
       }
     }
     this.timeline.set(items);
@@ -697,6 +704,8 @@ export class App {
     this.thinking.set(true);
     this.turnAborted = false;
     this.currentBubble = null;
+    this.turnStartMs = performance.now();
+    this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
     try {
       await start((ev) => this.onEvent(ev));
     } catch (err) {
@@ -881,7 +890,21 @@ export class App {
           costUsd: (ev['cost_usd'] as number) ?? 0,
         });
         break;
-      case 'turn_complete':
+      case 'turn_complete': {
+        // Attach per-response duration + output-token count to the last
+        // assistant bubble (Claude shows these under the message).
+        const ms = Math.round(performance.now() - this.turnStartMs);
+        const tokens = Math.max(
+          0,
+          (this.usage()?.completionTokens ?? 0) - this.turnStartCompletion,
+        );
+        const lastId = this.lastAssistantId();
+        if (lastId) {
+          this.patch(lastId, (b) => ({
+            ...(b as ChatBubble),
+            stats: { ms, tokens },
+          }));
+        }
         this.push({
           kind: 'notice',
           id: crypto.randomUUID(),
@@ -889,6 +912,7 @@ export class App {
           text: `${ev['reason']} · ${ev['turns']} turns`,
         });
         break;
+      }
       case 'error':
         this.push({
           kind: 'notice',
@@ -907,6 +931,7 @@ export class App {
     text: string,
     streaming = false,
     msgUuid?: string,
+    at?: number,
   ): ChatBubble {
     return {
       kind: 'bubble',
@@ -915,6 +940,7 @@ export class App {
       text,
       streaming,
       msgUuid,
+      at: at ?? (role === 'user' ? Date.now() : undefined),
     };
   }
 
@@ -924,6 +950,91 @@ export class App {
 
   private patch(id: string, fn: (item: TimelineItem) => TimelineItem): void {
     this.timeline.update((t) => t.map((it) => (it.id === id ? fn(it) : it)));
+  }
+
+  // -- message actions: copy, read-aloud, formatting ----------------------
+
+  async copyBubble(b: ChatBubble): Promise<void> {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(b.text);
+      ok = true;
+    } catch {
+      ok = this.execCopy(b.text);
+    }
+    if (ok) {
+      this.copiedId.set(b.id);
+      setTimeout(() => {
+        if (this.copiedId() === b.id) this.copiedId.set(null);
+      }, 1400);
+    }
+  }
+
+  private execCopy(text: string): boolean {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Read the response aloud via the Web Speech API; toggles off if the same
+   * bubble is already speaking. */
+  toggleSpeak(b: ChatBubble): void {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    if (this.speakingId() === b.id) {
+      synth.cancel();
+      this.speakingId.set(null);
+      return;
+    }
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(this.plainText(b.text));
+    u.rate = 1.02;
+    u.onend = () => {
+      if (this.speakingId() === b.id) this.speakingId.set(null);
+    };
+    u.onerror = () => {
+      if (this.speakingId() === b.id) this.speakingId.set(null);
+    };
+    this.speakingId.set(b.id);
+    synth.speak(u);
+  }
+
+  readonly speechSupported =
+    typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  /** Strip Markdown noise so speech and clipboard-free reads are clean. */
+  private plainText(md: string): string {
+    return md
+      .replace(/```[\s\S]*?```/g, ' (code block) ')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/[*_#>]/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n{2,}/g, '. ')
+      .trim();
+  }
+
+  /** "2:14 PM" for a hover timestamp. */
+  formatTime(ms: number | undefined): string {
+    if (!ms) return '';
+    return new Date(ms).toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  formatDuration(ms: number): string {
+    return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)}s`;
   }
 
   asBubble = (i: TimelineItem): ChatBubble => i as ChatBubble;

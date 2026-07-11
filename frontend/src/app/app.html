@@ -386,16 +386,48 @@
                       <p class="bubble-text">{{ b.text }}</p>
                     }
                   </article>
-                  <div class="bubble-actions">
-                    @if (b.role === 'user' && b.msgUuid && !streaming()) {
-                      <button class="msg-act" title="Edit &amp; resend" (click)="startEdit(b)">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <div class="bubble-actions" [class.mine]="b.role === 'user'">
+                    @if (b.role === 'user') {
+                      @if (b.at) { <span class="msg-time">{{ formatTime(b.at) }}</span> }
+                      <button class="msg-act" [title]="copiedId() === b.id ? 'Copied' : 'Copy'" (click)="copyBubble(b)">
+                        @if (copiedId() === b.id) {
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        } @else {
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        }
                       </button>
+                      @if (b.msgUuid && !streaming()) {
+                        <button class="msg-act" title="Edit &amp; resend" (click)="startEdit(b)">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                      }
                     }
-                    @if (b.role === 'assistant' && b.id === lastAssistantId() && !streaming()) {
-                      <button class="msg-act" title="Regenerate" (click)="regenerate()">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    @if (b.role === 'assistant' && !b.streaming) {
+                      <button class="msg-act" [title]="copiedId() === b.id ? 'Copied' : 'Copy'" (click)="copyBubble(b)">
+                        @if (copiedId() === b.id) {
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        } @else {
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        }
                       </button>
+                      @if (speechSupported) {
+                        <button class="msg-act" [class.on]="speakingId() === b.id"
+                          [title]="speakingId() === b.id ? 'Stop' : 'Read aloud'" (click)="toggleSpeak(b)">
+                          @if (speakingId() === b.id) {
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+                          } @else {
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>
+                          }
+                        </button>
+                      }
+                      @if (b.id === lastAssistantId() && !streaming()) {
+                        <button class="msg-act" title="Regenerate" (click)="regenerate()">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                      }
+                      @if (b.stats) {
+                        <span class="msg-stats">{{ formatDuration(b.stats.ms) }} · {{ b.stats.tokens }} tokens</span>
+                      }
                     }
                   </div>
                 </div>

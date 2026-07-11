@@ -55,6 +55,8 @@ export interface ChatBubble {
   streaming?: boolean;
   msgUuid?: string; // server message uuid (backfilled) — enables edit
   editing?: boolean;
+  at?: number; // epoch ms — shown on hover (user prompts)
+  stats?: { ms: number; tokens: number }; // per-response, set at stream end
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error';
