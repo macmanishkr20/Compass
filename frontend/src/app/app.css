@@ -492,6 +492,13 @@
   background: color-mix(in oklab, var(--ink) 5%, transparent);
 }
 .msg-act.on { color: var(--accent); }
+.msg-spin {
+  width: 12px; height: 12px;
+  border: 2px solid color-mix(in oklab, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
 /* Timestamp (user prompts) — reveal on hover, like Claude. */
 .msg-time {
   font-family: var(--mono);

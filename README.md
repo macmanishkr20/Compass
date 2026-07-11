@@ -164,6 +164,24 @@ after `COMPASS_AUTH_TOKEN_TTL_HOURS` (12h default). Set
 `guest` and the web UI skips the login screen). The `require_user` dependency
 in `compass/api/auth.py` is the single seam to swap in Entra ID/OIDC later.
 
+### Read-aloud (text-to-speech)
+
+The message "read aloud" button uses Azure OpenAI TTS for an expressive,
+emotive voice (`compass/services/speech.py`) — the `instructions` prompt
+steers tone, warmth, pacing, and accent, which a plain `tts-1` model can't do.
+Configure it in `.env`:
+
+```
+AZURE_OPENAI_TTS_DEPLOYMENT=gpt-4o-mini-tts   # deploy this model in Azure first
+COMPASS_TTS_VOICE=coral                       # coral/sage are the warm ones
+```
+
+Deploy `gpt-4o-mini-tts` in your Azure AI Foundry project and use an API
+version of `2025-03-01-preview` or later (`AZURE_OPENAI_API_VERSION`) so the
+expressive `instructions` are honored. Until the model is deployed the button
+falls back to the browser's built-in voice automatically — no error, just a
+flatter read.
+
 ## Policy configuration
 
 `.compass/settings.json` (workspace root):

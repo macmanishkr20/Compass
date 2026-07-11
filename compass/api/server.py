@@ -21,7 +21,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -102,6 +102,11 @@ class GitHubCloneRequest(BaseModel):
     branch: str | None = None
 
 
+class SpeechRequest(BaseModel):
+    text: str
+    voice: str | None = None
+
+
 class EditMessageRequest(BaseModel):
     content: str
 
@@ -135,6 +140,7 @@ async def healthz() -> dict:
         "storage_backend": settings.storage.backend,
         "telemetry": settings.telemetry.enabled,
         "auth": settings.auth.enabled,
+        "tts": bool(settings.azure.tts_deployment),
         "mcp_servers": manager.status,
         "mcp_tools": [t.name for t in manager.tools],
         "workspace": str(settings.workspace_root),
@@ -352,6 +358,30 @@ async def list_models(user: str = Depends(require_user)) -> dict:
         "models": settings.azure.model_options,
         "default": settings.azure.deployment,
     }
+
+
+# ---- text-to-speech (read aloud) ------------------------------------------
+
+
+@app.post("/v1/speech")
+async def speech(body: SpeechRequest, user: str = Depends(require_user)) -> Response:
+    """Synthesize expressive speech for a response. 503 when TTS isn't
+    configured — the client then falls back to the browser voice."""
+    from compass.services.speech import SpeechDisabledError, synthesize
+
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="text is required")
+    try:
+        audio = await synthesize(body.text, voice=body.voice)
+    except SpeechDisabledError as err:
+        raise HTTPException(status_code=503, detail=str(err))
+    except Exception as err:  # noqa: BLE001 — surface TTS/API failures cleanly
+        raise HTTPException(status_code=502, detail=f"TTS failed: {err}")
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ---- workspaces -----------------------------------------------------------

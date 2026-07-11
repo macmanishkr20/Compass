@@ -273,6 +273,37 @@ class AzureModelClient:
             )
         return response.choices[0].message.content or ""
 
+    async def synthesize_speech(
+        self, text: str, voice: str, instructions: str | None
+    ) -> bytes:
+        """Expressive text-to-speech via the audio/speech endpoint. The
+        `instructions` field (gpt-4o-mini-tts only) steers tone/emotion/accent;
+        a deployment that rejects it retries without it so plain tts-1 still
+        works, just without the affect."""
+        from openai import BadRequestError
+
+        deployment = get_settings().azure.tts_deployment
+        kwargs: dict[str, Any] = {
+            "model": deployment,
+            "voice": voice,
+            "input": text,
+            "response_format": "mp3",
+        }
+        if instructions:
+            kwargs["instructions"] = instructions
+        try:
+            resp = await self._get_client().audio.speech.create(**kwargs)
+        except BadRequestError as err:
+            if instructions and "instructions" in str(err).lower():
+                kwargs.pop("instructions", None)
+                resp = await self._get_client().audio.speech.create(**kwargs)
+            else:
+                raise
+        # Binary response: prefer the async reader, fall back to .content.
+        if hasattr(resp, "aread"):
+            return await resp.aread()
+        return resp.content
+
 
 def _is_retryable(err: Exception) -> bool:
     try:

@@ -9,6 +9,7 @@ export interface HealthInfo {
   storage_backend: string;
   telemetry: boolean;
   auth: boolean;
+  tts: boolean;
   mcp_servers: Record<string, string>;
   mcp_tools: string[];
   workspace: string;

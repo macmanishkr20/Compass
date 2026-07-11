@@ -121,6 +121,24 @@ export class CompassApiService {
     );
   }
 
+  /** Expressive TTS — returns an mp3 blob. Raw fetch so the token is attached
+   * and binary comes back untouched. Throws on 503 (TTS not deployed) so the
+   * caller can fall back to the browser voice. */
+  async synthesizeSpeech(text: string, voice?: string): Promise<Blob> {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    const token = this.auth.token;
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/v1/speech', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text, voice: voice ?? null }),
+    });
+    if (!res.ok) {
+      throw new Error((await res.text()) || res.statusText);
+    }
+    return res.blob();
+  }
+
   transcript(sessionId: string): Promise<TranscriptResponse> {
     return firstValueFrom(
       this.http.get<TranscriptResponse>(

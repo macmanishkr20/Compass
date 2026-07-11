@@ -326,6 +326,8 @@ export class App {
   // copy / read-aloud transient state (keyed by bubble id)
   readonly copiedId = signal<string | null>(null);
   readonly speakingId = signal<string | null>(null);
+  readonly speakLoadingId = signal<string | null>(null);
+  private currentAudio: HTMLAudioElement | null = null;
   private turnAborted = false;
 
   constructor() {
@@ -987,16 +989,49 @@ export class App {
     }
   }
 
-  /** Read the response aloud via the Web Speech API; toggles off if the same
-   * bubble is already speaking. */
-  toggleSpeak(b: ChatBubble): void {
-    const synth = window.speechSynthesis;
-    if (!synth) return;
-    if (this.speakingId() === b.id) {
-      synth.cancel();
-      this.speakingId.set(null);
+  /** Read the response aloud. Prefers the expressive Azure TTS voice; if that
+   * isn't deployed (503) or fails, falls back to the browser voice. Toggling
+   * the same bubble stops playback. */
+  async toggleSpeak(b: ChatBubble): Promise<void> {
+    if (this.speakingId() === b.id || this.speakLoadingId() === b.id) {
+      this.stopSpeaking();
       return;
     }
+    this.stopSpeaking();
+
+    if (this.health()?.tts) {
+      this.speakLoadingId.set(b.id);
+      try {
+        const blob = await this.api.synthesizeSpeech(this.plainText(b.text));
+        // A newer request may have superseded this one while we awaited.
+        if (this.speakLoadingId() !== b.id) {
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        this.currentAudio = audio;
+        const done = () => {
+          URL.revokeObjectURL(url);
+          if (this.currentAudio === audio) this.currentAudio = null;
+          if (this.speakingId() === b.id) this.speakingId.set(null);
+        };
+        audio.onended = done;
+        audio.onerror = done;
+        this.speakLoadingId.set(null);
+        this.speakingId.set(b.id);
+        await audio.play();
+        return;
+      } catch {
+        // TTS not deployed / failed — quietly fall back to the browser voice.
+        this.speakLoadingId.set(null);
+      }
+    }
+    this.browserSpeak(b);
+  }
+
+  private browserSpeak(b: ChatBubble): void {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
     synth.cancel();
     const u = new SpeechSynthesisUtterance(this.plainText(b.text));
     u.rate = 1.02;
@@ -1008,6 +1043,16 @@ export class App {
     };
     this.speakingId.set(b.id);
     synth.speak(u);
+  }
+
+  private stopSpeaking(): void {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+    window.speechSynthesis?.cancel();
+    this.speakingId.set(null);
+    this.speakLoadingId.set(null);
   }
 
   readonly speechSupported =

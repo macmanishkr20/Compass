@@ -410,10 +410,13 @@
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         }
                       </button>
-                      @if (speechSupported) {
-                        <button class="msg-act" [class.on]="speakingId() === b.id"
-                          [title]="speakingId() === b.id ? 'Stop' : 'Read aloud'" (click)="toggleSpeak(b)">
-                          @if (speakingId() === b.id) {
+                      @if (speechSupported || health()?.tts) {
+                        <button class="msg-act" [class.on]="speakingId() === b.id || speakLoadingId() === b.id"
+                          [title]="speakLoadingId() === b.id ? 'Generating audio…' : speakingId() === b.id ? 'Stop' : 'Read aloud'"
+                          (click)="toggleSpeak(b)">
+                          @if (speakLoadingId() === b.id) {
+                            <span class="msg-spin"></span>
+                          } @else if (speakingId() === b.id) {
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
                           } @else {
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>

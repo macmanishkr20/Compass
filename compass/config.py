@@ -27,6 +27,12 @@ class AzureOpenAISettings(BaseModel):
     fallback_deployment: str | None = None
     # Small/cheap deployment used for compaction summaries (queryHaiku analog).
     utility_deployment: str | None = None
+    # Text-to-speech deployment (e.g. gpt-4o-mini-tts). Empty = read-aloud
+    # falls back to the browser's built-in voice.
+    tts_deployment: str = ""
+    # Voice for TTS: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
+    # shimmer. "coral" and "sage" are the warm, expressive ones.
+    tts_voice: str = "coral"
 
     @property
     def model_options(self) -> list[str]:
@@ -212,6 +218,10 @@ def get_settings() -> Settings:
     )
     if deps := os.environ.get("AZURE_OPENAI_DEPLOYMENTS"):
         azure.deployments = [d.strip() for d in deps.split(",") if d.strip()]
+    azure.tts_deployment = os.environ.get(
+        "AZURE_OPENAI_TTS_DEPLOYMENT", azure.tts_deployment
+    )
+    azure.tts_voice = os.environ.get("COMPASS_TTS_VOICE", azure.tts_voice)
 
     settings.github.token = os.environ.get("GITHUB_TOKEN", settings.github.token)
     settings.github.api_url = os.environ.get(
