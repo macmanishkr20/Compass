@@ -122,6 +122,12 @@ def _get_session(session_id: str) -> Session:
     return session
 
 
+def _tts_voices() -> list[str]:
+    from compass.services.speech import AVAILABLE_VOICES
+
+    return AVAILABLE_VOICES
+
+
 @app.get("/")
 async def ui() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html", media_type="text/html")
@@ -141,6 +147,8 @@ async def healthz() -> dict:
         "telemetry": settings.telemetry.enabled,
         "auth": settings.auth.enabled,
         "tts": bool(settings.azure.tts_deployment),
+        "tts_voice": settings.azure.tts_voice,
+        "tts_voices": _tts_voices(),
         "mcp_servers": manager.status,
         "mcp_tools": [t.name for t in manager.tools],
         "workspace": str(settings.workspace_root),

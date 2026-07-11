@@ -19,6 +19,13 @@ from compass.services.telemetry import log_event
 # TTS models cap input around 4096 chars; leave headroom.
 MAX_TTS_CHARS = 3800
 
+# Voices offered by gpt-4o-mini-tts. "coral" and "sage" are the warm,
+# expressive ones; the picker surfaces all of them.
+AVAILABLE_VOICES = [
+    "alloy", "ash", "ballad", "coral", "echo",
+    "fable", "nova", "onyx", "sage", "shimmer",
+]
+
 DEFAULT_INSTRUCTIONS = (
     "Affect: a warm, friendly, and knowledgeable colleague explaining "
     "something out loud.\n"

@@ -10,6 +10,8 @@ export interface HealthInfo {
   telemetry: boolean;
   auth: boolean;
   tts: boolean;
+  tts_voice: string;
+  tts_voices: string[];
   mcp_servers: Record<string, string>;
   mcp_tools: string[];
   workspace: string;

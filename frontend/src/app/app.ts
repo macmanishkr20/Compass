@@ -328,6 +328,10 @@ export class App {
   readonly speakingId = signal<string | null>(null);
   readonly speakLoadingId = signal<string | null>(null);
   private currentAudio: HTMLAudioElement | null = null;
+
+  // read-aloud voice (client preference, persisted)
+  readonly voices = signal<string[]>([]);
+  readonly activeVoice = signal(this.loadVoicePref());
   private turnAborted = false;
 
   constructor() {
@@ -362,6 +366,9 @@ export class App {
       this.models.set(h.models ?? []);
       this.activeModel.set(h.deployment ?? '');
       this.githubEnabled.set(h.github ?? false);
+      this.voices.set(h.tts_voices ?? []);
+      // Adopt the server default voice only if the user hasn't chosen one.
+      if (!this.loadVoicePref() && h.tts_voice) this.activeVoice.set(h.tts_voice);
       await this.auth.restore(h.auth ?? true);
       if (this.auth.user()) await this.enterWorkspace();
     } catch (err) {
@@ -1002,7 +1009,10 @@ export class App {
     if (this.health()?.tts) {
       this.speakLoadingId.set(b.id);
       try {
-        const blob = await this.api.synthesizeSpeech(this.plainText(b.text));
+        const blob = await this.api.synthesizeSpeech(
+          this.plainText(b.text),
+          this.activeVoice() || undefined,
+        );
         // A newer request may have superseded this one while we awaited.
         if (this.speakLoadingId() !== b.id) {
           return;
@@ -1027,6 +1037,23 @@ export class App {
       }
     }
     this.browserSpeak(b);
+  }
+
+  setVoice(voice: string): void {
+    this.activeVoice.set(voice);
+    try {
+      localStorage.setItem('compass-tts-voice', voice);
+    } catch {
+      /* private mode — in-memory only */
+    }
+  }
+
+  private loadVoicePref(): string {
+    try {
+      return localStorage.getItem('compass-tts-voice') ?? '';
+    } catch {
+      return '';
+    }
   }
 
   private browserSpeak(b: ChatBubble): void {

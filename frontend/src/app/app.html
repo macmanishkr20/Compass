@@ -270,6 +270,15 @@
         </select>
       </label>
 
+      @if (health()?.tts && voices().length) {
+        <label class="seg" title="Read-aloud voice">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>
+          <select [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
+            @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
+          </select>
+        </label>
+      }
+
       <div class="controls">
         @if (streaming()) {
           <button class="btn danger" (click)="abort()"><span class="rec"></span> Stop</button>
