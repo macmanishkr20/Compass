@@ -15,7 +15,7 @@ import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { TiltDirective } from './tilt.directive';
 import { CompassMark } from './compass-mark/compass-mark';
-import { LoadingStar } from './loading-star/loading-star';
+import { LoadingRadar } from './loading-radar/loading-radar';
 import { Markdown } from './markdown/markdown';
 import {
   ChatBubble,
@@ -60,7 +60,7 @@ type RenderBlock =
     NgTemplateOutlet,
     TiltDirective,
     CompassMark,
-    LoadingStar,
+    LoadingRadar,
     Markdown,
   ],
   templateUrl: './app.html',

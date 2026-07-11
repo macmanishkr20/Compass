@@ -502,6 +502,12 @@
   background: var(--surface);
   margin-top: 2px;
 }
+/* While loading/streaming, the radar stands alone — no chip frame behind it. */
+.avatar.bare {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
 .bubble {
   /* sized to content, capped by the wrap's max-width; fit-content stops the
      flex column from shrinking the bubble to min-content (one char). */
@@ -513,12 +519,17 @@
   font-size: 0.92rem;
 }
 .bubble.user {
-  background: var(--accent);
+  /* slightly translucent so the surface glows through, with a blur so text
+     behind never bleeds into legibility */
+  background: color-mix(in oklab, var(--accent) 72%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
   color: #fff;
   border-bottom-right-radius: 4px;
   box-shadow: var(--shadow-sm);
 }
-:root[data-theme="dark"] .bubble.user { color: #1A1205; }
+:root[data-theme="dark"] .bubble.user { color: #FFF7EC; }
 .bubble.assistant {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -595,7 +606,6 @@
 
 /* ============================= Thinking ============================ */
 .thinking-row { align-items: center; }
-.avatar.thinking { border-color: var(--accent-line); }
 .thinking {
   display: flex;
   align-items: center;

@@ -360,9 +360,9 @@
             @let b = asBubble(item);
             <div class="row" [class.mine]="b.role === 'user'">
               @if (b.role === 'assistant') {
-                <span class="avatar">
+                <span class="avatar" [class.bare]="!!b.streaming">
                   @if (b.streaming) {
-                    <app-loading-star [size]="22" [active]="true" />
+                    <app-loading-radar [size]="26" [active]="true" />
                   } @else {
                     <app-compass-mark [size]="22" />
                   }
@@ -459,7 +459,7 @@
 
       @if (thinking()) {
         <div class="row thinking-row">
-          <span class="avatar thinking"><app-loading-star [size]="24" [active]="true" /></span>
+          <span class="avatar bare"><app-loading-radar [size]="26" [active]="true" /></span>
           <div class="thinking">
             <span class="thinking-text">{{ thinkingMsg() }}</span>
           </div>
