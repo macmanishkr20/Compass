@@ -15,6 +15,7 @@ import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { TiltDirective } from './tilt.directive';
 import { CompassMark } from './compass-mark/compass-mark';
+import { LoadingStar } from './loading-star/loading-star';
 import { Markdown } from './markdown/markdown';
 import {
   ChatBubble,
@@ -54,7 +55,14 @@ type RenderBlock =
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgTemplateOutlet, TiltDirective, CompassMark, Markdown],
+  imports: [
+    FormsModule,
+    NgTemplateOutlet,
+    TiltDirective,
+    CompassMark,
+    LoadingStar,
+    Markdown,
+  ],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -312,6 +320,7 @@ export class App {
 
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('log');
   private currentBubble: ChatBubble | null = null;
+  private turnAborted = false;
 
   constructor() {
     void this.boot();
@@ -686,6 +695,7 @@ export class App {
   ): Promise<void> {
     this.streaming.set(true);
     this.thinking.set(true);
+    this.turnAborted = false;
     this.currentBubble = null;
     try {
       await start((ev) => this.onEvent(ev));
@@ -699,9 +709,25 @@ export class App {
     } finally {
       this.streaming.set(false);
       this.thinking.set(false);
+      // Freeze every loading animation: a turn that was stopped mid-stream
+      // never emits the assistant_message that would clear a bubble's
+      // streaming flag, so clear them all here.
+      this.clearStreamingFlags();
       await this.backfillUuids(sid);
       await this.refreshSessions();
     }
+  }
+
+  /** Turn off any lingering streaming/caret/star animation. */
+  private clearStreamingFlags(): void {
+    this.currentBubble = null;
+    this.timeline.update((items) =>
+      items.map((it) =>
+        it.kind === 'bubble' && (it as ChatBubble).streaming
+          ? { ...(it as ChatBubble), streaming: false }
+          : it,
+      ),
+    );
   }
 
   /** After a turn, assign server message uuids to user bubbles in order so
@@ -735,6 +761,13 @@ export class App {
   abort(): void {
     const sid = this.sessionId();
     if (sid) void this.api.abort(sid);
+    // Reflect the stop immediately — don't wait for the stream to unwind:
+    // clear loading state, drop the Stop button, and ignore any in-flight
+    // events so no stray tokens land after the user stopped.
+    this.turnAborted = true;
+    this.streaming.set(false);
+    this.thinking.set(false);
+    this.clearStreamingFlags();
   }
 
   async resolve(perm: PermissionVM, behavior: 'allow' | 'deny'): Promise<void> {
@@ -754,6 +787,9 @@ export class App {
   // -- SSE event reducer ---------------------------------------------------
 
   private onEvent(ev: CompassEvent): void {
+    // Once the user has stopped the turn, drop any in-flight events so no
+    // stray tokens or animations resume.
+    if (this.turnAborted) return;
     const agentId = (ev['agent_id'] as string | null) ?? null;
     // First sign of real output dismisses the thinking loader.
     if (
