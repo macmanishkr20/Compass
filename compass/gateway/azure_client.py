@@ -492,29 +492,29 @@ flowchart LR
   subgraph Client
     UI[Browser Web UI]
   end
-  subgraph Server[FastAPI Server]
-    API[API + SSE surface]
-    LOOP[Streamed agent loop]
+  subgraph Server[Compass FastAPI Server]
+    API[API Layer (REST + SSE)]
+    LOOP[Agent Loop (query_loop)]
     GATE{Permission gate}
-    TOOLS[Tool runtime]
+    TOOLS[Tool Orchestration + Execution]
     API --> LOOP
     LOOP --> GATE
     GATE -->|allow| TOOLS
   end
   subgraph Azure[Azure OpenAI]
-    CHAT[(Chat + tools)]
-    TTS[(Text-to-speech)]
+    CHAT[(Azure OpenAI Chat + tools)]
+    TTS[(Speech synthesis - TTS)]
   end
   subgraph Data[Persistence]
-    STORE[(Transcript store)]
-    COSMOS[(Cosmos DB)]
+    STORE[(Session store - transcripts + metadata)]
+    COSMOS[(Azure Cosmos DB)]
   end
   UI -->|SSE + REST| API
-  LOOP -->|stream| CHAT
+  LOOP -->|streams tokens + events| CHAT
   LOOP -->|append| STORE
   STORE -.->|if configured| COSMOS
-  TOOLS -->|mcp__*| MCP[MCP servers]
-  API -.->|read aloud| TTS
+  TOOLS -->|discover + call tools| MCP[MCP Servers]
+  API -.->|read-aloud request| TTS
 ```
 
 Open it to see the rendered flowchart; the layout is computed, not hand-placed."""

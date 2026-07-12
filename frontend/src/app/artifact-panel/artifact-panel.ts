@@ -132,7 +132,7 @@ export class ArtifactPanel {
         fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
       });
       const id = 'mmd-' + Math.random().toString(36).slice(2);
-      const { svg } = await mermaid.render(id, code);
+      const { svg } = await mermaid.render(id, ArtifactService.sanitizeMermaid(code));
       this.mermaidSvg = svg;
       this.mermaidError.set('');
     } catch (err) {

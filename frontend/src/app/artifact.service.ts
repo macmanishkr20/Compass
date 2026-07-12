@@ -95,6 +95,55 @@ export class ArtifactService {
     return kind === 'svg' ? 'SVG Image' : 'HTML Artifact';
   }
 
+  /**
+   * Repair the most common Mermaid mistakes models make so a diagram renders
+   * instead of throwing a parse error. Chiefly: node/edge label text with
+   * unquoted parentheses/brackets/punctuation (`API[API Layer (REST + SSE)]`),
+   * and literal `\n`/`\t` escapes inside labels. We wrap every label in double
+   * quotes — Mermaid's own escape hatch for arbitrary label text — and turn
+   * `\n` into `<br/>`. Comment/directive lines are left untouched.
+   */
+  static sanitizeMermaid(code: string): string {
+    let s = code.replace(/\r\n?/g, '\n');
+    // Literal escape sequences the model sometimes emits inside labels.
+    s = s.replace(/\\n/g, '<br/>').replace(/\\t/g, ' ');
+
+    const quote = (inner: string): string => {
+      const t = inner.trim();
+      if (/^".*"$/.test(t)) return t; // already quoted
+      return `"${t.replace(/"/g, '&quot;')}"`;
+    };
+
+    // Node shapes, most-specific delimiters first so `[[`, `[(`, `([`, `((`,
+    // `{{` are consumed before the single-delimiter forms. Each guards against
+    // already-quoted inners and against re-matching a wrapped shape.
+    const shapes: Array<[RegExp, (id: string, inner: string) => string]> = [
+      [/(\b\w+)\[\[([^\]]+?)\]\]/g, (id, i) => `${id}[[${quote(i)}]]`], // subroutine
+      [/(\b\w+)\[\(([^)]+?)\)\]/g, (id, i) => `${id}[(${quote(i)})]`], // cylinder
+      [/(\b\w+)\(\[([^\]]+?)\]\)/g, (id, i) => `${id}([${quote(i)}])`], // stadium
+      [/(\b\w+)\(\(([^)]+?)\)\)/g, (id, i) => `${id}((${quote(i)}))`], // circle
+      [/(\b\w+)\{\{([^}]+?)\}\}/g, (id, i) => `${id}{{${quote(i)}}}`], // hexagon
+      [/(\b\w+)\{([^}]+?)\}/g, (id, i) => `${id}{${quote(i)}}`], // rhombus
+      [/(\b\w+)\((?!\[)([^)]+?)\)/g, (id, i) => `${id}(${quote(i)})`], // round
+      // rectangle + subgraph title — the `(?![[(])` opener guard already skips
+      // the already-processed `[[`/`[(` shapes, so match to the first `]`.
+      [/(\b\w+)\[(?![[(])([^\]]+?)\]/g, (id, i) => `${id}[${quote(i)}]`],
+    ];
+
+    return s
+      .split('\n')
+      .map((line) => {
+        if (/^\s*%%/.test(line)) return line; // comment / directive
+        // Edge labels: `-->|label|`, `---|label|`, etc.
+        line = line.replace(/\|([^|]+)\|/g, (_m, inner) => `|${quote(inner)}|`);
+        for (const [re, fn] of shapes) {
+          line = line.replace(re, (_m, id, inner) => fn(id, inner));
+        }
+        return line;
+      })
+      .join('\n');
+  }
+
   /** Wrap raw content into a full, standalone HTML document for preview /
    * new-tab. HTML passes through; SVG is centered on a white ground. */
   static toDocument(a: Artifact): string {

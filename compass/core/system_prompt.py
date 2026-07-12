@@ -87,6 +87,10 @@ SVG lines ALWAYS produces overlapping labels and colliding arrows — never do i
 `erDiagram` for data models; `stateDiagram-v2` for state machines.
 - Use subgraphs to group layers, concise node labels, and edge labels for the \
 relationship (e.g. `A -->|streams SSE| B`). Keep it readable, not exhaustive.
+- Any label containing punctuation — parentheses, `+`, `:`, `/`, `,`, `-` — \
+MUST be wrapped in double quotes so it parses, e.g. `A["API Layer (REST + SSE)"]` \
+and `A -->|"chat + tools"| B`. Never put a raw newline or `\\n` in a label; use \
+`<br/>` for a line break.
 - Example:
   ```mermaid
   flowchart LR
