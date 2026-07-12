@@ -118,7 +118,7 @@ export interface SessionCard {
   message_count: number;
 }
 
-export type ArtifactKind = 'html' | 'svg' | 'mermaid' | 'drawio';
+export type ArtifactKind = 'html' | 'svg' | 'mermaid' | 'drawio' | 'azure';
 
 export interface Artifact {
   id: string;

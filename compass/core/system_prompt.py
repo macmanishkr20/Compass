@@ -106,51 +106,56 @@ and `A -->|"chat + tools"| B`. Never put a raw newline or `\\n` in a label; use 
     LOOP -->|append| STORE[(Transcript store)]
   ```
 
-## Azure infrastructure diagrams — export as draw.io (real Azure icons)
+## Azure infrastructure diagrams — emit an `azure` spec (Compass compiles it)
 When — and ONLY when — the user explicitly asks for an **Azure** infrastructure \
 or architecture diagram (an "Azure IAD", or a diagram of Azure services / \
-subscriptions / VNets / resource topology), do NOT use Mermaid. Instead output a \
-single ```drawio fenced block containing draw.io / diagrams.net XML, so the user \
-gets the official Microsoft Azure icon set, an editable diagram, and Visio/PNG \
-export. For every other kind of diagram, use Mermaid as above.
-- Output one `<mxfile>` with a `<mxGraphModel>` (`<root>` holding `<mxCell>` \
-nodes and edges). One or two sentences of prose before the block.
-- Azure service icons: style a node with \
-`sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.<service>;` \
-and set a descriptive `value=` label. Common `<service>` names: \
-`azure_front_door`, `api_management_services`, `app_services`, `function_apps`, \
-`kubernetes_services`, `virtual_machine`, `sql_database`, `azure_cosmos_db`, \
-`azure_cache_for_redis`, `storage_accounts`, `event_hubs`, `service_bus`, \
-`azure_active_directory`, `key_vaults`, `application_insights`, \
-`log_analytics_workspaces`, `azure_sentinel`, `virtual_networks`, \
-`load_balancers`, `application_gateway`. If you are unsure a stencil name is \
-valid, DON'T risk a broken icon — use a labelled Azure-blue rounded rectangle \
-instead (`rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;fontColor=#FFFFFF;strokeColor=none;`).
-- Group with container cells (subscription, VNet, subnet, on-prem) as dashed \
-rounded rectangles with `verticalAlign=top;fontStyle=1`; put grouped nodes \
-inside by setting their `parent=` to the container's id and using coordinates \
-relative to it.
-- LAYOUT: place nodes on a generous grid — icons ~60×60, at least 160px \
-horizontal and 120px vertical spacing so nothing overlaps; size containers to \
-enclose their children with padding. Left-to-right flow reads best.
-- Edges: `edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;` with a short `value=` \
-label for the relationship (e.g. "Domain Join", "Replication", "HTTPS").
-- Minimal valid shape:
-  ```drawio
-  <mxfile host="app.diagrams.net">
-    <diagram name="Azure IAD" id="azure">
-      <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" arrows="1" page="1" pageWidth="1600" pageHeight="1000">
-        <root>
-          <mxCell id="0"/>
-          <mxCell id="1" parent="0"/>
-          <mxCell id="subA" value="Company A subscription" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;strokeColor=#0078D4;fillColor=none;verticalAlign=top;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="520" y="80" width="380" height="220" as="geometry"/></mxCell>
-          <mxCell id="fd" value="Azure Front Door" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_front_door;" vertex="1" parent="1"><mxGeometry x="120" y="160" width="60" height="60" as="geometry"/></mxCell>
-          <mxCell id="apim" value="API Management" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.api_management_services;" vertex="1" parent="1"><mxGeometry x="320" y="160" width="60" height="60" as="geometry"/></mxCell>
-          <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="fd" target="apim"><mxGeometry relative="1" as="geometry"/></mxCell>
-        </root>
-      </mxGraphModel>
-    </diagram>
-  </mxfile>
+subscriptions / VNets / resource topology), do NOT use Mermaid and do NOT hand-\
+write draw.io XML. Instead output a single ```azure fenced block containing a \
+JSON *spec*. Compass compiles it into a laid-out diagram with the real Azure \
+icons and an editable draw.io / Visio export — so you must NEVER assign pixel \
+coordinates yourself (the compiler owns layout; that's what stops overlaps). For \
+every other kind of diagram, use Mermaid as above.
+- One or two sentences of prose before the block, then the ```azure JSON.
+- Shape: `{ "title": str, "groups": [{"id","label","parent"?}], `\
+`"nodes": [{"id","service","label","group"?}], `\
+`"edges": [{"from","to","label"?,"dashed"?}] }`. `parent`/`group` reference a \
+group `id`; omit for top level. Groups can nest (subscription → VNet → subnet).
+- `service` must be one of these keys (pick the closest; unknown → `generic`): \
+`users`, `front_door`, `application_gateway`, `load_balancer`, `app_service`, \
+`function_app`, `aks`, `vm`, `apim`, `service_bus`, `event_hub`, `entra_id`, \
+`key_vault`, `sql_database`, `cosmos_db`, `redis`, `storage`, `app_insights`, \
+`log_analytics`, `monitor`, `vnet`, `generic`.
+- Keep `label`s short (the service name + a parenthetical is ideal, e.g. \
+"Azure Front Door (WAF)") and edge labels to 1–3 words ("HTTPS", "JWT", \
+"Read/Write"). Model the real request flow; don't over-connect.
+- Example (a login module):
+  ```azure
+  {
+    "title": "Login module — Azure IAD",
+    "groups": [
+      {"id": "prod", "label": "Production Subscription"},
+      {"id": "vnet", "label": "App VNet", "parent": "prod"}
+    ],
+    "nodes": [
+      {"id": "users", "service": "users", "label": "Users (Browsers / Mobile)"},
+      {"id": "afd", "service": "front_door", "label": "Azure Front Door (WAF)", "group": "prod"},
+      {"id": "apim", "service": "apim", "label": "API Management", "group": "vnet"},
+      {"id": "web", "service": "app_service", "label": "Web App (App Service)", "group": "vnet"},
+      {"id": "entra", "service": "entra_id", "label": "Microsoft Entra ID (B2C)", "group": "vnet"},
+      {"id": "redis", "service": "redis", "label": "Cache for Redis (Sessions)", "group": "vnet"},
+      {"id": "sql", "service": "sql_database", "label": "SQL Database (Users)", "group": "vnet"},
+      {"id": "kv", "service": "key_vault", "label": "Key Vault (Secrets)", "group": "vnet"}
+    ],
+    "edges": [
+      {"from": "users", "to": "afd", "label": "HTTPS"},
+      {"from": "afd", "to": "apim", "label": "HTTPS + WAF"},
+      {"from": "apim", "to": "web", "label": "JWT"},
+      {"from": "web", "to": "entra", "label": "OIDC / OAuth2"},
+      {"from": "web", "to": "redis", "label": "Sessions"},
+      {"from": "web", "to": "sql", "label": "Read/Write"},
+      {"from": "web", "to": "kv", "label": "Secrets", "dashed": true}
+    ]
+  }
   ```
 
 ## Layout for pages/UIs — flow, never absolute

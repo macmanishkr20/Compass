@@ -119,7 +119,7 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 24px;
+  padding: 24px 24px 52px;
   display: grid;
   place-items: center;
   background:
@@ -129,6 +129,41 @@
 }
 .ap-mermaid { width: 100%; display: grid; place-items: center; }
 .ap-mermaid svg { max-width: 100%; height: auto; }
+
+/* footer action bar under the compiled Azure diagram */
+.ap-azure-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 86%, transparent);
+  backdrop-filter: blur(6px);
+}
+.ap-azure-acts { display: inline-flex; gap: 8px; flex-shrink: 0; }
+.ap-azure-acts button {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  transition: background 0.14s, border-color 0.14s;
+}
+.ap-azure-acts button:first-child {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink, #fff);
+}
+.ap-azure-acts button:hover { filter: brightness(1.05); }
 .ap-derr {
   align-self: start;
   margin: 0 0 12px;

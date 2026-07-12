@@ -29,6 +29,13 @@ export class ArtifactService {
     const l = (lang || '').toLowerCase();
     const trimmed = code.trim();
     if (
+      l === 'azure' ||
+      l === 'azure-arch' ||
+      (l === 'json' && /"nodes"\s*:/.test(trimmed) && /"service"\s*:/.test(trimmed))
+    ) {
+      return 'azure';
+    }
+    if (
       l === 'drawio' ||
       l === 'mxgraph' ||
       trimmed.startsWith('<mxfile') ||
@@ -82,6 +89,15 @@ export class ArtifactService {
 
   /** A human title from the document's <title>/<h1>, else a generic label. */
   static titleFor(kind: ArtifactKind, code: string): string {
+    if (kind === 'azure') {
+      try {
+        const t = JSON.parse(code.trim())?.title;
+        if (typeof t === 'string' && t.trim()) return t.trim();
+      } catch {
+        /* ignore */
+      }
+      return 'Azure Architecture Diagram';
+    }
     if (kind === 'drawio') {
       const name = /<diagram[^>]*\sname="([^"]+)"/i.exec(code)?.[1]?.trim();
       return name || 'Azure Architecture Diagram';

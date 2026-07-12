@@ -8,6 +8,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { ArtifactService } from '../artifact.service';
+import { layout, parseSpec, toDrawio, toSvg } from '../azure-diagram';
 import { Artifact, ArtifactKind } from '../models';
 import { ThemeService } from '../theme.service';
 
@@ -34,7 +35,7 @@ import { ThemeService } from '../theme.service';
           <span class="ap-meta">{{ label(a.kind) }} · updated just now</span>
         </div>
         <div class="ap-actions">
-          @if (a.kind === 'drawio') {
+          @if (a.kind === 'drawio' || a.kind === 'azure') {
             <button class="ap-btn" title="Download .drawio" (click)="download(a)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
@@ -50,7 +51,7 @@ import { ThemeService } from '../theme.service';
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
             }
           </button>
-          <button class="ap-btn" [title]="a.kind === 'drawio' ? 'Open in diagrams.net' : 'Open in new tab'" (click)="openNewTab()">
+          <button class="ap-btn" [title]="a.kind === 'drawio' || a.kind === 'azure' ? 'Open in diagrams.net' : 'Open in new tab'" (click)="openNewTab()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <button class="ap-btn" title="Close" (click)="svc.close()">
@@ -73,7 +74,19 @@ import { ThemeService } from '../theme.service';
       </div>
 
       <div class="ap-body">
-        @if (a.kind === 'drawio') {
+        @if (a.kind === 'azure') {
+          <div class="ap-diagram" [hidden]="tab() !== 'preview'">
+            @if (azureError()) { <pre class="ap-derr">{{ azureError() }}</pre> }
+            <div #azureHost class="ap-mermaid"></div>
+            <div class="ap-azure-bar">
+              <span>Editable Azure diagram · real icons travel inside the file</span>
+              <span class="ap-azure-acts">
+                <button (click)="openNewTab()">Open in diagrams.net</button>
+                <button (click)="download(a)">Download .drawio</button>
+              </span>
+            </div>
+          </div>
+        } @else if (a.kind === 'drawio') {
           <div class="ap-drawio" [hidden]="tab() !== 'preview'">
             <div class="ap-dio-card">
               <span class="ap-dio-ico">
@@ -115,10 +128,14 @@ export class ArtifactPanel {
   readonly tab = signal<'preview' | 'code'>('preview');
   readonly copied = signal(false);
   readonly mermaidError = signal('');
+  readonly azureError = signal('');
   private mermaidSvg = '';
+  private azureDrawio = ''; // compiled draw.io for the active azure artifact
   private readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
   private readonly mermaidHost =
     viewChild<ElementRef<HTMLDivElement>>('mermaidHost');
+  private readonly azureHost =
+    viewChild<ElementRef<HTMLDivElement>>('azureHost');
 
   constructor() {
     // Render the preview when the artifact, tab, or theme changes.
@@ -128,7 +145,9 @@ export class ArtifactPanel {
       this.theme.theme();
       if (!a || this.tab() !== 'preview') return;
       if (a.kind === 'drawio') return; // rendered as a call-to-action card
-      if (a.kind === 'mermaid') {
+      if (a.kind === 'azure') {
+        this.renderAzure(a.code);
+      } else if (a.kind === 'mermaid') {
         void this.renderMermaid(a.code);
       } else {
         queueMicrotask(() => {
@@ -145,7 +164,7 @@ export class ArtifactPanel {
   }
 
   label(kind: ArtifactKind): string {
-    return kind === 'drawio'
+    return kind === 'drawio' || kind === 'azure'
       ? 'AZURE DIAGRAM'
       : kind === 'mermaid'
         ? 'DIAGRAM'
@@ -175,6 +194,35 @@ export class ArtifactPanel {
     }
     const host = this.mermaidHost()?.nativeElement;
     if (host) host.innerHTML = this.mermaidSvg;
+  }
+
+  /** Compile the Azure spec into a laid-out inline SVG (and cache the matching
+   * draw.io export). Layout is computed here, so nodes/edges never overlap. */
+  private renderAzure(code: string): void {
+    let svg = '';
+    const spec = parseSpec(code);
+    if (!spec) {
+      this.azureError.set(
+        'Could not read the Azure diagram spec (expected JSON with a "nodes" array).',
+      );
+      this.azureDrawio = '';
+    } else {
+      try {
+        const laid = layout(spec);
+        svg = toSvg(laid, this.theme.theme() === 'dark');
+        this.azureDrawio = toDrawio(laid);
+        this.azureError.set('');
+      } catch (err) {
+        this.azureError.set(
+          (err as Error)?.message ?? 'Could not render this diagram.',
+        );
+        this.azureDrawio = '';
+      }
+    }
+    queueMicrotask(() => {
+      const host = this.azureHost()?.nativeElement;
+      if (host) host.innerHTML = svg;
+    });
   }
 
   refresh(): void {
@@ -208,11 +256,16 @@ export class ArtifactPanel {
   async openNewTab(): Promise<void> {
     const a = this.svc.active();
     if (!a) return;
-    // draw.io: open the diagram in the diagrams.net editor; fall back to a
-    // download if the browser can't build the compressed URL.
-    if (a.kind === 'drawio') {
+    // draw.io / azure: open the diagram in the diagrams.net editor; fall back
+    // to a download if the browser can't build the compressed URL.
+    if (a.kind === 'drawio' || a.kind === 'azure') {
+      const xml = a.kind === 'azure' ? this.azureDrawio : a.code;
+      if (!xml) {
+        this.download(a);
+        return;
+      }
       try {
-        const url = await ArtifactService.drawioViewerUrl(a.code);
+        const url = await ArtifactService.drawioViewerUrl(xml);
         window.open(url, '_blank', 'noopener');
       } catch {
         this.download(a);
@@ -233,7 +286,10 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
 
   /** Save the diagram as a `.drawio` file the user can open in draw.io / Visio. */
   download(a: Artifact): void {
-    const xml = ArtifactService.drawioFile(a.code);
+    const xml =
+      a.kind === 'azure'
+        ? this.azureDrawio || ArtifactService.drawioFile(a.code)
+        : ArtifactService.drawioFile(a.code);
     const name =
       (a.title || 'azure-architecture').replace(/[^\w.-]+/g, '-').toLowerCase() +
       '.drawio';
