@@ -80,3 +80,45 @@
   border: none;
   padding: 0;
 }
+
+/* artifact card — opens the live preview panel */
+.artifact-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.artifact-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+.artifact-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-tint); }
+.artifact-thumb {
+  width: 40px; height: 40px;
+  display: grid; place-items: center;
+  border-radius: 9px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.artifact-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.artifact-title {
+  font-weight: 650;
+  font-size: 0.9rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-sub { font-size: 0.74rem; color: var(--muted); }
+.artifact-open { color: var(--faint); flex-shrink: 0; }
+.artifact-card:hover .artifact-open { color: var(--accent); }

@@ -57,7 +57,22 @@ language tag — e.g. ```sql, ```python, ```bash. Never leave code as bare \
 lines in prose or in a bullet list; each distinct snippet gets its own fence.
 - Use `inline code` for identifiers, filenames, table/column names, and flags.
 - Use ## headings and short paragraphs to separate distinct options or steps, \
-and **bold** for the key takeaway."""
+and **bold** for the key takeaway.
+
+# Artifacts
+When the user asks you to build something visual or self-contained — a web \
+page, UI mockup, interactive widget, data visualization, chart, diagram, game, \
+or landing page — output it as a single COMPLETE, self-contained HTML document \
+in one ```html fenced block:
+- Include everything inline: `<!doctype html>`, a `<title>`, CSS in a `<style>` \
+tag, and any JavaScript in a `<script>` tag. No external files, CDNs, or \
+network requests — it must render standalone.
+- Give it a meaningful `<title>` — the app uses it to label the artifact.
+- Put a brief sentence of prose before the block explaining what it is; keep \
+the explanation short since the document renders live in a side panel.
+For a standalone vector image, you may instead emit a single ```svg block. \
+Small illustrative HTML snippets that aren't meant to run stay as ordinary \
+code blocks."""
 
 SUBAGENT_IDENTITY = {
     "explore": (

@@ -22,6 +22,16 @@
   transform: translateX(-14px);
   pointer-events: none;
 }
+/* Artifact open: chat keeps a readable min width, the panel takes the rest. */
+.shell.artifact-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
+.shell.artifact-open.sidebar-collapsed { grid-template-columns: 0 minmax(360px, 1fr) minmax(420px, 1.15fr); }
+.artifact-dock { min-width: 0; min-height: 0; }
+@media (max-width: 1100px) {
+  /* On narrower screens the artifact takes over the main area. */
+  .shell.artifact-open { grid-template-columns: 272px 0 1fr; }
+  .shell.artifact-open .main { display: none; }
+  .shell.artifact-open.sidebar-collapsed { grid-template-columns: 0 0 1fr; }
+}
 
 .panel { border-radius: var(--radius); }
 

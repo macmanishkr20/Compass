@@ -363,6 +363,13 @@ class MockModelClient:
         )
         prompt_text = str(last_user.get("content", "")).lower() if last_user else ""
         if not tool_results and any(
+            kw in prompt_text
+            for kw in ("artifact", "webpage", "web page", "html", "landing", "widget", "build a page")
+        ):
+            async for item in self._stream_markdown(_HTML_ARTIFACT):
+                yield item
+            return
+        if not tool_results and any(
             kw in prompt_text for kw in ("sql", "salary", "select ", "query")
         ):
             async for item in self._stream_markdown(_SQL_ANSWER):
@@ -443,6 +450,43 @@ class MockModelClient:
 
     async def complete_utility(self, prompt: str, text: str) -> str:
         return "Mock summary of the session so far."
+
+
+_HTML_ARTIFACT = """Here's a small interactive counter page — it renders live in \
+the panel on the right.
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Click Counter</title>
+<style>
+  body { margin:0; height:100vh; display:grid; place-items:center;
+    font-family: system-ui, sans-serif;
+    background: linear-gradient(135deg,#1f2430,#2b3a2f); color:#fff; }
+  .card { text-align:center; padding:40px 56px; border-radius:20px;
+    background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
+    backdrop-filter: blur(8px); }
+  h1 { margin:0 0 6px; font-size:1.1rem; font-weight:600; opacity:.8; }
+  .n { font-size:4rem; font-weight:800; margin:10px 0 20px; font-variant-numeric:tabular-nums; }
+  button { font:inherit; font-weight:600; padding:12px 22px; border-radius:12px;
+    border:none; cursor:pointer; background:#e0a65a; color:#1a1205; }
+  button:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>You have clicked</h1>
+    <div class="n" id="n">0</div>
+    <button onclick="c++;document.getElementById('n').textContent=c">Click me</button>
+  </div>
+  <script>let c = 0;</script>
+</body>
+</html>
+```
+
+Click **Open** on the card to see it, then hit *Click me* — the count is live."""
 
 
 _SQL_ANSWER = """Here are the common ways to fetch the **maximum salary** in SQL.

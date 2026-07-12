@@ -14,9 +14,12 @@ import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { TiltDirective } from './tilt.directive';
+import { BlurOnChange } from './blur-on-change.directive';
 import { CompassMark } from './compass-mark/compass-mark';
 import { LoadingRadar } from './loading-radar/loading-radar';
 import { Markdown } from './markdown/markdown';
+import { ArtifactPanel } from './artifact-panel/artifact-panel';
+import { ArtifactService } from './artifact.service';
 import {
   ChatBubble,
   CompassEvent,
@@ -59,9 +62,11 @@ type RenderBlock =
     FormsModule,
     NgTemplateOutlet,
     TiltDirective,
+    BlurOnChange,
     CompassMark,
     LoadingRadar,
     Markdown,
+    ArtifactPanel,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -70,6 +75,7 @@ export class App {
   private readonly api = inject(CompassApiService);
   readonly theme = inject(ThemeService);
   readonly auth = inject(AuthService);
+  readonly artifacts = inject(ArtifactService);
 
   readonly modes = MODES;
   readonly efforts = EFFORTS;

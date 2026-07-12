@@ -118,6 +118,13 @@ export interface SessionCard {
   message_count: number;
 }
 
+export interface Artifact {
+  id: string;
+  title: string;
+  kind: 'html' | 'svg';
+  code: string;
+}
+
 export type GroupBy = 'none' | 'group' | 'date';
 export type SortBy = 'recent' | 'created' | 'title';
 
