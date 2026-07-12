@@ -389,6 +389,13 @@ class MockModelClient:
         prompt_text = str(last_user.get("content", "")).lower() if last_user else ""
         if not tool_results and any(
             kw in prompt_text
+            for kw in ("diagram", "flowchart", "architecture", "sequence diagram", "mermaid")
+        ):
+            async for item in self._stream_markdown(_MERMAID_ARTIFACT):
+                yield item
+            return
+        if not tool_results and any(
+            kw in prompt_text
             for kw in ("artifact", "webpage", "web page", "html", "landing", "widget", "build a page")
         ):
             async for item in self._stream_markdown(_HTML_ARTIFACT):
@@ -475,6 +482,42 @@ class MockModelClient:
 
     async def complete_utility(self, prompt: str, text: str) -> str:
         return "Mock summary of the session so far."
+
+
+_MERMAID_ARTIFACT = """Here's the Compass architecture as a Mermaid diagram — \
+it auto-lays-out, so nothing overlaps.
+
+```mermaid
+flowchart LR
+  subgraph Client
+    UI[Browser Web UI]
+  end
+  subgraph Server[FastAPI Server]
+    API[API + SSE surface]
+    LOOP[Streamed agent loop]
+    GATE{Permission gate}
+    TOOLS[Tool runtime]
+    API --> LOOP
+    LOOP --> GATE
+    GATE -->|allow| TOOLS
+  end
+  subgraph Azure[Azure OpenAI]
+    CHAT[(Chat + tools)]
+    TTS[(Text-to-speech)]
+  end
+  subgraph Data[Persistence]
+    STORE[(Transcript store)]
+    COSMOS[(Cosmos DB)]
+  end
+  UI -->|SSE + REST| API
+  LOOP -->|stream| CHAT
+  LOOP -->|append| STORE
+  STORE -.->|if configured| COSMOS
+  TOOLS -->|mcp__*| MCP[MCP servers]
+  API -.->|read aloud| TTS
+```
+
+Open it to see the rendered flowchart; the layout is computed, not hand-placed."""
 
 
 _HTML_ARTIFACT = """Here's a small product page — a calm, editorial layout that

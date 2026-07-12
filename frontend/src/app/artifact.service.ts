@@ -1,6 +1,10 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { Artifact } from './models';
 
+/** A fenced block whose first line is a Mermaid diagram directive. */
+const MERMAID_HEAD =
+  /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(-v2)?|erDiagram|journey|gantt|pie|mindmap|timeline|gitGraph|quadrantChart|C4Context)\b/i;
+
 /**
  * Holds the currently-open artifact and the preview panel's visibility.
  * Markdown detects an artifact-worthy code block and calls open(); the shell
@@ -21,9 +25,10 @@ export class ArtifactService {
 
   /** Decide whether a fenced code block is an artifact (full document), and
    * of which kind. Small inline HTML snippets stay as ordinary code blocks. */
-  static classify(lang: string, code: string): 'html' | 'svg' | null {
+  static classify(lang: string, code: string): 'html' | 'svg' | 'mermaid' | null {
     const l = (lang || '').toLowerCase();
     const trimmed = code.trim();
+    if (l === 'mermaid' || l === 'mmd' || MERMAID_HEAD.test(trimmed)) return 'mermaid';
     if (l === 'svg' || trimmed.toLowerCase().startsWith('<svg')) return 'svg';
     if (l === 'html' || l === 'htm' || l === 'xml') {
       const c = trimmed.toLowerCase();
@@ -68,7 +73,21 @@ export class ArtifactService {
   }
 
   /** A human title from the document's <title>/<h1>, else a generic label. */
-  static titleFor(kind: 'html' | 'svg', code: string): string {
+  static titleFor(kind: 'html' | 'svg' | 'mermaid', code: string): string {
+    if (kind === 'mermaid') {
+      // A `%% title: X` comment or the diagram type as a friendly label.
+      const t = /%%\s*title:\s*(.+)/i.exec(code)?.[1]?.trim();
+      if (t) return t;
+      const type = /^(\w[\w-]*)/.exec(code.trim())?.[1] ?? 'Diagram';
+      const nice: Record<string, string> = {
+        graph: 'Flowchart', flowchart: 'Flowchart',
+        sequenceDiagram: 'Sequence Diagram', classDiagram: 'Class Diagram',
+        stateDiagram: 'State Diagram', 'stateDiagram-v2': 'State Diagram',
+        erDiagram: 'ER Diagram', gantt: 'Gantt Chart', pie: 'Pie Chart',
+        mindmap: 'Mind Map', timeline: 'Timeline', gitGraph: 'Git Graph',
+      };
+      return nice[type] ?? 'Diagram';
+    }
     const title = /<title[^>]*>([^<]+)<\/title>/i.exec(code)?.[1]?.trim();
     if (title) return title;
     const h1 = /<h1[^>]*>([^<]+)<\/h1>/i.exec(code)?.[1]?.trim();

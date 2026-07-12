@@ -113,3 +113,30 @@
   color: var(--ink);
   white-space: pre;
 }
+
+/* mermaid diagram preview — rendered SVG, auto-laid-out (no overlaps) */
+.ap-diagram {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--ink) 8%, transparent) 1px, transparent 0)
+    0 0 / 22px 22px,
+    var(--surface);
+}
+.ap-mermaid { width: 100%; display: grid; place-items: center; }
+.ap-mermaid svg { max-width: 100%; height: auto; }
+.ap-derr {
+  align-self: start;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--danger);
+  background: var(--danger-tint);
+  white-space: pre-wrap;
+}

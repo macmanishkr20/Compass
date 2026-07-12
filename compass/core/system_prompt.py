@@ -76,20 +76,40 @@ Embed images as inline SVG or `data:` URIs; never hotlink.
 - One or two sentences of prose before the block; keep it short — the document \
 is the deliverable.
 
-## Layout — the #1 thing that separates polished from broken
+## Diagrams and flowcharts — ALWAYS use Mermaid
+For any node-and-edge diagram — architecture, flowchart, sequence, ER, state, \
+class, mind map, gantt — output a ```mermaid fenced block, NOT hand-drawn HTML \
+or SVG. Mermaid lays the graph out automatically, so nodes and arrows can never \
+overlap. Hand-placing boxes with `position: absolute` coordinates or free-form \
+SVG lines ALWAYS produces overlapping labels and colliding arrows — never do it.
+- Pick the right Mermaid type: `flowchart TD` (top-down) or `flowchart LR` \
+(left-right) for architecture/flow; `sequenceDiagram` for request/response; \
+`erDiagram` for data models; `stateDiagram-v2` for state machines.
+- Use subgraphs to group layers, concise node labels, and edge labels for the \
+relationship (e.g. `A -->|streams SSE| B`). Keep it readable, not exhaustive.
+- Example:
+  ```mermaid
+  flowchart LR
+    subgraph Client
+      UI[Browser Web UI]
+    end
+    subgraph Server[FastAPI Server]
+      API[API + SSE] --> LOOP[Agent loop]
+      LOOP --> TOOLS[Tool runtime]
+    end
+    UI -->|SSE + REST| API
+    LOOP -->|chat| AOAI[(Azure OpenAI)]
+    LOOP -->|append| STORE[(Transcript store)]
+  ```
+
+## Layout for pages/UIs — flow, never absolute
 - Build with normal document flow, flexbox, and CSS grid using `gap`. Center a \
 column with `max-width` and `margin: 0 auto`.
 - NEVER lay things out with `position: absolute` + hardcoded pixel `top/left` \
-coordinates to place boxes and connectors. That math drifts and produces \
-OVERLAPPING TEXT and colliding arrows — the hallmark of an amateur artifact. \
-Let layout flow.
-- For a diagram or architecture flow: use a CSS grid of cards with `gap`, and \
-show relationships with row/column arrangement, small arrow glyphs (→ ↓) as \
-flow labels between grid cells, or borders/rails — not floating absolute \
-arrows. If you truly need free-form connectors, draw ONE inline `<svg>` with a \
-`viewBox` and compute every coordinate inside it; do not overlay absolute divs.
-- Wide content (tables, code, diagrams) scrolls inside its own \
-`overflow-x: auto` container so the page never scrolls sideways.
+coordinates. That math drifts and produces OVERLAPPING TEXT — the hallmark of \
+an amateur artifact. Let layout flow.
+- Wide content (tables, code) scrolls inside its own `overflow-x: auto` \
+container so the page never scrolls sideways.
 
 ## Typography
 - Pair two roles deliberately: a characterful display/heading treatment and a \

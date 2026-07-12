@@ -8,12 +8,16 @@ import {
   viewChild,
 } from '@angular/core';
 import { ArtifactService } from '../artifact.service';
+import { ThemeService } from '../theme.service';
 
 /**
  * Live artifact preview beside the chat — the Compass take on Claude's
- * Artifacts panel. Renders the document in a sandboxed iframe (Preview),
- * shows the source (Code), and offers copy + open-in-new-tab. srcdoc is set
- * imperatively so nothing runs on our origin (sandbox has no allow-same-origin).
+ * Artifacts panel.
+ *   - html / svg: rendered in a sandboxed iframe (no allow-same-origin).
+ *   - mermaid:    rendered via Mermaid's auto-layout engine to an SVG, so a
+ *                 diagram's nodes and edges can never overlap — the mechanism
+ *                 claude.ai uses for clean diagrams.
+ * Preview / Code tabs, copy, open-in-new-tab, refresh, close.
  */
 @Component({
   selector: 'app-artifact-panel',
@@ -26,7 +30,7 @@ import { ArtifactService } from '../artifact.service';
         </span>
         <div class="ap-id">
           <span class="ap-title">{{ a.title }}</span>
-          <span class="ap-meta">{{ a.kind === 'svg' ? 'SVG' : 'HTML' }} · updated just now</span>
+          <span class="ap-meta">{{ label(a.kind) }} · updated just now</span>
         </div>
         <div class="ap-actions">
           <button class="ap-btn" title="Refresh" (click)="refresh()">
@@ -62,9 +66,16 @@ import { ArtifactService } from '../artifact.service';
       </div>
 
       <div class="ap-body">
-        <iframe #frame class="ap-frame" [hidden]="tab() !== 'preview'"
-          sandbox="allow-scripts allow-modals allow-popups allow-forms"
-          title="Artifact preview"></iframe>
+        @if (a.kind === 'mermaid') {
+          <div class="ap-diagram" [hidden]="tab() !== 'preview'">
+            @if (mermaidError()) { <pre class="ap-derr">{{ mermaidError() }}</pre> }
+            <div #mermaidHost class="ap-mermaid"></div>
+          </div>
+        } @else {
+          <iframe #frame class="ap-frame" [hidden]="tab() !== 'preview'"
+            sandbox="allow-scripts allow-modals allow-popups allow-forms"
+            title="Artifact preview"></iframe>
+        }
         @if (tab() === 'code') {
           <pre class="ap-code"><code>{{ a.code }}</code></pre>
         }
@@ -75,34 +86,73 @@ import { ArtifactService } from '../artifact.service';
 })
 export class ArtifactPanel {
   readonly svc = inject(ArtifactService);
+  private readonly theme = inject(ThemeService);
   readonly tab = signal<'preview' | 'code'>('preview');
   readonly copied = signal(false);
-  private readonly frame =
-    viewChild<ElementRef<HTMLIFrameElement>>('frame');
+  readonly mermaidError = signal('');
+  private mermaidSvg = '';
+  private readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
+  private readonly mermaidHost =
+    viewChild<ElementRef<HTMLDivElement>>('mermaidHost');
 
   constructor() {
-    // Re-render the iframe whenever the artifact changes or we return to the
-    // preview tab. New artifact opens on the Preview tab.
+    // Render the preview when the artifact, tab, or theme changes.
     effect(() => {
       const a = this.svc.active();
       this.tab();
-      const iframe = this.frame()?.nativeElement;
-      if (iframe && a && this.tab() === 'preview') {
-        iframe.srcdoc = ArtifactService.toDocument(a);
+      this.theme.theme();
+      if (!a || this.tab() !== 'preview') return;
+      if (a.kind === 'mermaid') {
+        void this.renderMermaid(a.code);
+      } else {
+        queueMicrotask(() => {
+          const iframe = this.frame()?.nativeElement;
+          if (iframe) iframe.srcdoc = ArtifactService.toDocument(a);
+        });
       }
     });
+    // Each new artifact opens on the Preview tab.
     effect(() => {
-      // Reset to Preview each time a different artifact opens.
       this.svc.active();
       queueMicrotask(() => this.tab.set('preview'));
     });
   }
 
+  label(kind: 'html' | 'svg' | 'mermaid'): string {
+    return kind === 'mermaid' ? 'DIAGRAM' : kind === 'svg' ? 'SVG' : 'HTML';
+  }
+
+  private async renderMermaid(code: string): Promise<void> {
+    try {
+      const mermaid = (await import('mermaid')).default;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: this.theme.theme() === 'dark' ? 'dark' : 'default',
+        fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+      });
+      const id = 'mmd-' + Math.random().toString(36).slice(2);
+      const { svg } = await mermaid.render(id, code);
+      this.mermaidSvg = svg;
+      this.mermaidError.set('');
+    } catch (err) {
+      this.mermaidSvg = '';
+      this.mermaidError.set(
+        (err as Error)?.message ?? 'Could not render this diagram.',
+      );
+    }
+    const host = this.mermaidHost()?.nativeElement;
+    if (host) host.innerHTML = this.mermaidSvg;
+  }
+
   refresh(): void {
     const a = this.svc.active();
-    const iframe = this.frame()?.nativeElement;
-    if (a && iframe) {
-      iframe.srcdoc = ArtifactService.toDocument(a);
+    if (!a) return;
+    if (a.kind === 'mermaid') {
+      void this.renderMermaid(a.code);
+    } else {
+      const iframe = this.frame()?.nativeElement;
+      if (iframe) iframe.srcdoc = ArtifactService.toDocument(a);
     }
   }
 
@@ -126,7 +176,13 @@ export class ArtifactPanel {
   openNewTab(): void {
     const a = this.svc.active();
     if (!a) return;
-    const blob = new Blob([ArtifactService.toDocument(a)], { type: 'text/html' });
+    const html =
+      a.kind === 'mermaid'
+        ? `<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;height:100%}body{display:grid;place-items:center;background:#fff;padding:24px}
+svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></html>`
+        : ArtifactService.toDocument(a);
+    const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 30_000);

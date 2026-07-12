@@ -121,7 +121,7 @@ export interface SessionCard {
 export interface Artifact {
   id: string;
   title: string;
-  kind: 'html' | 'svg';
+  kind: 'html' | 'svg' | 'mermaid';
   code: string;
 }
 
