@@ -30,9 +30,26 @@ class AzureOpenAISettings(BaseModel):
     # Text-to-speech deployment (e.g. gpt-4o-mini-tts). Empty = read-aloud
     # falls back to the browser's built-in voice.
     tts_deployment: str = ""
+    # TTS may live in a different Azure resource/region with its own endpoint
+    # and key. When these are blank, TTS reuses the main endpoint/key/version.
+    tts_endpoint: str = ""
+    tts_api_key: str = ""
+    tts_api_version: str = ""
     # Voice for TTS: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
     # shimmer. "coral" and "sage" are the warm, expressive ones.
     tts_voice: str = "coral"
+
+    @property
+    def tts_endpoint_effective(self) -> str:
+        return self.tts_endpoint or self.endpoint
+
+    @property
+    def tts_api_key_effective(self) -> str:
+        return self.tts_api_key or self.api_key
+
+    @property
+    def tts_api_version_effective(self) -> str:
+        return self.tts_api_version or self.api_version
 
     @property
     def model_options(self) -> list[str]:
@@ -220,6 +237,11 @@ def get_settings() -> Settings:
         azure.deployments = [d.strip() for d in deps.split(",") if d.strip()]
     azure.tts_deployment = os.environ.get(
         "AZURE_OPENAI_TTS_DEPLOYMENT", azure.tts_deployment
+    )
+    azure.tts_endpoint = os.environ.get("AZURE_OPENAI_TTS_ENDPOINT", azure.tts_endpoint)
+    azure.tts_api_key = os.environ.get("AZURE_OPENAI_TTS_API_KEY", azure.tts_api_key)
+    azure.tts_api_version = os.environ.get(
+        "AZURE_OPENAI_TTS_API_VERSION", azure.tts_api_version
     )
     azure.tts_voice = os.environ.get("COMPASS_TTS_VOICE", azure.tts_voice)
 

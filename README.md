@@ -176,11 +176,21 @@ AZURE_OPENAI_TTS_DEPLOYMENT=gpt-4o-mini-tts   # deploy this model in Azure first
 COMPASS_TTS_VOICE=coral                       # coral/sage are the warm ones
 ```
 
-Deploy `gpt-4o-mini-tts` in your Azure AI Foundry project and use an API
-version of `2025-03-01-preview` or later (`AZURE_OPENAI_API_VERSION`) so the
-expressive `instructions` are honored. Until the model is deployed the button
-falls back to the browser's built-in voice automatically — no error, just a
-flatter read.
+Deploy `gpt-4o-mini-tts` in your Azure AI Foundry project. It only needs an
+API version of `2025-03-01-preview` or later for the expressive `instructions`
+to be honored. Until the model is deployed the button falls back to the
+browser's built-in voice automatically — no error, just a flatter read.
+
+**TTS in a different region/resource.** The TTS model often isn't available in
+the same region as your chat deployment. Point it at its own resource with
+these — when set they override the main endpoint/key/version *for TTS only*;
+when blank, TTS reuses the main Azure credentials:
+
+```
+AZURE_OPENAI_TTS_ENDPOINT=https://your-tts-resource.services.ai.azure.com/
+AZURE_OPENAI_TTS_API_KEY=...
+AZURE_OPENAI_TTS_API_VERSION=2025-03-01-preview
+```
 
 ## Policy configuration
 

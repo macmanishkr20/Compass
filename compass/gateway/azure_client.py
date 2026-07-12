@@ -78,6 +78,7 @@ class AzureModelClient:
 
     def __init__(self) -> None:
         self._client = None
+        self._tts_client = None
 
     def _get_client(self):
         if self._client is None:
@@ -95,6 +96,29 @@ class AzureModelClient:
                 api_version=azure.api_version,
             )
         return self._client
+
+    def _get_tts_client(self):
+        """Separate client for the TTS resource — it may live in a different
+        region with its own endpoint/key/version. Falls back to the main
+        client's credentials when the TTS-specific ones aren't set."""
+        if self._tts_client is None:
+            from openai import AsyncAzureOpenAI
+
+            azure = get_settings().azure
+            # Same credentials as the main client -> reuse it, no second connection.
+            if (
+                azure.tts_endpoint_effective == azure.endpoint
+                and azure.tts_api_key_effective == azure.api_key
+                and azure.tts_api_version_effective == azure.api_version
+            ):
+                self._tts_client = self._get_client()
+            else:
+                self._tts_client = AsyncAzureOpenAI(
+                    azure_endpoint=azure.tts_endpoint_effective,
+                    api_key=azure.tts_api_key_effective,
+                    api_version=azure.tts_api_version_effective,
+                )
+        return self._tts_client
 
     async def stream_chat(
         self,
@@ -291,12 +315,13 @@ class AzureModelClient:
         }
         if instructions:
             kwargs["instructions"] = instructions
+        tts = self._get_tts_client()
         try:
-            resp = await self._get_client().audio.speech.create(**kwargs)
+            resp = await tts.audio.speech.create(**kwargs)
         except BadRequestError as err:
             if instructions and "instructions" in str(err).lower():
                 kwargs.pop("instructions", None)
-                resp = await self._get_client().audio.speech.create(**kwargs)
+                resp = await tts.audio.speech.create(**kwargs)
             else:
                 raise
         # Binary response: prefer the async reader, fall back to .content.
