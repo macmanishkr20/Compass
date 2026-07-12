@@ -477,41 +477,66 @@ class MockModelClient:
         return "Mock summary of the session so far."
 
 
-_HTML_ARTIFACT = """Here's a small interactive counter page — it renders live in \
-the panel on the right.
+_HTML_ARTIFACT = """Here's a small product page — a calm, editorial layout that
+renders live in the panel.
 
 ```html
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Click Counter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Feature Overview</title>
 <style>
-  body { margin:0; height:100vh; display:grid; place-items:center;
-    font-family: system-ui, sans-serif;
-    background: linear-gradient(135deg,#1f2430,#2b3a2f); color:#fff; }
-  .card { text-align:center; padding:40px 56px; border-radius:20px;
-    background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12);
-    backdrop-filter: blur(8px); }
-  h1 { margin:0 0 6px; font-size:1.1rem; font-weight:600; opacity:.8; }
-  .n { font-size:4rem; font-weight:800; margin:10px 0 20px; font-variant-numeric:tabular-nums; }
-  button { font:inherit; font-weight:600; padding:12px 22px; border-radius:12px;
-    border:none; cursor:pointer; background:#e0a65a; color:#1a1205; }
-  button:active { transform: translateY(1px); }
+  :root {
+    --ground:#F7F5F0; --panel:#FFFFFF; --ink:#211E1A; --muted:#6E665C;
+    --line:#E7E1D6; --accent:#B0762A; --accent-soft:#F3E7D3;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--sans); line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:820px; margin:0 auto; padding:56px 28px 72px; }
+  .eyebrow { font-family:var(--mono); font-size:.72rem; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--accent); font-weight:600; }
+  h1 { font-size:clamp(1.9rem,4vw,2.6rem); letter-spacing:-.02em; margin:.35em 0 .3em;
+    text-wrap:balance; }
+  .lede { font-size:1.1rem; color:var(--muted); max-width:60ch; margin:0 0 40px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:22px; transition:transform .16s, box-shadow .16s; }
+  .card:hover { transform:translateY(-2px); box-shadow:0 12px 30px rgba(40,34,22,.10); }
+  .ico { width:38px; height:38px; display:grid; place-items:center; border-radius:10px;
+    background:var(--accent-soft); color:var(--accent); margin-bottom:14px; }
+  .card h3 { margin:0 0 6px; font-size:1.02rem; }
+  .card p { margin:0; color:var(--muted); font-size:.92rem; }
+  @media (prefers-reduced-motion:reduce){ .card{transition:none;} }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>You have clicked</h1>
-    <div class="n" id="n">0</div>
-    <button onclick="c++;document.getElementById('n').textContent=c">Click me</button>
+  <div class="wrap">
+    <span class="eyebrow">Agent Console</span>
+    <h1>Everything the agent needs, in one calm surface.</h1>
+    <p class="lede">A streaming loop, a permission gate you control, workspaces,
+      and live artifacts — designed to feel considered, not busy.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">◆</div><h3>Streaming loop</h3>
+        <p>Tokens and tool calls flow end-to-end with no buffering boundary.</p></div>
+      <div class="card"><div class="ico">▣</div><h3>Permission gate</h3>
+        <p>Allow, ask, deny — four modes, decided before any tool runs.</p></div>
+      <div class="card"><div class="ico">❖</div><h3>Workspaces</h3>
+        <p>Point at a folder or clone a repo; commit straight from chat.</p></div>
+      <div class="card"><div class="ico">▤</div><h3>Live artifacts</h3>
+        <p>HTML renders beside the chat with a code and preview toggle.</p></div>
+    </div>
   </div>
-  <script>let c = 0;</script>
 </body>
 </html>
 ```
 
-Click **Open** on the card to see it, then hit *Click me* — the count is live."""
+Open the card to see it render — a light, editorial layout with a proper
+palette and type scale."""
 
 
 _SQL_ANSWER = """Here are the common ways to fetch the **maximum salary** in SQL.

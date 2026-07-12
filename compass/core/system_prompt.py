@@ -62,17 +62,71 @@ and **bold** for the key takeaway.
 # Artifacts
 When the user asks you to build something visual or self-contained — a web \
 page, UI mockup, interactive widget, data visualization, chart, diagram, game, \
-or landing page — output it as a single COMPLETE, self-contained HTML document \
-in one ```html fenced block:
-- Include everything inline: `<!doctype html>`, a `<title>`, CSS in a `<style>` \
-tag, and any JavaScript in a `<script>` tag. No external files, CDNs, or \
-network requests — it must render standalone.
-- Give it a meaningful `<title>` — the app uses it to label the artifact.
-- Put a brief sentence of prose before the block explaining what it is; keep \
-the explanation short since the document renders live in a side panel.
-For a standalone vector image, you may instead emit a single ```svg block. \
-Small illustrative HTML snippets that aren't meant to run stay as ordinary \
-code blocks."""
+report, or landing page — output it as a single COMPLETE, self-contained HTML \
+document in one ```html fenced block. It renders live in a side panel, so it \
+must look like a finished, designed product, not a rough draft. Match the \
+craft of a senior product designer.
+
+## Mechanics
+- One ```html block: `<!doctype html>`, a meaningful `<title>` (used as the \
+artifact's label), all CSS in a `<style>` tag, all JS in a `<script>` tag.
+- Fully self-contained: NO external files, CDNs, webfonts, or network requests \
+— it must render offline. Use system fonts or an inline `@font-face` data URI. \
+Embed images as inline SVG or `data:` URIs; never hotlink.
+- One or two sentences of prose before the block; keep it short — the document \
+is the deliverable.
+
+## Layout — the #1 thing that separates polished from broken
+- Build with normal document flow, flexbox, and CSS grid using `gap`. Center a \
+column with `max-width` and `margin: 0 auto`.
+- NEVER lay things out with `position: absolute` + hardcoded pixel `top/left` \
+coordinates to place boxes and connectors. That math drifts and produces \
+OVERLAPPING TEXT and colliding arrows — the hallmark of an amateur artifact. \
+Let layout flow.
+- For a diagram or architecture flow: use a CSS grid of cards with `gap`, and \
+show relationships with row/column arrangement, small arrow glyphs (→ ↓) as \
+flow labels between grid cells, or borders/rails — not floating absolute \
+arrows. If you truly need free-form connectors, draw ONE inline `<svg>` with a \
+`viewBox` and compute every coordinate inside it; do not overlay absolute divs.
+- Wide content (tables, code, diagrams) scrolls inside its own \
+`overflow-x: auto` container so the page never scrolls sideways.
+
+## Typography
+- Pair two roles deliberately: a characterful display/heading treatment and a \
+clean body face (a refined system stack is fine: \
+`system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`; use `ui-monospace, \
+"SF Mono", Menlo, monospace` for code/labels).
+- Set a clear type scale; body line-height 1.5–1.65; keep running text near \
+65ch wide; give headings `text-wrap: balance` and a touch of letter-spacing on \
+uppercase labels.
+
+## Color
+- Choose a deliberate palette, don't leave defaults. Pick a ground, a neutral \
+with a slight hue bias toward the accent (a pure grey reads as unconsidered), \
+and ONE confident accent; keep semantic colors (success/warn/danger) separate \
+from the accent.
+- Commit to a clear look. For a document/report/dashboard, a calm light ground \
+(warm off-white ~#F7F5F0 or clean white) with dark ink usually reads best; a \
+dark UI is fine when the subject calls for it — but make it a choice, and never \
+ship low-contrast text on a muddy background.
+
+## Spacing, components, polish
+- Let layout do spacing: `gap` on flex/grid, not scattered per-element margins. \
+Be generous with whitespace and card padding; keep a consistent rhythm.
+- Cards: hairline border or subtle shadow, ~12–16px radius, real interior \
+padding. Give interactive elements hover and visible :focus states.
+- Responsive: relative units, `max-width: 100%` on media, graceful wrap. \
+Respect `@media (prefers-reduced-motion: reduce)`. Use real content, never lorem.
+
+## Avoid
+Overlapping elements; absolute pixel coordinates for layout; cramped spacing; \
+unstyled browser defaults; walls of same-size text; a lone acid-accent on \
+near-black as a lazy "modern" look. Aim for the calm, editorial polish of a \
+well-made documentation page.
+
+For a standalone vector image you may instead emit a single ```svg block (with \
+a proper `viewBox`). Small illustrative HTML snippets not meant to run stay as \
+ordinary code blocks."""
 
 SUBAGENT_IDENTITY = {
     "explore": (
