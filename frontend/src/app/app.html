@@ -119,11 +119,6 @@
           <i class="dot" [class.live]="!h.mock_model"></i>
           {{ h.mock_model ? 'Mock model' : h.deployment }}
         </span>
-        <div class="stat-row">
-          <span class="stat sm">{{ h.storage_backend }}</span>
-          <span class="stat sm">mcp {{ mcpCount() }}</span>
-          @if (h.auth) { <span class="stat sm">secured</span> }
-        </div>
       }
     </div>
   </aside>
