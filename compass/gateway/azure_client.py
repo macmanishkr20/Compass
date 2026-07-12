@@ -387,6 +387,17 @@ class MockModelClient:
             (m for m in reversed(messages) if m.get("role") == "user"), None
         )
         prompt_text = str(last_user.get("content", "")).lower() if last_user else ""
+        if (
+            not tool_results
+            and "azure" in prompt_text
+            and any(
+                kw in prompt_text
+                for kw in ("diagram", "architecture", "infrastructure", "iad", "topology")
+            )
+        ):
+            async for item in self._stream_markdown(_DRAWIO_ARTIFACT):
+                yield item
+            return
         if not tool_results and any(
             kw in prompt_text
             for kw in ("diagram", "flowchart", "architecture", "sequence diagram", "mermaid")
@@ -482,6 +493,45 @@ class MockModelClient:
 
     async def complete_utility(self, prompt: str, text: str) -> str:
         return "Mock summary of the session so far."
+
+
+_DRAWIO_ARTIFACT = """Here's an Azure infrastructure architecture as an editable \
+draw.io diagram — it uses the official Azure icon set. Open it in diagrams.net to \
+view, edit, and export to PNG, SVG, or Visio.
+
+```drawio
+<mxfile host="app.diagrams.net" type="device">
+  <diagram name="Azure IAD" id="azure">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" arrows="1" page="1" pageWidth="1600" pageHeight="1000">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="edge" value="Edge + Security" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;strokeColor=#0078D4;fillColor=none;verticalAlign=top;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="60" y="120" width="200" height="220" as="geometry"/></mxCell>
+        <mxCell id="fd" value="Azure Front Door" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_front_door;" vertex="1" parent="edge"><mxGeometry x="30" y="40" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="apim" value="API Management" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.api_management_services;" vertex="1" parent="edge"><mxGeometry x="30" y="130" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="app" value="Compute (App Service / AKS)" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;strokeColor=#0078D4;fillColor=none;verticalAlign=top;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="340" y="80" width="320" height="300" as="geometry"/></mxCell>
+        <mxCell id="aks" value="AKS" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.kubernetes_services;" vertex="1" parent="app"><mxGeometry x="40" y="50" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="fn" value="Functions" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.function_apps;" vertex="1" parent="app"><mxGeometry x="200" y="50" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="kv" value="Key Vault" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.key_vaults;" vertex="1" parent="app"><mxGeometry x="40" y="190" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="redis" value="Cache for Redis" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_cache_for_redis;" vertex="1" parent="app"><mxGeometry x="200" y="190" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="data" value="Data + Identity" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;strokeColor=#0078D4;fillColor=none;verticalAlign=top;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="740" y="80" width="320" height="300" as="geometry"/></mxCell>
+        <mxCell id="sql" value="Azure SQL Database" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.sql_database;" vertex="1" parent="data"><mxGeometry x="40" y="50" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="cosmos" value="Cosmos DB" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_cosmos_db;" vertex="1" parent="data"><mxGeometry x="200" y="50" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="blob" value="Blob Storage" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.storage_accounts;" vertex="1" parent="data"><mxGeometry x="40" y="190" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="entra" value="Microsoft Entra ID" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_active_directory;" vertex="1" parent="data"><mxGeometry x="200" y="190" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="ai" value="Application Insights" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.application_insights;" vertex="1" parent="1"><mxGeometry x="440" y="440" width="60" height="60" as="geometry"/></mxCell>
+        <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="fd" target="apim"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" value="route" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="apim" target="aks"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="query" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="aks" target="sql"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="secrets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="aks" target="kv"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="telemetry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;" edge="1" parent="1" source="aks" target="ai"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+```
+
+The layout is on a grid; in draw.io you can run Arrange → Layout to re-flow it."""
 
 
 _MERMAID_ARTIFACT = """Here's the Compass architecture as a Mermaid diagram — \

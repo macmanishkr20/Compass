@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { Artifact } from './models';
+import { Artifact, ArtifactKind } from './models';
 
 /** A fenced block whose first line is a Mermaid diagram directive. */
 const MERMAID_HEAD =
@@ -25,9 +25,17 @@ export class ArtifactService {
 
   /** Decide whether a fenced code block is an artifact (full document), and
    * of which kind. Small inline HTML snippets stay as ordinary code blocks. */
-  static classify(lang: string, code: string): 'html' | 'svg' | 'mermaid' | null {
+  static classify(lang: string, code: string): ArtifactKind | null {
     const l = (lang || '').toLowerCase();
     const trimmed = code.trim();
+    if (
+      l === 'drawio' ||
+      l === 'mxgraph' ||
+      trimmed.startsWith('<mxfile') ||
+      /^<mxGraphModel[\s>]/.test(trimmed)
+    ) {
+      return 'drawio';
+    }
     if (l === 'mermaid' || l === 'mmd' || MERMAID_HEAD.test(trimmed)) return 'mermaid';
     if (l === 'svg' || trimmed.toLowerCase().startsWith('<svg')) return 'svg';
     if (l === 'html' || l === 'htm' || l === 'xml') {
@@ -73,7 +81,11 @@ export class ArtifactService {
   }
 
   /** A human title from the document's <title>/<h1>, else a generic label. */
-  static titleFor(kind: 'html' | 'svg' | 'mermaid', code: string): string {
+  static titleFor(kind: ArtifactKind, code: string): string {
+    if (kind === 'drawio') {
+      const name = /<diagram[^>]*\sname="([^"]+)"/i.exec(code)?.[1]?.trim();
+      return name || 'Azure Architecture Diagram';
+    }
     if (kind === 'mermaid') {
       // A `%% title: X` comment or the diagram type as a friendly label.
       const t = /%%\s*title:\s*(.+)/i.exec(code)?.[1]?.trim();
@@ -142,6 +154,34 @@ export class ArtifactService {
         return line;
       })
       .join('\n');
+  }
+
+  /** Normalize a draw.io artifact into a complete `<mxfile>` document that
+   * diagrams.net / the VS Code draw.io extension / Visio can open directly.
+   * A bare `<mxGraphModel>` is wrapped; an existing `<mxfile>` passes through. */
+  static drawioFile(code: string): string {
+    const t = code.trim();
+    if (t.startsWith('<mxfile')) return t;
+    const model = /<mxGraphModel[\s\S]*<\/mxGraphModel>/i.exec(t)?.[0] ?? t;
+    return `<mxfile host="app.diagrams.net" type="device">\n  <diagram name="Azure Architecture" id="compass">\n    ${model}\n  </diagram>\n</mxfile>`;
+  }
+
+  /** Build a diagrams.net URL that opens the diagram in the editor, using the
+   * same deflate+base64 scheme draw.io uses for its `#R` fragment. Best-effort:
+   * throws if the browser lacks CompressionStream, so callers fall back to the
+   * guaranteed download path. */
+  static async drawioViewerUrl(code: string): Promise<string> {
+    const t = code.trim();
+    const model = /<mxGraphModel[\s\S]*<\/mxGraphModel>/i.exec(t)?.[0] ?? t;
+    // draw.io compresses encodeURIComponent(xml) with raw DEFLATE, then base64.
+    const input = new TextEncoder().encode(encodeURIComponent(model));
+    const cs = new (globalThis as any).CompressionStream('deflate-raw');
+    const stream = new Blob([input]).stream().pipeThrough(cs);
+    const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+    let bin = '';
+    for (const b of buf) bin += String.fromCharCode(b);
+    const b64 = btoa(bin);
+    return 'https://app.diagrams.net/#R' + encodeURIComponent(b64);
   }
 
   /** Wrap raw content into a full, standalone HTML document for preview /

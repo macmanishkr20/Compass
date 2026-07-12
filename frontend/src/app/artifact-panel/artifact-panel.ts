@@ -8,6 +8,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { ArtifactService } from '../artifact.service';
+import { Artifact, ArtifactKind } from '../models';
 import { ThemeService } from '../theme.service';
 
 /**
@@ -33,9 +34,15 @@ import { ThemeService } from '../theme.service';
           <span class="ap-meta">{{ label(a.kind) }} · updated just now</span>
         </div>
         <div class="ap-actions">
-          <button class="ap-btn" title="Refresh" (click)="refresh()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          @if (a.kind === 'drawio') {
+            <button class="ap-btn" title="Download .drawio" (click)="download(a)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          } @else {
+            <button class="ap-btn" title="Refresh" (click)="refresh()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          }
           <button class="ap-btn" [title]="copied() ? 'Copied' : 'Copy code'" (click)="copy(a.code)">
             @if (copied()) {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -43,7 +50,7 @@ import { ThemeService } from '../theme.service';
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
             }
           </button>
-          <button class="ap-btn" title="Open in new tab" (click)="openNewTab()">
+          <button class="ap-btn" [title]="a.kind === 'drawio' ? 'Open in diagrams.net' : 'Open in new tab'" (click)="openNewTab()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <button class="ap-btn" title="Close" (click)="svc.close()">
@@ -66,7 +73,25 @@ import { ThemeService } from '../theme.service';
       </div>
 
       <div class="ap-body">
-        @if (a.kind === 'mermaid') {
+        @if (a.kind === 'drawio') {
+          <div class="ap-drawio" [hidden]="tab() !== 'preview'">
+            <div class="ap-dio-card">
+              <span class="ap-dio-ico">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M10 6.5h4a1 1 0 011 1V14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <h3>{{ a.title }}</h3>
+              <p>An editable Azure architecture diagram with the official Azure
+                icon set. Open it in draw.io to view, edit, and export to
+                PNG, SVG, or Visio.</p>
+              <div class="ap-dio-btns">
+                <button class="ap-dio-primary" (click)="openNewTab()">Open in diagrams.net</button>
+                <button class="ap-dio-secondary" (click)="download(a)">Download .drawio</button>
+              </div>
+              <p class="ap-dio-hint">Tip: in draw.io, <strong>Arrange → Layout</strong>
+                re-flows the diagram if any connectors sit tight.</p>
+            </div>
+          </div>
+        } @else if (a.kind === 'mermaid') {
           <div class="ap-diagram" [hidden]="tab() !== 'preview'">
             @if (mermaidError()) { <pre class="ap-derr">{{ mermaidError() }}</pre> }
             <div #mermaidHost class="ap-mermaid"></div>
@@ -102,6 +127,7 @@ export class ArtifactPanel {
       this.tab();
       this.theme.theme();
       if (!a || this.tab() !== 'preview') return;
+      if (a.kind === 'drawio') return; // rendered as a call-to-action card
       if (a.kind === 'mermaid') {
         void this.renderMermaid(a.code);
       } else {
@@ -118,8 +144,14 @@ export class ArtifactPanel {
     });
   }
 
-  label(kind: 'html' | 'svg' | 'mermaid'): string {
-    return kind === 'mermaid' ? 'DIAGRAM' : kind === 'svg' ? 'SVG' : 'HTML';
+  label(kind: ArtifactKind): string {
+    return kind === 'drawio'
+      ? 'AZURE DIAGRAM'
+      : kind === 'mermaid'
+        ? 'DIAGRAM'
+        : kind === 'svg'
+          ? 'SVG'
+          : 'HTML';
   }
 
   private async renderMermaid(code: string): Promise<void> {
@@ -173,9 +205,20 @@ export class ArtifactPanel {
     setTimeout(() => this.copied.set(false), 1400);
   }
 
-  openNewTab(): void {
+  async openNewTab(): Promise<void> {
     const a = this.svc.active();
     if (!a) return;
+    // draw.io: open the diagram in the diagrams.net editor; fall back to a
+    // download if the browser can't build the compressed URL.
+    if (a.kind === 'drawio') {
+      try {
+        const url = await ArtifactService.drawioViewerUrl(a.code);
+        window.open(url, '_blank', 'noopener');
+      } catch {
+        this.download(a);
+      }
+      return;
+    }
     const html =
       a.kind === 'mermaid'
         ? `<!doctype html><html><head><meta charset="utf-8">
@@ -185,6 +228,23 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+
+  /** Save the diagram as a `.drawio` file the user can open in draw.io / Visio. */
+  download(a: Artifact): void {
+    const xml = ArtifactService.drawioFile(a.code);
+    const name =
+      (a.title || 'azure-architecture').replace(/[^\w.-]+/g, '-').toLowerCase() +
+      '.drawio';
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
 }

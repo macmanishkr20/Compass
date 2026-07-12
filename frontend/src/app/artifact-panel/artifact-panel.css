@@ -140,3 +140,68 @@
   background: var(--danger-tint);
   white-space: pre-wrap;
 }
+
+/* draw.io / Azure diagram — an open-in-editor call to action (offline-safe) */
+.ap-drawio {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--ink) 8%, transparent) 1px, transparent 0)
+    0 0 / 22px 22px,
+    var(--surface);
+}
+.ap-dio-card {
+  max-width: 380px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 26px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+}
+.ap-dio-ico {
+  width: 60px; height: 60px;
+  display: grid; place-items: center;
+  border-radius: 14px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.ap-dio-card h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+.ap-dio-card p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.ap-dio-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 4px; }
+.ap-dio-primary, .ap-dio-secondary {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: filter 0.14s, background 0.14s, border-color 0.14s;
+}
+.ap-dio-primary {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-ink, #fff);
+}
+.ap-dio-primary:hover { filter: brightness(1.06); }
+.ap-dio-secondary {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+.ap-dio-secondary:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); }
+.ap-dio-hint { font-size: 0.72rem; color: var(--muted); }
+.ap-dio-hint strong { color: var(--ink); font-weight: 600; }

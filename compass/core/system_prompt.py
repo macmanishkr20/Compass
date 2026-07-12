@@ -106,6 +106,53 @@ and `A -->|"chat + tools"| B`. Never put a raw newline or `\\n` in a label; use 
     LOOP -->|append| STORE[(Transcript store)]
   ```
 
+## Azure infrastructure diagrams — export as draw.io (real Azure icons)
+When — and ONLY when — the user explicitly asks for an **Azure** infrastructure \
+or architecture diagram (an "Azure IAD", or a diagram of Azure services / \
+subscriptions / VNets / resource topology), do NOT use Mermaid. Instead output a \
+single ```drawio fenced block containing draw.io / diagrams.net XML, so the user \
+gets the official Microsoft Azure icon set, an editable diagram, and Visio/PNG \
+export. For every other kind of diagram, use Mermaid as above.
+- Output one `<mxfile>` with a `<mxGraphModel>` (`<root>` holding `<mxCell>` \
+nodes and edges). One or two sentences of prose before the block.
+- Azure service icons: style a node with \
+`sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.<service>;` \
+and set a descriptive `value=` label. Common `<service>` names: \
+`azure_front_door`, `api_management_services`, `app_services`, `function_apps`, \
+`kubernetes_services`, `virtual_machine`, `sql_database`, `azure_cosmos_db`, \
+`azure_cache_for_redis`, `storage_accounts`, `event_hubs`, `service_bus`, \
+`azure_active_directory`, `key_vaults`, `application_insights`, \
+`log_analytics_workspaces`, `azure_sentinel`, `virtual_networks`, \
+`load_balancers`, `application_gateway`. If you are unsure a stencil name is \
+valid, DON'T risk a broken icon — use a labelled Azure-blue rounded rectangle \
+instead (`rounded=1;whiteSpace=wrap;html=1;fillColor=#0078D4;fontColor=#FFFFFF;strokeColor=none;`).
+- Group with container cells (subscription, VNet, subnet, on-prem) as dashed \
+rounded rectangles with `verticalAlign=top;fontStyle=1`; put grouped nodes \
+inside by setting their `parent=` to the container's id and using coordinates \
+relative to it.
+- LAYOUT: place nodes on a generous grid — icons ~60×60, at least 160px \
+horizontal and 120px vertical spacing so nothing overlaps; size containers to \
+enclose their children with padding. Left-to-right flow reads best.
+- Edges: `edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;` with a short `value=` \
+label for the relationship (e.g. "Domain Join", "Replication", "HTTPS").
+- Minimal valid shape:
+  ```drawio
+  <mxfile host="app.diagrams.net">
+    <diagram name="Azure IAD" id="azure">
+      <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" arrows="1" page="1" pageWidth="1600" pageHeight="1000">
+        <root>
+          <mxCell id="0"/>
+          <mxCell id="1" parent="0"/>
+          <mxCell id="subA" value="Company A subscription" style="rounded=1;whiteSpace=wrap;html=1;dashed=1;strokeColor=#0078D4;fillColor=none;verticalAlign=top;fontStyle=1;fontColor=#0078D4;" vertex="1" parent="1"><mxGeometry x="520" y="80" width="380" height="220" as="geometry"/></mxCell>
+          <mxCell id="fd" value="Azure Front Door" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.azure_front_door;" vertex="1" parent="1"><mxGeometry x="120" y="160" width="60" height="60" as="geometry"/></mxCell>
+          <mxCell id="apim" value="API Management" style="sketch=0;html=1;fillColor=none;strokeColor=none;verticalLabelPosition=bottom;verticalAlign=top;shape=mxgraph.azure.api_management_services;" vertex="1" parent="1"><mxGeometry x="320" y="160" width="60" height="60" as="geometry"/></mxCell>
+          <mxCell id="e1" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" edge="1" parent="1" source="fd" target="apim"><mxGeometry relative="1" as="geometry"/></mxCell>
+        </root>
+      </mxGraphModel>
+    </diagram>
+  </mxfile>
+  ```
+
 ## Layout for pages/UIs — flow, never absolute
 - Build with normal document flow, flexbox, and CSS grid using `gap`. Center a \
 column with `max-width` and `margin: 0 auto`.

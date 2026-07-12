@@ -118,10 +118,12 @@ export interface SessionCard {
   message_count: number;
 }
 
+export type ArtifactKind = 'html' | 'svg' | 'mermaid' | 'drawio';
+
 export interface Artifact {
   id: string;
   title: string;
-  kind: 'html' | 'svg' | 'mermaid';
+  kind: ArtifactKind;
   code: string;
 }
 
