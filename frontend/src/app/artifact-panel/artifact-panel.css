@@ -14,50 +14,61 @@
 .ap-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 11px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
-.ap-id { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
-.ap-ico { color: var(--accent); display: inline-flex; flex-shrink: 0; }
+.ap-ico {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.ap-id { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.25; }
 .ap-title {
   font-weight: 650;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ap-kind {
-  font-family: var(--mono);
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: var(--accent-tint);
-  padding: 2px 6px;
-  border-radius: 4px;
-  flex-shrink: 0;
+.ap-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Preview / Code segmented control on its own bar, like Claude's. */
+.ap-tabbar {
+  display: flex;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
 .ap-tabs {
   display: inline-flex;
   gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
+  padding: 3px;
+  border-radius: 9px;
   background: color-mix(in oklab, var(--ink) 6%, transparent);
-  flex-shrink: 0;
 }
 .ap-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--sans);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--muted);
   background: none;
   border: none;
   border-radius: 6px;
-  padding: 5px 12px;
+  padding: 6px 14px;
   cursor: pointer;
   transition: background 0.14s, color 0.14s;
 }

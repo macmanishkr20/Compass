@@ -737,8 +737,23 @@ export class App {
       // never emits the assistant_message that would clear a bubble's
       // streaming flag, so clear them all here.
       this.clearStreamingFlags();
+      this.autoOpenArtifact();
       await this.backfillUuids(sid);
       await this.refreshSessions();
+    }
+  }
+
+  /** When a completed response contains an artifact, open it in the panel —
+   * the way Claude reveals an artifact as soon as it's produced. */
+  private autoOpenArtifact(): void {
+    const items = this.timeline();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'bubble' && it.role === 'assistant' && it.text) {
+        const art = ArtifactService.extract(it.text);
+        if (art) this.artifacts.open(art);
+        return; // only consider the most recent assistant message
+      }
     }
   }
 

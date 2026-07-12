@@ -39,6 +39,34 @@ export class ArtifactService {
     return null;
   }
 
+  /** Stable id from the content (djb2) so the same artifact keeps one identity
+   * across re-parses and matches between the chat card and the auto-open. */
+  static idFor(code: string): string {
+    let h = 5381;
+    for (let i = 0; i < code.length; i++) h = ((h << 5) + h + code.charCodeAt(i)) | 0;
+    return 'art' + (h >>> 0).toString(36);
+  }
+
+  /** Extract the last artifact-worthy fenced block from a message, or null. */
+  static extract(text: string): Artifact | null {
+    const fence = /```([\w+-]*)\n?([\s\S]*?)```/g;
+    let m: RegExpExecArray | null;
+    let found: Artifact | null = null;
+    while ((m = fence.exec(text))) {
+      const code = m[2].replace(/\n$/, '');
+      const kind = ArtifactService.classify(m[1] || '', code);
+      if (kind) {
+        found = {
+          id: ArtifactService.idFor(code),
+          kind,
+          title: ArtifactService.titleFor(kind, code),
+          code,
+        };
+      }
+    }
+    return found;
+  }
+
   /** A human title from the document's <title>/<h1>, else a generic label. */
   static titleFor(kind: 'html' | 'svg', code: string): string {
     const title = /<title[^>]*>([^<]+)<\/title>/i.exec(code)?.[1]?.trim();

@@ -52,7 +52,7 @@
   border-bottom: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+.brand-text { display: flex; flex-direction: column; }
 .brand-name {
   font-weight: 700;
   font-size: 0.98rem;
@@ -300,6 +300,9 @@
 .main {
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* Constrain the single implicit column to the cell width so a crowded
+     topbar wraps instead of overflowing into the artifact panel. */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   gap: 12px;
@@ -308,7 +311,11 @@
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
+  /* When the chat column is narrow (artifact open) the controls wrap to a
+     second row instead of overflowing the column. */
+  flex-wrap: wrap;
+  min-width: 0;
   padding: 11px 16px;
   backdrop-filter: blur(12px);
   /* backdrop-filter traps children (account/workspace menus) in the topbar's
@@ -317,7 +324,9 @@
   position: relative;
   z-index: 30;
 }
-.topbar-title { flex: 1; min-width: 0; }
+/* Grows to fill row 1 when there's room; shrinks (with ellipsis) and lets the
+   controls wrap below when the column is narrow. */
+.topbar-title { flex: 1 1 160px; min-width: 0; }
 .crumb {
   font-size: 0.9rem;
   font-weight: 600;
