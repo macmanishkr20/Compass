@@ -1,9 +1,11 @@
-// A compact, self-contained Azure service icon set. Each icon is a rounded
-// tile in the service's brand-family colour with a white line glyph — clean,
-// consistent, and (crucially) embeddable as a data: URI so it renders in the
-// inline preview, in draw.io / diagrams.net, and in exported PNG/SVG/Visio
-// without depending on any external stencil library. The vocabulary keys are
-// what the model references in its diagram spec.
+// Azure service icons for the diagram compiler. Where we have the official
+// Microsoft artwork (OFFICIAL_ICONS, the same set diagrams.net ships) we use it
+// verbatim; otherwise we fall back to a clean brand-coloured glyph tile. Every
+// icon resolves to a self-contained data: URI, so it renders identically inline,
+// in draw.io / diagrams.net, and in exported PNG/SVG/Visio with no external
+// requests. The vocabulary keys are what the model references in its spec.
+
+import { OFFICIAL_ICONS } from './azure-icons-official';
 
 export interface AzureIcon {
   /** Friendly default label if the spec doesn't give one. */
@@ -177,13 +179,20 @@ const ALIASES: Record<string, string> = {
   browser: 'users',
 };
 
-export function resolveIcon(service: string): AzureIcon {
+/** Canonical vocabulary key for a service name (resolves aliases). */
+export function iconKey(service: string): string {
   const key = (service || '').toLowerCase().replace(/[\s-]+/g, '_');
-  return AZURE_ICONS[key] ?? AZURE_ICONS[ALIASES[key]] ?? AZURE_ICONS['generic'];
+  if (AZURE_ICONS[key]) return key;
+  if (ALIASES[key]) return ALIASES[key];
+  return 'generic';
 }
 
-/** A standalone 48×48 SVG string for the service tile. */
-export function iconSvg(service: string): string {
+export function resolveIcon(service: string): AzureIcon {
+  return AZURE_ICONS[iconKey(service)];
+}
+
+/** A standalone 48×48 SVG string for the glyph-tile fallback. */
+export function tileSvg(service: string): string {
   const ic = resolveIcon(service);
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">` +
@@ -193,8 +202,31 @@ export function iconSvg(service: string): string {
   );
 }
 
-/** The tile as a base64 data: URI, for draw.io image shapes. */
+/** Whether this service has official Microsoft artwork (vs the glyph tile). */
+export function hasOfficialIcon(service: string): boolean {
+  return !!OFFICIAL_ICONS[iconKey(service)];
+}
+
+/** The icon as a data: URI — official Microsoft artwork when we have it, else
+ * the brand-coloured glyph tile. Used inline (via <image>) and in draw.io. */
 export function iconDataUri(service: string): string {
-  // Icons are ASCII, so btoa is safe.
-  return 'data:image/svg+xml;base64,' + btoa(iconSvg(service));
+  const key = iconKey(service);
+  return OFFICIAL_ICONS[key] ?? 'data:image/svg+xml;base64,' + btoa(tileSvg(service));
+}
+
+// Rough indicative monthly cost (USD) per service, for the estimate badges —
+// order-of-magnitude only, like the reference builder's figures.
+const COST: Record<string, number> = {
+  front_door: 35, application_gateway: 125, load_balancer: 18, vnet: 0,
+  app_service: 69.35, function_app: 0, aks: 150, vm: 70,
+  apim: 48, service_bus: 10, event_hub: 22,
+  entra_id: 6, key_vault: 21.9, sql_database: 15,
+  cosmos_db: 24, redis: 64.24, storage: 5,
+  app_insights: 12, log_analytics: 8, monitor: 0, users: 0, generic: 0,
+};
+
+/** Indicative monthly cost for a service, or null if not estimated. */
+export function costOf(service: string): number | null {
+  const c = COST[iconKey(service)];
+  return c == null ? null : c;
 }
