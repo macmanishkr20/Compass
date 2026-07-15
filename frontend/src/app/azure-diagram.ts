@@ -1,10 +1,13 @@
 // Azure architecture "compiler": takes a structured diagram spec (which the
 // model can produce reliably) and computes a clean, non-overlapping layout,
 // then renders it two ways from the SAME layout — an inline SVG preview and an
-// editable draw.io / diagrams.net document. Because WE compute coordinates and
-// embed the icons as data: URIs, the result can never overlap the way raw
-// model-authored XML does, and the Azure icons always render.
+// editable draw.io / diagrams.net document. Layout is done by ELK's `layered`
+// algorithm with compound (group) nodes — the same engine the Azure
+// Architecture Diagram Builder uses — so ranks, spacing, and group boxes are
+// computed properly and align. Icons are embedded as data: URIs so they always
+// render, and never overlap the way raw model-authored XML does.
 
+import ELK from 'elkjs/lib/elk.bundled.js';
 import { costOf, iconDataUri, resolveIcon } from './azure-icons';
 
 export interface SpecNode {
@@ -54,16 +57,14 @@ interface Laid {
   byId: Map<string, NodeBox>;
 }
 
-// Layout constants.
-const NODE_W = 158;
-const NODE_H = 108; // white service card (icon + label + cost badge)
-const COL_GAP = 66; // room for sticky-note edge labels between columns
-const ROW_GAP = 60;
-const COLS = 3; // nodes per row inside a group
-const PAD = 26; // inner padding of a group
-const HEADER = 34; // group title band
-const GROUP_GAP = 40; // between sibling groups
-const CANVAS_PAD = 44;
+// Layout constants (mirrors the reference builder's ELK tuning).
+const NODE_W = 168;
+const NODE_H = 112; // white service card (icon + label + cost badge)
+const NODE_SPACING = 90; // between nodes within a rank
+const RANK_SPACING = 150; // between ranks (room for sticky-note edge labels)
+const GROUP_PAD = 30; // inner padding of a group box
+const HEADER = 30; // extra top padding for the group title
+const CANVAS_PAD = 52; // outer margin (room for cost badges / labels)
 
 // Soft zone tints (fill + title), cycled per container — echoes the tinted
 // lanes of a hand-built Azure diagram.
@@ -88,140 +89,135 @@ export function parseSpec(code: string): DiagramSpec | null {
   return null;
 }
 
-/**
- * Recursively size and place groups and nodes. Each group lays out its child
- * groups first (as a wrapping row band), then its direct nodes (a grid). Sizes
- * bubble up so every container encloses its children with padding — nothing can
- * overlap because siblings are packed with fixed gaps.
- */
-export function layout(spec: DiagramSpec): Laid {
-  const groups = spec.groups ?? [];
-  const childGroupsOf = (pid: string | undefined) =>
-    groups.filter((g) => (g.parent ?? '') === (pid ?? ''));
-  const nodesOf = (gid: string | undefined) =>
-    spec.nodes.filter((n) => (n.group ?? '') === (gid ?? ''));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ElkNodeT = any;
+const elk = new ELK();
 
+/**
+ * Lay the spec out with ELK's layered algorithm and compound group nodes, then
+ * flatten ELK's parent-relative coordinates to absolute Box positions for our
+ * renderers. Groups nest arbitrarily (subscription → VNet → subnet); a group
+ * with no descendant services is dropped so ELK never sees an empty compound.
+ */
+export async function layout(spec: DiagramSpec): Promise<Laid> {
+  const allGroups = spec.groups ?? [];
+  const nodes = spec.nodes ?? [];
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  const gid = (v: string | undefined) => v ?? '';
+  const childGroupsOf = (pid: string | undefined) =>
+    allGroups.filter((g) => gid(g.parent) === gid(pid));
+  const nodesOf = (g: string | undefined) =>
+    nodes.filter((n) => gid(n.group) === gid(g));
+
+  // A group counts only if it (recursively) holds at least one node.
+  const hasContent = (id: string): boolean =>
+    nodesOf(id).length > 0 || childGroupsOf(id).some((c) => hasContent(c.id));
+  const groups = allGroups.filter((g) => hasContent(g.id));
+  const groupById = new Map(groups.map((g) => [g.id, g]));
+  const keepGroup = (id: string) => groupById.has(id);
+
+  // Build ELK children for a container id (undefined = root).
+  function buildChildren(container: string | undefined): ElkNodeT[] {
+    const subGroups = childGroupsOf(container)
+      .filter((g) => keepGroup(g.id))
+      .map((g) => ({
+        id: g.id,
+        layoutOptions: {
+          'elk.padding': `[top=${GROUP_PAD + HEADER},left=${GROUP_PAD},bottom=${GROUP_PAD},right=${GROUP_PAD}]`,
+          'elk.spacing.nodeNode': String(NODE_SPACING),
+          'elk.layered.spacing.nodeNodeBetweenLayers': String(RANK_SPACING),
+        },
+        children: buildChildren(g.id),
+      }));
+    const memberNodes = nodesOf(container).map((n) => ({
+      id: n.id,
+      width: NODE_W,
+      height: NODE_H,
+    }));
+    return [...subGroups, ...memberNodes];
+  }
+
+  const edgeList = (spec.edges ?? []).filter(
+    (e) => nodeById.has(e.from) && nodeById.has(e.to),
+  );
+
+  const root: ElkNodeT = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.spacing.nodeNode': String(NODE_SPACING),
+      'elk.layered.spacing.nodeNodeBetweenLayers': String(RANK_SPACING),
+      'elk.spacing.edgeNode': '40',
+      'elk.spacing.edgeEdge': '24',
+      'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
+      'elk.padding': `[top=${CANVAS_PAD},left=${CANVAS_PAD},bottom=${CANVAS_PAD},right=${CANVAS_PAD}]`,
+    },
+    children: buildChildren(undefined),
+    edges: edgeList.map((e, i) => ({
+      id: 'e' + i,
+      sources: [e.from],
+      targets: [e.to],
+    })),
+  };
+
+  const res: ElkNodeT = await elk.layout(root);
+
+  // Flatten ELK's parent-relative coordinates to absolute boxes.
   const groupBoxes: Box[] = [];
   const nodeBoxes: NodeBox[] = [];
+  const num = (v: unknown, d: number) =>
+    typeof v === 'number' && isFinite(v) ? v : d;
 
-  // Measure + place a container's children starting at local origin; returns
-  // the content size. Placement writes absolute coords via the (ox, oy) offset.
-  function place(
-    gid: string | undefined,
-    ox: number,
-    oy: number,
-  ): { w: number; h: number } {
-    const subGroups = childGroupsOf(gid);
-    const dirNodes = nodesOf(gid);
-    let cursorY = oy;
-    let contentW = 0;
-
-    // 1) Direct nodes first (top): a COLS-wide grid, so entry-point services
-    //    read above the nested groups they hand off to.
-    if (dirNodes.length) {
-      const cols = Math.min(COLS, dirNodes.length);
-      dirNodes.forEach((n, i) => {
-        const c = i % cols;
-        const r = Math.floor(i / cols);
-        const nx = ox + c * (NODE_W + COL_GAP);
-        const ny = cursorY + r * (NODE_H + ROW_GAP);
+  function walk(node: ElkNodeT, ox: number, oy: number): void {
+    for (const child of node.children ?? []) {
+      const ax = ox + num(child.x, 0);
+      const ay = oy + num(child.y, 0);
+      if (groupById.has(child.id)) {
+        const g = groupById.get(child.id)!;
+        groupBoxes.push({
+          id: g.id,
+          label: g.label ?? '',
+          x: ax,
+          y: ay,
+          w: num(child.width, 240),
+          h: num(child.height, 160),
+        });
+        walk(child, ax, ay);
+      } else if (nodeById.has(child.id)) {
+        const n = nodeById.get(child.id)!;
         nodeBoxes.push({
           id: n.id,
           service: n.service,
           label: n.label ?? resolveIcon(n.service).name,
-          x: nx,
-          y: ny,
-          w: NODE_W,
-          h: NODE_H,
+          x: ax,
+          y: ay,
+          w: num(child.width, NODE_W),
+          h: num(child.height, NODE_H),
         });
-      });
-      const rows = Math.ceil(dirNodes.length / cols);
-      contentW = Math.max(contentW, cols * NODE_W + (cols - 1) * COL_GAP);
-      cursorY += rows * NODE_H + (rows - 1) * ROW_GAP;
-    }
-
-    // 2) Child-group band below: lay siblings left→right, wrapping when wide.
-    if (subGroups.length) {
-      if (dirNodes.length) cursorY += GROUP_GAP;
-      const MAX_ROW = 3; // groups per row
-      let rowX = ox;
-      let rowStartY = cursorY;
-      let rowH = 0;
-      let inRow = 0;
-      for (const sg of subGroups) {
-        const size = measure(sg.id);
-        if (inRow >= MAX_ROW) {
-          cursorY = rowStartY + rowH + GROUP_GAP;
-          rowX = ox;
-          rowStartY = cursorY;
-          rowH = 0;
-          inRow = 0;
-        }
-        placeAt(sg, rowX, rowStartY, size);
-        rowX += size.w + GROUP_GAP;
-        rowH = Math.max(rowH, size.h);
-        contentW = Math.max(contentW, rowX - GROUP_GAP - ox);
-        inRow++;
       }
-      cursorY = rowStartY + rowH;
     }
-
-    return { w: contentW, h: cursorY - oy };
   }
-
-  // measure returns the full outer size of a group (header + padded content).
-  function measure(gid: string): { w: number; h: number } {
-    // Dry-run place into throwaway arrays to get content size.
-    const savedG = groupBoxes.length;
-    const savedN = nodeBoxes.length;
-    const content = place(gid, 0, 0);
-    // discard the dry-run placements
-    groupBoxes.length = savedG;
-    nodeBoxes.length = savedN;
-    return {
-      w: Math.max(content.w, 140) + PAD * 2,
-      h: content.h + HEADER + PAD * 2,
-    };
-  }
-
-  // placeAt commits a group box at (x,y) and lays its children inside.
-  function placeAt(
-    g: SpecGroup,
-    x: number,
-    y: number,
-    size: { w: number; h: number },
-  ): void {
-    groupBoxes.push({
-      id: g.id,
-      label: g.label ?? '',
-      x,
-      y,
-      w: size.w,
-      h: size.h,
-    });
-    place(g.id, x + PAD, y + HEADER + PAD);
-  }
-
-  // Top level: root groups (band) then ungrouped nodes.
-  const content = place(undefined, CANVAS_PAD, CANVAS_PAD);
-  const width = content.w + CANVAS_PAD * 2;
-  const height = content.h + CANVAS_PAD * 2;
+  walk(res, 0, 0);
 
   const byId = new Map<string, NodeBox>();
   for (const n of nodeBoxes) byId.set(n.id, n);
-  const edges = (spec.edges ?? [])
-    .filter((e) => byId.has(e.from) && byId.has(e.to))
-    .map((e) => ({
-      from: e.from,
-      to: e.to,
-      label: e.label ?? '',
-      dashed: !!e.dashed,
-    }));
+  const edges = edgeList.map((e) => ({
+    from: e.from,
+    to: e.to,
+    label: e.label ?? '',
+    dashed: !!e.dashed,
+  }));
 
+  // Outer size ELK reports already includes CANVAS_PAD; add a hair for the
+  // cost badges that overhang node tops.
   return {
     title: spec.title ?? 'Azure Architecture',
-    width,
-    height,
+    width: num(res.width, 800) + 12,
+    height: num(res.height, 600) + 12,
     groups: groupBoxes,
     nodes: nodeBoxes,
     edges,
@@ -289,7 +285,7 @@ export function toSvg(laid: Laid, dark: boolean): string {
   const line = dark ? '#6b7c8f' : '#7f93b0';
   const parts: string[] = [];
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${laid.width} ${laid.height}" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${laid.width} ${laid.height}" preserveAspectRatio="xMidYMid meet" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif">`,
   );
   parts.push(
     `<defs><marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M1 1L9 5 1 9z" fill="${line}"/></marker>` +

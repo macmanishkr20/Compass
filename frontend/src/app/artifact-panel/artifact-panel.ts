@@ -75,9 +75,9 @@ import { ThemeService } from '../theme.service';
 
       <div class="ap-body">
         @if (a.kind === 'azure') {
-          <div class="ap-diagram" [hidden]="tab() !== 'preview'">
+          <div class="ap-diagram ap-azure" [hidden]="tab() !== 'preview'">
             @if (azureError()) { <pre class="ap-derr">{{ azureError() }}</pre> }
-            <div #azureHost class="ap-mermaid"></div>
+            <div #azureHost class="ap-azuresvg"></div>
             <div class="ap-azure-bar">
               <span>Editable Azure diagram · real icons travel inside the file</span>
               <span class="ap-azure-acts">
@@ -146,7 +146,7 @@ export class ArtifactPanel {
       if (!a || this.tab() !== 'preview') return;
       if (a.kind === 'drawio') return; // rendered as a call-to-action card
       if (a.kind === 'azure') {
-        this.renderAzure(a.code);
+        void this.renderAzure(a.code);
       } else if (a.kind === 'mermaid') {
         void this.renderMermaid(a.code);
       } else {
@@ -197,31 +197,45 @@ export class ArtifactPanel {
   }
 
   /** Compile the Azure spec into a laid-out inline SVG (and cache the matching
-   * draw.io export). Layout is computed here, so nodes/edges never overlap. */
-  private renderAzure(code: string): void {
-    let svg = '';
+   * draw.io export). Layout runs through ELK (async), so nodes/edges/groups are
+   * properly ranked and never overlap. */
+  private async renderAzure(code: string): Promise<void> {
     const spec = parseSpec(code);
     if (!spec) {
       this.azureError.set(
         'Could not read the Azure diagram spec (expected JSON with a "nodes" array).',
       );
       this.azureDrawio = '';
-    } else {
-      try {
-        const laid = layout(spec);
-        svg = toSvg(laid, this.theme.theme() === 'dark');
-        this.azureDrawio = toDrawio(laid);
-        this.azureError.set('');
-      } catch (err) {
-        this.azureError.set(
-          (err as Error)?.message ?? 'Could not render this diagram.',
-        );
-        this.azureDrawio = '';
-      }
+      this.setAzureHost('');
+      return;
     }
+    try {
+      const laid = await layout(spec);
+      // A newer artifact may have superseded this one while ELK ran.
+      if (this.svc.active()?.code !== code) return;
+      this.azureDrawio = toDrawio(laid);
+      this.azureError.set('');
+      this.setAzureHost(toSvg(laid, this.theme.theme() === 'dark'));
+    } catch (err) {
+      this.azureError.set(
+        (err as Error)?.message ?? 'Could not render this diagram.',
+      );
+      this.azureDrawio = '';
+      this.setAzureHost('');
+    }
+  }
+
+  private setAzureHost(svg: string): void {
     queueMicrotask(() => {
       const host = this.azureHost()?.nativeElement;
-      if (host) host.innerHTML = svg;
+      if (!host) return;
+      host.innerHTML = svg;
+      // Start at the entry point (top-left), not wherever it last scrolled.
+      const scroller = host.closest('.ap-azure') as HTMLElement | null;
+      if (scroller) {
+        scroller.scrollLeft = 0;
+        scroller.scrollTop = 0;
+      }
     });
   }
 
