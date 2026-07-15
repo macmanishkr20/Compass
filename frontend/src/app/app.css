@@ -675,6 +675,47 @@
   border-left: 1px solid var(--border);
 }
 
+/* While the group is still working: shimmer the summary text and sweep a soft
+ * highlight across the collapsed bar, Claude-style. */
+.activity.running .activity-summary {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    var(--accent) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+.activity.running .activity-head {
+  position: relative;
+  overflow: hidden;
+}
+.activity.running .activity-head::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in oklab, var(--accent) 9%, transparent) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: bar-sweep 2.2s linear infinite;
+}
+@keyframes bar-sweep {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity.running .activity-head::after { animation: none; display: none; }
+  .activity.running .activity-summary { animation: none; }
+}
+
 /* ============================= Thinking ============================ */
 .thinking-row { align-items: center; }
 /* Borderless, quiet — just the shimmering thought text next to the radar. */
@@ -701,6 +742,13 @@
 }
 @keyframes shimmer {
   to { background-position: -200% 0; }
+}
+/* Live turn meters beside the rotating status: elapsed · tokens. */
+.thinking-meta {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
 }
 .thinking-dots { display: inline-flex; gap: 3px; }
 .thinking-dots i {

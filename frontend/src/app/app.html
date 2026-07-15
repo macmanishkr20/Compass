@@ -334,7 +334,7 @@
 
       @for (block of renderBlocks(); track trackBlock($index, block)) {
         @if (block.kind === 'activity') {
-          <div class="activity" [class.open]="isActivityExpanded(block.id)">
+          <div class="activity" [class.open]="isActivityExpanded(block.id)" [class.running]="block.running">
             <button class="activity-head" (click)="toggleActivity(block.id)">
               <svg class="activity-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               @if (block.running) {
@@ -497,11 +497,12 @@
         }
       </ng-template>
 
-      @if (thinking()) {
+      @if (streaming()) {
         <div class="row thinking-row">
           <span class="avatar bare"><app-loading-radar [size]="26" [active]="true" /></span>
           <div class="thinking">
             <span class="thinking-text">{{ thinkingMsg() }}</span>
+            <span class="thinking-meta">{{ formatDuration(elapsedMs()) }} · {{ liveTokens() }} tokens</span>
           </div>
         </div>
       }

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol
@@ -22,6 +23,10 @@ from typing import Any, AsyncIterator, Protocol
 from compass.config import get_settings
 
 logger = logging.getLogger("compass.gateway")
+
+# Optional per-token pacing for the mock, so streaming/loading UI can be observed
+# (e.g. in a preview). 0 = as fast as possible (default).
+_MOCK_SLOW = float(os.getenv("COMPASS_MOCK_SLOW", "0") or 0)
 
 MAX_RETRIES = 4
 BASE_DELAY_SECONDS = 1.0
@@ -425,10 +430,16 @@ class MockModelClient:
                 command = "touch data/permission-demo.txt"
             else:
                 text = "I'll check the workspace first."
-                command = "echo compass-smoke-ok"
+                # In slow mode the tool genuinely takes a few seconds, so the
+                # "running" activity bar (and its shimmer) is observable.
+                command = (
+                    "sleep 3 && echo compass-smoke-ok"
+                    if _MOCK_SLOW
+                    else "echo compass-smoke-ok"
+                )
             for word in text.split(" "):
                 yield StreamDelta(text=word + " ")
-                await asyncio.sleep(0)
+                await asyncio.sleep(_MOCK_SLOW)
             yield CompletionResult(
                 content=text,
                 tool_calls=[
@@ -460,7 +471,7 @@ class MockModelClient:
             text = "Done — the command ran successfully and the workspace is reachable."
         for word in text.split(" "):
             yield StreamDelta(text=word + " ")
-            await asyncio.sleep(0)
+            await asyncio.sleep(_MOCK_SLOW)
         yield CompletionResult(
             content=text,
             tool_calls=[],
@@ -481,7 +492,7 @@ class MockModelClient:
         for piece in re.split(r"(\s+)", markdown):
             if piece:
                 yield StreamDelta(text=piece)
-                await asyncio.sleep(0.004)
+                await asyncio.sleep(max(0.004, _MOCK_SLOW))
         yield CompletionResult(
             content=markdown,
             tool_calls=[],

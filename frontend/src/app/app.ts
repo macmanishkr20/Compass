@@ -103,6 +103,10 @@ export class App {
   // -- "thinking" loader (shown until the first token / tool / permission)
   readonly thinking = signal(false);
   readonly thinkingMsg = signal('');
+  // Live turn meters (Claude-style): elapsed wall-clock and output tokens so
+  // far, shown next to the radar while the whole turn streams.
+  readonly elapsedMs = signal(0);
+  readonly liveTokens = signal(0);
   private readonly thinkingLines = [
     'Consulting the schema…',
     'Tracing the query plan…',
@@ -350,15 +354,25 @@ export class App {
         el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
       });
     });
-    // Rotate the thinking message while we await the first token.
+    // Rotate the status message for the whole turn (Claude keeps its verbs
+    // cycling until the final answer lands, not just until the first token).
     effect((onCleanup) => {
-      if (!this.thinking()) return;
+      if (!this.streaming()) return;
       this.thinkingIdx = 0;
       this.thinkingMsg.set(this.thinkingLines[0]);
       const id = setInterval(() => {
         this.thinkingIdx = (this.thinkingIdx + 1) % this.thinkingLines.length;
         this.thinkingMsg.set(this.thinkingLines[this.thinkingIdx]);
       }, 2400);
+      onCleanup(() => clearInterval(id));
+    });
+    // Tick the elapsed-time meter while a turn is in flight.
+    effect((onCleanup) => {
+      if (!this.streaming()) return;
+      const id = setInterval(
+        () => this.elapsedMs.set(Math.round(performance.now() - this.turnStartMs)),
+        250,
+      );
       onCleanup(() => clearInterval(id));
     });
   }
@@ -721,6 +735,8 @@ export class App {
     this.currentBubble = null;
     this.turnStartMs = performance.now();
     this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
+    this.elapsedMs.set(0);
+    this.liveTokens.set(0);
     try {
       await start((ev) => this.onEvent(ev));
     } catch (err) {
@@ -852,6 +868,11 @@ export class App {
           ...(b as ChatBubble),
           text: (b as ChatBubble).text + text,
         }));
+        // Live meter: ~4 chars/token estimate between usage_report events,
+        // which then snap the counter to the real figure.
+        if (text) {
+          this.liveTokens.update((t) => t + Math.max(1, Math.round(text.length / 4)));
+        }
         break;
       }
       case 'assistant_message':
@@ -912,14 +933,19 @@ export class App {
           text: `context compacted (${ev['stage']}): ${ev['tokens_before']} → ${ev['tokens_after']} tokens`,
         });
         break;
-      case 'usage_report':
+      case 'usage_report': {
         this.usage.set({
           promptTokens: (ev['prompt_tokens'] as number) ?? 0,
           cachedPromptTokens: (ev['cached_prompt_tokens'] as number) ?? 0,
           completionTokens: (ev['completion_tokens'] as number) ?? 0,
           costUsd: (ev['cost_usd'] as number) ?? 0,
         });
+        // Snap the live token meter to the authoritative count.
+        const real =
+          ((ev['completion_tokens'] as number) ?? 0) - this.turnStartCompletion;
+        if (real > 0) this.liveTokens.set(real);
         break;
+      }
       case 'turn_complete': {
         // Attach per-response duration + output-token count to the last
         // assistant bubble (Claude shows these under the message).
