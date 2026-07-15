@@ -365,12 +365,8 @@
             @let b = asBubble(item);
             <div class="row" [class.mine]="b.role === 'user'">
               @if (b.role === 'assistant') {
-                <span class="avatar" [class.bare]="!!b.streaming">
-                  @if (b.streaming) {
-                    <app-loading-radar [size]="26" [active]="true" />
-                  } @else {
-                    <app-compass-mark [size]="22" />
-                  }
+                <span class="avatar">
+                  <app-compass-mark [size]="22" />
                 </span>
               }
               @if (b.editing) {
@@ -386,7 +382,6 @@
                   <article class="bubble" [class.user]="b.role === 'user'" [class.assistant]="b.role === 'assistant'">
                     @if (b.role === 'assistant') {
                       <app-markdown [text]="b.text" />
-                      @if (b.streaming) { <span class="caret on"></span> }
                     } @else {
                       <p class="bubble-text">{{ b.text }}</p>
                     }

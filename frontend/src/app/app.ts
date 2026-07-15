@@ -104,9 +104,27 @@ export class App {
   readonly thinking = signal(false);
   readonly thinkingMsg = signal('');
   // Live turn meters (Claude-style): elapsed wall-clock and output tokens so
-  // far, shown next to the radar while the whole turn streams.
+  // far, shown next to the radar while the whole turn streams. Tokens are
+  // derived from the streaming assistant text (~4 chars/token) so the count
+  // tracks visible output live; after the turn it reflects the real usage.
   readonly elapsedMs = signal(0);
-  readonly liveTokens = signal(0);
+  readonly liveTokens = computed(() => {
+    const items = this.timeline();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (
+        it.kind === 'bubble' &&
+        (it as ChatBubble).role === 'assistant' &&
+        (it as ChatBubble).streaming
+      ) {
+        return Math.round(((it as ChatBubble).text?.length ?? 0) / 4);
+      }
+    }
+    return Math.max(
+      0,
+      (this.usage()?.completionTokens ?? 0) - this.turnStartCompletion,
+    );
+  });
   private readonly thinkingLines = [
     'Consulting the schema…',
     'Tracing the query plan…',
@@ -736,7 +754,6 @@ export class App {
     this.turnStartMs = performance.now();
     this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
     this.elapsedMs.set(0);
-    this.liveTokens.set(0);
     try {
       await start((ev) => this.onEvent(ev));
     } catch (err) {
@@ -868,11 +885,6 @@ export class App {
           ...(b as ChatBubble),
           text: (b as ChatBubble).text + text,
         }));
-        // Live meter: ~4 chars/token estimate between usage_report events,
-        // which then snap the counter to the real figure.
-        if (text) {
-          this.liveTokens.update((t) => t + Math.max(1, Math.round(text.length / 4)));
-        }
         break;
       }
       case 'assistant_message':
@@ -933,19 +945,14 @@ export class App {
           text: `context compacted (${ev['stage']}): ${ev['tokens_before']} → ${ev['tokens_after']} tokens`,
         });
         break;
-      case 'usage_report': {
+      case 'usage_report':
         this.usage.set({
           promptTokens: (ev['prompt_tokens'] as number) ?? 0,
           cachedPromptTokens: (ev['cached_prompt_tokens'] as number) ?? 0,
           completionTokens: (ev['completion_tokens'] as number) ?? 0,
           costUsd: (ev['cost_usd'] as number) ?? 0,
         });
-        // Snap the live token meter to the authoritative count.
-        const real =
-          ((ev['completion_tokens'] as number) ?? 0) - this.turnStartCompletion;
-        if (real > 0) this.liveTokens.set(real);
         break;
-      }
       case 'turn_complete': {
         // Attach per-response duration + output-token count to the last
         // assistant bubble (Claude shows these under the message).
