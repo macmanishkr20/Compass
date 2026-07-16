@@ -54,6 +54,9 @@ import { ThemeService } from '../theme.service';
           <button class="ap-btn" [title]="a.kind === 'drawio' || a.kind === 'azure' ? 'Open in diagrams.net' : 'Open in new tab'" (click)="openNewTab()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <button class="ap-btn" title="Open full size in a new window" (click)="popOut()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V5a1 1 0 011-1h4M20 15v4a1 1 0 01-1 1h-4M15 4h4a1 1 0 011 1v4M9 20H5a1 1 0 01-1-1v-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <button class="ap-btn" title="Close" (click)="svc.close()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
           </button>
@@ -131,6 +134,8 @@ export class ArtifactPanel {
   readonly azureError = signal('');
   private mermaidSvg = '';
   private azureDrawio = ''; // compiled draw.io for the active azure artifact
+  private azureSvg = ''; // compiled inline SVG for the active azure artifact
+  private azureDims = { w: 0, h: 0 };
   private readonly frame = viewChild<ElementRef<HTMLIFrameElement>>('frame');
   private readonly mermaidHost =
     viewChild<ElementRef<HTMLDivElement>>('mermaidHost');
@@ -214,8 +219,10 @@ export class ArtifactPanel {
       // A newer artifact may have superseded this one while ELK ran.
       if (this.svc.active()?.code !== code) return;
       this.azureDrawio = toDrawio(laid);
+      this.azureDims = { w: laid.width, h: laid.height };
+      this.azureSvg = toSvg(laid, this.theme.theme() === 'dark');
       this.azureError.set('');
-      this.setAzureHost(toSvg(laid, this.theme.theme() === 'dark'));
+      this.setAzureHost(this.azureSvg);
     } catch (err) {
       this.azureError.set(
         (err as Error)?.message ?? 'Could not render this diagram.',
@@ -296,6 +303,52 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  }
+
+  /** Open the current artifact full-size in a new popup window: a zoomable,
+   * scrollable page for diagrams; the live document for html/svg. */
+  popOut(): void {
+    const a = this.svc.active();
+    if (!a) return;
+    let html: string;
+    const title = (a.title || 'Artifact').replace(/[<&]/g, '');
+    if (a.kind === 'azure' || a.kind === 'mermaid') {
+      const svg = a.kind === 'azure' ? this.azureSvg : this.mermaidSvg;
+      const w = a.kind === 'azure' ? this.azureDims.w : 0;
+      const h = a.kind === 'azure' ? this.azureDims.h : 0;
+      const sizeStyle = w && h ? `width:${w}px;height:${h}px` : 'max-width:100%';
+      html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>
+  html,body{margin:0;height:100%;background:#f4f6f9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .bar{position:fixed;top:0;left:0;right:0;display:flex;gap:8px;align-items:center;
+    padding:8px 14px;background:#fff;border-bottom:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.06);z-index:10}
+  .bar b{font-size:13px;color:#1f2733;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bar button{font:inherit;font-size:13px;font-weight:600;padding:5px 12px;border-radius:8px;border:1px solid #d7dee7;background:#fff;color:#26313d;cursor:pointer}
+  .bar button:hover{background:#eef2f7}
+  .stage{position:absolute;inset:46px 0 0 0;overflow:auto;padding:28px;display:flex;justify-content:center;align-items:flex-start}
+  .wrap{transform-origin:top center;transition:transform .1s ease-out}
+  .wrap svg{${sizeStyle};height:auto;display:block;background:#fff;border-radius:10px;box-shadow:0 4px 24px rgba(15,26,43,.12)}
+</style></head><body>
+<div class="bar"><b>${title}</b>
+  <button onclick="z(-1)">−</button><span id="zl" style="font-size:12px;color:#5a6b7b;min-width:42px;text-align:center">100%</span><button onclick="z(1)">+</button>
+  <button onclick="z(0)">Reset</button><button onclick="window.print()">Print</button>
+</div>
+<div class="stage"><div class="wrap" id="wrap">${svg}</div></div>
+<script>
+  var s=1;var wrap=document.getElementById('wrap');var zl=document.getElementById('zl');
+  function apply(){wrap.style.transform='scale('+s+')';zl.textContent=Math.round(s*100)+'%';}
+  function z(d){s=d===0?1:Math.min(4,Math.max(0.2,s+d*0.15));apply();}
+  addEventListener('wheel',function(e){if(e.ctrlKey||e.metaKey){e.preventDefault();z(e.deltaY<0?1:-1);}},{passive:false});
+</script>
+</body></html>`;
+    } else {
+      html = ArtifactService.toDocument(a);
+    }
+    const win = window.open('', '_blank', 'popup,width=1400,height=900');
+    if (!win) return;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   }
 
   /** Save the diagram as a `.drawio` file the user can open in draw.io / Visio. */
