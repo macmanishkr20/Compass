@@ -468,15 +468,20 @@ export class App {
     this.cards.set([]);
   }
 
-  /** Open the active workspace folder in VS Code via the vscode:// URI. */
-  openInVsCode(): void {
+  /** Open the active workspace in VS Code. Preferred: the backend launches
+   * `code <path>` on its host (same as the Claude Code CLI). Falls back to the
+   * vscode:// URI if the backend host has no VS Code CLI. */
+  async openInVsCode(): Promise<void> {
     this.userMenuOpen.set(false);
-    const ws = this.activeWorkspace();
-    const path = ws?.path || this.health()?.workspace;
-    if (!path) return;
-    const p = path.startsWith('/') ? path : '/' + path;
-    // vscode://file/<abs-path> opens the folder/file in VS Code.
-    window.location.href = 'vscode://file' + p;
+    const id = this.activeWorkspaceId();
+    try {
+      await this.api.openWorkspaceInVsCode(id);
+    } catch {
+      const path = this.activeWorkspace()?.path || this.health()?.workspace;
+      if (!path) return;
+      const p = path.startsWith('/') ? path : '/' + path;
+      window.location.href = 'vscode://file' + p;
+    }
   }
 
   /** Open Compass in its own standalone browser window (app-style). */

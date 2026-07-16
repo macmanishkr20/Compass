@@ -184,6 +184,42 @@ def _strip_token(url: str) -> str:
     return re.sub(r"https://[^@/]+@", "https://", url)
 
 
+def open_in_vscode(path: Path) -> str:
+    """Launch VS Code on `path` from the host running this backend — the same
+    thing the Claude Code CLI does. Only meaningful when the backend and the
+    user's VS Code are on the same machine (the normal local setup). Returns the
+    command used; raises RuntimeError if VS Code can't be found/launched."""
+    import platform
+    import shutil
+    import subprocess
+
+    target = str(path)
+    system = platform.system()
+
+    # Preferred: the `code` CLI on PATH (works on all platforms when installed).
+    code = shutil.which("code")
+    candidates: list[list[str]] = []
+    if code:
+        candidates.append([code, target])
+    if system == "Darwin":
+        # macOS: fall back to the app bundle even if `code` isn't on PATH.
+        candidates.append(["open", "-b", "com.microsoft.VSCode", target])
+        candidates.append(["open", "-a", "Visual Studio Code", target])
+    elif system == "Windows":  # pragma: no cover - platform-specific
+        candidates.append(["cmd", "/c", "code", target])
+
+    last_err = "VS Code CLI ('code') not found on PATH"
+    for cmd in candidates:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            if proc.returncode == 0:
+                return " ".join(cmd)
+            last_err = (proc.stderr or proc.stdout or "").strip() or last_err
+        except (OSError, subprocess.TimeoutExpired) as err:
+            last_err = str(err)
+    raise RuntimeError(last_err)
+
+
 _registry: WorkspaceRegistry | None = None
 
 

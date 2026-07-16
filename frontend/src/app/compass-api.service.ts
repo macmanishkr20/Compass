@@ -108,6 +108,15 @@ export class CompassApiService {
     return firstValueFrom(this.http.delete(`/v1/workspaces/${id}`));
   }
 
+  openWorkspaceInVsCode(id: string): Promise<{ opened: string; command: string }> {
+    return firstValueFrom(
+      this.http.post<{ opened: string; command: string }>(
+        `/v1/workspaces/${id}/open-in-vscode`,
+        {},
+      ),
+    );
+  }
+
   githubRepos(): Promise<{ repos: GithubRepo[] }> {
     return firstValueFrom(this.http.get<{ repos: GithubRepo[] }>('/v1/github/repos'));
   }

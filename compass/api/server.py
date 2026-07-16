@@ -422,6 +422,32 @@ async def add_folder_workspace(
     return ws.to_dict()
 
 
+@app.post("/v1/workspaces/{workspace_id}/open-in-vscode")
+async def open_workspace_in_vscode(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Open the workspace folder in VS Code on the host running this backend."""
+    from compass.services.workspaces import (
+        get_workspace_registry,
+        open_in_vscode,
+    )
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    if not root.is_dir():
+        raise HTTPException(status_code=404, detail="workspace path not found")
+    try:
+        cmd = open_in_vscode(root)
+    except RuntimeError as err:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not launch VS Code on the server host. Install the 'code' "
+                f"command (VS Code → Shell Command: Install 'code' in PATH). {err}"
+            ),
+        )
+    return {"opened": str(root), "command": cmd}
+
+
 @app.delete("/v1/workspaces/{workspace_id}")
 async def delete_workspace(
     workspace_id: str, user: str = Depends(require_user)
