@@ -433,6 +433,17 @@ async def workspace_git(
     return git_summary(root)
 
 
+@app.get("/v1/workspaces/{workspace_id}/diff")
+async def workspace_diff(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Unified working-tree diff vs HEAD, for the composer's diff viewer."""
+    from compass.services.workspaces import get_workspace_registry, git_diff
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    return {"diff": git_diff(root)}
+
+
 @app.post("/v1/workspaces/{workspace_id}/pr")
 async def workspace_create_pr(
     workspace_id: str, user: str = Depends(require_user)

@@ -220,6 +220,11 @@ def git_summary(root: Path) -> dict:
     }
 
 
+def git_diff(root: Path) -> str:
+    """Full unified diff of the working tree vs HEAD (staged + unstaged)."""
+    return _run_git(["diff", "HEAD"], root)
+
+
 def create_pull_request(root: Path) -> dict:
     """Push the current branch and open a PR with the GitHub CLI. Raises
     RuntimeError with a readable message on any failure."""

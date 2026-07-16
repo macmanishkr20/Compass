@@ -119,32 +119,41 @@
       <div class="collab-row">
         <button class="collab-app" title="Cost Compass" (click)="launchCollab(collabApps[0])">
           <span class="collab-ico">
-            <svg width="42" height="42" viewBox="0 0 48 48" aria-hidden="true">
+            <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
               <defs>
-                <linearGradient id="cc-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="#F7D661"/><stop offset="1" stop-color="#DCA20B"/>
+                <linearGradient id="cc-grad" x1="0" y1="0" x2="0.5" y2="1">
+                  <stop offset="0" stop-color="#FCE58A"/><stop offset="0.5" stop-color="#F2C63C"/><stop offset="1" stop-color="#D19A05"/>
+                </linearGradient>
+                <linearGradient id="cc-gloss" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <rect x="2" y="2" width="44" height="44" rx="12" fill="url(#cc-grad)"/>
-              <rect x="2.6" y="2.6" width="42.8" height="42.8" rx="11.5" fill="none" stroke="#fff" stroke-opacity="0.25"/>
-              <circle cx="24" cy="24" r="11.5" fill="none" stroke="#3b2f08" stroke-width="2.2"/>
-              <path d="M24 15.5l3.1 8.5-3.1 8.5-3.1-8.5z" fill="#3b2f08"/>
-              <circle cx="24" cy="24" r="1.8" fill="#F7D661"/>
+              <rect x="3" y="3" width="42" height="42" rx="11" fill="url(#cc-grad)"/>
+              <rect x="3" y="3" width="42" height="21" rx="11" fill="url(#cc-gloss)"/>
+              <rect x="3.6" y="3.6" width="40.8" height="40.8" rx="10.5" fill="none" stroke="#ffffff" stroke-opacity="0.45"/>
+              <circle cx="24" cy="24" r="10.5" fill="none" stroke="#4a3908" stroke-width="1.6" stroke-opacity="0.9"/>
+              <path d="M24 15l2.7 9-2.7 9-2.7-9z" fill="#4a3908"/>
+              <path d="M24 15l2.7 9H24z" fill="#6b520f"/>
+              <circle cx="24" cy="24" r="1.7" fill="#FCE58A"/>
             </svg>
           </span>
           <span class="collab-name">Cost Compass</span>
         </button>
         <button class="collab-app" title="Pulse Compass" (click)="launchCollab(collabApps[1])">
           <span class="collab-ico">
-            <svg width="42" height="42" viewBox="0 0 48 48" aria-hidden="true">
+            <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
               <defs>
-                <linearGradient id="pc-grad" x1="0" y1="0" x2="1" y2="1">
-                  <stop offset="0" stop-color="#5E8BF0"/><stop offset="1" stop-color="#2C55C8"/>
+                <linearGradient id="pc-grad" x1="0" y1="0" x2="0.5" y2="1">
+                  <stop offset="0" stop-color="#7BA3F7"/><stop offset="0.5" stop-color="#436FE0"/><stop offset="1" stop-color="#274EC0"/>
+                </linearGradient>
+                <linearGradient id="pc-gloss" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <rect x="2" y="2" width="44" height="44" rx="12" fill="url(#pc-grad)"/>
-              <rect x="2.6" y="2.6" width="42.8" height="42.8" rx="11.5" fill="none" stroke="#fff" stroke-opacity="0.25"/>
-              <path d="M11 25.5h6l2.6-7 4.4 14 2.8-9.5 2 2.5h6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+              <rect x="3" y="3" width="42" height="42" rx="11" fill="url(#pc-grad)"/>
+              <rect x="3" y="3" width="42" height="21" rx="11" fill="url(#pc-gloss)"/>
+              <rect x="3.6" y="3.6" width="40.8" height="40.8" rx="10.5" fill="none" stroke="#ffffff" stroke-opacity="0.4"/>
+              <path d="M12 25h5l2.3-6.5 4.2 13 2.6-9 1.6 2.5h6" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </span>
           <span class="collab-name">Pulse Compass</span>
@@ -153,12 +162,36 @@
     </div>
 
     <div class="side-foot">
-      @if (health(); as h) {
-        <span class="stat" [class.mock]="h.mock_model">
-          <i class="dot" [class.live]="!h.mock_model"></i>
-          {{ h.mock_model ? 'Mock model' : h.deployment }}
-        </span>
-      }
+      <div class="side-user">
+        @if (userMenuOpen()) {
+          <div class="user-menu panel side-user-menu" role="menu">
+            <button class="user-menu-item" role="menuitem" (click)="openInVsCode()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
+              Open in VS Code
+            </button>
+            <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+              Open Compass browser
+            </button>
+            <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Open in new window
+            </button>
+            @if (auth.authEnabled()) {
+              <div class="menu-sep"></div>
+              <button class="user-menu-item" role="menuitem" (click)="signOut()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Sign out
+              </button>
+            }
+          </div>
+        }
+        <button class="side-user-btn" (click)="userMenuOpen.set(!userMenuOpen())" [class.open]="userMenuOpen()">
+          <span class="side-user-av">{{ auth.initials() }}</span>
+          <span class="side-user-name">{{ auth.user()?.username || 'Guest' }} <span class="side-user-plan">· Pro</span></span>
+          <svg class="side-user-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
   </aside>
 
@@ -239,40 +272,6 @@
           }
         </button>
 
-        <div class="user-wrap">
-          <button class="avatar-btn" [class.open]="userMenuOpen()" [attr.aria-expanded]="userMenuOpen()"
-            aria-label="Account menu" (click)="userMenuOpen.set(!userMenuOpen())">{{ auth.initials() }}</button>
-          @if (userMenuOpen()) {
-            <div class="user-menu panel" role="menu">
-              <div class="user-menu-head">
-                <span class="avatar-lg">{{ auth.initials() }}</span>
-                <div class="user-menu-id">
-                  <span class="user-name">{{ auth.user()?.username }}</span>
-                  <span class="user-role">{{ auth.authEnabled() ? 'Signed in' : 'Guest access' }}</span>
-                </div>
-              </div>
-              <button class="user-menu-item" role="menuitem" (click)="openInVsCode()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
-                Open in VS Code
-              </button>
-              <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
-                Open Compass browser
-              </button>
-              <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Open in new window
-              </button>
-              <div class="menu-sep"></div>
-              @if (auth.authEnabled()) {
-                <button class="user-menu-item" role="menuitem" (click)="signOut()">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Sign out
-                </button>
-              }
-            </div>
-          }
-        </div>
       </div>
     </header>
 
@@ -479,10 +478,10 @@
           <span class="cmp-tokens">{{ u.promptTokens }} in<i>·</i>{{ u.cachedPromptTokens }} cached<i>·</i>{{ u.completionTokens }} out<i>·</i><span class="cmp-cost">\${{ u.costUsd.toFixed(4) }}</span></span>
         }
         @if (gitStatus()?.dirty && (gitStatus()!.added || gitStatus()!.removed)) {
-          <span class="cmp-diff">
+          <button class="cmp-diff" (click)="openDiff()" title="View changes">
             <span class="cmp-add">+{{ gitStatus()!.added }}</span>
             <span class="cmp-rem">−{{ gitStatus()!.removed }}</span>
-          </span>
+          </button>
         }
         @if (prNotice()) {
           <span class="cmp-note">{{ prNotice() }}</span>
@@ -531,6 +530,7 @@
         }
         <span class="composer-spacer"></span>
         <label class="tb-seg" title="Model">
+          <i class="tb-dot"></i>
           <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
             @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
           </select>
@@ -584,6 +584,29 @@
         <div class="artifact-dock"><app-artifact-panel /></div>
       }
     </aside>
+  }
+
+  @if (diffOpen()) {
+    <div class="diff-overlay" (click)="diffOpen.set(false)">
+      <div class="diff-modal panel" (click)="$event.stopPropagation()">
+        <div class="diff-head">
+          <span class="diff-title">Changes</span>
+          @if (gitStatus(); as g) {
+            <span class="diff-stat"><span class="cmp-add">+{{ g.added }}</span> <span class="cmp-rem">−{{ g.removed }}</span> · {{ g.files_changed }} file{{ g.files_changed === 1 ? '' : 's' }}</span>
+          }
+          <span class="composer-spacer"></span>
+          <button class="icon-btn ghost sm" (click)="diffOpen.set(false)">✕</button>
+        </div>
+        <div class="diff-body">
+          @if (diffBusy()) { <div class="diff-empty"><span class="spin"></span></div> }
+          @else if (!diffLines().length) { <div class="diff-empty">No changes.</div> }
+          @else {
+            <pre class="diff-pre"><code>@for (l of diffLines(); track $index) {<span class="dl dl-{{ l.t }}">{{ l.text }}
+</span>}</code></pre>
+          }
+        </div>
+      </div>
+    </div>
   }
 
   @if (workspacePanelOpen()) {

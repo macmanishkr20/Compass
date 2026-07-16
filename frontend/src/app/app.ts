@@ -173,6 +173,9 @@ export class App {
   readonly gitStatus = signal<GitStatus | null>(null);
   readonly prBusy = signal(false);
   readonly prNotice = signal('');
+  readonly diffOpen = signal(false);
+  readonly diffLines = signal<{ t: string; text: string }[]>([]);
+  readonly diffBusy = signal(false);
 
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
@@ -496,6 +499,30 @@ export class App {
       this.gitStatus.set(await this.api.gitStatus(this.activeWorkspaceId()));
     } catch {
       this.gitStatus.set(null);
+    }
+  }
+
+  /** Show the working-tree diff (like Claude's inline diff view). */
+  async openDiff(): Promise<void> {
+    this.diffOpen.set(true);
+    this.diffBusy.set(true);
+    try {
+      const { diff } = await this.api.gitDiff(this.activeWorkspaceId());
+      this.diffLines.set(
+        diff.split('\n').map((text) => {
+          let t = 'ctx';
+          if (text.startsWith('diff --git') || text.startsWith('index ')) t = 'file';
+          else if (text.startsWith('+++') || text.startsWith('---')) t = 'meta';
+          else if (text.startsWith('@@')) t = 'hunk';
+          else if (text.startsWith('+')) t = 'add';
+          else if (text.startsWith('-')) t = 'del';
+          return { t, text: text || ' ' };
+        }),
+      );
+    } catch {
+      this.diffLines.set([{ t: 'ctx', text: 'Could not load the diff.' }]);
+    } finally {
+      this.diffBusy.set(false);
     }
   }
 
