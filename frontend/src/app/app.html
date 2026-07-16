@@ -244,37 +244,6 @@
         }
       </div>
 
-      <!-- Model selector -->
-      <label class="seg" title="Model">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a5 5 0 015 5v1a4 4 0 010 8v1a5 5 0 01-10 0v-1a4 4 0 010-8V7a5 5 0 015-5z" stroke-linejoin="round"/></svg>
-        <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
-          @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
-        </select>
-      </label>
-
-      <!-- Mode + effort selectors -->
-      <label class="seg" title="Permission mode">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z" stroke-linejoin="round"/></svg>
-        <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
-          @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
-        </select>
-      </label>
-      <label class="seg" title="Model effort">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
-        <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="setEffort($event)">
-          @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
-        </select>
-      </label>
-
-      @if (health()?.tts && voices().length) {
-        <label class="seg" title="Read-aloud voice">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>
-          <select appBlurOnChange [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
-            @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
-          </select>
-        </label>
-      }
-
       <div class="controls">
         @if (streaming()) {
           <button class="btn danger" (click)="abort()"><span class="rec"></span> Stop</button>
@@ -526,10 +495,39 @@
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
           [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown)="onKeydown($event)"></textarea>
-        <button class="btn send" [disabled]="!canSend()" (click)="send()">
-          @if (streaming()) { <span class="spin"></span> }
-          @else { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg> }
-        </button>
+        <div class="composer-controls">
+          <label class="seg" title="Model">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a5 5 0 015 5v1a4 4 0 010 8v1a5 5 0 01-10 0v-1a4 4 0 010-8V7a5 5 0 015-5z" stroke-linejoin="round"/></svg>
+            <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
+              @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+            </select>
+          </label>
+          <label class="seg" title="Permission mode">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z" stroke-linejoin="round"/></svg>
+            <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
+              @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
+            </select>
+          </label>
+          <label class="seg" title="Model effort">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+            <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="setEffort($event)">
+              @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
+            </select>
+          </label>
+          @if (health()?.tts && voices().length) {
+            <label class="seg" title="Read-aloud voice">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>
+              <select appBlurOnChange [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
+                @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
+              </select>
+            </label>
+          }
+          <span class="composer-spacer"></span>
+          <button class="btn send" [disabled]="!canSend()" (click)="send()">
+            @if (streaming()) { <span class="spin"></span> }
+            @else { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg> }
+          </button>
+        </div>
       </div>
       @if (usage(); as u) {
         <div class="usage">

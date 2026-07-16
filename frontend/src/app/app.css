@@ -935,12 +935,20 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .composer {
   display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px;
   border-radius: var(--radius);
   transition: border-color 0.16s, box-shadow 0.16s;
 }
+/* Model / mode / effort / voice + send, along the bottom of the prompt bar. */
+.composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.composer-spacer { flex: 1; }
 .composer:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);
