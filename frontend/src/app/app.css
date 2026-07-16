@@ -22,15 +22,22 @@
   transform: translateX(-14px);
   pointer-events: none;
 }
-/* Artifact open: chat keeps a readable min width, the panel takes the rest. */
-.shell.artifact-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
-.shell.artifact-open.sidebar-collapsed { grid-template-columns: 0 minmax(360px, 1fr) minmax(420px, 1.15fr); }
-.artifact-dock { min-width: 0; min-height: 0; }
+/* Right dock open: chat keeps a readable min width, the panel takes the rest. */
+.shell.right-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
+.shell.right-open.sidebar-collapsed { grid-template-columns: 0 minmax(360px, 1fr) minmax(420px, 1.15fr); }
+.artifact-dock { min-width: 0; min-height: 0; flex: 1; }
+.right-dock {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 @media (max-width: 1100px) {
-  /* On narrower screens the artifact takes over the main area. */
-  .shell.artifact-open { grid-template-columns: 272px 0 1fr; }
-  .shell.artifact-open .main { display: none; }
-  .shell.artifact-open.sidebar-collapsed { grid-template-columns: 0 0 1fr; }
+  /* On narrower screens the dock takes over the main area. */
+  .shell.right-open { grid-template-columns: 272px 0 1fr; }
+  .shell.right-open .main { display: none; }
+  .shell.right-open.sidebar-collapsed { grid-template-columns: 0 0 1fr; }
 }
 
 .panel { border-radius: var(--radius); }
@@ -402,24 +409,18 @@
 .icon-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 
 /* ===================== In-app "Compass browser" ===================== */
-.cb-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: grid;
-  place-items: center;
-  padding: 3vh 3vw;
-  background: color-mix(in oklab, #0a0f16 55%, transparent);
-  backdrop-filter: blur(3px);
-}
+/* Docks in the right column next to chat, like the artifact panel. */
 .cb-window {
-  width: min(1200px, 94vw);
-  height: min(820px, 92vh);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  box-shadow: var(--shadow-lg, 0 24px 70px rgba(0, 0, 0, 0.45));
 }
 .cb-bar {
   display: flex;

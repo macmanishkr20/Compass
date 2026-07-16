@@ -525,6 +525,12 @@ export class App {
     if (u) window.open(u, '_blank', 'noopener');
   }
 
+  /** Expand the docked browser into a full standalone window. */
+  expandBrowser(): void {
+    const u = this.browserAddr();
+    if (u) window.open(u, 'compass-browser', 'popup,width=1440,height=940');
+  }
+
   // -- sessions ------------------------------------------------------------
 
   async refreshSessions(): Promise<void> {
