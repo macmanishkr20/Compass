@@ -356,9 +356,10 @@
 }
 .side-user-plan { color: var(--muted); font-weight: 500; }
 .side-user-caret { color: var(--muted); flex-shrink: 0; }
-.side-user-menu {
+.side-user .side-user-menu {
   position: absolute;
   left: 0; right: 0;
+  top: auto;
   bottom: calc(100% + 8px);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);

@@ -188,7 +188,7 @@
         }
         <button class="side-user-btn" (click)="userMenuOpen.set(!userMenuOpen())" [class.open]="userMenuOpen()">
           <span class="side-user-av">{{ auth.initials() }}</span>
-          <span class="side-user-name">{{ auth.user()?.username || 'Guest' }} <span class="side-user-plan">· Pro</span></span>
+          <span class="side-user-name">{{ auth.user()?.username || 'Guest' }}</span>
           <svg class="side-user-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
