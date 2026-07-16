@@ -17,6 +17,18 @@ export interface HealthInfo {
   workspace: string;
 }
 
+export interface GitStatus {
+  branch: string;
+  remote: string;
+  is_git: boolean;
+  added: number;
+  removed: number;
+  files_changed: number;
+  untracked: number;
+  ahead: number;
+  dirty: boolean;
+}
+
 export interface Workspace {
   id: string;
   name: string;

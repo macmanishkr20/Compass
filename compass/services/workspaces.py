@@ -184,6 +184,90 @@ def _strip_token(url: str) -> str:
     return re.sub(r"https://[^@/]+@", "https://", url)
 
 
+def git_summary(root: Path) -> dict:
+    """Working-tree summary for the composer status bar: branch, diff stats
+    (added/removed lines vs HEAD), commits ahead of upstream, and dirtiness."""
+    branch = _current_branch(root)
+    remote = _origin_url(root)
+    added = removed = files = 0
+    numstat = _run_git(["diff", "HEAD", "--numstat"], root)
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            files += 1
+            if parts[0].isdigit():
+                added += int(parts[0])
+            if parts[1].isdigit():
+                removed += int(parts[1])
+    untracked = [
+        f
+        for f in _run_git(
+            ["ls-files", "--others", "--exclude-standard"], root
+        ).splitlines()
+        if f
+    ]
+    ahead = _run_git(["rev-list", "--count", "@{u}..HEAD"], root)
+    return {
+        "branch": branch,
+        "remote": remote,
+        "is_git": bool(branch or remote),
+        "added": added,
+        "removed": removed,
+        "files_changed": files + len(untracked),
+        "untracked": len(untracked),
+        "ahead": int(ahead) if ahead.isdigit() else 0,
+        "dirty": bool(numstat or untracked),
+    }
+
+
+def create_pull_request(root: Path) -> dict:
+    """Push the current branch and open a PR with the GitHub CLI. Raises
+    RuntimeError with a readable message on any failure."""
+    import shutil
+    import subprocess
+
+    branch = _current_branch(root)
+    if not branch:
+        raise RuntimeError("Not on a git branch")
+    if branch in ("main", "master"):
+        raise RuntimeError(
+            f"You're on '{branch}'. Create a feature branch before opening a PR."
+        )
+    gh = shutil.which("gh")
+    if not gh:
+        raise RuntimeError("GitHub CLI ('gh') not found on the server host")
+
+    push = subprocess.run(
+        ["git", "push", "-u", "origin", branch],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    if push.returncode != 0:
+        raise RuntimeError("git push failed: " + (push.stderr or push.stdout).strip())
+
+    pr = subprocess.run(
+        [gh, "pr", "create", "--fill", "--head", branch],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    out = (pr.stdout or "").strip()
+    if pr.returncode != 0:
+        # `gh` prints the existing PR URL to stderr when one already exists.
+        err = (pr.stderr or "").strip()
+        url = next(
+            (w for w in (out + " " + err).split() if w.startswith("http")), ""
+        )
+        if url:
+            return {"url": url, "branch": branch, "existing": True}
+        raise RuntimeError(err or "gh pr create failed")
+    url = out.splitlines()[-1] if out else ""
+    return {"url": url, "branch": branch, "existing": False}
+
+
 def open_in_vscode(path: Path) -> str:
     """Launch VS Code on `path` from the host running this backend — the same
     thing the Claude Code CLI does. Only meaningful when the backend and the

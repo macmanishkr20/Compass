@@ -949,6 +949,120 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   flex-wrap: wrap;
 }
 .composer-spacer { flex: 1; }
+
+/* Status bar: repo · diff · tokens · Create PR — Claude-composer style. */
+.composer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.cs-repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 260px;
+  transition: background 0.14s, border-color 0.14s;
+}
+.cs-repo:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); border-color: var(--border); }
+.cs-repo svg { color: var(--muted); flex-shrink: 0; }
+.cs-repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-branch {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--ink) 7%, transparent);
+  padding: 1px 6px;
+  border-radius: 5px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-diff { display: inline-flex; gap: 6px; font-family: var(--mono); font-size: 0.72rem; font-weight: 600; }
+.cs-add { color: var(--success); }
+.cs-rem { color: var(--danger); }
+.cs-tokens {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.cs-dot { opacity: 0.45; }
+.cs-cost { color: var(--accent); font-weight: 700; }
+.cs-note { font-size: 0.72rem; color: var(--muted); }
+.cs-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s, border-color 0.14s;
+}
+.cs-pr:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cs-pr:disabled { opacity: 0.6; cursor: default; }
+.cs-pr svg { flex-shrink: 0; }
+
+/* Bottom controls as plain-text pickers (not boxed chips), like Claude. */
+.composer-controls .seg {
+  border: none;
+  background: none;
+  padding: 3px 4px;
+  gap: 5px;
+}
+.composer-controls .seg:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); border-radius: 7px; }
+.composer-controls .seg svg { color: var(--muted); }
+.composer-controls .seg select {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.composer-controls .seg:focus-within { background: color-mix(in oklab, var(--ink) 6%, transparent); border-radius: 7px; }
+
+/* Workspace picker as a centered modal (moved out of the topbar). */
+.ws-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 4vh 4vw;
+  background: color-mix(in oklab, #0a0f16 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+.ws-overlay .ws-panel {
+  position: static;
+  width: min(420px, 94vw);
+  max-height: 80vh;
+}
 .composer:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);

@@ -24,6 +24,7 @@ import { ArtifactService } from './artifact.service';
 import {
   ChatBubble,
   CompassEvent,
+  GitStatus,
   GithubRepo,
   GroupBy,
   HealthInfo,
@@ -163,6 +164,11 @@ export class App {
   readonly activeWorkspace = computed(() =>
     this.workspaces().find((w) => w.id === this.activeWorkspaceId()),
   );
+
+  // -- git / PR status shown in the composer bar
+  readonly gitStatus = signal<GitStatus | null>(null);
+  readonly prBusy = signal(false);
+  readonly prNotice = signal('');
 
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
@@ -436,6 +442,7 @@ export class App {
   async refreshWorkspaces(): Promise<void> {
     try {
       this.workspaces.set((await this.api.listWorkspaces()).workspaces);
+      void this.loadGitStatus();
     } catch {
       /* non-fatal */
     }
@@ -466,6 +473,36 @@ export class App {
     this.timeline.set([]);
     this.usage.set(null);
     this.cards.set([]);
+  }
+
+  /** Refresh the working-tree diff/branch shown in the composer status bar. */
+  async loadGitStatus(): Promise<void> {
+    try {
+      this.gitStatus.set(await this.api.gitStatus(this.activeWorkspaceId()));
+    } catch {
+      this.gitStatus.set(null);
+    }
+  }
+
+  /** Push the branch and open a GitHub PR (backend runs gh). */
+  async createPr(): Promise<void> {
+    if (this.prBusy()) return;
+    this.prBusy.set(true);
+    this.prNotice.set('');
+    try {
+      const res = await this.api.createPr(this.activeWorkspaceId());
+      this.prNotice.set(res.existing ? 'PR already open' : 'PR created');
+      if (res.url) window.open(res.url, '_blank', 'noopener');
+      setTimeout(() => this.prNotice.set(''), 4000);
+    } catch (err: unknown) {
+      const detail =
+        (err as { error?: { detail?: string } })?.error?.detail ??
+        'Could not create PR';
+      this.prNotice.set(detail);
+      setTimeout(() => this.prNotice.set(''), 6000);
+    } finally {
+      this.prBusy.set(false);
+    }
   }
 
   /** Open the active workspace in VS Code. Preferred: the backend launches
@@ -702,6 +739,7 @@ export class App {
       await this.newSession();
     }
     this.workspacePanelOpen.set(false);
+    void this.loadGitStatus();
   }
 
   async addFolder(): Promise<void> {
@@ -844,6 +882,7 @@ export class App {
       this.autoOpenArtifact();
       await this.backfillUuids(sid);
       await this.refreshSessions();
+      void this.loadGitStatus();
     }
   }
 

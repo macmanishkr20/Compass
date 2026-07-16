@@ -182,67 +182,6 @@
         <span class="crumb">{{ activeCard()?.title || 'New conversation' }}</span>
       </div>
 
-      <!-- Workspace picker -->
-      <div class="ws-wrap">
-        <button class="seg ws-btn" (click)="toggleWorkspacePanel()" title="Workspace">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
-          <span class="ws-name">{{ activeWorkspace()?.name || 'Workspace' }}</span>
-          @if (activeWorkspace()?.is_git) { <span class="ws-git">git</span> }
-        </button>
-        @if (workspacePanelOpen()) {
-          <div class="ws-panel panel" role="dialog">
-            <div class="ws-panel-head">
-              <span>Workspaces</span>
-              <button class="icon-btn ghost sm" (click)="workspacePanelOpen.set(false)">✕</button>
-            </div>
-            <div class="ws-list">
-              @for (w of workspaces(); track w.id) {
-                <div class="ws-item" [class.active]="w.id === activeWorkspaceId()" (click)="selectWorkspace(w)">
-                  <span class="ws-dot" [class.git]="w.is_git"></span>
-                  <div class="ws-item-text">
-                    <span class="ws-item-name">{{ w.name }}</span>
-                    <span class="ws-item-path">{{ w.kind === 'github' ? w.remote_url : w.path }}</span>
-                  </div>
-                  @if (w.id !== 'default') {
-                    <button class="ws-del" (click)="removeWorkspace(w, $event)" aria-label="Remove">✕</button>
-                  }
-                </div>
-              }
-            </div>
-
-            <div class="ws-add">
-              <input class="ws-input" placeholder="New folder name…"
-                [value]="newFolderName()" (input)="newFolderName.set($any($event.target).value)"
-                (keydown.enter)="addFolder()" />
-              <button class="btn xs primary" (click)="addFolder()" [disabled]="!newFolderName().trim()">Create</button>
-            </div>
-
-            <div class="ws-gh">
-              <div class="ws-gh-head">
-                <span>GitHub repositories</span>
-                @if (githubEnabled()) {
-                  <button class="btn xs" (click)="loadGithubRepos()" [disabled]="githubLoading()">
-                    {{ githubLoading() ? 'Loading…' : 'Load' }}
-                  </button>
-                }
-              </div>
-              @if (!githubEnabled()) {
-                <p class="ws-hint">Set <code>GITHUB_TOKEN</code> in <code>.env</code> to clone &amp; push repos.</p>
-              } @else {
-                @for (r of githubRepos(); track r.full_name) {
-                  <div class="ws-repo" (click)="cloneRepo(r)">
-                    <span class="ws-repo-name">{{ r.full_name }}</span>
-                    @if (r.private) { <span class="ws-repo-tag">private</span> }
-                    <span class="ws-repo-clone">Clone →</span>
-                  </div>
-                }
-              }
-            </div>
-
-            @if (workspaceBusy()) { <div class="ws-busy">{{ workspaceBusy() }}</div> }
-          </div>
-        }
-      </div>
 
       <div class="controls">
         @if (streaming()) {
@@ -492,6 +431,36 @@
     <footer class="composer-wrap">
       @if (connError()) { <div class="banner">{{ connError() }}</div> }
       <div class="composer panel">
+        <div class="composer-status">
+          <button class="cs-repo" (click)="toggleWorkspacePanel()" title="Switch workspace / repository">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
+            <span class="cs-repo-name">{{ activeWorkspace()?.name || 'Workspace' }}</span>
+            @if (gitStatus()?.branch) { <span class="cs-branch">{{ gitStatus()?.branch }}</span> }
+          </button>
+          @if (gitStatus()?.dirty) {
+            <span class="cs-diff">
+              @if (gitStatus()!.added) { <span class="cs-add">+{{ gitStatus()!.added }}</span> }
+              @if (gitStatus()!.removed) { <span class="cs-rem">−{{ gitStatus()!.removed }}</span> }
+            </span>
+          }
+          @if (usage(); as u) {
+            <span class="cs-tokens">
+              <span>{{ u.promptTokens }} in</span><span class="cs-dot">·</span>
+              <span>{{ u.cachedPromptTokens }} cached</span><span class="cs-dot">·</span>
+              <span>{{ u.completionTokens }} out</span><span class="cs-dot">·</span>
+              <span class="cs-cost">\${{ u.costUsd.toFixed(4) }}</span>
+            </span>
+          }
+          <span class="composer-spacer"></span>
+          @if (prNotice()) { <span class="cs-note">{{ prNotice() }}</span> }
+          @if (gitStatus()?.remote) {
+            <button class="cs-pr" (click)="createPr()" [disabled]="prBusy()">
+              @if (prBusy()) { <span class="spin"></span> }
+              @else { <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-4 2.5-4 5.5" stroke-linecap="round"/></svg> }
+              Create PR
+            </button>
+          }
+        </div>
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
           [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown)="onKeydown($event)"></textarea>
@@ -529,14 +498,6 @@
           </button>
         </div>
       </div>
-      @if (usage(); as u) {
-        <div class="usage">
-          <span>{{ u.promptTokens }} in</span><span class="sep">·</span>
-          <span>{{ u.cachedPromptTokens }} cached</span><span class="sep">·</span>
-          <span>{{ u.completionTokens }} out</span><span class="sep">·</span>
-          <span class="cost">\${{ u.costUsd.toFixed(4) }}</span>
-        </div>
-      }
     </footer>
   </div>
 
@@ -580,6 +541,59 @@
         <div class="artifact-dock"><app-artifact-panel /></div>
       }
     </aside>
+  }
+
+  @if (workspacePanelOpen()) {
+    <div class="ws-overlay" (click)="workspacePanelOpen.set(false)">
+      <div class="ws-panel panel" role="dialog" (click)="$event.stopPropagation()">
+        <div class="ws-panel-head">
+          <span>Workspaces</span>
+          <button class="icon-btn ghost sm" (click)="workspacePanelOpen.set(false)">✕</button>
+        </div>
+        <div class="ws-list">
+          @for (w of workspaces(); track w.id) {
+            <div class="ws-item" [class.active]="w.id === activeWorkspaceId()" (click)="selectWorkspace(w)">
+              <span class="ws-dot" [class.git]="w.is_git"></span>
+              <div class="ws-item-text">
+                <span class="ws-item-name">{{ w.name }}</span>
+                <span class="ws-item-path">{{ w.kind === 'github' ? w.remote_url : w.path }}</span>
+              </div>
+              @if (w.id !== 'default') {
+                <button class="ws-del" (click)="removeWorkspace(w, $event)" aria-label="Remove">✕</button>
+              }
+            </div>
+          }
+        </div>
+        <div class="ws-add">
+          <input class="ws-input" placeholder="New folder name…"
+            [value]="newFolderName()" (input)="newFolderName.set($any($event.target).value)"
+            (keydown.enter)="addFolder()" />
+          <button class="btn xs primary" (click)="addFolder()" [disabled]="!newFolderName().trim()">Create</button>
+        </div>
+        <div class="ws-gh">
+          <div class="ws-gh-head">
+            <span>GitHub repositories</span>
+            @if (githubEnabled()) {
+              <button class="btn xs" (click)="loadGithubRepos()" [disabled]="githubLoading()">
+                {{ githubLoading() ? 'Loading…' : 'Load' }}
+              </button>
+            }
+          </div>
+          @if (!githubEnabled()) {
+            <p class="ws-hint">Set <code>GITHUB_TOKEN</code> in <code>.env</code> to clone &amp; push repos.</p>
+          } @else {
+            @for (r of githubRepos(); track r.full_name) {
+              <div class="ws-repo" (click)="cloneRepo(r)">
+                <span class="ws-repo-name">{{ r.full_name }}</span>
+                @if (r.private) { <span class="ws-repo-tag">private</span> }
+                <span class="ws-repo-clone">Clone →</span>
+              </div>
+            }
+          }
+        </div>
+        @if (workspaceBusy()) { <div class="ws-busy">{{ workspaceBusy() }}</div> }
+      </div>
+    </div>
   }
 </div>
 

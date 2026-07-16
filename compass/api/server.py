@@ -422,6 +422,34 @@ async def add_folder_workspace(
     return ws.to_dict()
 
 
+@app.get("/v1/workspaces/{workspace_id}/git")
+async def workspace_git(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Working-tree summary (branch, diff stats, ahead) for the status bar."""
+    from compass.services.workspaces import get_workspace_registry, git_summary
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    return git_summary(root)
+
+
+@app.post("/v1/workspaces/{workspace_id}/pr")
+async def workspace_create_pr(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Push the branch and open a GitHub PR (via the gh CLI on the host)."""
+    from compass.services.workspaces import (
+        create_pull_request,
+        get_workspace_registry,
+    )
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    try:
+        return create_pull_request(root)
+    except RuntimeError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
+
 @app.post("/v1/workspaces/{workspace_id}/open-in-vscode")
 async def open_workspace_in_vscode(
     workspace_id: str, user: str = Depends(require_user)

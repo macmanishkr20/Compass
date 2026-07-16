@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
 import {
   CompassEvent,
+  GitStatus,
   GithubRepo,
   HealthInfo,
   PermissionBehavior,
@@ -112,6 +113,19 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.post<{ opened: string; command: string }>(
         `/v1/workspaces/${id}/open-in-vscode`,
+        {},
+      ),
+    );
+  }
+
+  gitStatus(id: string): Promise<GitStatus> {
+    return firstValueFrom(this.http.get<GitStatus>(`/v1/workspaces/${id}/git`));
+  }
+
+  createPr(id: string): Promise<{ url: string; branch: string; existing: boolean }> {
+    return firstValueFrom(
+      this.http.post<{ url: string; branch: string; existing: boolean }>(
+        `/v1/workspaces/${id}/pr`,
         {},
       ),
     );
