@@ -279,6 +279,10 @@
         @if (streaming()) {
           <button class="btn danger" (click)="abort()"><span class="rec"></span> Stop</button>
         }
+        <button class="icon-btn" [class.on]="browserOpen()" aria-label="Compass browser"
+          title="Compass browser" (click)="toggleBrowser()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+        </button>
         <button class="icon-btn"
           [attr.aria-label]="'Switch to ' + (theme.theme() === 'dark' ? 'light' : 'dark') + ' theme'"
           (click)="theme.toggle()">
@@ -301,6 +305,19 @@
                   <span class="user-role">{{ auth.authEnabled() ? 'Signed in' : 'Guest access' }}</span>
                 </div>
               </div>
+              <button class="user-menu-item" role="menuitem" (click)="openInVsCode()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
+                Open in VS Code
+              </button>
+              <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+                Open Compass browser
+              </button>
+              <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Open in new window
+              </button>
+              <div class="menu-sep"></div>
               @if (auth.authEnabled()) {
                 <button class="user-menu-item" role="menuitem" (click)="signOut()">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -529,5 +546,39 @@
     <aside class="artifact-dock"><app-artifact-panel /></aside>
   }
 </div>
+
+@if (browserOpen()) {
+  <div class="cb-overlay" (click)="toggleBrowser()">
+    <div class="cb-window panel" (click)="$event.stopPropagation()">
+      <div class="cb-bar">
+        <button class="cb-btn" title="Reload" (click)="reloadBrowser()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <input class="cb-addr" placeholder="Enter a URL…" [value]="browserAddr()"
+          (input)="browserAddr.set($any($event.target).value)"
+          (keydown.enter)="navigateBrowser()" />
+        <button class="cb-btn" title="Go" (click)="navigateBrowser()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="cb-btn" title="Open in system browser" (click)="openBrowserExternal()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="cb-btn" title="Close" (click)="toggleBrowser()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="cb-body">
+        @if (browserSrc()) {
+          <iframe class="cb-frame" [src]="browserSrc()"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            referrerpolicy="no-referrer" title="Compass browser"></iframe>
+        } @else {
+          <div class="cb-empty">Type a URL above to browse.</div>
+        }
+        <div class="cb-hint">Some sites block embedding — use <strong>↗</strong> to open them in your system browser.</div>
+      </div>
+    </div>
+  </div>
+}
 
 }

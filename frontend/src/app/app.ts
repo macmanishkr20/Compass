@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
@@ -76,6 +77,13 @@ export class App {
   readonly theme = inject(ThemeService);
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
+  private readonly sanitizer = inject(DomSanitizer);
+
+  // In-app browser ("Compass's own browser", like Claude's preview pane).
+  readonly browserOpen = signal(false);
+  readonly browserAddr = signal('');
+  readonly browserSrc = signal<SafeResourceUrl | ''>('');
+  readonly browserBlocked = signal(false);
 
   readonly modes = MODES;
   readonly efforts = EFFORTS;
@@ -458,6 +466,58 @@ export class App {
     this.timeline.set([]);
     this.usage.set(null);
     this.cards.set([]);
+  }
+
+  /** Open the active workspace folder in VS Code via the vscode:// URI. */
+  openInVsCode(): void {
+    this.userMenuOpen.set(false);
+    const ws = this.activeWorkspace();
+    const path = ws?.path || this.health()?.workspace;
+    if (!path) return;
+    const p = path.startsWith('/') ? path : '/' + path;
+    // vscode://file/<abs-path> opens the folder/file in VS Code.
+    window.location.href = 'vscode://file' + p;
+  }
+
+  /** Open Compass in its own standalone browser window (app-style). */
+  openAppWindow(): void {
+    this.userMenuOpen.set(false);
+    window.open(
+      location.origin + location.pathname,
+      'compass-app',
+      'popup,noopener,width=1440,height=940',
+    );
+  }
+
+  // -- in-app browser ------------------------------------------------------
+  toggleBrowser(): void {
+    this.browserOpen.update((v) => !v);
+    if (this.browserOpen() && !this.browserAddr()) {
+      this.browserAddr.set('https://learn.microsoft.com/azure/architecture/');
+      this.navigateBrowser();
+    }
+  }
+
+  navigateBrowser(): void {
+    let u = this.browserAddr().trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    this.browserAddr.set(u);
+    this.browserBlocked.set(false);
+    this.browserSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(u));
+  }
+
+  reloadBrowser(): void {
+    const cur = this.browserAddr();
+    this.browserSrc.set('');
+    setTimeout(() => {
+      if (cur) this.browserSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(cur));
+    }, 0);
+  }
+
+  openBrowserExternal(): void {
+    const u = this.browserAddr();
+    if (u) window.open(u, '_blank', 'noopener');
   }
 
   // -- sessions ------------------------------------------------------------
