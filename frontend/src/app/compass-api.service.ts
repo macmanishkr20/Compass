@@ -126,6 +126,12 @@ export class CompassApiService {
     return firstValueFrom(this.http.get<{ diff: string }>(`/v1/workspaces/${id}/diff`));
   }
 
+  screenshot(url: string, fullPage = false): Promise<{ image: string }> {
+    return firstValueFrom(
+      this.http.post<{ image: string }>('/v1/screenshot', { url, full_page: fullPage }),
+    );
+  }
+
   createPr(id: string): Promise<{ url: string; branch: string; existing: boolean }> {
     return firstValueFrom(
       this.http.post<{ url: string; branch: string; existing: boolean }>(

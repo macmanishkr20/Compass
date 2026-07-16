@@ -433,6 +433,38 @@ async def workspace_git(
     return git_summary(root)
 
 
+class ScreenshotRequest(BaseModel):
+    url: str
+    full_page: bool = False
+
+
+@app.post("/v1/screenshot")
+async def take_screenshot(
+    body: ScreenshotRequest, user: str = Depends(require_user)
+) -> dict:
+    """Headless-browser screenshot of a URL, returned as a data: URI."""
+    from compass.services.screenshot import capture_data_uri
+
+    try:
+        image = await capture_data_uri(body.url, full_page=body.full_page)
+    except RuntimeError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    except Exception as err:  # noqa: BLE001 - surface a readable message
+        raise HTTPException(status_code=502, detail=f"screenshot failed: {err}")
+    return {"image": image}
+
+
+@app.get("/v1/screenshot-cache/{shot_id}")
+async def screenshot_cache(shot_id: str) -> Response:
+    """Serve a cached agent screenshot (referenced by screenshot://<id>)."""
+    from compass.services.screenshot import get_cached
+
+    png = get_cached(shot_id)
+    if png is None:
+        raise HTTPException(status_code=404, detail="screenshot expired")
+    return Response(content=png, media_type="image/png")
+
+
 @app.get("/v1/workspaces/{workspace_id}/diff")
 async def workspace_diff(
     workspace_id: str, user: str = Depends(require_user)

@@ -558,25 +558,51 @@
           <button class="cb-btn" title="Go" (click)="navigateBrowser()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <button class="cb-btn" [class.on]="annotateOn()" title="Annotate" (click)="toggleAnnotate()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="cb-btn" [class.on]="!annotateOn()" title="Select / interact" (click)="annotateOn.set(false)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l6 16 2-6 6-2z" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="cb-menu-wrap">
+            <button class="cb-btn" [class.on]="cbMenuOpen()" title="More" (click)="cbMenuOpen.set(!cbMenuOpen())">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+            </button>
+            @if (cbMenuOpen()) {
+              <div class="cb-menu panel" (click)="cbMenuOpen.set(false)">
+                <button (click)="captureBrowserShot(false)">📸 Take screenshot → chat</button>
+                <button (click)="captureBrowserShot(true)">💾 Save screenshot</button>
+                <button (click)="openBrowserExternal()">↗ Export / open externally</button>
+              </div>
+            }
+          </div>
           <button class="cb-btn" title="Expand to a new window" (click)="expandBrowser()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M21 3l-8 8M9 21H3v-6M3 21l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <button class="cb-btn" title="Open in system browser" (click)="openBrowserExternal()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <button class="cb-btn" title="Close" (click)="toggleBrowser()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="cb-body">
-        @if (browserSrc()) {
-          <iframe class="cb-frame" [src]="browserSrc()"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            referrerpolicy="no-referrer" title="Compass browser"></iframe>
-        } @else {
-          <div class="cb-empty">Type a URL above to browse.</div>
-        }
-        <div class="cb-hint">Some sites block embedding — use <strong>↗</strong> to open them in your system browser.</div>
+          <button class="cb-btn" title="Close" (click)="toggleBrowser()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="cb-body">
+          @if (browserSrc()) {
+            <iframe class="cb-frame" [src]="browserSrc()"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              referrerpolicy="no-referrer" title="Compass browser"></iframe>
+          } @else {
+            <div class="cb-empty">Type a URL above to browse.</div>
+          }
+          @if (annotateOn()) {
+            <canvas #annoCanvas class="cb-anno"
+              (pointerdown)="annoStart($event)" (pointermove)="annoMove($event)"
+              (pointerup)="annoEnd()" (pointerleave)="annoEnd()"></canvas>
+            <div class="cb-anno-bar">
+              <span>Annotating</span>
+              <button (click)="clearAnno()">Clear</button>
+              <button (click)="captureBrowserShot(false)">Screenshot → chat</button>
+            </div>
+          }
+          @if (shotBusy()) { <div class="cb-shot-busy"><span class="spin"></span> capturing…</div> }
+          <div class="cb-hint">Some sites block embedding — use <strong>↗</strong> to open them in your system browser.</div>
         </div>
       </div>
       }

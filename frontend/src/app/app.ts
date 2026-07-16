@@ -573,6 +573,83 @@ export class App {
     );
   }
 
+  /** Post an image (data: or /v1/ URL) into the chat as an assistant bubble. */
+  postImage(src: string, alt = 'Screenshot'): void {
+    this.push(this.bubble('assistant', `![${alt}](${src})`, false));
+  }
+
+  readonly shotBusy = signal(false);
+  readonly cbMenuOpen = signal(false);
+  readonly annotateOn = signal(false);
+  private readonly annoCanvas =
+    viewChild<ElementRef<HTMLCanvasElement>>('annoCanvas');
+  private annoDrawing = false;
+  private annoLast: { x: number; y: number } | null = null;
+
+  toggleAnnotate(): void {
+    this.annotateOn.update((v) => !v);
+    if (this.annotateOn()) queueMicrotask(() => this.sizeAnnoCanvas());
+  }
+  private sizeAnnoCanvas(): void {
+    const c = this.annoCanvas()?.nativeElement;
+    if (!c) return;
+    const r = c.getBoundingClientRect();
+    c.width = r.width;
+    c.height = r.height;
+  }
+  annoStart(e: PointerEvent): void {
+    this.annoDrawing = true;
+    this.annoLast = { x: e.offsetX, y: e.offsetY };
+  }
+  annoMove(e: PointerEvent): void {
+    if (!this.annoDrawing) return;
+    const ctx = this.annoCanvas()?.nativeElement.getContext('2d');
+    if (!ctx || !this.annoLast) return;
+    ctx.strokeStyle = '#ff4d4f';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(this.annoLast.x, this.annoLast.y);
+    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.stroke();
+    this.annoLast = { x: e.offsetX, y: e.offsetY };
+  }
+  annoEnd(): void {
+    this.annoDrawing = false;
+    this.annoLast = null;
+  }
+  clearAnno(): void {
+    const c = this.annoCanvas()?.nativeElement;
+    c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
+  }
+
+  /** Screenshot the current in-app browser URL (headless) and post to chat. */
+  async captureBrowserShot(download = false): Promise<void> {
+    const url = this.browserAddr();
+    if (!url || this.shotBusy()) return;
+    this.shotBusy.set(true);
+    try {
+      const { image } = await this.api.screenshot(url);
+      if (download) {
+        const a = document.createElement('a');
+        a.href = image;
+        a.download = 'screenshot.png';
+        a.click();
+      } else {
+        this.postImage(image, url);
+      }
+    } catch {
+      this.push({
+        kind: 'notice',
+        id: crypto.randomUUID(),
+        tone: 'error',
+        text: 'Screenshot failed (is the page reachable?).',
+      });
+    } finally {
+      this.shotBusy.set(false);
+    }
+  }
+
   /** Launch a Compass Collab app in the in-app browser dock. */
   launchCollab(app: CollabApp): void {
     this.browserAddr.set(app.url);
@@ -1075,7 +1152,7 @@ export class App {
           output: (c as ToolCardVM).output + ((ev['data'] as string) ?? ''),
         }));
         break;
-      case 'tool_result':
+      case 'tool_result': {
         this.patch(ev['tool_call_id'] as string, (c) => ({
           ...(c as ToolCardVM),
           status: (ev['is_error'] as boolean) ? 'error' : 'ok',
@@ -1084,7 +1161,15 @@ export class App {
             ? ((ev['content'] as string) ?? (c as ToolCardVM).output)
             : (c as ToolCardVM).output,
         }));
+        // A screenshot tool result posts the captured image into the chat.
+        const shot = /screenshot:\/\/([a-f0-9]+)/.exec(
+          (ev['content'] as string) ?? '',
+        );
+        if (shot && !(ev['is_error'] as boolean)) {
+          this.postImage('/v1/screenshot-cache/' + shot[1], 'Screenshot');
+        }
         break;
+      }
       case 'permission_request':
         this.push({
           kind: 'permission',

@@ -590,7 +590,58 @@
   transition: color 0.14s, border-color 0.14s, background 0.14s;
 }
 .cb-btn:hover { color: var(--accent); border-color: var(--border); background: color-mix(in oklab, var(--ink) 5%, transparent); }
+.cb-btn.on { color: var(--accent); background: var(--accent-tint); }
+.cb-menu-wrap { position: relative; display: inline-flex; }
+.cb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 80;
+  min-width: 210px;
+  padding: 5px;
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+.cb-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.cb-menu button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
 .cb-body { flex: 1; min-height: 0; position: relative; display: flex; background: #fff; }
+.cb-anno { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; }
+.cb-anno-bar {
+  position: absolute;
+  top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 6;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(20, 26, 34, 0.9);
+  color: #fff;
+  font-size: 0.72rem;
+}
+.cb-anno-bar button {
+  border: none; background: rgba(255,255,255,0.15); color: #fff;
+  font: inherit; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+}
+.cb-anno-bar button:hover { background: rgba(255,255,255,0.28); }
+.cb-shot-busy {
+  position: absolute; top: 10px; right: 12px; z-index: 6;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px; border-radius: 999px;
+  background: rgba(20, 26, 34, 0.9); color: #fff; font-size: 0.72rem;
+}
 .cb-frame { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
 .cb-empty { flex: 1; display: grid; place-items: center; color: var(--muted); font-size: 0.9rem; }
 .cb-hint {

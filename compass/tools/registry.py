@@ -6,6 +6,7 @@ from compass.tools.agent import AgentTool
 from compass.tools.base import Tool
 from compass.tools.bash import BashTool
 from compass.tools.filesystem import FileEditTool, FileReadTool, FileWriteTool
+from compass.tools.screenshot import ScreenshotTool
 from compass.tools.search import GlobTool, GrepTool
 from compass.tools.todo import TodoWriteTool
 
@@ -19,6 +20,7 @@ def get_all_tools() -> list[Tool]:
         GrepTool(),
         BashTool(),
         TodoWriteTool(),
+        ScreenshotTool(),
         AgentTool(),
     ]
 
