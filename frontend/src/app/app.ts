@@ -475,6 +475,17 @@ export class App {
     this.cards.set([]);
   }
 
+  /** Short repo name for the composer status bar — the git remote's basename
+   * (e.g. "Compass") when available, else the workspace name. */
+  repoLabel(): string {
+    const remote = this.gitStatus()?.remote;
+    if (remote) {
+      const m = /([^/]+?)(?:\.git)?\/?$/.exec(remote);
+      if (m?.[1]) return m[1];
+    }
+    return this.activeWorkspace()?.name || 'Workspace';
+  }
+
   /** Refresh the working-tree diff/branch shown in the composer status bar. */
   async loadGitStatus(): Promise<void> {
     try {

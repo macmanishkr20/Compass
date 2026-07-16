@@ -933,119 +933,145 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   color: var(--danger);
   border: 1px solid color-mix(in oklab, var(--danger) 35%, transparent);
 }
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  border-radius: var(--radius);
-  transition: border-color 0.16s, box-shadow 0.16s;
-}
-/* Model / mode / effort / voice + send, along the bottom of the prompt bar. */
-.composer-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 .composer-spacer { flex: 1; }
 
-/* Status bar: repo · diff · tokens · Create PR — Claude-composer style. */
-.composer-status {
+/* ================= Composer — Claude-style status/input/toolbar ================= */
+.cmp-status {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 4px 6px;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.75rem;
-  color: var(--muted);
-  min-width: 0;
-  flex-wrap: wrap;
-}
-.cs-repo {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border-radius: 7px;
-  border: 1px solid transparent;
-  background: none;
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  max-width: 260px;
-  transition: background 0.14s, border-color 0.14s;
-}
-.cs-repo:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); border-color: var(--border); }
-.cs-repo svg { color: var(--muted); flex-shrink: 0; }
-.cs-repo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cs-branch {
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  font-weight: 600;
-  color: var(--muted);
-  background: color-mix(in oklab, var(--ink) 7%, transparent);
-  padding: 1px 6px;
-  border-radius: 5px;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cs-diff { display: inline-flex; gap: 6px; font-family: var(--mono); font-size: 0.72rem; font-weight: 600; }
-.cs-add { color: var(--success); }
-.cs-rem { color: var(--danger); }
-.cs-tokens {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  color: var(--faint);
-  white-space: nowrap;
-}
-.cs-dot { opacity: 0.45; }
-.cs-cost { color: var(--accent); font-weight: 700; }
-.cs-note { font-size: 0.72rem; color: var(--muted); }
-.cs-pr {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  gap: 10px;
+  padding: 11px 15px;
+  border-radius: var(--radius);
   background: var(--surface-2);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+.cmp-repo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  min-width: 0;
+  max-width: 55%;
+}
+.cmp-repo-name {
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cmp-repo:hover .cmp-repo-name { color: var(--accent); }
+.cmp-branch { font-size: 0.9rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.cmp-tokens { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); white-space: nowrap; }
+.cmp-tokens i { font-style: normal; opacity: 0.5; margin: 0 5px; }
+.cmp-diff {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+.cmp-add { color: var(--success); }
+.cmp-rem { color: var(--danger); }
+.cmp-warn { display: inline-flex; color: var(--warn, #d99a2b); }
+.cmp-note { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.cmp-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.74rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.14s, border-color 0.14s;
+  transition: border-color 0.14s, color 0.14s, background 0.14s;
 }
-.cs-pr:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.cs-pr:disabled { opacity: 0.6; cursor: default; }
-.cs-pr svg { flex-shrink: 0; }
+.cmp-pr:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.cmp-pr:disabled { opacity: 0.6; cursor: default; }
+.cmp-pr-caret { opacity: 0.55; margin-left: -2px; }
 
-/* Bottom controls as plain-text pickers (not boxed chips), like Claude. */
-.composer-controls .seg {
+.cmp-inputbox {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.cmp-inputbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.cmp-enter { display: inline-flex; align-items: center; color: var(--faint); padding-bottom: 10px; }
+
+.cmp-toolbar { display: flex; align-items: center; gap: 3px; padding: 0 6px; }
+.tb-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.tb-seg:hover, .tb-seg:focus-within { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.tb-seg svg { color: var(--muted); flex-shrink: 0; }
+.tb-seg select {
+  appearance: none;
+  -webkit-appearance: none;
   border: none;
   background: none;
-  padding: 3px 4px;
-  gap: 5px;
-}
-.composer-controls .seg:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); border-radius: 7px; }
-.composer-controls .seg svg { color: var(--muted); }
-.composer-controls .seg select {
-  font-size: 0.78rem;
-  font-weight: 600;
   color: var(--ink);
-  text-transform: capitalize;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 550;
   cursor: pointer;
+  text-transform: capitalize;
+  padding: 0;
 }
-.composer-controls .seg:focus-within { background: color-mix(in oklab, var(--ink) 6%, transparent); border-radius: 7px; }
+.tb-seg select:focus { outline: none; }
+.tb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+.tb-icon:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+.tb-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px; height: 34px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s, transform 0.14s;
+}
+:root[data-theme="dark"] .tb-send { color: #1A1205; }
+.tb-send:hover:not(:disabled) { background: var(--accent-strong); transform: translateY(-1px); }
+.tb-send:disabled { background: var(--surface-2); color: var(--faint); cursor: default; }
 
 /* Workspace picker as a centered modal (moved out of the topbar). */
 .ws-overlay {

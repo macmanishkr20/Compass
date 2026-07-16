@@ -430,73 +430,81 @@
 
     <footer class="composer-wrap">
       @if (connError()) { <div class="banner">{{ connError() }}</div> }
-      <div class="composer panel">
-        <div class="composer-status">
-          <button class="cs-repo" (click)="toggleWorkspacePanel()" title="Switch workspace / repository">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
-            <span class="cs-repo-name">{{ activeWorkspace()?.name || 'Workspace' }}</span>
-            @if (gitStatus()?.branch) { <span class="cs-branch">{{ gitStatus()?.branch }}</span> }
+      <!-- Status block: repo · branch … diff · warn · Create PR -->
+      <div class="cmp-status">
+        <button class="cmp-repo" (click)="toggleWorkspacePanel()" title="Switch workspace / repository">
+          <span class="cmp-repo-name">{{ repoLabel() }}</span>
+          @if (gitStatus()?.branch) { <span class="cmp-branch">{{ gitStatus()?.branch }}</span> }
+        </button>
+        <span class="composer-spacer"></span>
+        @if (usage(); as u) {
+          <span class="cmp-tokens">{{ u.promptTokens }} in<i>·</i>{{ u.cachedPromptTokens }} cached<i>·</i>{{ u.completionTokens }} out</span>
+        }
+        @if (gitStatus()?.dirty && (gitStatus()!.added || gitStatus()!.removed)) {
+          <span class="cmp-diff">
+            <span class="cmp-add">+{{ gitStatus()!.added }}</span>
+            <span class="cmp-rem">−{{ gitStatus()!.removed }}</span>
+          </span>
+        }
+        @if (prNotice()) {
+          <span class="cmp-note">{{ prNotice() }}</span>
+        } @else if (gitStatus()?.dirty) {
+          <span class="cmp-warn" title="Uncommitted changes in the working tree">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9 16H3z" stroke-linejoin="round"/><path d="M12 10v4M12 17h.01" stroke-linecap="round"/></svg>
+          </span>
+        }
+        @if (gitStatus()?.remote) {
+          <button class="cmp-pr" (click)="createPr()" [disabled]="prBusy()" title="Push branch and open a pull request">
+            @if (prBusy()) { <span class="spin"></span> }
+            <span>Create PR</span>
+            <svg class="cmp-pr-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          @if (gitStatus()?.dirty) {
-            <span class="cs-diff">
-              @if (gitStatus()!.added) { <span class="cs-add">+{{ gitStatus()!.added }}</span> }
-              @if (gitStatus()!.removed) { <span class="cs-rem">−{{ gitStatus()!.removed }}</span> }
-            </span>
-          }
-          @if (usage(); as u) {
-            <span class="cs-tokens">
-              <span>{{ u.promptTokens }} in</span><span class="cs-dot">·</span>
-              <span>{{ u.cachedPromptTokens }} cached</span><span class="cs-dot">·</span>
-              <span>{{ u.completionTokens }} out</span><span class="cs-dot">·</span>
-              <span class="cs-cost">\${{ u.costUsd.toFixed(4) }}</span>
-            </span>
-          }
-          <span class="composer-spacer"></span>
-          @if (prNotice()) { <span class="cs-note">{{ prNotice() }}</span> }
-          @if (gitStatus()?.remote) {
-            <button class="cs-pr" (click)="createPr()" [disabled]="prBusy()">
-              @if (prBusy()) { <span class="spin"></span> }
-              @else { <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-4 2.5-4 5.5" stroke-linecap="round"/></svg> }
-              Create PR
-            </button>
-          }
-        </div>
+        }
+      </div>
+
+      <!-- Input block -->
+      <div class="cmp-inputbox">
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
           [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown)="onKeydown($event)"></textarea>
-        <div class="composer-controls">
-          <label class="seg" title="Model">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2a5 5 0 015 5v1a4 4 0 010 8v1a5 5 0 01-10 0v-1a4 4 0 010-8V7a5 5 0 015-5z" stroke-linejoin="round"/></svg>
-            <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
-              @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+        <span class="cmp-enter" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+      </div>
+
+      <!-- Toolbar: mode · add · mic … model · effort · send -->
+      <div class="cmp-toolbar">
+        <label class="tb-seg" title="Permission mode">
+          <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
+            @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
+          </select>
+        </label>
+        <button class="tb-icon" (click)="toggleWorkspacePanel()" title="Add workspace / context" aria-label="Add">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+        @if (health()?.tts && voices().length) {
+          <label class="tb-seg tb-mic" title="Read-aloud voice">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke-linecap="round"/></svg>
+            <select appBlurOnChange [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
+              @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
             </select>
           </label>
-          <label class="seg" title="Permission mode">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z" stroke-linejoin="round"/></svg>
-            <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
-              @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
-            </select>
-          </label>
-          <label class="seg" title="Model effort">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
-            <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="setEffort($event)">
-              @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
-            </select>
-          </label>
-          @if (health()?.tts && voices().length) {
-            <label class="seg" title="Read-aloud voice">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" stroke-linecap="round"/></svg>
-              <select appBlurOnChange [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
-                @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
-              </select>
-            </label>
-          }
-          <span class="composer-spacer"></span>
-          <button class="btn send" [disabled]="!canSend()" (click)="send()">
-            @if (streaming()) { <span class="spin"></span> }
-            @else { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg> }
-          </button>
-        </div>
+        }
+        <span class="composer-spacer"></span>
+        <label class="tb-seg" title="Model">
+          <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
+            @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+          </select>
+        </label>
+        <label class="tb-seg" title="Model effort">
+          <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="setEffort($event)">
+            @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
+          </select>
+        </label>
+        <button class="tb-send" [disabled]="!canSend()" (click)="send()" aria-label="Send">
+          @if (streaming()) { <span class="spin"></span> }
+          @else { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg> }
+        </button>
       </div>
     </footer>
   </div>
