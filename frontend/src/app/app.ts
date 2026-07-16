@@ -11,6 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { COLLAB_APPS, CollabApp } from './collab-apps.config';
 import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
@@ -79,6 +80,9 @@ export class App {
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
   private readonly sanitizer = inject(DomSanitizer);
+
+  // Compass Collab — sibling apps launched from the sidebar.
+  readonly collabApps = COLLAB_APPS;
 
   // In-app browser ("Compass's own browser", like Claude's preview pane).
   readonly browserOpen = signal(false);
@@ -540,6 +544,13 @@ export class App {
       'compass-app',
       'popup,noopener,width=1440,height=940',
     );
+  }
+
+  /** Launch a Compass Collab app in the in-app browser dock. */
+  launchCollab(app: CollabApp): void {
+    this.browserAddr.set(app.url);
+    this.navigateBrowser();
+    this.browserOpen.set(true);
   }
 
   // -- in-app browser ------------------------------------------------------

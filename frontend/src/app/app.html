@@ -114,6 +114,44 @@
       }
     </nav>
 
+    <div class="side-collab">
+      <span class="side-collab-head">Compass Collab</span>
+      <div class="collab-row">
+        <button class="collab-app" title="Cost Compass" (click)="launchCollab(collabApps[0])">
+          <span class="collab-ico">
+            <svg width="42" height="42" viewBox="0 0 48 48" aria-hidden="true">
+              <defs>
+                <linearGradient id="cc-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#F7D661"/><stop offset="1" stop-color="#DCA20B"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="44" height="44" rx="12" fill="url(#cc-grad)"/>
+              <rect x="2.6" y="2.6" width="42.8" height="42.8" rx="11.5" fill="none" stroke="#fff" stroke-opacity="0.25"/>
+              <circle cx="24" cy="24" r="11.5" fill="none" stroke="#3b2f08" stroke-width="2.2"/>
+              <path d="M24 15.5l3.1 8.5-3.1 8.5-3.1-8.5z" fill="#3b2f08"/>
+              <circle cx="24" cy="24" r="1.8" fill="#F7D661"/>
+            </svg>
+          </span>
+          <span class="collab-name">Cost Compass</span>
+        </button>
+        <button class="collab-app" title="Pulse Compass" (click)="launchCollab(collabApps[1])">
+          <span class="collab-ico">
+            <svg width="42" height="42" viewBox="0 0 48 48" aria-hidden="true">
+              <defs>
+                <linearGradient id="pc-grad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#5E8BF0"/><stop offset="1" stop-color="#2C55C8"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="44" height="44" rx="12" fill="url(#pc-grad)"/>
+              <rect x="2.6" y="2.6" width="42.8" height="42.8" rx="11.5" fill="none" stroke="#fff" stroke-opacity="0.25"/>
+              <path d="M11 25.5h6l2.6-7 4.4 14 2.8-9.5 2 2.5h6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="collab-name">Pulse Compass</span>
+        </button>
+      </div>
+    </div>
+
     <div class="side-foot">
       @if (health(); as h) {
         <span class="stat" [class.mock]="h.mock_model">
@@ -438,7 +476,7 @@
         </button>
         <span class="composer-spacer"></span>
         @if (usage(); as u) {
-          <span class="cmp-tokens">{{ u.promptTokens }} in<i>·</i>{{ u.cachedPromptTokens }} cached<i>·</i>{{ u.completionTokens }} out</span>
+          <span class="cmp-tokens">{{ u.promptTokens }} in<i>·</i>{{ u.cachedPromptTokens }} cached<i>·</i>{{ u.completionTokens }} out<i>·</i><span class="cmp-cost">\${{ u.costUsd.toFixed(4) }}</span></span>
         }
         @if (gitStatus()?.dirty && (gitStatus()!.added || gitStatus()!.removed)) {
           <span class="cmp-diff">
@@ -467,9 +505,10 @@
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
           [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown)="onKeydown($event)"></textarea>
-        <span class="cmp-enter" aria-hidden="true">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
+        <button class="cmp-enter" [disabled]="!canSend()" (click)="send()" aria-label="Send">
+          @if (streaming()) { <span class="spin"></span> }
+          @else { <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg> }
+        </button>
       </div>
 
       <!-- Toolbar: mode · add · mic … model · effort · send -->
@@ -501,10 +540,6 @@
             @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
           </select>
         </label>
-        <button class="tb-send" [disabled]="!canSend()" (click)="send()" aria-label="Send">
-          @if (streaming()) { <span class="spin"></span> }
-          @else { <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg> }
-        </button>
       </div>
     </footer>
   </div>

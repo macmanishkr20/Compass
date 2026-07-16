@@ -269,6 +269,55 @@
 .conv-menu button.danger:hover { background: var(--danger-tint); color: var(--danger); }
 .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
 
+/* Compass Collab — sibling app launchers */
+.side-collab {
+  padding-top: 12px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.side-collab-head {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 0 4px 8px;
+}
+.collab-row { display: flex; gap: 10px; }
+.collab-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.14s, transform 0.14s;
+}
+.collab-app:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.collab-app:active { transform: scale(0.96); }
+.collab-ico {
+  display: inline-flex;
+  border-radius: 12px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.collab-ico svg { display: block; border-radius: 12px; }
+.collab-name {
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .side-foot {
   display: flex;
   flex-direction: column;
@@ -958,15 +1007,16 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   max-width: 55%;
 }
 .cmp-repo-name {
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 650;
   color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cmp-repo:hover .cmp-repo-name { color: var(--accent); }
-.cmp-branch { font-size: 0.9rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.cmp-branch { font-size: 0.78rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
 .cmp-tokens { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); white-space: nowrap; }
 .cmp-tokens i { font-style: normal; opacity: 0.5; margin: 0 5px; }
+.cmp-cost { color: var(--accent); font-weight: 700; }
 .cmp-diff {
   display: inline-flex;
   gap: 7px;
@@ -993,7 +1043,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   border: 1px solid var(--border);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.88rem;
+  font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
@@ -1014,7 +1064,21 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   transition: border-color 0.16s, box-shadow 0.16s;
 }
 .cmp-inputbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
-.cmp-enter { display: inline-flex; align-items: center; color: var(--faint); padding-bottom: 10px; }
+.cmp-enter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  transition: color 0.14s, background 0.14s;
+}
+.cmp-enter:hover:not(:disabled) { color: var(--accent); background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.cmp-enter:disabled { color: var(--faint); cursor: default; }
 
 .cmp-toolbar { display: flex; align-items: center; gap: 3px; padding: 0 6px; }
 .tb-seg {
@@ -1035,7 +1099,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   background: none;
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.9rem;
+  font-size: 0.78rem;
   font-weight: 550;
   cursor: pointer;
   text-transform: capitalize;
