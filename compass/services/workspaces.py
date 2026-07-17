@@ -225,9 +225,17 @@ def git_diff(root: Path) -> str:
     return _run_git(["diff", "HEAD"], root)
 
 
-def create_pull_request(root: Path) -> dict:
-    """Push the current branch and open a PR with the GitHub CLI. Raises
-    RuntimeError with a readable message on any failure."""
+def _compare_url(root: Path, branch: str) -> str:
+    """github.com/owner/repo/compare/<branch>?expand=1 for manual PR creation."""
+    remote = _origin_url(root)
+    base = remote[:-4] if remote.endswith(".git") else remote
+    return f"{base}/compare/{branch}?expand=1" if base else ""
+
+
+def create_pull_request(root: Path, *, draft: bool = False, manual: bool = False) -> dict:
+    """Push the current branch, then either open a PR with the GitHub CLI
+    (optionally as a draft) or, for `manual`, return the GitHub compare URL so
+    the user fills it in themselves. Raises RuntimeError on failure."""
     import shutil
     import subprocess
 
@@ -238,9 +246,6 @@ def create_pull_request(root: Path) -> dict:
         raise RuntimeError(
             f"You're on '{branch}'. Create a feature branch before opening a PR."
         )
-    gh = shutil.which("gh")
-    if not gh:
-        raise RuntimeError("GitHub CLI ('gh') not found on the server host")
 
     push = subprocess.run(
         ["git", "push", "-u", "origin", branch],
@@ -252,8 +257,20 @@ def create_pull_request(root: Path) -> dict:
     if push.returncode != 0:
         raise RuntimeError("git push failed: " + (push.stderr or push.stdout).strip())
 
+    if manual:
+        url = _compare_url(root, branch)
+        if not url:
+            raise RuntimeError("No GitHub remote to open a compare page for.")
+        return {"url": url, "branch": branch, "existing": False, "manual": True}
+
+    gh = shutil.which("gh")
+    if not gh:
+        raise RuntimeError("GitHub CLI ('gh') not found on the server host")
+    cmd = [gh, "pr", "create", "--fill", "--head", branch]
+    if draft:
+        cmd.append("--draft")
     pr = subprocess.run(
-        [gh, "pr", "create", "--fill", "--head", branch],
+        cmd,
         cwd=root,
         capture_output=True,
         text=True,

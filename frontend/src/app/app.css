@@ -1171,25 +1171,70 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .cmp-rem { color: var(--danger); }
 .cmp-warn { display: inline-flex; color: var(--warn, #d99a2b); }
 .cmp-note { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.cmp-pr-wrap { position: relative; flex-shrink: 0; }
+/* Split button: main action + caret, sharing one bordered pill. */
 .cmp-pr {
   display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
+  align-items: stretch;
   border-radius: 9px;
   background: var(--surface);
   border: 1px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.14s;
+}
+.cmp-pr:hover { border-color: var(--accent); }
+.cmp-pr.busy { opacity: 0.6; }
+.cmp-pr-main, .cmp-pr-caret-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: none;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  flex-shrink: 0;
-  transition: border-color 0.14s, color 0.14s, background 0.14s;
+  transition: color 0.14s, background 0.14s;
 }
-.cmp-pr:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.cmp-pr:disabled { opacity: 0.6; cursor: default; }
-.cmp-pr-caret { opacity: 0.55; margin-left: -2px; }
+.cmp-pr-main { padding: 6px 11px; }
+.cmp-pr-caret-btn { padding: 6px 7px; border-left: 1px solid var(--border); }
+.cmp-pr-main:hover:not(:disabled), .cmp-pr-caret-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--ink) 5%, transparent);
+}
+.cmp-pr-main:disabled, .cmp-pr-caret-btn:disabled { cursor: default; }
+.cmp-pr-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 70;
+  min-width: 210px;
+  padding: 5px;
+  border-radius: 11px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+.cmp-pr-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+}
+.cmp-pr-menu button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
+.cmp-pr-menu button svg { color: var(--muted); flex-shrink: 0; }
+.cmp-pr-menu button span { flex: 1; }
+.cmp-pr-menu .pr-check { color: var(--accent); }
 
 .cmp-inputbox {
   display: flex;

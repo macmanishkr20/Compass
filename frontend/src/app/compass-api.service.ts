@@ -132,11 +132,14 @@ export class CompassApiService {
     );
   }
 
-  createPr(id: string): Promise<{ url: string; branch: string; existing: boolean }> {
+  createPr(
+    id: string,
+    opts: { draft?: boolean; manual?: boolean } = {},
+  ): Promise<{ url: string; branch: string; existing: boolean; manual?: boolean }> {
     return firstValueFrom(
-      this.http.post<{ url: string; branch: string; existing: boolean }>(
+      this.http.post<{ url: string; branch: string; existing: boolean; manual?: boolean }>(
         `/v1/workspaces/${id}/pr`,
-        {},
+        opts,
       ),
     );
   }

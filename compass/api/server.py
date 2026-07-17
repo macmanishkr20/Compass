@@ -476,11 +476,19 @@ async def workspace_diff(
     return {"diff": git_diff(root)}
 
 
+class CreatePrRequest(BaseModel):
+    draft: bool = False
+    manual: bool = False
+
+
 @app.post("/v1/workspaces/{workspace_id}/pr")
 async def workspace_create_pr(
-    workspace_id: str, user: str = Depends(require_user)
+    workspace_id: str,
+    body: CreatePrRequest = CreatePrRequest(),
+    user: str = Depends(require_user),
 ) -> dict:
-    """Push the branch and open a GitHub PR (via the gh CLI on the host)."""
+    """Push the branch and open a GitHub PR (gh CLI), optionally as a draft, or
+    return the compare URL for manual creation."""
     from compass.services.workspaces import (
         create_pull_request,
         get_workspace_registry,
@@ -488,7 +496,7 @@ async def workspace_create_pr(
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     try:
-        return create_pull_request(root)
+        return create_pull_request(root, draft=body.draft, manual=body.manual)
     except RuntimeError as err:
         raise HTTPException(status_code=422, detail=str(err))
 

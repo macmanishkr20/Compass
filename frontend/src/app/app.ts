@@ -176,6 +176,7 @@ export class App {
   readonly diffOpen = signal(false);
   readonly diffLines = signal<{ t: string; text: string }[]>([]);
   readonly diffBusy = signal(false);
+  readonly prMenuOpen = signal(false);
 
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
@@ -527,13 +528,22 @@ export class App {
   }
 
   /** Push the branch and open a GitHub PR (backend runs gh). */
-  async createPr(): Promise<void> {
+  async createPr(opts: { draft?: boolean; manual?: boolean } = {}): Promise<void> {
+    this.prMenuOpen.set(false);
     if (this.prBusy()) return;
     this.prBusy.set(true);
     this.prNotice.set('');
     try {
-      const res = await this.api.createPr(this.activeWorkspaceId());
-      this.prNotice.set(res.existing ? 'PR already open' : 'PR created');
+      const res = await this.api.createPr(this.activeWorkspaceId(), opts);
+      this.prNotice.set(
+        res.manual
+          ? 'Opening GitHub…'
+          : res.existing
+            ? 'PR already open'
+            : opts.draft
+              ? 'Draft PR created'
+              : 'PR created',
+      );
       if (res.url) window.open(res.url, '_blank', 'noopener');
       setTimeout(() => this.prNotice.set(''), 4000);
     } catch (err: unknown) {

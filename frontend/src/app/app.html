@@ -492,11 +492,34 @@
           </span>
         }
         @if (gitStatus()?.remote) {
-          <button class="cmp-pr" (click)="createPr()" [disabled]="prBusy()" title="Push branch and open a pull request">
-            @if (prBusy()) { <span class="spin"></span> }
-            <span>Create PR</span>
-            <svg class="cmp-pr-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          <div class="cmp-pr-wrap">
+            @if (prMenuOpen()) {
+              <div class="cmp-pr-menu panel" (click)="prMenuOpen.set(false)">
+                <button (click)="createPr()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-4 2.5-4 5.5" stroke-linecap="round"/></svg>
+                  <span>Create PR</span>
+                  <svg class="pr-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button (click)="createPr({ draft: true })">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6h7M8.5 18h7" stroke-linecap="round"/></svg>
+                  <span>Create draft PR</span>
+                </button>
+                <button (click)="createPr({ manual: true })">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span>Manually create PR</span>
+                </button>
+              </div>
+            }
+            <div class="cmp-pr" [class.busy]="prBusy()">
+              <button class="cmp-pr-main" (click)="createPr()" [disabled]="prBusy()" title="Push branch and open a pull request">
+                @if (prBusy()) { <span class="spin"></span> }
+                <span>Create PR</span>
+              </button>
+              <button class="cmp-pr-caret-btn" (click)="prMenuOpen.set(!prMenuOpen())" [disabled]="prBusy()" aria-label="PR options">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
         }
       </div>
 
