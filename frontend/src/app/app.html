@@ -276,7 +276,7 @@
       </div>
     </header>
 
-    <main #log class="log" aria-live="polite" (click)="onLogClick($event)">
+    <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">
       @if (timeline().length === 0) {
         <section class="hero">
           <div class="hero-mark">
@@ -326,7 +326,8 @@
 
           @case ('bubble') {
             @let b = asBubble(item);
-            <div class="row" [class.mine]="b.role === 'user'">
+            <div class="row" [class.mine]="b.role === 'user'"
+              [attr.id]="b.role === 'user' ? 'msg-' + b.id : null">
               @if (b.role === 'assistant') {
                 <span class="avatar">
                   <app-compass-mark [size]="22" />
@@ -428,11 +429,11 @@
                 <span class="ico ico-shield">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z" stroke-linejoin="round"/></svg>
                 </span>
-                <span class="tool-name">Permission · {{ p.toolName }}</span>
+                <span class="tool-name">{{ permTitle(p.toolName) }}</span>
                 @if (p.agentId) { <span class="agent-tag">agent {{ p.agentId }}</span> }
               </header>
-              <p class="perm-reason">{{ p.reason }}</p>
-              <pre class="args">{{ p.args }}</pre>
+              <p class="perm-reason">{{ permBlurb(p) }}</p>
+              <pre class="args">{{ permDetail(p) }}</pre>
               @if (!p.resolved) {
                 <div class="perm-actions">
                   <button class="btn allow" (click)="resolve(p, 'allow')">Allow</button>
@@ -465,6 +466,17 @@
         </div>
       }
     </main>
+
+    @if (promptNav().length > 1) {
+      <nav class="pnav" aria-label="Jump to prompt">
+        @for (p of promptNav(); track p.id) {
+          <button class="pnav-tick" [class.on]="navActive() === p.id" (click)="scrollToPrompt(p.id)">
+            <span class="pnav-line"></span>
+            <span class="pnav-label">{{ p.text }}</span>
+          </button>
+        }
+      </nav>
+    }
 
     <footer class="composer-wrap">
       @if (connError()) { <div class="banner">{{ connError() }}</div> }

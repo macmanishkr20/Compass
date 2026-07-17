@@ -65,6 +65,28 @@
   transition: color 0.14s, border-color 0.14s, background 0.14s;
 }
 .code-copy:hover { color: var(--accent); border-color: var(--accent); }
+.code-body { position: relative; }
+.code-body.collapsed { max-height: 320px; overflow: hidden; }
+.code-body.collapsed::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0; height: 56px;
+  background: linear-gradient(transparent, var(--bg-2));
+  pointer-events: none;
+}
+.code-more {
+  display: block;
+  width: 100%;
+  padding: 7px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--accent);
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.code-more:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
 .code-block pre {
   margin: 0;
   padding: 12px 14px;

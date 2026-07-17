@@ -496,6 +496,66 @@ export class App {
     return this.activeWorkspace()?.name || 'Workspace';
   }
 
+  // -- prompt navigator (right-rail, jump to a user prompt) ---------------
+  readonly navActive = signal<string | null>(null);
+  readonly promptNav = computed(() =>
+    this.timeline()
+      .filter(
+        (it): it is ChatBubble =>
+          it.kind === 'bubble' && (it as ChatBubble).role === 'user',
+      )
+      .map((b) => ({
+        id: b.id,
+        text: (b.text || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+      })),
+  );
+  scrollToPrompt(id: string): void {
+    document.getElementById('msg-' + id)?.scrollIntoView({ block: 'start' });
+    this.navActive.set(id);
+  }
+  onLogScroll(): void {
+    const log = this.logEl()?.nativeElement;
+    if (!log) return;
+    const marker = log.getBoundingClientRect().top + 120;
+    let current: string | null = null;
+    for (const p of this.promptNav()) {
+      const el = document.getElementById('msg-' + p.id);
+      if (el && el.getBoundingClientRect().top <= marker) current = p.id;
+    }
+    this.navActive.set(current);
+  }
+
+  // -- permission card (layman-friendly wording) --------------------------
+  permTitle(tool: string): string {
+    const t: Record<string, string> = {
+      bash: 'Compass wants to run a command',
+      file_write: 'Compass wants to create a file',
+      file_edit: 'Compass wants to edit a file',
+      screenshot: 'Compass wants to take a screenshot',
+    };
+    return t[tool] ?? `Compass wants to use “${tool}”`;
+  }
+  permBlurb(p: PermissionVM): string {
+    if (p.toolName === 'bash')
+      return 'This runs a terminal command on your machine — review it, then Allow or Deny.';
+    if (p.toolName === 'file_write' || p.toolName === 'file_edit')
+      return 'This changes a file in your workspace — review it, then Allow or Deny.';
+    return p.reason || 'This action needs your approval — review it, then Allow or Deny.';
+  }
+  /** Show the actual command/args in a readable form (not raw JSON). */
+  permDetail(p: PermissionVM): string {
+    try {
+      const a = JSON.parse(p.args);
+      if (typeof a?.command === 'string') return a.command;
+      if (typeof a?.path === 'string') return a.path;
+      return Object.entries(a)
+        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join('\n');
+    } catch {
+      return p.args;
+    }
+  }
+
   // -- repo / branch context menus (like Claude) --------------------------
   private async copy(text: string): Promise<void> {
     try {

@@ -441,6 +441,7 @@
 
 /* ============================ Main column ============================ */
 .main {
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr auto;
   /* Constrain the single implicit column to the cell width so a crowded
@@ -657,6 +658,66 @@
 .cb-hint strong { color: var(--ink); }
 
 /* ============================== Log ================================ */
+/* Prompt navigator: right-edge ticks that expand to prompt previews. */
+.pnav {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 25;
+  max-height: 70%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px 4px;
+}
+.pnav-tick {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.pnav-line {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0.4;
+  flex-shrink: 0;
+  transition: width 0.14s, opacity 0.14s, background 0.14s;
+}
+.pnav-tick:hover .pnav-line { opacity: 0.9; }
+.pnav-tick.on .pnav-line { background: var(--ink); opacity: 1; width: 22px; }
+.pnav-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  font-size: 0.76rem;
+  color: var(--ink);
+  border-radius: 7px;
+  transition: max-width 0.16s ease, opacity 0.16s, padding 0.16s, background 0.16s;
+}
+.pnav:hover { overflow: visible; }
+.pnav:hover .pnav-label {
+  max-width: 260px;
+  opacity: 1;
+  padding: 5px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.pnav:hover .pnav-line { opacity: 0.75; }
+@media (max-width: 1100px) { .pnav { display: none; } }
+
 .log {
   border-radius: var(--radius);
   overflow-y: auto;
