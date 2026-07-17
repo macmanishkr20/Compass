@@ -24,7 +24,9 @@ class ScreenshotTool(Tool):
     description = (
         "Open a URL in a headless browser and capture a screenshot, then post "
         "it into the chat for visual verification of a frontend, preview, or "
-        "artifact. Use after starting a dev server or making UI changes."
+        "artifact. Use after starting a dev server or making UI changes. The "
+        "image is shown to the user automatically — in your reply just confirm "
+        "briefly; do NOT repeat the screenshot:// token or describe the pixels."
     )
     input_model = ScreenshotInput
 

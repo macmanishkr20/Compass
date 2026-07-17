@@ -156,3 +156,16 @@ body {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
   background-clip: content-box;
 }
+
+/* Screenshot / inline images posted into chat (dynamic innerHTML, so global). */
+.md-img {
+  display: block;
+  width: 460px;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  cursor: zoom-in;
+}

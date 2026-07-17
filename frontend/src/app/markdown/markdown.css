@@ -123,13 +123,3 @@
 .artifact-open { color: var(--faint); flex-shrink: 0; }
 .artifact-card:hover .artifact-open { color: var(--accent); }
 
-.md-img {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  margin: 8px 0;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  cursor: zoom-in;
-}
