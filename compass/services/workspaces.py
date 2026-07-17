@@ -290,44 +290,65 @@ def create_pull_request(root: Path, *, draft: bool = False, manual: bool = False
     return {"url": url, "branch": branch, "existing": False}
 
 
-def reveal_in_file_manager(path: Path) -> str:
-    """Open the folder in the host's file manager (Finder/Explorer)."""
-    import platform
+def _run(cmd: list[str]) -> None:
     import subprocess
 
-    system = platform.system()
-    if system == "Darwin":
-        cmd = ["open", str(path)]
-    elif system == "Windows":  # pragma: no cover
-        cmd = ["explorer", str(path)]
-    else:
-        cmd = ["xdg-open", str(path)]
     try:
-        subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired) as err:
         raise RuntimeError(str(err))
-    return " ".join(cmd)
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "command failed").strip())
+
+
+def reveal_in_file_manager(path: Path) -> str:
+    """Reveal the folder in the host's file manager and bring it to the front.
+    On macOS uses AppleScript (`activate`), which surfaces the window reliably
+    even from a background server process — plain `open` often does not."""
+    import platform
+
+    p = str(path)
+    system = platform.system()
+    if system == "Darwin":
+        _run(
+            [
+                "osascript",
+                "-e",
+                f'tell application "Finder" to reveal (POSIX file "{p}" as alias)',
+                "-e",
+                'tell application "Finder" to activate',
+            ]
+        )
+        return f"Finder: {p}"
+    if system == "Windows":  # pragma: no cover
+        _run(["explorer", p])
+    else:
+        _run(["xdg-open", p])
+    return p
 
 
 def open_in_terminal(path: Path) -> str:
-    """Open a terminal at the folder on the host."""
+    """Open a terminal at the folder and bring it to the front."""
     import platform
-    import subprocess
 
+    p = str(path)
     system = platform.system()
     if system == "Darwin":
-        cmd = ["open", "-a", "Terminal", str(path)]
-    elif system == "Windows":  # pragma: no cover
-        cmd = ["cmd", "/c", "start", "cmd", "/K", "cd", "/d", str(path)]
+        _run(
+            [
+                "osascript",
+                "-e",
+                f'tell application "Terminal" to do script "cd " & quoted form of "{p}"',
+                "-e",
+                'tell application "Terminal" to activate',
+            ]
+        )
+        return f"Terminal: {p}"
+    if system == "Windows":  # pragma: no cover
+        _run(["cmd", "/c", "start", "cmd", "/K", f"cd /d {p}"])
     else:
-        cmd = ["x-terminal-emulator", "--working-directory", str(path)]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        if proc.returncode != 0:
-            raise RuntimeError((proc.stderr or proc.stdout or "failed").strip())
-    except (OSError, subprocess.TimeoutExpired) as err:
-        raise RuntimeError(str(err))
-    return " ".join(cmd)
+        _run(["x-terminal-emulator", "--working-directory", p])
+    return p
 
 
 def open_in_vscode(path: Path) -> str:

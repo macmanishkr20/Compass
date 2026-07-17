@@ -717,6 +717,14 @@
             </div>
           }
         </div>
+        <div class="ws-sub">Add an existing folder</div>
+        <div class="ws-add">
+          <input class="ws-input" placeholder="/absolute/path/to/folder"
+            [value]="newFolderPath()" (input)="newFolderPath.set($any($event.target).value)"
+            (keydown.enter)="addFolderPath()" />
+          <button class="btn xs primary" (click)="addFolderPath()" [disabled]="!newFolderPath().trim()">Add</button>
+        </div>
+        <div class="ws-sub">Create a new folder</div>
         <div class="ws-add">
           <input class="ws-input" placeholder="New folder name…"
             [value]="newFolderName()" (input)="newFolderName.set($any($event.target).value)"

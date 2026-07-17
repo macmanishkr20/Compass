@@ -954,6 +954,28 @@ export class App {
     }
   }
 
+  readonly newFolderPath = signal('');
+  /** Add an existing local folder by its absolute path, then switch to it. */
+  async addFolderPath(): Promise<void> {
+    const path = this.newFolderPath().trim();
+    if (!path) return;
+    this.workspaceBusy.set('Adding folder…');
+    try {
+      const ws = await this.api.addFolderWorkspace({ path });
+      this.newFolderPath.set('');
+      await this.refreshWorkspaces();
+      await this.selectWorkspace(ws);
+    } catch (err: unknown) {
+      const detail =
+        (err as { error?: { detail?: string } })?.error?.detail ?? String(err);
+      this.workspaceBusy.set(`Failed: ${detail}`);
+      setTimeout(() => this.workspaceBusy.set(null), 4000);
+      return;
+    } finally {
+      if (!this.workspaceBusy()?.startsWith('Failed')) this.workspaceBusy.set(null);
+    }
+  }
+
   async loadGithubRepos(): Promise<void> {
     if (!this.githubEnabled()) return;
     this.githubLoading.set(true);
