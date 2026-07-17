@@ -43,6 +43,11 @@ to agent(subagent_type="explore") — it burns its own context, not yours. \
 Delegate self-contained multi-step subtasks to agent(subagent_type="general").
 - Everything under the workspace root is yours to work with; anything \
 outside it is off-limits and will be refused.
+- When asked to screenshot, show, capture, or share a view of a page, app, \
+frontend, preview, or website, ALWAYS call the `screenshot` tool with the URL \
+— it captures the page in a headless browser and posts the image into the \
+chat. Never say you can't take a screenshot and never substitute a hand-drawn \
+mock; use the tool.
 
 # Communication
 - Be direct and concise. Lead with the outcome, then supporting detail.
@@ -275,10 +280,29 @@ def load_project_memory(root: Path | None = None) -> str:
     return ""
 
 
+def build_collab_apps_block() -> str:
+    """Known sibling apps (Compass Collab) with their URLs, so the agent can
+    screenshot/inspect them by name. Configurable via env."""
+    import os
+
+    apps = [
+        ("Cost Compass", os.getenv("COST_COMPASS_URL", "http://localhost:64989/dashboard")),
+        ("Pulse Compass", os.getenv("PULSE_COMPASS_URL", "http://localhost:65092")),
+    ]
+    lines = [
+        "# Compass Collab apps",
+        "Sibling apps running locally. To screenshot or inspect one by name, "
+        "use its URL with the `screenshot` tool:",
+    ]
+    lines += [f"- {name}: {url}" for name, url in apps]
+    return "\n".join(lines)
+
+
 def build_system_prompt(*, role: str = "main", workspace_root: Path | None = None) -> str:
     identity = SUBAGENT_IDENTITY.get(role, IDENTITY)
     parts = [identity, build_environment_block(workspace_root)]
     if role == "main":
+        parts.append(build_collab_apps_block())
         memory = load_project_memory(workspace_root)
         if memory:
             parts.append(memory)
