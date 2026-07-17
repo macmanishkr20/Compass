@@ -169,3 +169,29 @@ body {
   box-shadow: var(--shadow-sm);
   cursor: zoom-in;
 }
+
+/* Chat image lightbox */
+.lb-overlay {
+  position: fixed; inset: 0; z-index: 300;
+  display: grid; place-items: center;
+  background: rgba(6, 9, 14, 0.85);
+  backdrop-filter: blur(4px);
+}
+.lb-stage { max-width: 96vw; max-height: 94vh; overflow: auto; display: grid; place-items: center; }
+.lb-stage img {
+  display: block;
+  max-width: 92vw; max-height: 92vh;
+  width: auto; height: auto;
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  cursor: zoom-in;
+}
+.lb-stage.zoom { cursor: zoom-out; }
+.lb-stage img.zoom { max-width: none; max-height: none; cursor: zoom-out; }
+.lb-close {
+  position: fixed; top: 18px; right: 20px; z-index: 301;
+  width: 40px; height: 40px; display: grid; place-items: center;
+  border: none; border-radius: 10px;
+  background: rgba(255,255,255,0.1); color: #fff; cursor: pointer;
+}
+.lb-close:hover { background: rgba(255,255,255,0.22); }

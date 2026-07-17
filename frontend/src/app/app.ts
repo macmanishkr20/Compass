@@ -580,6 +580,22 @@ export class App {
 
   readonly shotBusy = signal(false);
   readonly cbMenuOpen = signal(false);
+  // Chat image lightbox (click to open, click to zoom in/out, ✕ to close).
+  readonly lightboxSrc = signal<string | null>(null);
+  readonly lightboxZoom = signal(false);
+  onLogClick(e: MouseEvent): void {
+    const t = e.target as HTMLElement;
+    if (t?.tagName === 'IMG' && t.classList.contains('md-img')) {
+      this.lightboxZoom.set(false);
+      this.lightboxSrc.set((t as HTMLImageElement).src);
+    }
+  }
+  toggleLightboxZoom(): void {
+    this.lightboxZoom.update((v) => !v);
+  }
+  closeLightbox(): void {
+    this.lightboxSrc.set(null);
+  }
   readonly annotateOn = signal(false);
   private readonly annoCanvas =
     viewChild<ElementRef<HTMLCanvasElement>>('annoCanvas');
