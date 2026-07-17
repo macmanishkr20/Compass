@@ -177,6 +177,8 @@ export class App {
   readonly diffLines = signal<{ t: string; text: string }[]>([]);
   readonly diffBusy = signal(false);
   readonly prMenuOpen = signal(false);
+  readonly repoMenuOpen = signal(false);
+  readonly branchMenuOpen = signal(false);
 
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
@@ -492,6 +494,47 @@ export class App {
       if (m?.[1]) return m[1];
     }
     return this.activeWorkspace()?.name || 'Workspace';
+  }
+
+  // -- repo / branch context menus (like Claude) --------------------------
+  private async copy(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  }
+  copyRepoPath(): void {
+    this.repoMenuOpen.set(false);
+    const p = this.activeWorkspace()?.path;
+    if (p) void this.copy(p);
+  }
+  copyBranchName(): void {
+    this.branchMenuOpen.set(false);
+    const b = this.gitStatus()?.branch;
+    if (b) void this.copy(b);
+  }
+  openRepoInGithub(): void {
+    this.repoMenuOpen.set(false);
+    const url = this.gitStatus()?.remote || this.activeWorkspace()?.remote_url;
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+  async revealWorkspace(): Promise<void> {
+    this.repoMenuOpen.set(false);
+    try {
+      await this.api.revealWorkspace(this.activeWorkspaceId());
+    } catch {
+      /* host-only */
+    }
+  }
+  async openWorkspaceTerminal(): Promise<void> {
+    this.repoMenuOpen.set(false);
+    this.branchMenuOpen.set(false);
+    try {
+      await this.api.openWorkspaceTerminal(this.activeWorkspaceId());
+    } catch {
+      /* host-only */
+    }
   }
 
   /** Refresh the working-tree diff/branch shown in the composer status bar. */

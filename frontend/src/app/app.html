@@ -470,10 +470,36 @@
       @if (connError()) { <div class="banner">{{ connError() }}</div> }
       <!-- Status block: repo · branch … diff · warn · Create PR -->
       <div class="cmp-status">
-        <button class="cmp-repo" (click)="toggleWorkspacePanel()" title="Switch workspace / repository">
-          <span class="cmp-repo-name">{{ repoLabel() }}</span>
-          @if (gitStatus()?.branch) { <span class="cmp-branch">{{ gitStatus()?.branch }}</span> }
-        </button>
+        <span class="cmp-repo">
+          <span class="cmp-repo-wrap">
+            @if (repoMenuOpen()) {
+              <div class="ctx-menu panel" (click)="repoMenuOpen.set(false)">
+                <button (click)="revealWorkspace()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg><span>Show in Finder</span></button>
+                <button (click)="copyRepoPath()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round"/></svg><span>Copy path</span></button>
+                @if (gitStatus()?.remote) {
+                  <button (click)="openRepoInGithub()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open repo in GitHub</span></button>
+                }
+                <div class="menu-sep"></div>
+                <button (click)="openWorkspaceTerminal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open in terminal</span></button>
+                <div class="menu-sep"></div>
+                <button (click)="toggleWorkspacePanel()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 7l4-4 4 4M8 17l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Switch workspace…</span></button>
+              </div>
+            }
+            <button class="cmp-repo-name" (click)="repoMenuOpen.set(!repoMenuOpen())" title="Repository actions">{{ repoLabel() }}</button>
+          </span>
+          @if (gitStatus()?.branch) {
+            <span class="cmp-branch-wrap">
+              @if (branchMenuOpen()) {
+                <div class="ctx-menu panel" (click)="branchMenuOpen.set(false)">
+                  <button (click)="copyBranchName()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round"/></svg><span>Copy branch name</span></button>
+                  <div class="menu-sep"></div>
+                  <button (click)="openWorkspaceTerminal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open in terminal</span></button>
+                </div>
+              }
+              <button class="cmp-branch" (click)="branchMenuOpen.set(!branchMenuOpen())" title="Branch actions">{{ gitStatus()?.branch }}</button>
+            </span>
+          }
+        </span>
         <span class="composer-spacer"></span>
         @if (usage(); as u) {
           <span class="cmp-tokens">{{ u.promptTokens }} in<i>·</i>{{ u.cachedPromptTokens }} cached<i>·</i>{{ u.completionTokens }} out<i>·</i><span class="cmp-cost">\${{ u.costUsd.toFixed(4) }}</span></span>

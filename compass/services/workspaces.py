@@ -290,6 +290,46 @@ def create_pull_request(root: Path, *, draft: bool = False, manual: bool = False
     return {"url": url, "branch": branch, "existing": False}
 
 
+def reveal_in_file_manager(path: Path) -> str:
+    """Open the folder in the host's file manager (Finder/Explorer)."""
+    import platform
+    import subprocess
+
+    system = platform.system()
+    if system == "Darwin":
+        cmd = ["open", str(path)]
+    elif system == "Windows":  # pragma: no cover
+        cmd = ["explorer", str(path)]
+    else:
+        cmd = ["xdg-open", str(path)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise RuntimeError(str(err))
+    return " ".join(cmd)
+
+
+def open_in_terminal(path: Path) -> str:
+    """Open a terminal at the folder on the host."""
+    import platform
+    import subprocess
+
+    system = platform.system()
+    if system == "Darwin":
+        cmd = ["open", "-a", "Terminal", str(path)]
+    elif system == "Windows":  # pragma: no cover
+        cmd = ["cmd", "/c", "start", "cmd", "/K", "cd", "/d", str(path)]
+    else:
+        cmd = ["x-terminal-emulator", "--working-directory", str(path)]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "failed").strip())
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise RuntimeError(str(err))
+    return " ".join(cmd)
+
+
 def open_in_vscode(path: Path) -> str:
     """Launch VS Code on `path` from the host running this backend — the same
     thing the Claude Code CLI does. Only meaningful when the backend and the

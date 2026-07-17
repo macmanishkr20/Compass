@@ -109,6 +109,14 @@ export class CompassApiService {
     return firstValueFrom(this.http.delete(`/v1/workspaces/${id}`));
   }
 
+  revealWorkspace(id: string): Promise<{ opened: string }> {
+    return firstValueFrom(this.http.post<{ opened: string }>(`/v1/workspaces/${id}/reveal`, {}));
+  }
+
+  openWorkspaceTerminal(id: string): Promise<{ opened: string }> {
+    return firstValueFrom(this.http.post<{ opened: string }>(`/v1/workspaces/${id}/terminal`, {}));
+  }
+
   openWorkspaceInVsCode(id: string): Promise<{ opened: string; command: string }> {
     return firstValueFrom(
       this.http.post<{ opened: string; command: string }>(

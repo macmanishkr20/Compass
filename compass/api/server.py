@@ -501,6 +501,40 @@ async def workspace_create_pr(
         raise HTTPException(status_code=422, detail=str(err))
 
 
+@app.post("/v1/workspaces/{workspace_id}/reveal")
+async def reveal_workspace(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Reveal the workspace folder in the host's file manager (Finder)."""
+    from compass.services.workspaces import (
+        get_workspace_registry,
+        reveal_in_file_manager,
+    )
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    try:
+        return {"opened": reveal_in_file_manager(root)}
+    except RuntimeError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
+
+@app.post("/v1/workspaces/{workspace_id}/terminal")
+async def open_workspace_terminal(
+    workspace_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Open a terminal at the workspace folder on the host."""
+    from compass.services.workspaces import (
+        get_workspace_registry,
+        open_in_terminal,
+    )
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    try:
+        return {"opened": open_in_terminal(root)}
+    except RuntimeError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
+
 @app.post("/v1/workspaces/{workspace_id}/open-in-vscode")
 async def open_workspace_in_vscode(
     workspace_id: str, user: str = Depends(require_user)

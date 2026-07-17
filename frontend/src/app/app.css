@@ -1135,23 +1135,69 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .cmp-repo {
   display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 60%;
+}
+.cmp-repo-wrap, .cmp-branch-wrap { position: relative; display: inline-flex; min-width: 0; }
+.cmp-repo-name {
   border: none;
   background: none;
   cursor: pointer;
-  min-width: 0;
-  max-width: 55%;
-}
-.cmp-repo-name {
+  font-family: var(--sans);
   font-size: 0.82rem;
   font-weight: 650;
   color: var(--ink);
+  padding: 2px 4px;
+  border-radius: 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cmp-repo:hover .cmp-repo-name { color: var(--accent); }
-.cmp-branch { font-size: 0.78rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.cmp-repo-name:hover { color: var(--accent); background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.cmp-branch {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.cmp-branch:hover { color: var(--ink); background: color-mix(in oklab, var(--ink) 6%, transparent); }
+/* repo / branch context menus (open upward, composer is at the bottom) */
+.ctx-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 70;
+  min-width: 190px;
+  padding: 5px;
+  border-radius: 11px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+.ctx-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.ctx-menu button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
+.ctx-menu button svg { color: var(--muted); flex-shrink: 0; }
 .cmp-tokens { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); white-space: nowrap; }
 .cmp-tokens i { font-style: normal; opacity: 0.5; margin: 0 5px; }
 .cmp-cost { color: var(--accent); font-weight: 700; }
