@@ -1143,32 +1143,84 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .z-lift { transform: translateZ(24px); }
 
 /* Permission card — attention without alarm */
+/* Claude-style approval dialog (see Image 5) */
 .perm-card {
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 1px var(--accent-tint), var(--shadow-md);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-md);
+  padding: 18px 18px 15px;
 }
-.perm-thinking {
+.perm-q {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.perm-desc { margin: 10px 0 0; font-size: 0.875rem; line-height: 1.5; color: var(--ink); }
+.perm-why { margin: 6px 0 0; font-size: 0.83rem; line-height: 1.5; color: var(--muted); }
+.perm-cmd {
+  margin: 13px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-2);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 280px;
+}
+.perm-actions {
   display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin: 11px 0 0;
-  padding: 9px 11px;
-  border-left: 2px solid var(--accent-line);
-  background: var(--accent-tint);
-  border-radius: 0 8px 8px 0;
-  font-size: 0.855rem;
-  font-style: italic;
-  line-height: 1.5;
-  color: var(--muted);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 15px;
 }
-.perm-thinking svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
-.perm-reason { margin: 10px 0 0; font-size: 0.86rem; color: var(--ink); }
-.perm-actions { display: flex; gap: 9px; margin-top: 13px; }
-.btn.allow { background: var(--success); color: #fff; border: none; }
-.btn.allow:hover { filter: brightness(1.06); }
-.btn.deny { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, var(--border-strong)); }
-.btn.deny:hover { background: var(--danger-tint); }
-.perm-verdict { margin-top: 12px; font-family: var(--mono); font-size: 0.8rem; font-weight: 700; }
+.perm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 15px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, filter 0.14s;
+}
+.perm-btn kbd {
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.62;
+  letter-spacing: 0.02em;
+}
+.perm-btn.deny {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--ink);
+}
+.perm-btn.deny:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+.perm-btn.allow {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  color: var(--bg);
+}
+.perm-btn.allow:hover { filter: brightness(1.12); }
+.perm-btn.allow kbd { opacity: 0.75; }
+.perm-verdict {
+  margin-top: 13px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
 .perm-verdict.allow { color: var(--success); }
 .perm-verdict.deny { color: var(--danger); }
 

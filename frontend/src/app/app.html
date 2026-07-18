@@ -424,26 +424,19 @@
 
           @case ('permission') {
             @let p = asPerm(item);
-            <article class="card perm-card panel" [class.resolved]="p.resolved">
-              <header class="card-head">
-                <span class="ico ico-shield">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z" stroke-linejoin="round"/></svg>
-                </span>
-                <span class="tool-name">{{ permTitle(p.toolName) }}</span>
-                @if (p.agentId) { <span class="agent-tag">agent {{ p.agentId }}</span> }
-              </header>
-              @if (permReason(p); as why) {
-                <p class="perm-thinking">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10c.6.6 1 1.3 1 2h6c0-.7.4-1.4 1-2a6 6 0 0 0-4-10z" stroke-linejoin="round"/></svg>
-                  <span>{{ why }}</span>
-                </p>
-              }
-              <p class="perm-reason">{{ permBlurb(p) }}</p>
-              <pre class="args">{{ permDetail(p) }}</pre>
+            <article class="card perm-card" [class.resolved]="p.resolved">
+              <p class="perm-q">{{ permQuestion(p) }}</p>
+              @if (permReason(p); as why) { <p class="perm-desc">{{ why }}</p> }
+              <p class="perm-why">{{ permWhy(p) }}</p>
+              <pre class="perm-cmd">{{ permDetail(p) }}</pre>
               @if (!p.resolved) {
                 <div class="perm-actions">
-                  <button class="btn allow" (click)="resolve(p, 'allow')">Allow</button>
-                  <button class="btn deny" (click)="resolve(p, 'deny')">Deny</button>
+                  <button class="perm-btn deny" (click)="resolve(p, 'deny')">
+                    Deny <kbd>1</kbd>
+                  </button>
+                  <button class="perm-btn allow" (click)="resolve(p, 'allow')">
+                    Allow once <kbd>2 ⌘↵</kbd>
+                  </button>
                 </div>
               } @else {
                 <div class="perm-verdict" [class]="p.resolved">

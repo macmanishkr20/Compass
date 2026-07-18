@@ -73,6 +73,7 @@ type RenderBlock =
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
+  host: { '(document:keydown)': 'onGlobalKeydown($event)' },
 })
 export class App {
   private readonly api = inject(CompassApiService);
@@ -525,7 +526,45 @@ export class App {
     this.navActive.set(current);
   }
 
-  // -- permission card (layman-friendly wording) --------------------------
+  // -- permission card (Claude-style approval dialog) ---------------------
+  private permBasename(p: PermissionVM): string {
+    try {
+      const a = JSON.parse(p.args);
+      const path = a?.file_path || a?.path || '';
+      return typeof path === 'string' && path ? path.split('/').pop() || path : '';
+    } catch {
+      return '';
+    }
+  }
+  /** Bold question at the top of the card: "Allow Compass to run …?" */
+  permQuestion(p: PermissionVM): string {
+    if (p.toolName === 'bash') {
+      const why = this.permReason(p).replace(/[.。]\s*$/, '');
+      return why
+        ? `Allow Compass to run ${why[0].toLowerCase()}${why.slice(1)}?`
+        : 'Allow Compass to run this command?';
+    }
+    const file = this.permBasename(p);
+    if (p.toolName === 'file_write')
+      return file ? `Allow Compass to create ${file}?` : 'Allow Compass to create a file?';
+    if (p.toolName === 'file_edit')
+      return file ? `Allow Compass to edit ${file}?` : 'Allow Compass to edit a file?';
+    if (p.toolName === 'screenshot') return 'Allow Compass to take a screenshot?';
+    return `Allow Compass to use ${p.toolName}?`;
+  }
+  /** One line explaining WHY approval is needed (the risk), Claude-style. */
+  permWhy(p: PermissionVM): string {
+    const r = (p.reason || '').toLowerCase();
+    if (r.includes('destructive')) return 'This command can delete or overwrite data.';
+    if (r.includes('substitution'))
+      return 'Uses command substitution, which can’t be auto-approved.';
+    if (r.includes('parse')) return 'This command couldn’t be parsed safely.';
+    if (r.includes('rule')) return 'A workspace rule requires your confirmation.';
+    if (p.toolName === 'bash') return 'This runs a command on your machine.';
+    if (p.toolName === 'file_write') return 'This creates a new file in your workspace.';
+    if (p.toolName === 'file_edit') return 'This edits a file in your workspace.';
+    return p.reason || 'This action needs your approval.';
+  }
   permTitle(tool: string): string {
     const t: Record<string, string> = {
       bash: 'Compass wants to run a command',
@@ -1246,6 +1285,33 @@ export class App {
     if (!sid) return;
     await this.api.resolvePermission(sid, perm.id, behavior);
     this.patch(perm.id, (p) => ({ ...(p as PermissionVM), resolved: behavior }));
+  }
+
+  /** The newest unresolved permission — target of keyboard shortcuts. */
+  readonly pendingPerm = computed<PermissionVM | null>(() => {
+    const items = this.timeline();
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === 'permission' && !(it as PermissionVM).resolved)
+        return it as PermissionVM;
+    }
+    return null;
+  });
+
+  /** 1 = Deny, 2 / ⌘↵ = Allow once — mirrors Claude's approval shortcuts. */
+  onGlobalKeydown(ev: KeyboardEvent): void {
+    const p = this.pendingPerm();
+    if (!p) return;
+    const el = ev.target as HTMLElement | null;
+    const typing =
+      el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    if ((ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) || (ev.key === '2' && !typing)) {
+      ev.preventDefault();
+      void this.resolve(p, 'allow');
+    } else if (ev.key === '1' && !typing) {
+      ev.preventDefault();
+      void this.resolve(p, 'deny');
+    }
   }
 
   onKeydown(ev: KeyboardEvent): void {
