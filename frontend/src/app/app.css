@@ -1143,6 +1143,50 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .z-lift { transform: translateZ(24px); }
 
 /* Permission card — attention without alarm */
+/* Claude-style "Edited file +N −M ›" row with expandable diff */
+.fileedit { margin: 6px 0; }
+.fileedit-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.86rem;
+  color: var(--muted);
+  text-align: left;
+}
+.fileedit-head:hover { color: var(--ink); }
+.fe-caret {
+  flex-shrink: 0;
+  color: var(--faint);
+  transition: transform 0.15s;
+}
+.fileedit.open .fe-caret { transform: rotate(90deg); }
+.fe-verb { color: var(--muted); }
+.fe-file { font-weight: 600; color: var(--ink); }
+.fe-adds { font-family: var(--mono); font-size: 0.8rem; color: var(--success); }
+.fe-dels { font-family: var(--mono); font-size: 0.8rem; color: var(--danger); }
+.fe-diff {
+  margin: 4px 0 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+.fe-diff .dl {
+  padding: 0 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.fe-diff .dl-add { background: color-mix(in oklab, var(--success) 15%, transparent); color: var(--ink); }
+.fe-diff .dl-del { background: color-mix(in oklab, var(--danger) 14%, transparent); color: var(--muted); }
+.fe-diff .dl-sign { display: inline-block; width: 1em; color: var(--faint); user-select: none; }
+
 /* Claude-style approval dialog (see Image 5) */
 .perm-card {
   border: 1px solid var(--border-strong);

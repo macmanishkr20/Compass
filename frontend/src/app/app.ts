@@ -246,8 +246,14 @@ export class App {
       group = [];
     };
     for (const it of this.timeline()) {
+      // File writes/edits surface as their own "Edited file +N −M" row (like
+      // Claude), not folded into the collapsed background-activity group.
+      const isFileEdit =
+        it.kind === 'tool' &&
+        ((it as ToolCardVM).name === 'file_edit' ||
+          (it as ToolCardVM).name === 'file_write');
       const isBackground =
-        it.kind === 'tool' ||
+        (it.kind === 'tool' && !isFileEdit) ||
         (it.kind === 'notice' && (it as NoticeVM).tone === 'compaction');
       if (isBackground) {
         group.push(it);
@@ -259,6 +265,57 @@ export class App {
     flush();
     return blocks;
   });
+
+  /** Parse a file_edit/file_write tool into a Claude-style edit row + diff. */
+  fileEditInfo(
+    t: ToolCardVM,
+  ): { verb: string; file: string; adds: number; dels: number; diff: { type: 'add' | 'del'; text: string }[] } | null {
+    if (t.name !== 'file_edit' && t.name !== 'file_write') return null;
+    try {
+      const a = JSON.parse(t.args);
+      const path: string = a.file_path || a.path || '';
+      const file = path.split('/').pop() || path || 'file';
+      if (t.name === 'file_write') {
+        const content: string = typeof a.content === 'string' ? a.content : '';
+        const lines = content === '' ? [] : content.split('\n');
+        return {
+          verb: 'Created',
+          file,
+          adds: lines.length,
+          dels: 0,
+          diff: lines.map((text) => ({ type: 'add' as const, text })),
+        };
+      }
+      const oldL: string[] =
+        typeof a.old_string === 'string' && a.old_string !== '' ? a.old_string.split('\n') : [];
+      const newL: string[] =
+        typeof a.new_string === 'string' && a.new_string !== '' ? a.new_string.split('\n') : [];
+      // Trim identical leading/trailing lines so +N −M reflects the real change.
+      let pre = 0;
+      while (pre < oldL.length && pre < newL.length && oldL[pre] === newL[pre]) pre++;
+      let suf = 0;
+      while (
+        suf < oldL.length - pre &&
+        suf < newL.length - pre &&
+        oldL[oldL.length - 1 - suf] === newL[newL.length - 1 - suf]
+      )
+        suf++;
+      const oldMid = oldL.slice(pre, oldL.length - suf);
+      const newMid = newL.slice(pre, newL.length - suf);
+      return {
+        verb: 'Edited',
+        file,
+        adds: newMid.length,
+        dels: oldMid.length,
+        diff: [
+          ...oldMid.map((text) => ({ type: 'del' as const, text })),
+          ...newMid.map((text) => ({ type: 'add' as const, text })),
+        ],
+      };
+    } catch {
+      return null;
+    }
+  }
 
   toggleActivity(id: string): void {
     this.expandedActivities.update((s) => {

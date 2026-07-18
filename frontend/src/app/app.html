@@ -404,6 +404,24 @@
 
           @case ('tool') {
             @let t = asTool(item);
+            @if (fileEditInfo(t); as fe) {
+              <div class="fileedit" [class.open]="isActivityExpanded(t.id)">
+                <button class="fileedit-head" (click)="toggleActivity(t.id)">
+                  <svg class="fe-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="fe-verb">{{ fe.verb }}</span>
+                  <span class="fe-file">{{ fe.file }}</span>
+                  <span class="fe-adds">+{{ fe.adds }}</span>
+                  <span class="fe-dels">−{{ fe.dels }}</span>
+                </button>
+                @if (isActivityExpanded(t.id)) {
+                  <div class="fe-diff">
+                    @for (line of fe.diff; track $index) {
+                      <div class="dl" [class]="'dl-' + line.type"><span class="dl-sign">{{ line.type === 'add' ? '+' : '−' }}</span>{{ line.text }}</div>
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
             <article appTilt [tiltMax]="5" class="card tool-card tilt-3d panel" [class.side]="t.agentId">
               <header class="card-head">
                 <span class="ico ico-tool" [class]="'st-' + t.status">
@@ -420,6 +438,7 @@
               <pre class="args z-lift">{{ t.args }}</pre>
               @if (t.output) { <pre class="output">{{ t.output }}</pre> }
             </article>
+            }
           }
 
           @case ('permission') {
