@@ -432,6 +432,12 @@
                 <span class="tool-name">{{ permTitle(p.toolName) }}</span>
                 @if (p.agentId) { <span class="agent-tag">agent {{ p.agentId }}</span> }
               </header>
+              @if (permReason(p); as why) {
+                <p class="perm-thinking">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10c.6.6 1 1.3 1 2h6c0-.7.4-1.4 1-2a6 6 0 0 0-4-10z" stroke-linejoin="round"/></svg>
+                  <span>{{ why }}</span>
+                </p>
+              }
               <p class="perm-reason">{{ permBlurb(p) }}</p>
               <pre class="args">{{ permDetail(p) }}</pre>
               @if (!p.resolved) {

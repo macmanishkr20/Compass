@@ -1147,6 +1147,21 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   border-color: var(--accent-line);
   box-shadow: 0 0 0 1px var(--accent-tint), var(--shadow-md);
 }
+.perm-thinking {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 11px 0 0;
+  padding: 9px 11px;
+  border-left: 2px solid var(--accent-line);
+  background: var(--accent-tint);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.855rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.perm-thinking svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
 .perm-reason { margin: 10px 0 0; font-size: 0.86rem; color: var(--ink); }
 .perm-actions { display: flex; gap: 9px; margin-top: 13px; }
 .btn.allow { background: var(--success); color: #fff; border: none; }

@@ -549,11 +549,23 @@ export class App {
       if (typeof a?.command === 'string') return a.command;
       if (typeof a?.path === 'string') return a.path;
       return Object.entries(a)
+        .filter(([k]) => k !== 'description')
         .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
         .join('\n');
     } catch {
       return p.args;
     }
+  }
+  /** The model's own one-line rationale for this action ("thinking"), if any. */
+  permReason(p: PermissionVM): string {
+    try {
+      const a = JSON.parse(p.args);
+      if (typeof a?.description === 'string' && a.description.trim())
+        return a.description.trim();
+    } catch {
+      /* ignore */
+    }
+    return '';
   }
 
   // -- repo / branch context menus (like Claude) --------------------------

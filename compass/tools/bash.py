@@ -26,6 +26,15 @@ class BashInput(BaseModel):
             "calls, so a `cd` carries to your next command."
         )
     )
+    description: str = Field(
+        default="",
+        description=(
+            "One short sentence, in plain language, explaining what this command "
+            "does and why you are running it — shown to the user as your reasoning "
+            "before they approve it. E.g. 'Check which process is using port 65092 "
+            "so I can restart the Pulse server.'"
+        ),
+    )
     timeout_seconds: float = Field(default=120.0, gt=0, le=600)
 
 

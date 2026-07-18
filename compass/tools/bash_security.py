@@ -29,6 +29,13 @@ READ_ONLY_COMMANDS = {
     "basename", "dirname", "realpath", "readlink", "tr", "cut", "sort",
     "uniq", "diff", "cmp", "md5", "shasum", "sha256sum", "jq", "column",
     "true", "test", "[",
+    # Inspection tools that only read state — safe to auto-allow so the agent
+    # doesn't stop to ask for every `lsof`/`ps`-style probe. `sed`/`awk` are
+    # read-only here only when they don't write in place (guarded below).
+    "lsof", "netstat", "ss", "awk", "sed", "nl", "tac", "comm", "paste",
+    "join", "fold", "expand", "strings", "xxd", "base64", "tree", "seq",
+    "set", "false", ":", "sleep", "lscpu", "vm_stat", "groups", "tty",
+    "locale", "history",
 }
 READ_ONLY_GIT = {
     "status", "log", "diff", "show", "branch", "remote", "shortlog",
@@ -60,6 +67,44 @@ DESTRUCTIVE_PATTERNS = [
 
 SUBSTITUTION_PATTERN = re.compile(r"\$\(|`")
 REDIRECT_PATTERN = re.compile(r"(?<![\d&])[><]|>>")
+
+# A redirect operator (>, >>, 2>, &>, <) with its target. Used to tell a
+# harmless discard (`> /dev/null`, `2>&1`) from a real file write.
+_REDIRECT_OP = re.compile(r"(?<![0-9<>&])(\d*>>?|&>|<)\s*([^\s;|)]*)")
+# Inner text of a command substitution: $(...) or `...` (non-nested).
+_SUBST_INNER = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+# sed/awk write to files only via in-place editing: -i / --in-place.
+_INPLACE = re.compile(r"^--in-place\b|^-[a-zA-Z]*i")
+
+
+def _redirects_all_safe(command: str) -> bool:
+    """True if every redirect merely discards output (`/dev/null`) or dups a
+    file descriptor (`2>&1`), or reads input (`<`) — none write a real file."""
+    for m in _REDIRECT_OP.finditer(command):
+        op, target = m.group(1), m.group(2) or ""
+        if op == "<":
+            continue  # reading a file as stdin is read-only
+        if target == "/dev/null" or target.startswith("&"):
+            continue  # discard, or fd dup like 2>&1 / >&2
+        return False  # writes to a real path
+    return True
+
+
+def _substitution_read_only(command: str) -> bool:
+    """True if the command contains substitution(s) and EVERY substituted
+    command is itself read-only — e.g. `ps -p $(lsof -t -iTCP:80)`. A write or
+    unknown inner command (`$(rm -rf ~)`) makes this False so it still ASKs."""
+    found = False
+    for m in _SUBST_INNER.finditer(command):
+        found = True
+        inner = m.group(1) if m.group(1) is not None else (m.group(2) or "")
+        segments = split_segments(inner)
+        if not segments:
+            return False
+        for argv in segments:
+            if not _segment_read_only(argv):
+                return False
+    return found
 
 
 @dataclass
@@ -118,6 +163,9 @@ def _segment_read_only(argv: list[str]) -> bool:
     if head == "git":
         sub = next((a for a in argv[1:] if not a.startswith("-")), "")
         return sub in READ_ONLY_GIT
+    # sed/awk are read-only unless they edit files in place (-i / --in-place).
+    if head in ("sed", "awk"):
+        return not any(_INPLACE.match(a) for a in argv[1:])
     return True
 
 
@@ -142,9 +190,16 @@ def analyze_command(command: str) -> CommandAnalysis:
         return analysis
     analysis.segments = segments
 
+    # A command stays read-only through a substitution or redirect as long as
+    # the substituted commands are themselves read-only and every redirect only
+    # discards output — this auto-allows safe probes like
+    #   ps -p $(lsof -t -iTCP:80)      and      grep foo bar | head > /dev/null
+    # without weakening the guard against `$(rm -rf ~)` or `> realfile`.
+    subst_ok = (not analysis.has_substitution) or _substitution_read_only(command)
+    redirect_ok = (not analysis.has_redirect) or _redirects_all_safe(command)
     analysis.read_only = (
-        not analysis.has_substitution
-        and not analysis.has_redirect
+        subst_ok
+        and redirect_ok
         and analysis.destructive is None
         and all(_segment_read_only(argv) for argv in segments)
     )

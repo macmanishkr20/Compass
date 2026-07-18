@@ -131,6 +131,13 @@ def _check_bash_permissions(
         return PermissionDecision(
             Behavior.ASK, f"destructive command: {analysis.destructive}"
         )
+
+    # Read-only wins first: the analyzer already proved any substitution/redirect
+    # here is harmless (read-only inner commands, output only discarded), so
+    # auto-allow it instead of stopping to ask.
+    if analysis.read_only:
+        return PermissionDecision(Behavior.ALLOW, "read-only command")
+
     if analysis.has_substitution:
         return PermissionDecision(
             Behavior.ASK, "command substitution detected — cannot be auto-allowed"
@@ -140,9 +147,6 @@ def _check_bash_permissions(
             Behavior.ASK if mode != "plan" else Behavior.DENY,
             "command could not be parsed safely",
         )
-
-    if analysis.read_only:
-        return PermissionDecision(Behavior.ALLOW, "read-only command")
 
     allow_rules = [r for r in bash_rules if r.action == "allow"]
     if allow_rules and all(

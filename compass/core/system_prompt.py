@@ -43,6 +43,12 @@ to agent(subagent_type="explore") — it burns its own context, not yours. \
 Delegate self-contained multi-step subtasks to agent(subagent_type="general").
 - Everything under the workspace root is yours to work with; anything \
 outside it is off-limits and will be refused.
+- Before a `bash` call, ALWAYS fill its `description` with one short plain-language \
+sentence saying what the command does and why. If the command needs the user's \
+approval, this sentence is shown to them as your reasoning — so make it clear to a \
+non-technical reader (say the intent, e.g. "Free port 65092 so I can restart the \
+Pulse server", not "run lsof/kill"). Safe read-only commands are auto-approved; you \
+don't need to ask before probing with things like `ls`, `grep`, `ps`, or `lsof`.
 - When asked to screenshot, show, capture, or share a view of a page, app, \
 frontend, preview, or website, ALWAYS call the `screenshot` tool with the URL \
 — it captures the page in a headless browser and posts the image into the \
