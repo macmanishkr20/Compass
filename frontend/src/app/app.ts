@@ -825,16 +825,37 @@ export class App {
 
   toggleAnnotate(): void {
     this.annotateOn.update((v) => !v);
-    if (this.annotateOn()) queueMicrotask(() => this.sizeAnnoCanvas());
+    // Size after the canvas actually paints. A microtask fires before the
+    // zoneless render, so the viewChild is still undefined then — rAF x2 lands
+    // after layout. Drawing also re-checks the size on pointerdown as a backstop.
+    if (this.annotateOn())
+      requestAnimationFrame(() => requestAnimationFrame(() => this.sizeAnnoCanvas()));
   }
+  /** Match the canvas backing store to its displayed size (× DPR). A <canvas>
+   *  keeps its default 300×150 buffer until this runs, which is why strokes
+   *  landed off-canvas before. Only resizes when needed so it never wipes an
+   *  in-progress drawing. */
   private sizeAnnoCanvas(): void {
     const c = this.annoCanvas()?.nativeElement;
     if (!c) return;
     const r = c.getBoundingClientRect();
-    c.width = r.width;
-    c.height = r.height;
+    if (r.width === 0 || r.height === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(r.width * dpr);
+    const h = Math.round(r.height * dpr);
+    if (c.width !== w || c.height !== h) {
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr); // draw in CSS pixels; map to device pixels
+      }
+    }
   }
   annoStart(e: PointerEvent): void {
+    this.sizeAnnoCanvas(); // guarantee correct size before the first stroke
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     this.annoDrawing = true;
     this.annoLast = { x: e.offsetX, y: e.offsetY };
   }
