@@ -120,7 +120,11 @@ class ContextSettings(BaseModel):
     context_window_tokens: int = 128_000
     # Headroom for reasoning models (gpt-5, o-series): reasoning tokens count
     # against this budget, so keep it generous or answers can be truncated.
-    max_output_tokens: int = 8_192
+    # Large single-shot artifacts (a full interactive HTML login page is ~400+
+    # lines) plus reasoning easily blow past 8k, which truncated the artifact
+    # and split it across two turns — so give a generous ceiling. Overridable
+    # via COMPASS_MAX_OUTPUT_TOKENS.
+    max_output_tokens: int = 32_768
     # autocompact fires when estimated prompt tokens exceed this ratio.
     autocompact_threshold: float = 0.80
     # microcompact: tool results older than the last N are stubbed out.
@@ -244,6 +248,12 @@ def get_settings() -> Settings:
         "AZURE_OPENAI_TTS_API_VERSION", azure.tts_api_version
     )
     azure.tts_voice = os.environ.get("COMPASS_TTS_VOICE", azure.tts_voice)
+
+    if mot := os.environ.get("COMPASS_MAX_OUTPUT_TOKENS"):
+        try:
+            settings.context.max_output_tokens = int(mot)
+        except ValueError:
+            pass
 
     settings.github.token = os.environ.get("GITHUB_TOKEN", settings.github.token)
     settings.github.api_url = os.environ.get(

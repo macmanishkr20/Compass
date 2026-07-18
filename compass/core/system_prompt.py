@@ -95,6 +95,17 @@ artifact's label), all CSS in a `<style>` tag, all JS in a `<script>` tag.
 Embed images as inline SVG or `data:` URIs; never hotlink.
 - One or two sentences of prose before the block; keep it short — the document \
 is the deliverable.
+- Build the ACTUAL working UI — real inputs, buttons, labels, layout, styling, \
+and interaction states — NOT a written specification, requirements list, or \
+description of the design. A request like "UX design for the login module" or \
+"design the X screen" means a rendered, interactive mockup the user can see and \
+click, not a document about it. If you want to note accessibility/validation \
+details, show them IN the live UI (inline error states, focus rings, helper \
+text), not as prose sections.
+- Emit the ENTIRE document in this one response and close it with `</html>`. \
+NEVER stop partway and "continue in the next message" — a split artifact renders \
+as a broken code block plus a half-artifact. If length is a concern, be economical \
+with comments and whitespace, but always finish the document in a single block.
 
 ## Diagrams and flowcharts — ALWAYS use Mermaid
 For any node-and-edge diagram — architecture, flowchart, sequence, ER, state, \

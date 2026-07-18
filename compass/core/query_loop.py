@@ -49,7 +49,11 @@ logger = logging.getLogger("compass.loop")
 
 MAX_OUTPUT_RECOVERY_PROMPT = (
     "Your previous response was cut off at the output token limit. "
-    "Continue exactly where you left off."
+    "Continue the output from the exact character where it stopped. "
+    "Do NOT add any preamble, explanation, or phrases like 'continuing where I "
+    "left off'. Do NOT repeat any content already emitted. If you were inside a "
+    "fenced code block or an artifact, do NOT re-open the fence — just continue "
+    "the raw content so the two halves concatenate seamlessly."
 )
 
 OnMessage = Callable[[Message], None]
