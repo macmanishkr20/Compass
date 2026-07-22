@@ -3,11 +3,15 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
 import {
+  BackgroundTask,
+  BackgroundTasksResponse,
   CompassEvent,
   GitStatus,
   GithubRepo,
   HealthInfo,
   PermissionBehavior,
+  Routine,
+  RoutinesResponse,
   SessionCard,
   Workspace,
 } from './models';
@@ -154,6 +158,35 @@ export class CompassApiService {
 
   githubRepos(): Promise<{ repos: GithubRepo[] }> {
     return firstValueFrom(this.http.get<{ repos: GithubRepo[] }>('/v1/github/repos'));
+  }
+
+  // -- background tasks -----------------------------------------------------
+  backgroundTasks(): Promise<BackgroundTasksResponse> {
+    return firstValueFrom(this.http.get<BackgroundTasksResponse>('/v1/background-tasks'));
+  }
+  stopBackgroundTask(id: string): Promise<{ stopped: boolean }> {
+    return firstValueFrom(
+      this.http.post<{ stopped: boolean }>(`/v1/background-tasks/${id}/stop`, {}),
+    );
+  }
+  clearBackgroundTasks(): Promise<{ cleared: number }> {
+    return firstValueFrom(
+      this.http.post<{ cleared: number }>('/v1/background-tasks/clear', {}),
+    );
+  }
+
+  // -- routines -------------------------------------------------------------
+  routines(): Promise<RoutinesResponse> {
+    return firstValueFrom(this.http.get<RoutinesResponse>('/v1/routines'));
+  }
+  createRoutine(body: Partial<Routine>): Promise<Routine> {
+    return firstValueFrom(this.http.post<Routine>('/v1/routines', body));
+  }
+  updateRoutine(id: string, patch: Partial<Routine>): Promise<Routine> {
+    return firstValueFrom(this.http.patch<Routine>(`/v1/routines/${id}`, patch));
+  }
+  deleteRoutine(id: string): Promise<{ deleted: string }> {
+    return firstValueFrom(this.http.delete<{ deleted: string }>(`/v1/routines/${id}`));
   }
 
   githubClone(fullName: string, branch?: string): Promise<Workspace> {

@@ -36,6 +36,17 @@ class BashInput(BaseModel):
         ),
     )
     timeout_seconds: float = Field(default=120.0, gt=0, le=600)
+    run_in_background: bool = Field(
+        default=False,
+        description=(
+            "Run the command as a background task instead of waiting for it. Use "
+            "this for long-lived processes like dev servers (`npm run dev`, "
+            "`uvicorn ...`) so the turn isn't blocked. The task appears in the "
+            "Background tasks panel where the user can watch and stop it; returns "
+            "immediately with a task id. A localhost port in the command becomes "
+            "the task's preview URL."
+        ),
+    )
 
 
 class BashTool(Tool):
@@ -62,6 +73,23 @@ class BashTool(Tool):
         return None
 
     async def call(self, inp: BashInput, ctx: ToolUseContext) -> AsyncIterator[ToolYield]:
+        if inp.run_in_background:
+            from compass.services.background_tasks import registry
+
+            name = inp.description or inp.command.split("&&")[-1].strip()[:60]
+            task = await registry.start(
+                name=name,
+                command=inp.command,
+                cwd=ctx.shell_state.resolved_cwd(),
+                workspace_id=getattr(ctx, "workspace_id", None),
+            )
+            where = f" — preview at {task.url}" if task.url else ""
+            yield ToolOutput(
+                f"Started background task [{task.id}] “{task.name}”{where}. "
+                f"It is running in the Background tasks panel; the user can stop it there."
+            )
+            return
+
         session = ShellSession(state=ctx.shell_state)
         # Bridge ShellSession.run's push-callback to this pull-generator via a
         # queue, so stdout streams as Progress the instant it arrives.

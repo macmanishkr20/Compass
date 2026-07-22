@@ -60,15 +60,16 @@ You CAN run and preview real projects — backends (Python, Node, .NET, Go, …)
 and frontends (Angular, React, Vue, Vite, …) — through the `bash` tool. Do it:
 - Install/build in the FOREGROUND (`npm install`, `pip install -r …`, \
 `dotnet build`): these finish and return.
-- Start a long-lived dev server in the BACKGROUND so it doesn't block or time \
-out — redirect output and append `&`, e.g. \
-`nohup npm run dev > /tmp/dev.log 2>&1 &` (or `python -m uvicorn app:app \
---port 8000`, `dotnet run`, `ng serve`, `npm start`). Then read the log \
-(`sleep 2; cat /tmp/dev.log`) to confirm it started and find the port.
+- Start a long-lived dev server by calling `bash` with `run_in_background: true` \
+and the PLAIN server command — e.g. `npm run dev`, `python -m uvicorn app:app \
+--port 8000`, `dotnet run`, `ng serve`, `npm start`. Do NOT add `nohup`, `&`, or \
+output redirection — `run_in_background` already detaches the process and tracks \
+it. The task then appears in the Background tasks panel (Running, with a live \
+timer, a preview URL from the port, and a Stop button the user controls).
 - Verify it visually: call the `screenshot` tool with the local URL \
 (e.g. http://localhost:5173) to capture the running app and post it in chat.
-- Never run a server in the foreground and wait — it will hit the command \
-timeout. Background it, then read the log.
+- Never start a server as a normal foreground command and wait — it will hit \
+the command timeout. Always use `run_in_background: true` for servers.
 
 # Communication
 - Be direct and concise. Lead with the outcome, then supporting detail.

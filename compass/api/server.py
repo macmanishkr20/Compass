@@ -107,6 +107,25 @@ class SpeechRequest(BaseModel):
     voice: str | None = None
 
 
+class RoutineRequest(BaseModel):
+    name: str = ""
+    prompt: str
+    schedule: str = ""
+    trigger: str = "schedule"  # schedule | api | webhook
+    target: str = "local"  # local | cloud
+    integrations: list[str] = Field(default_factory=list)
+
+
+class RoutinePatchRequest(BaseModel):
+    name: str | None = None
+    prompt: str | None = None
+    schedule: str | None = None
+    trigger: str | None = None
+    target: str | None = None
+    integrations: list[str] | None = None
+    enabled: bool | None = None
+
+
 class EditMessageRequest(BaseModel):
     content: str
 
@@ -603,3 +622,95 @@ async def github_clone(
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(err))
     return ws.to_dict()
+
+
+# ---- background tasks -----------------------------------------------------
+
+
+@app.get("/v1/background-tasks")
+async def list_background_tasks(user: str = Depends(require_user)) -> dict:
+    from compass.services.background_tasks import registry
+
+    tasks = [t.to_dict() for t in registry.list()]
+    return {
+        "tasks": tasks,
+        "running": sum(1 for t in tasks if t["status"] == "running"),
+        "finished": sum(1 for t in tasks if t["status"] != "running"),
+    }
+
+
+@app.get("/v1/background-tasks/{task_id}/logs")
+async def background_task_logs(task_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.background_tasks import registry
+
+    if not registry.get(task_id):
+        raise HTTPException(status_code=404, detail="unknown task")
+    return {"lines": registry.logs(task_id)}
+
+
+@app.post("/v1/background-tasks/{task_id}/stop")
+async def stop_background_task(task_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.background_tasks import registry
+
+    ok = await registry.stop(task_id)
+    if not ok and not registry.get(task_id):
+        raise HTTPException(status_code=404, detail="unknown task")
+    return {"stopped": ok}
+
+
+@app.post("/v1/background-tasks/clear")
+async def clear_background_tasks(user: str = Depends(require_user)) -> dict:
+    from compass.services.background_tasks import registry
+
+    return {"cleared": await registry.clear_finished()}
+
+
+# ---- routines -------------------------------------------------------------
+
+
+@app.get("/v1/routines")
+async def list_routines(user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import SUGGESTIONS, TEMPLATES, store
+
+    routines = [r.to_dict() for r in await store.list()]
+    return {"routines": routines, "templates": TEMPLATES, "suggestions": SUGGESTIONS}
+
+
+@app.post("/v1/routines")
+async def create_routine(
+    body: RoutineRequest, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.routines import store
+
+    if not body.prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+    r = await store.create(
+        name=body.name,
+        prompt=body.prompt,
+        schedule=body.schedule,
+        trigger=body.trigger,
+        target=body.target,
+        integrations=body.integrations,
+    )
+    return r.to_dict()
+
+
+@app.patch("/v1/routines/{routine_id}")
+async def update_routine(
+    routine_id: str, body: RoutinePatchRequest, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.routines import store
+
+    r = await store.update(routine_id, body.model_dump(exclude_none=True))
+    if not r:
+        raise HTTPException(status_code=404, detail="unknown routine")
+    return r.to_dict()
+
+
+@app.delete("/v1/routines/{routine_id}")
+async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import store
+
+    if not await store.delete(routine_id):
+        raise HTTPException(status_code=404, detail="unknown routine")
+    return {"deleted": routine_id}

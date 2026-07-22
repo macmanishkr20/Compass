@@ -23,6 +23,7 @@ import { Markdown } from './markdown/markdown';
 import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import {
+  BackgroundTask,
   ChatBubble,
   CompassEvent,
   GitStatus,
@@ -31,6 +32,8 @@ import {
   HealthInfo,
   NoticeVM,
   PermissionVM,
+  Routine,
+  RoutineTemplate,
   SessionCard,
   SessionGroup,
   SortBy,
@@ -90,6 +93,26 @@ export class App {
   readonly browserAddr = signal('');
   readonly browserSrc = signal<SafeResourceUrl | ''>('');
   readonly browserBlocked = signal(false);
+
+  // -- main view switch: the chat console vs. the Routines page.
+  readonly view = signal<'chat' | 'routines'>('chat');
+
+  // -- Background tasks panel (long-running processes the agent spawned).
+  readonly bgOpen = signal(false);
+  readonly bgTasks = signal<BackgroundTask[]>([]);
+  readonly bgFinishedOpen = signal(false);
+  readonly nowTick = signal(Date.now()); // drives live elapsed timers
+  readonly bgRunning = computed(() => this.bgTasks().filter((t) => t.status === 'running'));
+  readonly bgFinished = computed(() => this.bgTasks().filter((t) => t.status !== 'running'));
+
+  // -- Routines page.
+  readonly routines = signal<Routine[]>([]);
+  readonly routineTemplates = signal<RoutineTemplate[]>([]);
+  readonly routineSuggestions = signal<string[]>([]);
+  readonly newRoutinePrompt = signal('');
+  readonly newRoutineTarget = signal<'local' | 'cloud'>('local');
+  readonly routineMenuOpen = signal(false);
+  readonly routineBusy = signal(false);
 
   readonly modes = MODES;
   readonly efforts = EFFORTS;
@@ -475,6 +498,11 @@ export class App {
       );
       onCleanup(() => clearInterval(id));
     });
+    // Poll background tasks so the top-bar badge and panel stay live; tick a
+    // clock every second so "18m 26s" style timers advance without a refetch.
+    void this.refreshBgTasks();
+    setInterval(() => void this.refreshBgTasks(), 2500);
+    setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
 
   // -- boot / auth ---------------------------------------------------------
@@ -952,6 +980,128 @@ export class App {
     if (u) window.open(u, 'compass-browser', 'popup,width=1440,height=940');
   }
 
+  // -- background tasks ----------------------------------------------------
+  async refreshBgTasks(): Promise<void> {
+    try {
+      const res = await this.api.backgroundTasks();
+      this.bgTasks.set(res.tasks);
+    } catch {
+      /* backend may be briefly unavailable */
+    }
+  }
+  toggleBgPanel(): void {
+    this.bgOpen.update((v) => !v);
+    if (this.bgOpen()) void this.refreshBgTasks();
+  }
+  async stopBgTask(t: BackgroundTask): Promise<void> {
+    try {
+      await this.api.stopBackgroundTask(t.id);
+    } finally {
+      void this.refreshBgTasks();
+    }
+  }
+  async clearBgFinished(): Promise<void> {
+    try {
+      await this.api.clearBackgroundTasks();
+    } finally {
+      void this.refreshBgTasks();
+    }
+  }
+  openBgUrl(t: BackgroundTask): void {
+    if (!t.url) return;
+    this.browserAddr.set(t.url);
+    this.navigateBrowser();
+    this.browserOpen.set(true);
+  }
+  /** Live "18m 26s" / "5s" elapsed label for a task (running counts up). */
+  bgElapsed(t: BackgroundTask): string {
+    const end = t.status === 'running' ? this.nowTick() : (t.finished_at ?? 0) * 1000;
+    const ms = Math.max(0, end - t.started_at * 1000);
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h) return `${h}h ${m}m ${sec}s`;
+    if (m) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  // -- routines ------------------------------------------------------------
+  async openRoutines(): Promise<void> {
+    this.view.set('routines');
+    this.browserOpen.set(false);
+    this.artifacts.close();
+    await this.loadRoutines();
+  }
+  backToChat(): void {
+    this.view.set('chat');
+  }
+  async loadRoutines(): Promise<void> {
+    try {
+      const res = await this.api.routines();
+      this.routines.set(res.routines);
+      this.routineTemplates.set(res.templates);
+      this.routineSuggestions.set(res.suggestions);
+    } catch {
+      /* ignore */
+    }
+  }
+  useSuggestion(text: string): void {
+    this.newRoutinePrompt.set(text);
+  }
+  async draftRoutine(): Promise<void> {
+    const prompt = this.newRoutinePrompt().trim();
+    if (!prompt || this.routineBusy()) return;
+    this.routineBusy.set(true);
+    try {
+      await this.api.createRoutine({
+        prompt,
+        target: this.newRoutineTarget(),
+        trigger: 'schedule',
+      });
+      this.newRoutinePrompt.set('');
+      this.routineMenuOpen.set(false);
+      await this.loadRoutines();
+    } finally {
+      this.routineBusy.set(false);
+    }
+  }
+  async useTemplate(t: RoutineTemplate): Promise<void> {
+    if (this.routineBusy()) return;
+    this.routineBusy.set(true);
+    try {
+      await this.api.createRoutine({
+        name: t.name,
+        prompt: t.prompt,
+        schedule: t.schedule.replace(/^Runs\s+/i, ''),
+        trigger: 'schedule',
+        target: this.newRoutineTarget(),
+        integrations: t.integrations,
+      });
+      await this.loadRoutines();
+    } finally {
+      this.routineBusy.set(false);
+    }
+  }
+  async deleteRoutine(r: Routine): Promise<void> {
+    try {
+      await this.api.deleteRoutine(r.id);
+    } finally {
+      await this.loadRoutines();
+    }
+  }
+  async toggleRoutine(r: Routine): Promise<void> {
+    try {
+      await this.api.updateRoutine(r.id, { enabled: !r.enabled });
+    } finally {
+      await this.loadRoutines();
+    }
+  }
+  pickNewRoutineTarget(target: 'local' | 'cloud'): void {
+    this.newRoutineTarget.set(target);
+    this.routineMenuOpen.set(false);
+  }
+
   // -- sessions ------------------------------------------------------------
 
   async refreshSessions(): Promise<void> {
@@ -963,6 +1113,7 @@ export class App {
   }
 
   async newSession(): Promise<void> {
+    this.view.set('chat');
     this.activeMode.set('default');
     this.activeEffort.set('medium');
     // Keep the currently-selected model and workspace for the new conversation.
@@ -980,6 +1131,7 @@ export class App {
 
   async resumeSession(id: string): Promise<void> {
     if (!id) return this.newSession();
+    this.view.set('chat');
     const card = this.cards().find((c) => c.id === id);
     this.activeMode.set(card?.mode ?? 'default');
     this.activeEffort.set(card?.effort ?? 'medium');

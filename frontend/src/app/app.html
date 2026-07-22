@@ -45,7 +45,7 @@
 } @else {
 
 <div class="shell" [class.sidebar-collapsed]="!sidebarOpen()"
-  [class.right-open]="artifacts.isOpen() || browserOpen()">
+  [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()">
   <!-- ===================== Conversation history ===================== -->
   <aside class="sidebar panel">
     <div class="side-head">
@@ -63,6 +63,11 @@
         <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
       </svg>
       New conversation
+    </button>
+
+    <button class="side-nav-item" [class.active]="view() === 'routines'" (click)="openRoutines()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+      Routines
     </button>
 
     <!-- Group-by / Sort-by / Archived controls -->
@@ -259,6 +264,11 @@
         @if (streaming()) {
           <button class="btn danger" (click)="abort()"><span class="rec"></span> Stop</button>
         }
+        <button class="icon-btn ghost bg-toggle" [class.on]="bgOpen()" aria-label="Background tasks"
+          title="Background tasks" (click)="toggleBgPanel()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          @if (bgRunning().length) { <span class="bg-badge">{{ bgRunning().length }}</span> }
+        </button>
         <button class="icon-btn ghost" [class.on]="browserOpen()" aria-label="Compass browser"
           title="Compass browser" (click)="toggleBrowser()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
@@ -276,6 +286,7 @@
       </div>
     </header>
 
+    @if (view() === 'chat') {
     <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">
       @if (timeline().length === 0) {
         <section class="hero">
@@ -622,9 +633,114 @@
         </label>
       </div>
     </footer>
+    }
+
+    @if (view() === 'routines') {
+    <section class="routines-page">
+      <div class="rt-inner">
+        <div class="rt-head">
+          <div class="rt-heading">
+            <h1 class="rt-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+              Routines
+            </h1>
+            <p class="rt-sub">Create templated routines that can be kicked off on schedule, by API, or webhook.</p>
+          </div>
+          <div class="rt-newwrap">
+            <button class="rt-new" (click)="routineMenuOpen.set(!routineMenuOpen())">
+              New routine
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            @if (routineMenuOpen()) {
+              <div class="rt-menu panel">
+                <button [class.on]="newRoutineTarget() === 'local'" (click)="pickNewRoutineTarget('local')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>
+                  Local
+                </button>
+                <button [class.on]="newRoutineTarget() === 'cloud'" (click)="pickNewRoutineTarget('cloud')">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 18a4 4 0 010-8 5 5 0 019.6-1.4A3.5 3.5 0 0118 18z" stroke-linejoin="round"/></svg>
+                  Cloud
+                </button>
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="rt-composer">
+          <textarea class="rt-input" rows="3" placeholder="What do you want automated?"
+            [ngModel]="newRoutinePrompt()" (ngModelChange)="newRoutinePrompt.set($event)"></textarea>
+          <div class="rt-chips">
+            @for (s of routineSuggestions(); track s) {
+              <button class="rt-chip" (click)="useSuggestion(s)">{{ s }}</button>
+            }
+          </div>
+          <div class="rt-actions">
+            <button class="rt-draft" [disabled]="!newRoutinePrompt().trim() || routineBusy()" (click)="draftRoutine()">
+              @if (routineBusy()) { <span class="spin"></span> } Draft routine
+            </button>
+          </div>
+        </div>
+
+        @if (routines().length) {
+          <div class="rt-list">
+            @for (r of routines(); track r.id) {
+              <div class="rt-card" [class.off]="!r.enabled">
+                <div class="rt-card-body">
+                  <div class="rt-card-name">{{ r.name }}</div>
+                  <div class="rt-card-meta">
+                    <span class="rt-badge">{{ r.target }}</span>
+                    <span class="rt-badge trig">{{ r.trigger }}</span>
+                    @if (r.schedule) { <span class="rt-when"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg> {{ r.schedule }}</span> }
+                  </div>
+                  @if (r.integrations.length) { <div class="rt-works">Works with {{ r.integrations.join(' · ') }}</div> }
+                </div>
+                <div class="rt-card-actions">
+                  <button class="rt-toggle" [class.on]="r.enabled" (click)="toggleRoutine(r)" [title]="r.enabled ? 'Disable' : 'Enable'">
+                    <span class="rt-dot"></span>
+                  </button>
+                  <button class="rt-del" title="Delete routine" (click)="deleteRoutine(r)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="rt-empty">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
+            <span>No routines yet.</span>
+          </div>
+        }
+
+        <div class="rt-templates">
+          <h2 class="rt-tpl-head">Or start from a template</h2>
+          <div class="rt-tpl-grid">
+            @for (t of routineTemplates(); track t.id) {
+              <button class="rt-tpl" (click)="useTemplate(t)">
+                <div class="rt-tpl-top">
+                  <span class="rt-tpl-ico">
+                    @switch (t.icon) {
+                      @case ('sun') { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-linecap="round"/></svg> }
+                      @case ('mail') { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6" stroke-linejoin="round"/></svg> }
+                      @case ('activity') { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4" stroke-linecap="round" stroke-linejoin="round"/></svg> }
+                      @default { <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke-linecap="round"/></svg> }
+                    }
+                  </span>
+                  <span class="rt-tpl-name">{{ t.name }}</span>
+                </div>
+                <p class="rt-tpl-desc">{{ t.description }}</p>
+                <div class="rt-tpl-when"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg> {{ t.schedule }}</div>
+                <div class="rt-tpl-works">Works with {{ t.integrations.join(' · ') }}</div>
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    </section>
+    }
   </div>
 
-  @if (artifacts.isOpen() || browserOpen()) {
+  @if (artifacts.isOpen() || browserOpen() || bgOpen()) {
     <aside class="right-dock">
       @if (browserOpen()) {
       <div class="cb-window panel">
@@ -688,6 +804,70 @@
       }
       @if (artifacts.isOpen()) {
         <div class="artifact-dock"><app-artifact-panel /></div>
+      }
+      @if (bgOpen()) {
+        <div class="bg-window panel">
+          <div class="bg-bar">
+            <span class="bg-bar-title">Background tasks</span>
+            <div class="bg-bar-actions">
+              <button class="bg-x" title="Refresh" (click)="refreshBgTasks()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button class="bg-x" title="Close" (click)="bgOpen.set(false)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="bg-body">
+            <div class="bg-section-label">Running</div>
+            @if (bgRunning().length) {
+              @for (t of bgRunning(); track t.id) {
+                <div class="bg-task">
+                  <div class="bg-task-top">
+                    <span class="bg-task-name">{{ t.name }}</span>
+                    <button class="bg-stop" title="Stop task" (click)="stopBgTask(t)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                    </button>
+                  </div>
+                  <div class="bg-task-meta">
+                    <span class="bg-kind">Preview</span>
+                    <span class="bg-elapsed">{{ bgElapsed(t) }}</span>
+                  </div>
+                  @if (t.url) {
+                    <button class="bg-url" (click)="openBgUrl(t)">{{ t.url.replace('http://', '').replace('https://', '') }}</button>
+                  }
+                </div>
+              }
+            } @else {
+              <div class="bg-none">No running tasks.</div>
+            }
+
+            <div class="bg-finished-row">
+              <button class="bg-finished-toggle" (click)="bgFinishedOpen.set(!bgFinishedOpen())">
+                <span>Finished</span>
+                <span class="bg-count">{{ bgFinished().length }}</span>
+                <svg class="bg-caret" [class.open]="bgFinishedOpen()" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              @if (bgFinished().length) {
+                <button class="bg-clear" (click)="clearBgFinished()">Clear</button>
+              }
+            </div>
+            @if (bgFinishedOpen()) {
+              @for (t of bgFinished(); track t.id) {
+                <div class="bg-task done">
+                  <div class="bg-task-top">
+                    <span class="bg-task-name">{{ t.name }}</span>
+                    <span class="bg-status" [class]="'st-' + t.status">{{ t.status }}</span>
+                  </div>
+                  <div class="bg-task-meta">
+                    <span class="bg-elapsed">ran {{ bgElapsed(t) }}</span>
+                    @if (t.exit_code !== null) { <span class="bg-exit">exit {{ t.exit_code }}</span> }
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </div>
       }
     </aside>
   }

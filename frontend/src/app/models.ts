@@ -132,6 +132,53 @@ export interface SessionCard {
 
 export type ArtifactKind = 'html' | 'svg' | 'mermaid' | 'drawio' | 'azure';
 
+export interface BackgroundTask {
+  id: string;
+  name: string;
+  command: string;
+  status: 'running' | 'finished' | 'stopped' | 'error';
+  started_at: number;
+  finished_at: number | null;
+  elapsed_ms: number;
+  exit_code: number | null;
+  url: string | null;
+  workspace_id: string | null;
+}
+
+export interface BackgroundTasksResponse {
+  tasks: BackgroundTask[];
+  running: number;
+  finished: number;
+}
+
+export interface Routine {
+  id: string;
+  name: string;
+  prompt: string;
+  schedule: string;
+  trigger: 'schedule' | 'api' | 'webhook';
+  target: 'local' | 'cloud';
+  integrations: string[];
+  enabled: boolean;
+  created_at: number;
+}
+
+export interface RoutineTemplate {
+  id: string;
+  icon: string;
+  name: string;
+  description: string;
+  schedule: string;
+  integrations: string[];
+  prompt: string;
+}
+
+export interface RoutinesResponse {
+  routines: Routine[];
+  templates: RoutineTemplate[];
+  suggestions: string[];
+}
+
 export interface Artifact {
   id: string;
   title: string;
