@@ -9,5 +9,5 @@ export interface CollabApp {
 
 export const COLLAB_APPS: CollabApp[] = [
   { id: 'cost', name: 'Cost Compass', url: 'http://localhost:64989/dashboard' },
-  { id: 'pulse', name: 'Pulse Compass', url: 'http://localhost:65092' },
+  { id: 'pulse', name: 'Pulse Compass', url: 'http://localhost:52412' },
 ];
