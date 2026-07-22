@@ -695,6 +695,10 @@
                   @if (r.integrations.length) { <div class="rt-works">Works with {{ r.integrations.join(' · ') }}</div> }
                 </div>
                 <div class="rt-card-actions">
+                  <button class="rt-run" title="Run now" (click)="runRoutine(r)" [disabled]="streaming()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                    Run
+                  </button>
                   <button class="rt-toggle" [class.on]="r.enabled" (click)="toggleRoutine(r)" [title]="r.enabled ? 'Disable' : 'Enable'">
                     <span class="rt-dot"></span>
                   </button>

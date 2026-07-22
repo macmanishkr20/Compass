@@ -1097,6 +1097,17 @@ export class App {
       await this.loadRoutines();
     }
   }
+  /** Run a routine now: open a fresh conversation and send its prompt to the
+   *  agent — a real turn, the same as a manual/scheduled trigger would fire. */
+  async runRoutine(r: Routine): Promise<void> {
+    if (this.streaming()) return;
+    this.routineMenuOpen.set(false);
+    await this.newSession(); // switches to chat view + fresh timeline
+    const sid = this.sessionId();
+    if (!sid) return;
+    this.push(this.bubble('user', r.prompt));
+    await this.runStream(sid, (cb) => this.api.streamMessage(sid, r.prompt, cb));
+  }
   pickNewRoutineTarget(target: 'local' | 'cloud'): void {
     this.newRoutineTarget.set(target);
     this.routineMenuOpen.set(false);

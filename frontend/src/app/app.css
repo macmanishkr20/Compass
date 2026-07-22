@@ -2083,7 +2083,15 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .rt-badge.trig { background: color-mix(in oklab, var(--ink) 8%, transparent); color: var(--muted); }
 .rt-when { display: inline-flex; align-items: center; gap: 5px; font-size: 0.78rem; color: var(--muted); }
 .rt-works { margin-top: 7px; font-size: 0.78rem; color: var(--faint); }
-.rt-card-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.rt-card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.rt-run {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+  font-family: var(--sans); font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.rt-run:hover:not(:disabled) { filter: brightness(1.12); }
+.rt-run:disabled { opacity: 0.4; cursor: default; }
 .rt-toggle {
   width: 38px; height: 22px; border-radius: 999px; border: none; cursor: pointer;
   background: color-mix(in oklab, var(--ink) 18%, transparent); position: relative; transition: background 0.15s;
