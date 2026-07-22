@@ -48,6 +48,9 @@ async def lifespan(app: FastAPI):
     if manager.status:
         logger.info("mcp servers: %s", manager.status)
     log_event("server_started", mcp_servers=len(manager.status))
+    from compass.services.routines import start_scheduler
+
+    start_scheduler(engine)
     yield
     await manager.stop()
     store = get_transcript_store()
@@ -107,22 +110,38 @@ class SpeechRequest(BaseModel):
     voice: str | None = None
 
 
+class TriggerModel(BaseModel):
+    type: str = "daily"  # once|hourly|daily|weekdays|weekly|custom
+    time: str = "09:00"
+    days: list[int] = Field(default_factory=list)
+    cron: str = ""
+    date: str = ""
+
+
 class RoutineRequest(BaseModel):
     name: str = ""
     prompt: str
-    schedule: str = ""
-    trigger: str = "schedule"  # schedule | api | webhook
+    triggers: list[TriggerModel] = Field(default_factory=list)
     target: str = "local"  # local | cloud
-    integrations: list[str] = Field(default_factory=list)
+    model: str = ""
+    repository: str = ""
+    connectors: list[str] = Field(default_factory=list)
+    behavior: dict = Field(default_factory=lambda: {"auto_fix_prs": False})
+    notifications: dict = Field(
+        default_factory=lambda: {"enabled": True, "push": True, "email": False, "slack": False}
+    )
 
 
 class RoutinePatchRequest(BaseModel):
     name: str | None = None
     prompt: str | None = None
-    schedule: str | None = None
-    trigger: str | None = None
+    triggers: list[TriggerModel] | None = None
     target: str | None = None
-    integrations: list[str] | None = None
+    model: str | None = None
+    repository: str | None = None
+    connectors: list[str] | None = None
+    behavior: dict | None = None
+    notifications: dict | None = None
     enabled: bool | None = None
 
 
@@ -670,10 +689,15 @@ async def clear_background_tasks(user: str = Depends(require_user)) -> dict:
 
 @app.get("/v1/routines")
 async def list_routines(user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import SUGGESTIONS, TEMPLATES, store
+    from compass.services.routines import (
+        CONNECTOR_OPTIONS, SUGGESTIONS, TEMPLATES, store,
+    )
 
     routines = [r.to_dict() for r in await store.list()]
-    return {"routines": routines, "templates": TEMPLATES, "suggestions": SUGGESTIONS}
+    return {
+        "routines": routines, "templates": TEMPLATES, "suggestions": SUGGESTIONS,
+        "connectors": CONNECTOR_OPTIONS,
+    }
 
 
 @app.post("/v1/routines")
@@ -683,15 +707,28 @@ async def create_routine(
     from compass.services.routines import store
 
     if not body.prompt.strip():
-        raise HTTPException(status_code=400, detail="prompt is required")
+        raise HTTPException(status_code=400, detail="instructions are required")
     r = await store.create(
         name=body.name,
         prompt=body.prompt,
-        schedule=body.schedule,
-        trigger=body.trigger,
+        triggers=[t.model_dump() for t in body.triggers],
         target=body.target,
-        integrations=body.integrations,
+        model=body.model,
+        repository=body.repository,
+        connectors=body.connectors,
+        behavior=body.behavior,
+        notifications=body.notifications,
     )
+    return r.to_dict()
+
+
+@app.get("/v1/routines/{routine_id}")
+async def get_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import store
+
+    r = await store.get(routine_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="unknown routine")
     return r.to_dict()
 
 
@@ -701,7 +738,10 @@ async def update_routine(
 ) -> dict:
     from compass.services.routines import store
 
-    r = await store.update(routine_id, body.model_dump(exclude_none=True))
+    patch = body.model_dump(exclude_none=True)
+    if "triggers" in patch:
+        patch["triggers"] = [t if isinstance(t, dict) else t for t in patch["triggers"]]
+    r = await store.update(routine_id, patch)
     if not r:
         raise HTTPException(status_code=404, detail="unknown routine")
     return r.to_dict()
@@ -714,3 +754,31 @@ async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> 
     if not await store.delete(routine_id):
         raise HTTPException(status_code=404, detail="unknown routine")
     return {"deleted": routine_id}
+
+
+@app.get("/v1/routines/{routine_id}/runs")
+async def list_routine_runs(routine_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import runs
+
+    return {"runs": [r.to_dict() for r in await runs.list_for(routine_id)]}
+
+
+@app.post("/v1/routines/{routine_id}/run")
+async def run_routine_now(routine_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import execute_routine, store
+
+    routine = await store.get(routine_id)
+    if not routine:
+        raise HTTPException(status_code=404, detail="unknown routine")
+    run = await execute_routine(routine, "manual", engine)
+    return run.to_dict()
+
+
+@app.get("/v1/routines/runs/{run_id}")
+async def get_routine_run(run_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.routines import runs
+
+    run = await runs.get(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="unknown run")
+    return run.to_dict()

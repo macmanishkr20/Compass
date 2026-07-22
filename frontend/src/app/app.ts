@@ -9,7 +9,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { COLLAB_APPS, CollabApp } from './collab-apps.config';
 import { AuthService } from './auth.service';
@@ -33,6 +33,7 @@ import {
   NoticeVM,
   PermissionVM,
   Routine,
+  RoutineRun,
   RoutineTemplate,
   SessionCard,
   SessionGroup,
@@ -67,6 +68,7 @@ type RenderBlock =
   imports: [
     FormsModule,
     NgTemplateOutlet,
+    TitleCasePipe,
     TiltDirective,
     BlurOnChange,
     CompassMark,
@@ -105,14 +107,37 @@ export class App {
   readonly bgRunning = computed(() => this.bgTasks().filter((t) => t.status === 'running'));
   readonly bgFinished = computed(() => this.bgTasks().filter((t) => t.status !== 'running'));
 
-  // -- Routines page.
+  // -- Routines page (list / builder / detail sub-views).
   readonly routines = signal<Routine[]>([]);
   readonly routineTemplates = signal<RoutineTemplate[]>([]);
   readonly routineSuggestions = signal<string[]>([]);
+  readonly routineConnectorOptions = signal<string[]>([]);
   readonly newRoutinePrompt = signal('');
   readonly newRoutineTarget = signal<'local' | 'cloud'>('local');
   readonly routineMenuOpen = signal(false);
   readonly routineBusy = signal(false);
+  readonly routineView = signal<'list' | 'builder' | 'detail'>('list');
+  readonly activeRoutine = signal<Routine | null>(null);
+  readonly routineRuns = signal<RoutineRun[]>([]);
+  readonly routineToast = signal('');
+  // Builder form state.
+  readonly fName = signal('');
+  readonly fInstructions = signal('');
+  readonly fTarget = signal<'local' | 'cloud'>('local');
+  readonly fRepo = signal('');
+  readonly fTriggerType = signal<'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom'>('weekdays');
+  readonly fTriggerTime = signal('09:00');
+  readonly fTriggerDays = signal<number[]>([0]);
+  readonly fConnectors = signal<string[]>([]);
+  readonly fAutoFix = signal(false);
+  readonly fNotifyEnabled = signal(true);
+  readonly fNotifyPush = signal(true);
+  readonly fNotifyEmail = signal(false);
+  readonly fNotifySlack = signal(false);
+  readonly fTab = signal<'connectors' | 'behavior' | 'notifications'>('connectors');
+  readonly fEditId = signal<string | null>(null);
+  readonly timePickerOpen = signal(false);
+  readonly triggerOpen = signal(false);
 
   readonly modes = MODES;
   readonly efforts = EFFORTS;
@@ -1026,9 +1051,13 @@ export class App {
     return `${sec}s`;
   }
 
-  // -- routines ------------------------------------------------------------
+  // -- routines: list / builder / detail -----------------------------------
+  readonly triggerTypes = ['once', 'hourly', 'daily', 'weekdays', 'weekly', 'custom'] as const;
+  readonly weekdayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
   async openRoutines(): Promise<void> {
     this.view.set('routines');
+    this.routineView.set('list');
     this.browserOpen.set(false);
     this.artifacts.close();
     await this.loadRoutines();
@@ -1042,75 +1071,242 @@ export class App {
       this.routines.set(res.routines);
       this.routineTemplates.set(res.templates);
       this.routineSuggestions.set(res.suggestions);
+      this.routineConnectorOptions.set(res.connectors ?? []);
     } catch {
       /* ignore */
     }
   }
+
+  // -- builder --------------------------------------------------------------
+  private resetForm(): void {
+    this.fName.set('');
+    this.fInstructions.set('');
+    this.fTarget.set(this.newRoutineTarget());
+    this.fRepo.set('');
+    this.fTriggerType.set('weekdays');
+    this.fTriggerTime.set('09:00');
+    this.fTriggerDays.set([0]);
+    this.fConnectors.set([]);
+    this.fAutoFix.set(false);
+    this.fNotifyEnabled.set(true);
+    this.fNotifyPush.set(true);
+    this.fNotifyEmail.set(false);
+    this.fNotifySlack.set(false);
+    this.fTab.set('connectors');
+    this.fEditId.set(null);
+    this.triggerOpen.set(true);
+    this.timePickerOpen.set(false);
+  }
+  newRoutine(): void {
+    this.resetForm();
+    this.routineView.set('builder');
+  }
   useSuggestion(text: string): void {
-    this.newRoutinePrompt.set(text);
+    this.resetForm();
+    this.fInstructions.set(text);
+    this.fName.set(text.slice(0, 48));
+    this.routineView.set('builder');
   }
-  async draftRoutine(): Promise<void> {
+  draftRoutine(): void {
     const prompt = this.newRoutinePrompt().trim();
-    if (!prompt || this.routineBusy()) return;
-    this.routineBusy.set(true);
-    try {
-      await this.api.createRoutine({
-        prompt,
-        target: this.newRoutineTarget(),
-        trigger: 'schedule',
-      });
-      this.newRoutinePrompt.set('');
-      this.routineMenuOpen.set(false);
-      await this.loadRoutines();
-    } finally {
-      this.routineBusy.set(false);
-    }
+    if (!prompt) return;
+    this.resetForm();
+    this.fInstructions.set(prompt);
+    this.fName.set(prompt.slice(0, 48));
+    this.newRoutinePrompt.set('');
+    this.routineView.set('builder');
   }
-  async useTemplate(t: RoutineTemplate): Promise<void> {
-    if (this.routineBusy()) return;
-    this.routineBusy.set(true);
-    try {
-      await this.api.createRoutine({
-        name: t.name,
-        prompt: t.prompt,
-        schedule: t.schedule.replace(/^Runs\s+/i, ''),
-        trigger: 'schedule',
-        target: this.newRoutineTarget(),
-        integrations: t.integrations,
-      });
-      await this.loadRoutines();
-    } finally {
-      this.routineBusy.set(false);
-    }
-  }
-  async deleteRoutine(r: Routine): Promise<void> {
-    try {
-      await this.api.deleteRoutine(r.id);
-    } finally {
-      await this.loadRoutines();
-    }
-  }
-  async toggleRoutine(r: Routine): Promise<void> {
-    try {
-      await this.api.updateRoutine(r.id, { enabled: !r.enabled });
-    } finally {
-      await this.loadRoutines();
-    }
-  }
-  /** Run a routine now: open a fresh conversation and send its prompt to the
-   *  agent — a real turn, the same as a manual/scheduled trigger would fire. */
-  async runRoutine(r: Routine): Promise<void> {
-    if (this.streaming()) return;
-    this.routineMenuOpen.set(false);
-    await this.newSession(); // switches to chat view + fresh timeline
-    const sid = this.sessionId();
-    if (!sid) return;
-    this.push(this.bubble('user', r.prompt));
-    await this.runStream(sid, (cb) => this.api.streamMessage(sid, r.prompt, cb));
+  useTemplate(t: RoutineTemplate): void {
+    this.resetForm();
+    this.fName.set(t.name);
+    this.fInstructions.set(t.prompt);
+    this.fTriggerType.set(t.trigger_type);
+    this.fTriggerTime.set(t.time);
+    this.fConnectors.set([...t.integrations]);
+    this.routineView.set('builder');
   }
   pickNewRoutineTarget(target: 'local' | 'cloud'): void {
     this.newRoutineTarget.set(target);
+    this.fTarget.set(target);
     this.routineMenuOpen.set(false);
+    this.newRoutine();
+  }
+  setTriggerType(t: 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom'): void {
+    this.fTriggerType.set(t);
+  }
+  toggleTriggerDay(d: number): void {
+    this.fTriggerDays.update((days) =>
+      days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort(),
+    );
+  }
+  toggleConnector(c: string): void {
+    this.fConnectors.update((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
+  }
+  /** 12h label for the current trigger time (picker display). */
+  timeLabel12(): string {
+    const [h, m] = this.fTriggerTime().split(':').map(Number);
+    const ap = h < 12 ? 'AM' : 'PM';
+    return `${((h % 12) || 12).toString()}:${(m || 0).toString().padStart(2, '0')} ${ap}`;
+  }
+  setTimeParts(h12: number, m: number, ap: 'AM' | 'PM'): void {
+    let h = h12 % 12;
+    if (ap === 'PM') h += 12;
+    this.fTriggerTime.set(`${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`);
+  }
+  get hourOptions(): number[] { return Array.from({ length: 12 }, (_, i) => i + 1); }
+  get minuteOptions(): number[] { return Array.from({ length: 60 }, (_, i) => i); }
+  triggerSummary(): string {
+    const t = this.fTriggerTime();
+    const type = this.fTriggerType();
+    if (type === 'once') return `Runs once at ${t} GMT+5:30`;
+    if (type === 'hourly') return `Runs hourly at :${t.split(':')[1]} GMT+5:30`;
+    if (type === 'daily') return `Runs daily at ${t} GMT+5:30`;
+    if (type === 'weekdays') return `Runs weekdays at ${t} GMT+5:30`;
+    if (type === 'weekly') {
+      const d = this.fTriggerDays().map((x) => this.weekdayLabels[x]).join(', ') || 'Mon';
+      return `Runs weekly on ${d} at ${t} GMT+5:30`;
+    }
+    return `Runs on schedule at ${t} GMT+5:30`;
+  }
+  cancelBuilder(): void {
+    if (this.fEditId()) {
+      void this.openRoutineDetail(this.fEditId()!);
+    } else {
+      this.routineView.set('list');
+    }
+  }
+  async saveRoutine(): Promise<void> {
+    const name = this.fName().trim();
+    const prompt = this.fInstructions().trim();
+    if (!name || !prompt || this.routineBusy()) return;
+    this.routineBusy.set(true);
+    const body: Partial<Routine> = {
+      name,
+      prompt,
+      triggers: [
+        {
+          type: this.fTriggerType(),
+          time: this.fTriggerTime(),
+          days: this.fTriggerDays(),
+          cron: '',
+          date: '',
+        },
+      ],
+      target: this.fTarget(),
+      connectors: this.fConnectors(),
+      behavior: { auto_fix_prs: this.fAutoFix() },
+      notifications: {
+        enabled: this.fNotifyEnabled(),
+        push: this.fNotifyPush(),
+        email: this.fNotifyEmail(),
+        slack: this.fNotifySlack(),
+      },
+    };
+    try {
+      const editId = this.fEditId();
+      const saved = editId
+        ? await this.api.updateRoutine(editId, body)
+        : await this.api.createRoutine(body);
+      await this.loadRoutines();
+      await this.openRoutineDetail(saved.id);
+    } finally {
+      this.routineBusy.set(false);
+    }
+  }
+
+  // -- detail ---------------------------------------------------------------
+  async openRoutineDetail(id: string): Promise<void> {
+    try {
+      const r = await this.api.getRoutine(id);
+      this.activeRoutine.set(r);
+      this.routineView.set('detail');
+      await this.loadRuns(id);
+    } catch {
+      /* ignore */
+    }
+  }
+  async loadRuns(id: string): Promise<void> {
+    try {
+      this.routineRuns.set((await this.api.routineRuns(id)).runs);
+    } catch {
+      /* ignore */
+    }
+  }
+  editRoutine(): void {
+    const r = this.activeRoutine();
+    if (!r) return;
+    const tr = r.triggers[0] ?? { type: 'weekdays', time: '09:00', days: [0], cron: '', date: '' };
+    this.fName.set(r.name);
+    this.fInstructions.set(r.prompt);
+    this.fTarget.set(r.target);
+    this.fRepo.set(r.repository);
+    this.fTriggerType.set(tr.type);
+    this.fTriggerTime.set(tr.time);
+    this.fTriggerDays.set(tr.days?.length ? tr.days : [0]);
+    this.fConnectors.set([...r.connectors]);
+    this.fAutoFix.set(r.behavior?.auto_fix_prs ?? false);
+    this.fNotifyEnabled.set(r.notifications?.enabled ?? true);
+    this.fNotifyPush.set(r.notifications?.push ?? true);
+    this.fNotifyEmail.set(r.notifications?.email ?? false);
+    this.fNotifySlack.set(r.notifications?.slack ?? false);
+    this.fTab.set('connectors');
+    this.fEditId.set(r.id);
+    this.triggerOpen.set(true);
+    this.routineView.set('builder');
+  }
+  async deleteRoutineDetail(): Promise<void> {
+    const r = this.activeRoutine();
+    if (!r) return;
+    await this.api.deleteRoutine(r.id);
+    await this.loadRoutines();
+    this.routineView.set('list');
+  }
+  async toggleRoutineActive(): Promise<void> {
+    const r = this.activeRoutine();
+    if (!r) return;
+    const updated = await this.api.updateRoutine(r.id, { enabled: !r.enabled });
+    this.activeRoutine.set(updated);
+  }
+  async runRoutineNow(): Promise<void> {
+    const r = this.activeRoutine();
+    if (!r) return;
+    this.routineBusy.set(true);
+    try {
+      await this.api.runRoutineNow(r.id);
+      this.showRoutineToast('Workflow run started');
+      await this.loadRuns(r.id);
+      // Poll so the run flips running -> completed live (server-side gpt-5 runs
+      // can take a few minutes).
+      for (let i = 0; i < 90; i++) {
+        await new Promise((res) => setTimeout(res, 4000));
+        if (this.routineView() !== 'detail' || this.activeRoutine()?.id !== r.id) break;
+        await this.loadRuns(r.id);
+        if (!this.routineRuns().some((x) => x.status === 'running')) break;
+      }
+    } finally {
+      this.routineBusy.set(false);
+    }
+  }
+  private showRoutineToast(msg: string): void {
+    this.routineToast.set(msg);
+    setTimeout(() => this.routineToast.set(''), 4000);
+  }
+  /** Open a run's conversation transcript in the chat view. */
+  async openRun(run: RoutineRun): Promise<void> {
+    if (!run.session_id) return;
+    await this.resumeSession(run.session_id);
+  }
+  runTriggerLabel(t: string): string {
+    return t.toUpperCase();
+  }
+  relTime(epoch: number | null): string {
+    if (!epoch) return '';
+    const d = new Date(epoch * 1000);
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const hh = d.getHours().toString().padStart(2, '0');
+    const mm = d.getMinutes().toString().padStart(2, '0');
+    return sameDay ? `today at ${hh}:${mm}` : `${d.toLocaleDateString()} ${hh}:${mm}`;
   }
 
   // -- sessions ------------------------------------------------------------

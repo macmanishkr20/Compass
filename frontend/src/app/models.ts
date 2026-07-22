@@ -151,16 +151,46 @@ export interface BackgroundTasksResponse {
   finished: number;
 }
 
+export type TriggerType = 'once' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom';
+
+export interface RoutineTrigger {
+  type: TriggerType;
+  time: string; // HH:MM 24h
+  days: number[]; // weekly: 0=Mon..6=Sun
+  cron: string;
+  date: string;
+}
+
 export interface Routine {
   id: string;
   name: string;
   prompt: string;
-  schedule: string;
-  trigger: 'schedule' | 'api' | 'webhook';
+  triggers: RoutineTrigger[];
+  schedule: string; // computed human summary
   target: 'local' | 'cloud';
-  integrations: string[];
+  model: string;
+  repository: string;
+  connectors: string[];
+  behavior: { auto_fix_prs: boolean };
+  notifications: { enabled: boolean; push: boolean; email: boolean; slack: boolean };
   enabled: boolean;
   created_at: number;
+  updated_at: number;
+  last_run_at: number | null;
+  next_run_at: number | null;
+  next_run_label: string | null;
+}
+
+export interface RoutineRun {
+  id: string;
+  routine_id: string;
+  routine_name: string;
+  trigger: 'scheduled' | 'manual' | 'api' | 'webhook';
+  status: 'running' | 'completed' | 'failed';
+  started_at: number;
+  finished_at: number | null;
+  session_id: string;
+  summary: string;
 }
 
 export interface RoutineTemplate {
@@ -169,6 +199,8 @@ export interface RoutineTemplate {
   name: string;
   description: string;
   schedule: string;
+  trigger_type: TriggerType;
+  time: string;
   integrations: string[];
   prompt: string;
 }
@@ -177,6 +209,7 @@ export interface RoutinesResponse {
   routines: Routine[];
   templates: RoutineTemplate[];
   suggestions: string[];
+  connectors: string[];
 }
 
 export interface Artifact {

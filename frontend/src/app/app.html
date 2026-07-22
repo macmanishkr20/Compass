@@ -637,6 +637,12 @@
 
     @if (view() === 'routines') {
     <section class="routines-page">
+      @if (routineToast(); as toast) {
+        <div class="rt-toast"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg> {{ toast }} <button (click)="routineToast.set('')">✕</button></div>
+      }
+
+      <!-- ============ LIST ============ -->
+      @if (routineView() === 'list') {
       <div class="rt-inner">
         <div class="rt-head">
           <div class="rt-heading">
@@ -675,38 +681,25 @@
             }
           </div>
           <div class="rt-actions">
-            <button class="rt-draft" [disabled]="!newRoutinePrompt().trim() || routineBusy()" (click)="draftRoutine()">
-              @if (routineBusy()) { <span class="spin"></span> } Draft routine
-            </button>
+            <button class="rt-draft" [disabled]="!newRoutinePrompt().trim()" (click)="draftRoutine()">Draft routine</button>
           </div>
         </div>
 
         @if (routines().length) {
           <div class="rt-list">
             @for (r of routines(); track r.id) {
-              <div class="rt-card" [class.off]="!r.enabled">
+              <button class="rt-card" [class.off]="!r.enabled" (click)="openRoutineDetail(r.id)">
                 <div class="rt-card-body">
                   <div class="rt-card-name">{{ r.name }}</div>
                   <div class="rt-card-meta">
                     <span class="rt-badge">{{ r.target }}</span>
-                    <span class="rt-badge trig">{{ r.trigger }}</span>
-                    @if (r.schedule) { <span class="rt-when"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg> {{ r.schedule }}</span> }
+                    <span class="rt-when"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg> {{ r.schedule }}</span>
+                    @if (r.next_run_label && r.enabled) { <span class="rt-next">Next: {{ r.next_run_label }}</span> }
                   </div>
-                  @if (r.integrations.length) { <div class="rt-works">Works with {{ r.integrations.join(' · ') }}</div> }
+                  @if (r.connectors.length) { <div class="rt-works">Works with {{ r.connectors.join(' · ') }}</div> }
                 </div>
-                <div class="rt-card-actions">
-                  <button class="rt-run" title="Run now" (click)="runRoutine(r)" [disabled]="streaming()">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-                    Run
-                  </button>
-                  <button class="rt-toggle" [class.on]="r.enabled" (click)="toggleRoutine(r)" [title]="r.enabled ? 'Disable' : 'Enable'">
-                    <span class="rt-dot"></span>
-                  </button>
-                  <button class="rt-del" title="Delete routine" (click)="deleteRoutine(r)">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  </button>
-                </div>
-              </div>
+                <svg class="rt-card-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             }
           </div>
         } @else {
@@ -740,6 +733,231 @@
           </div>
         </div>
       </div>
+      }
+
+      <!-- ============ BUILDER ============ -->
+      @if (routineView() === 'builder') {
+      <div class="rt-inner rt-builder">
+        <div class="rt-crumb">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+          <button class="rt-crumb-link" (click)="routineView.set('list')">Routines</button>
+          <span class="rt-crumb-sep">/</span>
+          <span>{{ fEditId() ? fName() : 'New routine' }}</span>
+        </div>
+
+        <label class="rt-field-label">Name <span class="req">*</span></label>
+        <input class="rt-text" [ngModel]="fName()" (ngModelChange)="fName.set($event)" placeholder="Give your routine a name" />
+
+        <label class="rt-field-label">Instructions</label>
+        <div class="rt-instr">
+          <textarea class="rt-instr-input" rows="8" placeholder="What should this routine do on each run?"
+            [ngModel]="fInstructions()" (ngModelChange)="fInstructions.set($event)"></textarea>
+          <div class="rt-instr-foot">
+            <button class="rt-foot-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 9v6M18 6a3 3 0 01-3 3H9" stroke-linecap="round"/></svg> Select a repository</button>
+            <button class="rt-foot-btn rt-foot-target" (click)="fTarget.set(fTarget() === 'local' ? 'cloud' : 'local')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 18a4 4 0 010-8 5 5 0 019.6-1.4A3.5 3.5 0 0118 18z" stroke-linejoin="round"/></svg>
+              {{ fTarget() === 'cloud' ? 'Cloud' : 'Local' }}
+            </button>
+          </div>
+        </div>
+
+        <label class="rt-field-label">Select a trigger</label>
+        <div class="rt-trigger">
+          <button class="rt-trigger-head" (click)="triggerOpen.set(!triggerOpen())">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
+            <span class="rt-trigger-summary">{{ triggerSummary() }}</span>
+            <span class="rt-trigger-x">✕</span>
+          </button>
+          @if (triggerOpen()) {
+            <div class="rt-trigger-body">
+              <div class="rt-seg">
+                @for (tt of triggerTypes; track tt) {
+                  <button class="rt-seg-btn" [class.on]="fTriggerType() === tt" (click)="setTriggerType(tt)">{{ tt | titlecase }}</button>
+                }
+              </div>
+              @if (fTriggerType() !== 'once' && fTriggerType() !== 'hourly') {
+                <div class="rt-at">
+                  <span>At</span>
+                  <div class="rt-timewrap">
+                    <button class="rt-time" (click)="timePickerOpen.set(!timePickerOpen())">
+                      {{ timeLabel12() }}
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>
+                    </button>
+                    @if (timePickerOpen()) {
+                      <div class="rt-timepicker">
+                        <div class="rt-timecol">
+                          @for (h of hourOptions; track h) {
+                            <button [class.on]="((+fTriggerTime().split(':')[0] % 12) || 12) === h"
+                              (click)="setTimeParts(h, +fTriggerTime().split(':')[1], +fTriggerTime().split(':')[0] < 12 ? 'AM' : 'PM')">{{ h }}</button>
+                          }
+                        </div>
+                        <div class="rt-timecol">
+                          @for (m of minuteOptions; track m) {
+                            <button [class.on]="+fTriggerTime().split(':')[1] === m"
+                              (click)="setTimeParts((+fTriggerTime().split(':')[0] % 12) || 12, m, +fTriggerTime().split(':')[0] < 12 ? 'AM' : 'PM')">{{ m < 10 ? '0' + m : m }}</button>
+                          }
+                        </div>
+                        <div class="rt-timecol rt-ampm">
+                          <button [class.on]="+fTriggerTime().split(':')[0] < 12" (click)="setTimeParts((+fTriggerTime().split(':')[0] % 12) || 12, +fTriggerTime().split(':')[1], 'AM')">AM</button>
+                          <button [class.on]="+fTriggerTime().split(':')[0] >= 12" (click)="setTimeParts((+fTriggerTime().split(':')[0] % 12) || 12, +fTriggerTime().split(':')[1], 'PM')">PM</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+              @if (fTriggerType() === 'weekly') {
+                <div class="rt-days">
+                  @for (d of weekdayLabels; track d; let i = $index) {
+                    <button class="rt-day" [class.on]="fTriggerDays().includes(i)" (click)="toggleTriggerDay(i)">{{ d }}</button>
+                  }
+                </div>
+              }
+              <p class="rt-trigger-note">Runs are jittered by a few minutes to spread server load.</p>
+            </div>
+          }
+          <button class="rt-add-trigger">+ Add another trigger</button>
+        </div>
+
+        <div class="rt-tabs">
+          <button class="rt-tab" [class.on]="fTab() === 'connectors'" (click)="fTab.set('connectors')">Connectors</button>
+          <button class="rt-tab" [class.on]="fTab() === 'behavior'" (click)="fTab.set('behavior')">Behavior</button>
+          <button class="rt-tab" [class.on]="fTab() === 'notifications'" (click)="fTab.set('notifications')">Notifications</button>
+        </div>
+
+        @if (fTab() === 'connectors') {
+          <div class="rt-tabpane">
+            <h3 class="rt-pane-title">Connectors</h3>
+            <p class="rt-pane-sub">Integrations available to Compass during each run.</p>
+            <div class="rt-conn-list">
+              @for (c of routineConnectorOptions(); track c) {
+                <button class="rt-conn" [class.on]="fConnectors().includes(c)" (click)="toggleConnector(c)">
+                  <span class="rt-conn-check">@if (fConnectors().includes(c)) { ✓ }</span> {{ c }}
+                </button>
+              }
+              <button class="rt-add-conn">⚡ Add connector</button>
+            </div>
+          </div>
+        }
+        @if (fTab() === 'behavior') {
+          <div class="rt-tabpane">
+            <div class="rt-optrow">
+              <div>
+                <div class="rt-opt-name">Auto-fix pull requests</div>
+                <div class="rt-opt-sub">Watch CI and review comments on PRs this routine opens, and let Compass push fixes.</div>
+              </div>
+              <button class="rt-switch" [class.on]="fAutoFix()" (click)="fAutoFix.set(!fAutoFix())"><span class="rt-switch-dot"></span></button>
+            </div>
+          </div>
+        }
+        @if (fTab() === 'notifications') {
+          <div class="rt-tabpane">
+            <div class="rt-optrow">
+              <div>
+                <div class="rt-opt-name">Notify me when this routine finishes</div>
+                <div class="rt-opt-sub">Compass will send you a one-line summary when each run completes — only when there's something worth telling you.</div>
+              </div>
+              <button class="rt-switch" [class.on]="fNotifyEnabled()" (click)="fNotifyEnabled.set(!fNotifyEnabled())"><span class="rt-switch-dot"></span></button>
+            </div>
+            @if (fNotifyEnabled()) {
+              <button class="rt-checkrow" (click)="fNotifyPush.set(!fNotifyPush())">
+                <span class="rt-check" [class.on]="fNotifyPush()">@if (fNotifyPush()) { ✓ }</span>
+                <div><div class="rt-opt-name">Push notification</div><div class="rt-opt-sub">Sent to the Compass mobile and desktop apps.</div></div>
+              </button>
+              <button class="rt-checkrow" (click)="fNotifyEmail.set(!fNotifyEmail())">
+                <span class="rt-check" [class.on]="fNotifyEmail()">@if (fNotifyEmail()) { ✓ }</span>
+                <div><div class="rt-opt-name">Email</div><div class="rt-opt-sub">Sent to the email address on your account.</div></div>
+              </button>
+              <button class="rt-checkrow" (click)="fNotifySlack.set(!fNotifySlack())">
+                <span class="rt-check" [class.on]="fNotifySlack()">@if (fNotifySlack()) { ✓ }</span>
+                <div><div class="rt-opt-name">Slack</div><div class="rt-opt-sub">Sent as a direct message by the Compass app in your Slack workspace.</div></div>
+              </button>
+            }
+          </div>
+        }
+
+        <div class="rt-builder-actions">
+          <button class="rt-cancel" (click)="cancelBuilder()">Cancel</button>
+          <button class="rt-create" [disabled]="!fName().trim() || !fInstructions().trim() || routineBusy()" (click)="saveRoutine()">
+            @if (routineBusy()) { <span class="spin"></span> } {{ fEditId() ? 'Save' : 'Create' }}
+          </button>
+        </div>
+      </div>
+      }
+
+      <!-- ============ DETAIL ============ -->
+      @if (routineView() === 'detail' && activeRoutine(); as r) {
+      <div class="rt-inner rt-detail">
+        <div class="rt-detail-head">
+          <div class="rt-crumb">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+            <button class="rt-crumb-link" (click)="routineView.set('list')">Routines</button>
+            <span class="rt-crumb-sep">/</span>
+            <span>{{ r.name }}</span>
+          </div>
+          <div class="rt-detail-actions">
+            <button class="rt-icon-btn" title="Edit" (click)="editRoutine()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="rt-icon-btn" title="Delete" (click)="deleteRoutineDetail()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="rt-runnow" [disabled]="routineBusy()" (click)="runRoutineNow()">
+              @if (routineBusy()) { <span class="spin"></span> } @else { <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg> }
+              Run now
+            </button>
+          </div>
+        </div>
+
+        <div class="rt-detail-grid">
+          <div class="rt-detail-left">
+            <div class="rt-detail-block">
+              <div class="rt-detail-label">Status</div>
+              <div class="rt-status-row">
+                <button class="rt-switch sm" [class.on]="r.enabled" (click)="toggleRoutineActive()"><span class="rt-switch-dot"></span></button>
+                @if (r.enabled) {
+                  <span class="rt-active"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg> Active</span>
+                  @if (r.next_run_label) { <span class="rt-nextrun">Next run: {{ r.next_run_label }}</span> }
+                } @else { <span class="rt-paused">Paused</span> }
+              </div>
+            </div>
+            <div class="rt-detail-block">
+              <div class="rt-detail-label">Repeats</div>
+              <div class="rt-detail-val">{{ r.schedule }}</div>
+            </div>
+            @if (r.connectors.length) {
+              <div class="rt-detail-block">
+                <div class="rt-detail-label">Connectors</div>
+                <div class="rt-conn-chips">
+                  @for (c of r.connectors; track c) { <span class="rt-conn-chip">{{ c }}</span> }
+                </div>
+              </div>
+            }
+          </div>
+
+          <div class="rt-detail-right">
+            <div class="rt-detail-label">Instructions</div>
+            <div class="rt-instr-view">{{ r.prompt }}</div>
+
+            <div class="rt-detail-label rt-runs-label">Runs</div>
+            @if (routineRuns().length) {
+              <div class="rt-runs">
+                @for (run of routineRuns(); track run.id) {
+                  <button class="rt-run-item" (click)="openRun(run)">
+                    <span class="rt-run-status" [class]="'st-' + run.status">
+                      @if (run.status === 'running') { <span class="spin sm"></span> }
+                      @else if (run.status === 'completed') { <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12l5 5 9-11" stroke-linecap="round" stroke-linejoin="round"/></svg> }
+                      @else { <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg> }
+                    </span>
+                    <span class="rt-run-when">{{ relTime(run.started_at) }}<span class="rt-run-substatus">{{ run.status }}</span></span>
+                    <span class="rt-run-trigger">{{ runTriggerLabel(run.trigger) }}</span>
+                    <svg class="rt-run-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                }
+              </div>
+            } @else {
+              <div class="rt-noruns">No runs yet</div>
+            }
+          </div>
+        </div>
+      </div>
+      }
     </section>
     }
   </div>

@@ -11,6 +11,7 @@ import {
   HealthInfo,
   PermissionBehavior,
   Routine,
+  RoutineRun,
   RoutinesResponse,
   SessionCard,
   Workspace,
@@ -179,6 +180,9 @@ export class CompassApiService {
   routines(): Promise<RoutinesResponse> {
     return firstValueFrom(this.http.get<RoutinesResponse>('/v1/routines'));
   }
+  getRoutine(id: string): Promise<Routine> {
+    return firstValueFrom(this.http.get<Routine>(`/v1/routines/${id}`));
+  }
   createRoutine(body: Partial<Routine>): Promise<Routine> {
     return firstValueFrom(this.http.post<Routine>('/v1/routines', body));
   }
@@ -187,6 +191,12 @@ export class CompassApiService {
   }
   deleteRoutine(id: string): Promise<{ deleted: string }> {
     return firstValueFrom(this.http.delete<{ deleted: string }>(`/v1/routines/${id}`));
+  }
+  runRoutineNow(id: string): Promise<RoutineRun> {
+    return firstValueFrom(this.http.post<RoutineRun>(`/v1/routines/${id}/run`, {}));
+  }
+  routineRuns(id: string): Promise<{ runs: RoutineRun[] }> {
+    return firstValueFrom(this.http.get<{ runs: RoutineRun[] }>(`/v1/routines/${id}/runs`));
   }
 
   githubClone(fullName: string, branch?: string): Promise<Workspace> {
