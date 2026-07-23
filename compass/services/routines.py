@@ -195,6 +195,47 @@ def _next_fire(tr: Trigger) -> float | None:
     return _to_epoch(candidate) if candidate > now else None
 
 
+def _prev_fire(tr: Trigger) -> float | None:
+    """Most recent epoch this trigger was due AT OR BEFORE now — what the
+    scheduler compares against (next_fire is always strictly future, so it can
+    never equal 'now'; the previous due time is what tells us a slot arrived)."""
+    now = _now_local()
+    try:
+        hh, mm = (int(x) for x in tr.time.split(":"))
+    except Exception:
+        hh, mm = 9, 0
+
+    if tr.type == "hourly":
+        c = now.replace(minute=mm, second=0, microsecond=0)
+        if c > now:
+            c -= timedelta(hours=1)
+        return _to_epoch(c)
+
+    candidate = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+    if tr.type == "once":
+        if tr.date:
+            try:
+                d = datetime.strptime(tr.date, "%Y-%m-%d")
+                candidate = candidate.replace(year=d.year, month=d.month, day=d.day)
+            except Exception:
+                pass
+        return _to_epoch(candidate) if candidate <= now else None
+
+    for sub in range(0, 8):
+        c = candidate - timedelta(days=sub)
+        if c > now:
+            continue
+        wd = c.weekday()
+        if tr.type in ("daily", "custom"):
+            return _to_epoch(c)
+        if tr.type == "weekdays" and wd < 5:
+            return _to_epoch(c)
+        if tr.type == "weekly" and (wd in (tr.days or [0])):
+            return _to_epoch(c)
+    return None
+
+
 # --------------------------------------------------------------------------- templates
 
 TEMPLATES: list[dict] = [
@@ -427,25 +468,37 @@ async def execute_routine(routine: Routine, trigger: str, engine) -> RoutineRun:
 _scheduler_task: asyncio.Task | None = None
 
 
+# A due slot is only fired if we notice it within this window, so a server that
+# starts hours after a missed schedule doesn't replay stale runs.
+_FIRE_WINDOW_SEC = 150
+
+
 async def scheduler_loop(engine) -> None:
-    """Fire each enabled routine when its next scheduled time arrives. Coarse
-    (30s tick) — good enough for minute-granularity schedules."""
-    fired: dict[str, float] = {}
+    """Fire each enabled routine when a scheduled slot arrives. Ticks every 15s
+    and fires when the most-recent due time is recent and not yet fired."""
+    fired: dict[str, float] = {}  # routine_id -> due epoch already fired
+    logger.info("routine scheduler started")
     while True:
         try:
             now = time.time()
             for r in await store.list():
-                nxt = r.next_run_at()
-                if nxt is None:
+                if not r.enabled or not r.triggers:
                     continue
-                # fire when we're within the last 30s window of the target time
-                if nxt <= now and (now - fired.get(r.id, 0)) > 90:
-                    fired[r.id] = now
-                    logger.info("scheduler firing routine %s (%s)", r.name, r.id)
-                    await execute_routine(r, "scheduled", engine)
+                for tr in r.triggers:
+                    due = _prev_fire(tr)
+                    if due is None:
+                        continue
+                    if now - due <= _FIRE_WINDOW_SEC and fired.get(r.id, 0) < due:
+                        fired[r.id] = due
+                        logger.info(
+                            "scheduler firing routine %r (%s) for slot %s",
+                            r.name, r.id, _fmt_when(due),
+                        )
+                        await execute_routine(r, "scheduled", engine)
+                        break
         except Exception:  # noqa: BLE001 — never let the loop die
             logger.exception("scheduler tick failed")
-        await asyncio.sleep(30)
+        await asyncio.sleep(15)
 
 
 def start_scheduler(engine) -> None:
