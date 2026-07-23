@@ -536,6 +536,18 @@ export class App {
     setInterval(() => this.nowTick.set(Date.now()), 1000);
     // Populate the sidebar Routines section up front.
     void this.loadRoutines();
+    // While viewing a routine, keep its Runs list live so scheduled runs that
+    // fire in the background appear without reopening the page.
+    setInterval(() => {
+      if (
+        this.view() === 'routines' &&
+        this.routineView() === 'detail' &&
+        !this.routineBusy()
+      ) {
+        const r = this.activeRoutine();
+        if (r) void this.loadRuns(r.id);
+      }
+    }, 8000);
   }
 
   // -- boot / auth ---------------------------------------------------------
