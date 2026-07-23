@@ -417,6 +417,15 @@ class RunStore:
             runs = [r for r in self._load().values() if r.routine_id == routine_id]
             return sorted(runs, key=lambda r: r.started_at, reverse=True)
 
+    async def finished_since(self, since: float) -> list[RoutineRun]:
+        """Runs that finished after `since` — the browser push feed polls this."""
+        async with self._lock:
+            out = [
+                r for r in self._load().values()
+                if r.status != "running" and (r.finished_at or 0) > since
+            ]
+            return sorted(out, key=lambda r: r.finished_at or 0)
+
 
 store = RoutineStore()
 runs = RunStore()
@@ -460,9 +469,26 @@ async def execute_routine(routine: Routine, trigger: str, engine) -> RoutineRun:
         clean = "".join(c for c in (summary or "Completed.") if c >= " " or c in "\n\t")
         await runs.finish(run.id, status=status, session_id=session.id, summary=clean[:500])
         await store.mark_ran(routine.id)
+        _notify_finished(routine, trigger, status, clean)
 
     asyncio.create_task(_drive())
     return run
+
+
+def _notify_finished(routine: Routine, trigger: str, status: str, summary: str) -> None:
+    """Fan out completion notifications per the routine's settings. Push is
+    delivered by the browser (via the recent-runs feed); email is sent here."""
+    notif = routine.notifications or {}
+    if not notif.get("enabled", True):
+        return
+    if notif.get("email"):
+        from compass.services.notify import send_email
+
+        verb = "completed" if status == "completed" else status
+        send_email(
+            f"⚡ {routine.name} — {verb}",
+            f"Your routine “{routine.name}” ({trigger} run) {verb}.\n\n{summary}\n\n— Compass",
+        )
 
 
 _scheduler_task: asyncio.Task | None = None

@@ -782,3 +782,30 @@ async def get_routine_run(run_id: str, user: str = Depends(require_user)) -> dic
     if not run:
         raise HTTPException(status_code=404, detail="unknown run")
     return run.to_dict()
+
+
+@app.get("/v1/routine-runs/recent")
+async def recent_routine_runs(
+    since: float = 0.0, user: str = Depends(require_user)
+) -> dict:
+    """Runs that finished after `since`, each joined with its routine's
+    notification settings — the browser polls this to fire push notifications."""
+    from compass.services.routines import runs, store
+
+    routines_by_id = {r.id: r for r in await store.list()}
+    out = []
+    for run in await runs.finished_since(since):
+        r = routines_by_id.get(run.routine_id)
+        notif = (r.notifications if r else {}) or {}
+        d = run.to_dict()
+        d["notify_enabled"] = notif.get("enabled", True)
+        d["notify_push"] = notif.get("push", False)
+        d["notify_email"] = notif.get("email", False)
+        out.append(d)
+    return {"runs": out, "email_configured": _email_configured()}
+
+
+def _email_configured() -> bool:
+    from compass.services.notify import email_configured
+
+    return email_configured()

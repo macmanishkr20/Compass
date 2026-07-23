@@ -198,6 +198,15 @@ export class CompassApiService {
   routineRuns(id: string): Promise<{ runs: RoutineRun[] }> {
     return firstValueFrom(this.http.get<{ runs: RoutineRun[] }>(`/v1/routines/${id}/runs`));
   }
+  recentRoutineRuns(
+    since: number,
+  ): Promise<{ runs: (RoutineRun & { notify_enabled: boolean; notify_push: boolean; notify_email: boolean })[]; email_configured: boolean }> {
+    return firstValueFrom(
+      this.http.get<{ runs: any[]; email_configured: boolean }>(
+        `/v1/routine-runs/recent?since=${since}`,
+      ),
+    );
+  }
 
   githubClone(fullName: string, branch?: string): Promise<Workspace> {
     return firstValueFrom(

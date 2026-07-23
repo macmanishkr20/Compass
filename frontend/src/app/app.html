@@ -876,13 +876,19 @@
               <button class="rt-switch" [class.on]="fNotifyEnabled()" (click)="fNotifyEnabled.set(!fNotifyEnabled())"><span class="rt-switch-dot"></span></button>
             </div>
             @if (fNotifyEnabled()) {
-              <button class="rt-checkrow" (click)="fNotifyPush.set(!fNotifyPush())">
+              <button class="rt-checkrow" (click)="fNotifyPush.set(!fNotifyPush()); fNotifyPush() && requestNotifyPermission()">
                 <span class="rt-check" [class.on]="fNotifyPush()">@if (fNotifyPush()) { ✓ }</span>
-                <div><div class="rt-opt-name">Push notification</div><div class="rt-opt-sub">Sent to the Compass mobile and desktop apps.</div></div>
+                <div><div class="rt-opt-name">Push notification</div><div class="rt-opt-sub">Sent to this browser/desktop while Compass is open.</div></div>
               </button>
               <button class="rt-checkrow" (click)="fNotifyEmail.set(!fNotifyEmail())">
                 <span class="rt-check" [class.on]="fNotifyEmail()">@if (fNotifyEmail()) { ✓ }</span>
-                <div><div class="rt-opt-name">Email</div><div class="rt-opt-sub">Sent to the email address on your account.</div></div>
+                <div>
+                  <div class="rt-opt-name">Email</div>
+                  <div class="rt-opt-sub">Sent to the email address on your account.</div>
+                  @if (fNotifyEmail() && !emailConfigured()) {
+                    <div class="rt-warn">⚠ Email delivery isn't configured on the server yet — set COMPASS_SMTP_* and COMPASS_NOTIFY_EMAIL to enable it.</div>
+                  }
+                </div>
               </button>
               <button class="rt-checkrow" (click)="fNotifySlack.set(!fNotifySlack())">
                 <span class="rt-check" [class.on]="fNotifySlack()">@if (fNotifySlack()) { ✓ }</span>

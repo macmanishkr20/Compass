@@ -138,6 +138,10 @@ export class App {
   readonly fEditId = signal<string | null>(null);
   readonly timePickerOpen = signal(false);
   readonly triggerOpen = signal(false);
+  // Notifications: watch finished runs and fire a native browser notification
+  // for any routine with push enabled.
+  private notifySince = Math.floor(Date.now() / 1000);
+  readonly emailConfigured = signal(true); // false => show a hint in the builder
 
   readonly modes = MODES;
   readonly efforts = EFFORTS;
@@ -536,6 +540,10 @@ export class App {
     setInterval(() => this.nowTick.set(Date.now()), 1000);
     // Populate the sidebar Routines section up front.
     void this.loadRoutines();
+    // Watch for finished routine runs and fire a native push notification for
+    // any routine with push enabled — works whenever the app is open (including
+    // a background tab), which is how a laptop "push" is delivered.
+    setInterval(() => void this.pollRoutineNotifications(), 12000);
     // While viewing a routine, keep its Runs list live so scheduled runs that
     // fire in the background appear without reopening the page.
     setInterval(() => {
@@ -1080,6 +1088,7 @@ export class App {
     this.routineView.set('list');
     this.browserOpen.set(false);
     this.artifacts.close();
+    this.requestNotifyPermission();
     await this.loadRoutines();
   }
   backToChat(): void {
@@ -1232,6 +1241,53 @@ export class App {
     } finally {
       this.routineBusy.set(false);
     }
+  }
+
+  /** Ask the browser for notification permission (needs a user gesture in most
+   *  browsers — called when opening Routines or toggling push). */
+  requestNotifyPermission(): void {
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        void Notification.requestPermission();
+      }
+    } catch {
+      /* unsupported */
+    }
+  }
+  /** Poll finished runs; fire a native notification for push-enabled routines. */
+  private async pollRoutineNotifications(): Promise<void> {
+    let res;
+    try {
+      res = await this.api.recentRoutineRuns(this.notifySince);
+    } catch {
+      return;
+    }
+    this.emailConfigured.set(res.email_configured);
+    for (const run of res.runs) {
+      const fin = run.finished_at ?? 0;
+      if (fin > this.notifySince) this.notifySince = fin;
+      if (!run.notify_enabled || !run.notify_push) continue;
+      this.showRunNotification(run);
+    }
+  }
+  private showRunNotification(run: {
+    routine_name: string;
+    status: string;
+    summary: string;
+    trigger: string;
+  }): void {
+    const title = `⚡ ${run.routine_name} — ${run.status}`;
+    const body = `${run.trigger} run · ${(run.summary || '').slice(0, 140)}`;
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body, tag: 'compass-routine' });
+        return;
+      }
+    } catch {
+      /* fall through to in-app toast */
+    }
+    // Fallback (permission denied/unsupported): surface it in-app.
+    this.showRoutineToast(`${title} — ${run.trigger} run`);
   }
 
   /** Open a routine's detail from the sidebar Routines section. */

@@ -2297,3 +2297,5 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .side-routine-item.active .side-routine-dot { border-color: var(--accent); background: var(--accent); }
 .side-routine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rt-warn { margin-top: 8px; font-size: 0.78rem; line-height: 1.5; color: var(--danger); }
