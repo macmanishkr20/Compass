@@ -116,10 +116,12 @@
           }
         </div>
       }
+    </nav>
 
-      @if (routines().length) {
-        <div class="hist-group side-routines">
-          <div class="hist-label">Routines</div>
+    @if (routines().length) {
+      <nav class="side-routines" aria-label="Routines">
+        <div class="hist-label">Routines</div>
+        <div class="side-routines-scroll">
           @for (r of routines(); track r.id) {
             <button class="side-routine-item"
               [class.active]="view() === 'routines' && activeRoutine()?.id === r.id"
@@ -129,8 +131,8 @@
             </button>
           }
         </div>
-      }
-    </nav>
+      </nav>
+    }
 
     <div class="side-collab">
       <span class="side-collab-head">Compass Collab</span>

@@ -2263,8 +2263,26 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .rt-noruns { font-size: 0.88rem; color: var(--faint); }
 .spin.sm { width: 12px; height: 12px; }
 
-/* Sidebar Routines section (like Claude's Routines nav group) */
-.side-routines { margin-top: 4px; }
+/* Sidebar Routines section — its own block below Conversations, with a top
+   divider and an independent scroller (routines are NOT part of the
+   conversation list). */
+.side-routines {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 34%;
+  margin: 12px -4px 0;
+  padding: 14px 4px 0;
+  border-top: 1px solid var(--border);
+}
+.side-routines-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .side-routine-item {
   display: flex; align-items: center; gap: 10px;
   width: 100%; padding: 7px 10px; border: none; border-radius: 8px;
