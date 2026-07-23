@@ -51,6 +51,39 @@
     <button (click)="routineToast.set('')" aria-label="Dismiss">✕</button>
   </div>
 }
+@if (searchOpen()) {
+  <div class="search-overlay" (click)="closeSearch()">
+    <div class="search-modal" (click)="$event.stopPropagation()">
+      <div class="search-bar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+        <input #searchInput class="search-input" placeholder="Search chats and projects"
+          [value]="searchQuery()" (input)="onSearchInput($any($event.target).value)"
+          (keydown)="onSearchKeydown($event)" />
+        <button class="search-x" (click)="closeSearch()" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="search-list">
+        @for (c of searchResults(); track c.id; let i = $index) {
+          <button class="search-item" [class.active]="i === searchIndex()"
+            (mouseenter)="searchIndex.set(i)" (click)="openSearchResult(c)">
+            <svg class="search-item-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="search-item-title">{{ c.title || 'Untitled' }}</span>
+            @if (i === searchIndex()) {
+              <span class="search-item-enter">↵</span>
+            } @else {
+              <span class="search-item-when">{{ recencyLabel(c.updated_at) }}</span>
+            }
+          </button>
+        }
+        @if (searchResults().length === 0) {
+          <div class="search-empty">No conversations match “{{ searchQuery() }}”.</div>
+        }
+      </div>
+    </div>
+  </div>
+}
+
 <div class="shell" [class.sidebar-collapsed]="!sidebarOpen()"
   [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()">
   <!-- ===================== Conversation history ===================== -->
@@ -276,6 +309,9 @@
     <header class="topbar panel">
       <button class="icon-btn ghost side-toggle" [attr.aria-label]="sidebarOpen() ? 'Collapse sidebar' : 'Expand sidebar'" (click)="toggleSidebar()">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16" stroke-linecap="round"/></svg>
+      </button>
+      <button class="icon-btn ghost" aria-label="Search conversations" title="Search conversations (⌘K)" (click)="openSearch()">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
       </button>
       <div class="topbar-title">
         <span class="crumb">{{ activeCard()?.title || 'New conversation' }}</span>

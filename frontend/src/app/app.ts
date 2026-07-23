@@ -244,6 +244,18 @@ export class App {
   readonly showArchived = signal(false);
   readonly historyMenuOpen = signal(false);
 
+  // -- conversation search (command palette)
+  readonly searchOpen = signal(false);
+  readonly searchQuery = signal('');
+  readonly searchIndex = signal(0);
+  private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+  readonly searchResults = computed<SessionCard[]>(() => {
+    const q = this.searchQuery().trim().toLowerCase();
+    const list = this.cards().filter((c) => !this.isRoutineRun(c));
+    const matched = q ? list.filter((c) => (c.title || '').toLowerCase().includes(q)) : list;
+    return [...matched].sort((a, b) => b.updated_at - a.updated_at).slice(0, 50);
+  });
+
   // -- transient row editors
   readonly menuOpenId = signal<string | null>(null);
   readonly renamingId = signal<string | null>(null);
@@ -1460,6 +1472,50 @@ export class App {
   toggleSidebar(): void {
     this.sidebarOpen.update((v) => !v);
   }
+  // -- conversation search -------------------------------------------------
+  openSearch(): void {
+    this.searchQuery.set('');
+    this.searchIndex.set(0);
+    this.searchOpen.set(true);
+    requestAnimationFrame(() => this.searchInput()?.nativeElement.focus());
+  }
+  closeSearch(): void {
+    this.searchOpen.set(false);
+  }
+  onSearchInput(v: string): void {
+    this.searchQuery.set(v);
+    this.searchIndex.set(0);
+  }
+  onSearchKeydown(ev: KeyboardEvent): void {
+    const n = this.searchResults().length;
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      this.closeSearch();
+    } else if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      this.searchIndex.update((i) => (n ? (i + 1) % n : 0));
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      this.searchIndex.update((i) => (n ? (i - 1 + n) % n : 0));
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();
+      const c = this.searchResults()[this.searchIndex()];
+      if (c) void this.openSearchResult(c);
+    }
+  }
+  async openSearchResult(card: SessionCard): Promise<void> {
+    this.closeSearch();
+    await this.resumeSession(card.id);
+  }
+  /** "Past week" / "Past month" / "Past year" / "Older" bucket for a card. */
+  recencyLabel(updatedAt: number): string {
+    const days = (Date.now() / 1000 - updatedAt) / 86400;
+    if (days < 7) return 'Past week';
+    if (days < 31) return 'Past month';
+    if (days < 366) return 'Past year';
+    return 'Older';
+  }
+
   readonly menuX = signal(0);
   readonly menuY = signal(0);
   openMenu(id: string, ev: Event): void {
@@ -1859,6 +1915,12 @@ export class App {
 
   /** 1 = Deny, 2 / ⌘↵ = Allow once — mirrors Claude's approval shortcuts. */
   onGlobalKeydown(ev: KeyboardEvent): void {
+    // ⌘K / Ctrl+K toggles conversation search from anywhere.
+    if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'k' || ev.key === 'K')) {
+      ev.preventDefault();
+      this.searchOpen() ? this.closeSearch() : this.openSearch();
+      return;
+    }
     const p = this.pendingPerm();
     if (!p) return;
     const el = ev.target as HTMLElement | null;
