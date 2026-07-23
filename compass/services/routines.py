@@ -410,6 +410,7 @@ async def execute_routine(routine: Routine, trigger: str, engine) -> RoutineRun:
                     break
             meta = await engine.ensure_meta(session.id)
             meta.title = f"⚡ {routine.name}"
+            meta.routine_id = routine.id  # keeps this run out of Conversations
             await engine.meta.upsert(meta)
         except Exception as err:  # noqa: BLE001 — record the failure on the run
             logger.exception("routine run failed")

@@ -116,6 +116,20 @@
           }
         </div>
       }
+
+      @if (routines().length) {
+        <div class="hist-group side-routines">
+          <div class="hist-label">Routines</div>
+          @for (r of routines(); track r.id) {
+            <button class="side-routine-item"
+              [class.active]="view() === 'routines' && activeRoutine()?.id === r.id"
+              (click)="openRoutineFromSidebar(r.id)">
+              <span class="side-routine-dot"></span>
+              <span class="side-routine-name">{{ r.name }}</span>
+            </button>
+          }
+        </div>
+      }
     </nav>
 
     <div class="side-collab">

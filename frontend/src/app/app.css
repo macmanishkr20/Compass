@@ -2262,3 +2262,20 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .rt-run-arrow { color: var(--faint); }
 .rt-noruns { font-size: 0.88rem; color: var(--faint); }
 .spin.sm { width: 12px; height: 12px; }
+
+/* Sidebar Routines section (like Claude's Routines nav group) */
+.side-routines { margin-top: 4px; }
+.side-routine-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 7px 10px; border: none; border-radius: 8px;
+  background: none; color: var(--muted); font: inherit; font-size: 0.85rem;
+  text-align: left; cursor: pointer;
+}
+.side-routine-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink); }
+.side-routine-item.active { background: var(--accent-tint); color: var(--ink); }
+.side-routine-dot {
+  flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
+  border: 1.5px solid var(--faint);
+}
+.side-routine-item.active .side-routine-dot { border-color: var(--accent); background: var(--accent); }
+.side-routine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

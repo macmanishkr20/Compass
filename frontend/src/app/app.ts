@@ -416,17 +416,23 @@ export class App {
     b.kind === 'activity' ? 'a:' + b.id : 's:' + b.item.id;
 
   /** Pinned conversations, always shown first as their own group. */
+  /** A routine-run session — tagged by routine_id, or (for sessions created
+   *  before tagging existed) recognizable by the ⚡ title prefix. */
+  private isRoutineRun = (c: SessionCard): boolean =>
+    !!c.routine_id || c.title.startsWith('⚡');
+
   readonly pinnedGroup = computed<SessionGroup | null>(() => {
-    const pins = this.cards().filter((c) => c.pinned && !c.archived);
+    const pins = this.cards().filter((c) => c.pinned && !c.archived && !this.isRoutineRun(c));
     return pins.length
       ? { label: 'Pinned', cards: this.sortCards(pins) }
       : null;
   });
 
-  /** The remaining conversations, grouped and sorted per the controls. */
+  /** The remaining conversations, grouped and sorted per the controls.
+   *  Routine-run sessions are excluded — they live under the Routines section. */
   readonly groups = computed<SessionGroup[]>(() => {
     const rest = this.cards().filter(
-      (c) => !c.pinned && (this.showArchived() ? true : !c.archived),
+      (c) => !c.pinned && !this.isRoutineRun(c) && (this.showArchived() ? true : !c.archived),
     );
     const by = this.groupBy();
     let buckets: SessionGroup[];
@@ -528,6 +534,8 @@ export class App {
     void this.refreshBgTasks();
     setInterval(() => void this.refreshBgTasks(), 2500);
     setInterval(() => this.nowTick.set(Date.now()), 1000);
+    // Populate the sidebar Routines section up front.
+    void this.loadRoutines();
   }
 
   // -- boot / auth ---------------------------------------------------------
@@ -1212,6 +1220,14 @@ export class App {
     } finally {
       this.routineBusy.set(false);
     }
+  }
+
+  /** Open a routine's detail from the sidebar Routines section. */
+  async openRoutineFromSidebar(id: string): Promise<void> {
+    this.view.set('routines');
+    this.browserOpen.set(false);
+    this.artifacts.close();
+    await this.openRoutineDetail(id);
   }
 
   // -- detail ---------------------------------------------------------------

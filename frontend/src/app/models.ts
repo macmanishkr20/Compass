@@ -125,6 +125,7 @@ export interface SessionCard {
   effort: string;
   model: string;
   workspace: string;
+  routine_id?: string;
   created_at: number;
   updated_at: number;
   message_count: number;

@@ -36,6 +36,7 @@ class SessionMeta:
     effort: str = "medium"
     model: str = ""  # deployment override; "" = server default
     workspace: str = ""  # workspace id; "" = default workspace
+    routine_id: str = ""  # set on routine-run sessions; keeps them out of Conversations
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     message_count: int = 0
