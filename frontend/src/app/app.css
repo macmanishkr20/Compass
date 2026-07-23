@@ -1400,12 +1400,13 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   display: inline-flex;
   align-items: stretch;
   border-radius: 9px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--info);
+  border: 1px solid var(--info);
   overflow: hidden;
-  transition: border-color 0.14s;
+  box-shadow: var(--shadow-sm);
+  transition: filter 0.14s;
 }
-.cmp-pr:hover { border-color: var(--accent); }
+.cmp-pr:hover { filter: brightness(1.08); }
 .cmp-pr.busy { opacity: 0.6; }
 .cmp-pr-main, .cmp-pr-caret-btn {
   display: inline-flex;
@@ -1413,18 +1414,17 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   gap: 7px;
   border: none;
   background: none;
-  color: var(--ink);
+  color: #fff;
   font-family: var(--sans);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  transition: color 0.14s, background 0.14s;
+  transition: background 0.14s;
 }
-.cmp-pr-main { padding: 6px 11px; }
-.cmp-pr-caret-btn { padding: 6px 7px; border-left: 1px solid var(--border); }
+.cmp-pr-main { padding: 6px 12px; }
+.cmp-pr-caret-btn { padding: 6px 8px; border-left: 1px solid rgba(255, 255, 255, 0.28); }
 .cmp-pr-main:hover:not(:disabled), .cmp-pr-caret-btn:hover:not(:disabled) {
-  color: var(--accent);
-  background: color-mix(in oklab, var(--ink) 5%, transparent);
+  background: rgba(255, 255, 255, 0.12);
 }
 .cmp-pr-main:disabled, .cmp-pr-caret-btn:disabled { cursor: default; }
 .cmp-pr-menu {

@@ -4,68 +4,68 @@
    hairline borders, restrained depth. Enterprise, not decorative.
    ============================================================ */
 :root {
-  /* Neutrals — warm paper for light */
-  --bg: #F5F4F0;
-  --bg-2: #EFEDE7;
+  /* Neutrals — clean Apple-grey for light */
+  --bg: #F5F5F7;
+  --bg-2: #ECECEF;
   --surface: #FFFFFF;
-  --surface-2: #F4F2EC;
-  --border: #E4E0D7;
-  --border-strong: #D3CDC0;
-  --ink: #1C1E22;
-  --muted: #6B6E76;
-  --faint: #9A9C9F;
+  --surface-2: #FBFBFD;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.13);
+  --ink: #1D1D1F;
+  --muted: #515154;
+  --faint: #86868B;
 
   /* Brass accent — the compass needle */
-  --accent: #B0762A;
-  --accent-strong: #99631F;
-  --accent-tint: rgba(176, 118, 42, 0.10);
-  --accent-line: rgba(176, 118, 42, 0.28);
+  --accent: #B8860B;
+  --accent-strong: #A0740A;
+  --accent-tint: rgba(184, 134, 11, 0.10);
+  --accent-line: rgba(184, 134, 11, 0.26);
 
   /* Semantic (separate from accent) */
-  --success: #2E9E76;
-  --success-tint: rgba(46, 158, 118, 0.12);
-  --danger: #C24A47;
-  --danger-tint: rgba(194, 74, 71, 0.12);
-  --info: #4E68C0;
-  --info-tint: rgba(78, 104, 192, 0.12);
+  --success: #34C759;
+  --success-tint: rgba(52, 199, 89, 0.13);
+  --danger: #FF3B30;
+  --danger-tint: rgba(255, 59, 48, 0.12);
+  --info: #0071E3;
+  --info-tint: rgba(0, 113, 227, 0.12);
 
-  --shadow-sm: 0 1px 2px rgba(28, 24, 16, 0.05);
-  --shadow-md: 0 8px 24px rgba(40, 34, 22, 0.10);
-  --shadow-lg: 0 24px 60px rgba(40, 34, 22, 0.16);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.10);
 
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
-  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
   --radius: 14px;
   --radius-sm: 9px;
 }
 
 :root[data-theme="dark"] {
-  /* Cool graphite — near-black with a faint blue-slate bias */
-  --bg: #0C0E13;
-  --bg-2: #0F1219;
-  --surface: #151922;
-  --surface-2: #1B202B;
-  --border: #262C39;
-  --border-strong: #333B4A;
-  --ink: #E7E9EF;
-  --muted: #8B93A2;
-  --faint: #5B6373;
+  /* Refined near-black graphite */
+  --bg: #101012;
+  --bg-2: #17171A;
+  --surface: #1A1A1E;
+  --surface-2: #202024;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --ink: #F5F5F7;
+  --muted: #B9B9C0;
+  --faint: #7C7C85;
 
-  --accent: #DFA65A;
-  --accent-strong: #EBB673;
-  --accent-tint: rgba(223, 166, 90, 0.14);
-  --accent-line: rgba(223, 166, 90, 0.30);
+  --accent: #D9A441;
+  --accent-strong: #E6B45A;
+  --accent-tint: rgba(217, 164, 65, 0.13);
+  --accent-line: rgba(217, 164, 65, 0.30);
 
-  --success: #47BE90;
-  --success-tint: rgba(71, 190, 144, 0.14);
-  --danger: #E0706C;
-  --danger-tint: rgba(224, 112, 108, 0.15);
-  --info: #7E97E8;
-  --info-tint: rgba(126, 151, 232, 0.15);
+  --success: #30D158;
+  --success-tint: rgba(48, 209, 88, 0.15);
+  --danger: #FF453A;
+  --danger-tint: rgba(255, 69, 58, 0.16);
+  --info: #0A84FF;
+  --info-tint: rgba(10, 132, 255, 0.16);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
 * { box-sizing: border-box; }
