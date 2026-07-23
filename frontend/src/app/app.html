@@ -44,6 +44,13 @@
   </div>
 } @else {
 
+@if (routineToast(); as toast) {
+  <div class="app-toast">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+    <span>{{ toast }}</span>
+    <button (click)="routineToast.set('')" aria-label="Dismiss">✕</button>
+  </div>
+}
 <div class="shell" [class.sidebar-collapsed]="!sidebarOpen()"
   [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()">
   <!-- ===================== Conversation history ===================== -->
@@ -197,16 +204,14 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Open in new window
             </button>
-            @if (auth.authEnabled()) {
-              <div class="menu-sep"></div>
-              <button class="user-menu-item" role="menuitem" (click)="signOut()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                Sign out
-              </button>
-            }
+            <div class="menu-sep"></div>
+            <button class="user-menu-item" role="menuitem" (click)="signOut()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Log out
+            </button>
           </div>
         }
-        <button class="side-user-btn" (click)="userMenuOpen.set(!userMenuOpen())" [class.open]="userMenuOpen()">
+        <button class="side-user-btn" (click)="$event.stopPropagation(); userMenuOpen.set(!userMenuOpen())" [class.open]="userMenuOpen()">
           <span class="side-user-av">{{ auth.initials() }}</span>
           <span class="side-user-name">{{ auth.user()?.username || 'Guest' }}</span>
           <svg class="side-user-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -248,7 +253,8 @@
         </button>
 
         @if (menuOpenId() === c.id) {
-          <div class="conv-menu panel" (click)="$event.stopPropagation()" role="menu">
+          <div class="conv-menu panel" (click)="$event.stopPropagation()" role="menu"
+            [style.left.px]="menuX() - 178" [style.top.px]="menuY()">
             <button role="menuitem" (click)="startRename(c)">Rename</button>
             <button role="menuitem" (click)="togglePin(c)">{{ c.pinned ? 'Unpin' : 'Pin' }}</button>
             <button role="menuitem" (click)="forkConversation(c)">Fork</button>
@@ -542,7 +548,7 @@
                 <button (click)="toggleWorkspacePanel()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 7l4-4 4 4M8 17l4 4 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Switch workspace…</span></button>
               </div>
             }
-            <button class="cmp-repo-name" (click)="repoMenuOpen.set(!repoMenuOpen())" title="Repository actions">{{ repoLabel() }}</button>
+            <button class="cmp-repo-name" (click)="$event.stopPropagation(); repoMenuOpen.set(!repoMenuOpen())" title="Repository actions">{{ repoLabel() }}</button>
           </span>
           @if (gitStatus()?.branch) {
             <span class="cmp-branch-wrap">
@@ -553,7 +559,7 @@
                   <button (click)="openWorkspaceTerminal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open in terminal</span></button>
                 </div>
               }
-              <button class="cmp-branch" (click)="branchMenuOpen.set(!branchMenuOpen())" title="Branch actions">{{ gitStatus()?.branch }}</button>
+              <button class="cmp-branch" (click)="$event.stopPropagation(); branchMenuOpen.set(!branchMenuOpen())" title="Branch actions">{{ gitStatus()?.branch }}</button>
             </span>
           }
         </span>
@@ -598,7 +604,7 @@
                 @if (prBusy()) { <span class="spin"></span> }
                 <span>Create PR</span>
               </button>
-              <button class="cmp-pr-caret-btn" (click)="prMenuOpen.set(!prMenuOpen())" [disabled]="prBusy()" aria-label="PR options">
+              <button class="cmp-pr-caret-btn" (click)="$event.stopPropagation(); prMenuOpen.set(!prMenuOpen())" [disabled]="prBusy()" aria-label="PR options">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
@@ -653,9 +659,6 @@
 
     @if (view() === 'routines') {
     <section class="routines-page">
-      @if (routineToast(); as toast) {
-        <div class="rt-toast"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg> {{ toast }} <button (click)="routineToast.set('')">✕</button></div>
-      }
 
       <!-- ============ LIST ============ -->
       @if (routineView() === 'list') {
@@ -669,7 +672,7 @@
             <p class="rt-sub">Create templated routines that can be kicked off on schedule, by API, or webhook.</p>
           </div>
           <div class="rt-newwrap">
-            <button class="rt-new" (click)="routineMenuOpen.set(!routineMenuOpen())">
+            <button class="rt-new" (click)="$event.stopPropagation(); routineMenuOpen.set(!routineMenuOpen())">
               New routine
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
@@ -1005,7 +1008,7 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l6 16 2-6 6-2z" stroke-linejoin="round"/></svg>
           </button>
           <div class="cb-menu-wrap">
-            <button class="cb-btn" [class.on]="cbMenuOpen()" title="More" (click)="cbMenuOpen.set(!cbMenuOpen())">
+            <button class="cb-btn" [class.on]="cbMenuOpen()" title="More" (click)="$event.stopPropagation(); cbMenuOpen.set(!cbMenuOpen())">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
             </button>
             @if (cbMenuOpen()) {
@@ -1176,6 +1179,7 @@
           <input class="ws-input" placeholder="/absolute/path/to/folder"
             [value]="newFolderPath()" (input)="newFolderPath.set($any($event.target).value)"
             (keydown.enter)="addFolderPath()" />
+          <button class="btn xs" (click)="pickWorkspaceFolder()" title="Choose a folder in Finder">Browse…</button>
           <button class="btn xs primary" (click)="addFolderPath()" [disabled]="!newFolderPath().trim()">Add</button>
         </div>
         <div class="ws-sub">Create a new folder</div>

@@ -193,7 +193,10 @@
   flex-shrink: 0;
 }
 .conv.active .conv-rail { background: var(--accent); }
-.conv.arch { opacity: 0.6; }
+/* Dim only the title text of archived rows — using opacity on the whole row
+   would bleed into (and wash out) its dropdown menu. */
+.conv.arch .conv-title { opacity: 0.5; }
+.conv.arch .conv-badge { opacity: 0.7; }
 .conv-title {
   flex: 1;
   overflow: hidden;
@@ -241,12 +244,14 @@
 .conv-edit:focus { outline: none; }
 
 .conv-menu {
-  position: absolute;
-  top: calc(100% - 4px);
-  right: 8px;
-  z-index: 40;
+  position: fixed;          /* anchored via inline coords so it escapes the
+                               conversation scroller and floats on top */
+  right: auto;
+  z-index: 100;
   min-width: 172px;
   border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-lg);
   padding: 5px;
   display: flex;
@@ -2072,8 +2077,10 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
   padding: 15px 17px; border: 1px solid var(--border-strong); border-radius: 13px;
   background: var(--surface-2);
+  text-align: left;
 }
 .rt-card.off { opacity: 0.6; }
+.rt-card-body { flex: 1; min-width: 0; }
 .rt-card-name { font-weight: 650; font-size: 0.95rem; color: var(--ink); }
 .rt-card-meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .rt-badge {
@@ -2299,3 +2306,25 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .side-routine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rt-warn { margin-top: 8px; font-size: 0.78rem; line-height: 1.5; color: var(--danger); }
+
+/* Global notification toast — visible from any view (routine run finished, etc.) */
+.app-toast {
+  position: fixed;
+  top: 18px; right: 20px;
+  z-index: 1000;
+  display: flex; align-items: center; gap: 10px;
+  max-width: 420px;
+  padding: 12px 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+  color: var(--ink);
+  font-size: 0.88rem; font-weight: 600;
+  animation: toastIn 0.2s ease;
+}
+.app-toast svg { color: var(--accent); flex-shrink: 0; }
+.app-toast span { flex: 1; min-width: 0; }
+.app-toast button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; }
+.app-toast button:hover { color: var(--ink); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }

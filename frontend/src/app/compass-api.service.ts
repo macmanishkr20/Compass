@@ -114,6 +114,9 @@ export class CompassApiService {
     return firstValueFrom(this.http.delete(`/v1/workspaces/${id}`));
   }
 
+  pickFolder(): Promise<{ path: string }> {
+    return firstValueFrom(this.http.post<{ path: string }>('/v1/pick-folder', {}));
+  }
   revealWorkspace(id: string): Promise<{ opened: string }> {
     return firstValueFrom(this.http.post<{ opened: string }>(`/v1/workspaces/${id}/reveal`, {}));
   }

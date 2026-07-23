@@ -78,7 +78,10 @@ type RenderBlock =
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
-  host: { '(document:keydown)': 'onGlobalKeydown($event)' },
+  host: {
+    '(document:keydown)': 'onGlobalKeydown($event)',
+    '(document:click)': 'onGlobalClick()',
+  },
 })
 export class App {
   private readonly api = inject(CompassApiService);
@@ -1278,16 +1281,16 @@ export class App {
   }): void {
     const title = `⚡ ${run.routine_name} — ${run.status}`;
     const body = `${run.trigger} run · ${(run.summary || '').slice(0, 140)}`;
+    // Always surface it in-app (works regardless of OS/browser permission)…
+    this.showRoutineToast(title);
+    // …and also fire a native OS notification when the user has allowed it.
     try {
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(title, { body, tag: 'compass-routine' });
-        return;
       }
     } catch {
-      /* fall through to in-app toast */
+      /* unsupported */
     }
-    // Fallback (permission denied/unsupported): surface it in-app.
-    this.showRoutineToast(`${title} — ${run.trigger} run`);
   }
 
   /** Open a routine's detail from the sidebar Routines section. */
@@ -1457,12 +1460,47 @@ export class App {
   toggleSidebar(): void {
     this.sidebarOpen.update((v) => !v);
   }
+  readonly menuX = signal(0);
+  readonly menuY = signal(0);
   openMenu(id: string, ev: Event): void {
     ev.stopPropagation();
-    this.menuOpenId.update((cur) => (cur === id ? null : id));
+    if (this.menuOpenId() === id) {
+      this.menuOpenId.set(null);
+      return;
+    }
+    // Anchor with fixed coords from the button so the menu escapes the
+    // conversation scroller's clipping and floats on top.
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    this.menuX.set(r.right);
+    this.menuY.set(r.bottom + 3);
+    this.closeAllMenus();
+    this.menuOpenId.set(id);
   }
   closeMenu(): void {
     this.menuOpenId.set(null);
+  }
+  /** Close every dropdown — bound to a document click so any outside click
+   *  dismisses open menus. Toggles stopPropagation so they aren't re-closed. */
+  closeAllMenus(): void {
+    this.menuOpenId.set(null);
+    this.userMenuOpen.set(false);
+    this.repoMenuOpen.set(false);
+    this.branchMenuOpen.set(false);
+    this.prMenuOpen.set(false);
+    this.routineMenuOpen.set(false);
+    this.cbMenuOpen.set(false);
+  }
+  onGlobalClick(): void {
+    this.closeAllMenus();
+  }
+  /** Open the host's native folder chooser (macOS Finder) and fill the path. */
+  async pickWorkspaceFolder(): Promise<void> {
+    try {
+      const { path } = await this.api.pickFolder();
+      if (path) this.newFolderPath.set(path);
+    } catch {
+      /* host-only / cancelled */
+    }
   }
 
   async togglePin(card: SessionCard, ev?: Event): Promise<void> {

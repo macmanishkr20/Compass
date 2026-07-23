@@ -539,6 +539,29 @@ async def workspace_create_pr(
         raise HTTPException(status_code=422, detail=str(err))
 
 
+@app.post("/v1/pick-folder")
+async def pick_folder(user: str = Depends(require_user)) -> dict:
+    """Open a native folder chooser on the backend host (macOS Finder) and
+    return the selected absolute path; empty string if the user cancelled."""
+    import asyncio
+    import sys
+
+    if sys.platform != "darwin":
+        raise HTTPException(status_code=422, detail="native folder picker requires a macOS host")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "osascript",
+            "-e", 'tell application "System Events" to activate',
+            "-e", 'POSIX path of (choose folder with prompt "Select a folder for Compass")',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await proc.communicate()
+        return {"path": out.decode().strip() if proc.returncode == 0 else ""}
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=str(err))
+
+
 @app.post("/v1/workspaces/{workspace_id}/reveal")
 async def reveal_workspace(
     workspace_id: str, user: str = Depends(require_user)
