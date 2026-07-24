@@ -730,18 +730,17 @@
 @media (max-width: 1100px) { .pnav { display: none; } }
 
 .log {
-  border-radius: var(--radius);
   overflow-y: auto;
   min-height: 0;
   padding: 26px clamp(16px, 5vw, 56px);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background:
-    linear-gradient(var(--surface), var(--surface)) padding-box,
-    var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  /* Borderless, transparent chat section — the backdrop compass watermark
+     shows through; only the composer/status bars below are panels. */
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 :root[data-theme="dark"] .log { background: color-mix(in oklab, var(--surface) 55%, transparent); }
 
