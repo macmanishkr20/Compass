@@ -167,12 +167,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.64rem;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+  font-size: 0.82rem;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--faint);
-  font-weight: 600;
-  padding: 2px 8px 6px;
+  font-weight: 500;
+  padding: 6px 10px 8px;
 }
 .hist-label svg { color: var(--accent); }
 .hist-empty { font-size: 0.78rem; color: var(--faint); padding: 2px 8px; margin: 0; }
@@ -180,25 +180,26 @@
 .conv {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 11px;
-  border-radius: 8px;
+  gap: 12px;
+  padding: 8px 11px;
+  border-radius: 9px;
   cursor: pointer;
-  font-size: 0.83rem;
-  color: var(--muted);
+  font-size: 0.92rem;
+  color: var(--ink);
   position: relative;
   transition: background 0.15s, color 0.15s;
 }
-.conv:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink); }
-.conv.active { background: var(--accent-tint); color: var(--ink); }
+.conv:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+.conv.active { background: color-mix(in oklab, var(--ink) 9%, transparent); color: var(--ink); }
 .conv-rail {
-  width: 2px;
-  height: 15px;
-  border-radius: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--faint);
   background: transparent;
   flex-shrink: 0;
 }
-.conv.active .conv-rail { background: var(--accent); }
+.conv.active .conv-rail { border-color: var(--muted); }
 /* Dim only the title text of archived rows — using opacity on the whole row
    would bleed into (and wash out) its dropdown menu. */
 .conv.arch .conv-title { opacity: 0.5; }
@@ -740,12 +741,16 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* No visible scrollbar on the chat window. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   /* Borderless, transparent chat section — the backdrop compass watermark
      shows through; only the composer/status bars below are panels. */
   background: transparent;
   border: none;
   box-shadow: none;
 }
+.log::-webkit-scrollbar { width: 0; height: 0; display: none; }
 :root[data-theme="dark"] .log { background: color-mix(in oklab, var(--surface) 55%, transparent); }
 
 /* ---- Hero (empty state) ---- */
