@@ -113,9 +113,18 @@ import { ThemeService } from '../theme.service';
             </div>
           </div>
         } @else if (a.kind === 'mermaid') {
-          <div class="ap-diagram" [hidden]="tab() !== 'preview'">
+          <div class="ap-diagram ap-azure" [hidden]="tab() !== 'preview'">
             @if (mermaidError()) { <pre class="ap-derr">{{ mermaidError() }}</pre> }
             <div #mermaidHost class="ap-mermaid"></div>
+            @if (!mermaidError()) {
+              <div class="ap-azure-bar">
+                <span>Flowchart · export to draw.io to edit</span>
+                <span class="ap-azure-acts">
+                  <button (click)="openInDrawio()">Open in draw.io</button>
+                  <button (click)="downloadMermaidDrawio()">Download .drawio</button>
+                </span>
+              </div>
+            }
           </div>
         } @else {
           <iframe #frame class="ap-frame" [hidden]="tab() !== 'preview'"
@@ -371,26 +380,42 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
 </mxGraphModel>`;
   }
 
+  /** Download the flowchart as a `.drawio` file (opens in draw.io on double-
+   * click). This is the guaranteed path — no popup blocker, no URL-size limit. */
+  downloadMermaidDrawio(): void {
+    const a = this.svc.active();
+    if (!a) return;
+    const xml = ArtifactService.drawioFile(this.mermaidDrawioModel());
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = (a.title || 'flowchart').replace(/[^\w.-]+/g, '-') + '.drawio';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
   /** Open the current diagram in draw.io. Azure/drawio go through the existing
-   * diagrams.net path; mermaid is embedded as an image and opened there too. */
+   * diagrams.net path; mermaid is embedded as an image. The diagrams.net `#R`
+   * URL has a size cap, so if the compressed diagram is too big (or the popup is
+   * blocked) we fall back to downloading the .drawio file. */
   async openInDrawio(): Promise<void> {
     const a = this.svc.active();
     if (!a) return;
     if (a.kind === 'azure' || a.kind === 'drawio') return this.openNewTab();
-    const model = this.mermaidDrawioModel();
     try {
-      const url = await ArtifactService.drawioViewerUrl(model);
-      window.open(url, '_blank', 'noopener');
+      const url = await ArtifactService.drawioViewerUrl(this.mermaidDrawioModel());
+      // diagrams.net silently blanks on an over-long fragment — cap it.
+      if (url.length > 60_000) {
+        this.downloadMermaidDrawio();
+        return;
+      }
+      const win = window.open(url, '_blank', 'noopener');
+      if (!win) this.downloadMermaidDrawio(); // popup blocked
     } catch {
-      // Fallback: download a .drawio file the user can open manually.
-      const xml = ArtifactService.drawioFile(model);
-      const blob = new Blob([xml], { type: 'application/xml' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = (a.title || 'diagram') + '.drawio';
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      this.downloadMermaidDrawio();
     }
   }
 
