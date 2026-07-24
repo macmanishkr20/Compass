@@ -648,7 +648,8 @@
         }
       </div>
 
-      <!-- Input block -->
+      <!-- Prompt box: input row + meta row inside one rounded panel -->
+      <div class="composer-box">
       <div class="cmp-inputbox">
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
@@ -659,7 +660,7 @@
         </button>
       </div>
 
-      <!-- Toolbar: mode · add · mic … model · effort · send -->
+      <!-- Toolbar: mode · add · mic … model · effort -->
       <div class="cmp-toolbar">
         <label class="tb-seg" title="Permission mode">
           <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
@@ -669,6 +670,7 @@
         <button class="tb-icon" (click)="toggleWorkspacePanel()" title="Add workspace / context" aria-label="Add">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
         </button>
+        <span class="tb-div"></span>
         @if (health()?.tts && voices().length) {
           <label class="tb-seg tb-mic" title="Read-aloud voice">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke-linecap="round"/></svg>
@@ -689,6 +691,7 @@
             @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
           </select>
         </label>
+      </div>
       </div>
     </footer>
     }

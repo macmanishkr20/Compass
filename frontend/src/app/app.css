@@ -1483,34 +1483,44 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .cmp-pr-menu button span { flex: 1; }
 .cmp-pr-menu .pr-check { color: var(--accent); }
 
+/* One rounded panel holding the input row + the meta toolbar. */
+.composer-box {
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.composer-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
 .cmp-inputbox {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 5px 14px;
-  border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  transition: border-color 0.16s, box-shadow 0.16s;
+  padding: 8px 10px 4px 16px;
 }
-.cmp-inputbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
 .cmp-enter {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
   border: none;
-  background: none;
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
   color: var(--muted);
   cursor: pointer;
-  padding: 6px;
   margin-bottom: 4px;
-  border-radius: 8px;
+  border-radius: 9px;
   transition: color 0.14s, background 0.14s;
 }
-.cmp-enter:hover:not(:disabled) { color: var(--accent); background: color-mix(in oklab, var(--ink) 6%, transparent); }
-.cmp-enter:disabled { color: var(--faint); cursor: default; }
+.cmp-enter:hover:not(:disabled) { background: color-mix(in oklab, var(--ink) 15%, transparent); color: var(--ink); }
+.cmp-enter:disabled { opacity: 0.55; cursor: default; }
 
-.cmp-toolbar { display: flex; align-items: center; gap: 3px; padding: 0 6px; }
+.cmp-toolbar { display: flex; align-items: center; gap: 3px; padding: 2px 10px 8px; }
+.tb-div { width: 1px; height: 15px; background: var(--border-strong); margin: 0 5px; flex-shrink: 0; }
 .tb-seg {
   display: inline-flex;
   align-items: center;
