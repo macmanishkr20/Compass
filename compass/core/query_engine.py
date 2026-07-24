@@ -25,6 +25,7 @@ from compass.persistence.base import TranscriptStore
 from compass.persistence.factory import get_transcript_store
 from compass.persistence.session_meta import SessionMeta, get_meta_store
 from compass.policy.hooks import HookEvent, get_hook_registry
+from compass.services.attachments import build_user_message
 from compass.tools.base import PermissionBroker, ToolUseContext
 from compass.tools.registry import get_all_tools
 from compass.tools.shell_session import ShellState
@@ -131,7 +132,12 @@ class QueryEngine:
 
     # -- running turns -------------------------------------------------------
 
-    async def ask(self, session: Session, user_input: str) -> AsyncIterator[events.Event]:
+    async def ask(
+        self,
+        session: Session,
+        user_input: str,
+        attachments: list[dict] | None = None,
+    ) -> AsyncIterator[events.Event]:
         async with session.turn_lock:
             session.abort_event.clear()
             hooks = get_hook_registry()
@@ -147,7 +153,14 @@ class QueryEngine:
                 return
 
             is_first = not session.messages
-            message = user_message(user_input)
+            # Uploaded files (images -> gpt-5 vision, PDF/DOCX/ZIP/text ->
+            # inlined) are folded into the user message by the shared builder;
+            # with no attachments this is exactly user_message(user_input).
+            message = (
+                build_user_message(user_input, attachments)
+                if attachments
+                else user_message(user_input)
+            )
             session.messages.append(message)
             self.store.append(session.id, message)
             await self._bump_meta(session, user_input if is_first else None)

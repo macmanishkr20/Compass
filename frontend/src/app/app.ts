@@ -22,6 +22,8 @@ import { LoadingRadar } from './loading-radar/loading-radar';
 import { Markdown } from './markdown/markdown';
 import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
+import { HomeChat } from './home-chat/home-chat';
+import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from './attachments';
 import {
   BackgroundTask,
   ChatBubble,
@@ -75,6 +77,7 @@ type RenderBlock =
     LoadingRadar,
     Markdown,
     ArtifactPanel,
+    HomeChat,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -99,7 +102,18 @@ export class App {
   readonly browserSrc = signal<SafeResourceUrl | ''>('');
   readonly browserBlocked = signal(false);
 
-  // -- main view switch: the chat console vs. the Routines page.
+  // -- top-level section: Home (Chat) vs Code (the Agent Console). Home is a
+  // separate, tool-free surface (HomeChat) and shares no state with the
+  // console; the two are switched via the top-bar Home/Code control.
+  readonly section = signal<'home' | 'code'>('home');
+  enterHome(): void {
+    this.section.set('home');
+  }
+  enterCode(): void {
+    this.section.set('code');
+  }
+
+  // -- main view switch (within the Code section): console vs. Routines page.
   readonly view = signal<'chat' | 'routines'>('chat');
 
   // -- Background tasks panel (long-running processes the agent spawned).
@@ -271,8 +285,59 @@ export class App {
     const h = this.health();
     return h ? Object.keys(h.mcp_servers).length : 0;
   });
+  // -- Agent Console composer attachments (images / files / zip) ----------
+  readonly attachments = signal<UiAttachment[]>([]);
+  readonly agentDragOver = signal(false);
+  readonly attachError = signal('');
+  readonly attachAccept = ATTACH_ACCEPT;
+  private readonly agentFileInput = viewChild<ElementRef<HTMLInputElement>>('agentFileInput');
+  agentFormatSize = formatSize;
+
+  openAttachPicker(): void {
+    this.agentFileInput()?.nativeElement.click();
+  }
+  onAttachPicked(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    if (input.files) void this.addAttachFiles(input.files);
+    input.value = '';
+  }
+  onAttachPaste(ev: ClipboardEvent): void {
+    const files = ev.clipboardData?.files;
+    if (files && files.length) {
+      ev.preventDefault();
+      void this.addAttachFiles(files);
+    }
+  }
+  onAttachDragOver(ev: DragEvent): void {
+    if (ev.dataTransfer?.types?.includes('Files')) {
+      ev.preventDefault();
+      this.agentDragOver.set(true);
+    }
+  }
+  onAttachDragLeave(): void {
+    this.agentDragOver.set(false);
+  }
+  onAttachDrop(ev: DragEvent): void {
+    ev.preventDefault();
+    this.agentDragOver.set(false);
+    if (ev.dataTransfer?.files?.length) void this.addAttachFiles(ev.dataTransfer.files);
+  }
+  removeAttachment(id: string): void {
+    this.attachments.update((list) => list.filter((a) => a.id !== id));
+  }
+  private async addAttachFiles(files: FileList): Promise<void> {
+    const { added, errors } = await readFiles(files);
+    if (added.length) this.attachments.update((list) => [...list, ...added]);
+    if (errors.length) {
+      this.attachError.set(errors[0]);
+      setTimeout(() => this.attachError.set(''), 4000);
+    }
+  }
+
   readonly canSend = computed(
-    () => this.draft().trim().length > 0 && !this.streaming(),
+    () =>
+      (this.draft().trim().length > 0 || this.attachments().length > 0) &&
+      !this.streaming(),
   );
   readonly activeCard = computed(() =>
     this.cards().find((c) => c.id === this.sessionId()),
@@ -1772,9 +1837,16 @@ export class App {
     const content = this.draft().trim();
     const sid = this.sessionId();
     if (!sid) return;
+    const atts = this.attachments();
     this.draft.set('');
-    this.push(this.bubble('user', content));
-    await this.runStream(sid, (cb) => this.api.streamMessage(sid, content, cb));
+    this.attachments.set([]);
+    const b = this.bubble('user', content);
+    if (atts.length) b.atts = atts;
+    this.push(b);
+    const payload = toWire(atts);
+    await this.runStream(sid, (cb) =>
+      this.api.streamMessage(sid, content, cb, payload),
+    );
   }
 
   async regenerate(): Promise<void> {

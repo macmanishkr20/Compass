@@ -57,6 +57,15 @@ export interface CompassEvent {
   [key: string]: unknown;
 }
 
+/** A raw uploaded file sent to the backend, which classifies + extracts it
+ *  (images → gpt-5 vision, PDF/DOCX/ZIP/text → inlined text). Used by both the
+ *  Home/Chat and Agent Console composers. */
+export interface ChatAttachment {
+  name: string;
+  mime: string;
+  data_url: string;
+}
+
 // UI-side view models -------------------------------------------------------
 
 export type Role = 'user' | 'assistant';
@@ -72,6 +81,17 @@ export interface ChatBubble {
   editing?: boolean;
   at?: number; // epoch ms — shown on hover (user prompts)
   stats?: { ms: number; tokens: number }; // per-response, set at stream end
+  atts?: UiAttachmentVM[]; // files/images attached to a user prompt
+}
+
+/** Attachment shown on a user bubble (mirror of attachments.ts UiAttachment). */
+export interface UiAttachmentVM {
+  id: string;
+  name: string;
+  mime: string;
+  kind: 'image' | 'file';
+  size: number;
+  dataUrl: string;
 }
 
 export type ToolStatus = 'running' | 'ok' | 'error';

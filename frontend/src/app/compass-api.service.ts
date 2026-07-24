@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import {
   BackgroundTask,
   BackgroundTasksResponse,
+  ChatAttachment,
   CompassEvent,
   GitStatus,
   GithubRepo,
@@ -246,6 +247,46 @@ export class CompassApiService {
     );
   }
 
+  // -- Home/Chat (separate, tool-free workflow: /v1/chat/*) -----------------
+  createChatSession(opts: {
+    resume?: boolean;
+    sessionId?: string;
+    effort?: string;
+    model?: string;
+  } = {}): Promise<CreateSessionResponse> {
+    return firstValueFrom(
+      this.http.post<CreateSessionResponse>('/v1/chat/sessions', {
+        resume: opts.resume ?? false,
+        session_id: opts.sessionId,
+        effort: opts.effort,
+        model: opts.model,
+      }),
+    );
+  }
+
+  async streamChatMessage(
+    sessionId: string,
+    content: string,
+    onEvent: (event: CompassEvent) => void,
+    attachments: ChatAttachment[] = [],
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/chat/sessions/${sessionId}/messages`,
+      { content, attachments },
+      onEvent,
+    );
+  }
+
+  abortChat(sessionId: string): Promise<unknown> {
+    return firstValueFrom(this.http.post(`/v1/chat/sessions/${sessionId}/abort`, {}));
+  }
+
+  chatTranscript(sessionId: string): Promise<TranscriptResponse> {
+    return firstValueFrom(
+      this.http.get<TranscriptResponse>(`/v1/chat/sessions/${sessionId}/transcript`),
+    );
+  }
+
   resolvePermission(
     sessionId: string,
     requestId: string,
@@ -275,10 +316,11 @@ export class CompassApiService {
     sessionId: string,
     content: string,
     onEvent: (event: CompassEvent) => void,
+    attachments: ChatAttachment[] = [],
   ): Promise<void> {
     return this.streamPost(
       `/v1/sessions/${sessionId}/messages`,
-      { content },
+      { content, attachments },
       onEvent,
     );
   }

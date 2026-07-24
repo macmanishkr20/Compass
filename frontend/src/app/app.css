@@ -1517,6 +1517,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 
 /* One rounded panel holding the input row + the meta toolbar. */
 .composer-box {
+  position: relative;
   border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1526,6 +1527,60 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .composer-box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.composer-box.drag { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+
+/* -- Agent composer attachments (images / files / zip) ------------------- */
+.cmp-drop-hint {
+  position: absolute; inset: 0; z-index: 4;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--accent-tint); color: var(--accent-strong);
+  font-size: 0.9rem; font-weight: 600;
+  border-radius: var(--radius); pointer-events: none;
+}
+.cmp-attach-err {
+  margin: 10px 12px 0; font-size: 0.8rem;
+  color: var(--danger); background: var(--danger-tint);
+  padding: 6px 10px; border-radius: 8px;
+}
+.cmp-atts {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 12px 12px 0;
+}
+.cmp-att {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 240px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 6px 8px;
+}
+.cmp-att-thumb { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; flex: 0 0 auto; }
+.cmp-att-ico {
+  width: 30px; height: 30px; border-radius: 6px; flex: 0 0 auto;
+  display: grid; place-items: center; background: var(--surface-2); color: var(--muted);
+}
+.cmp-att-meta { display: flex; flex-direction: column; min-width: 0; }
+.cmp-att-name {
+  font-size: 0.8rem; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;
+}
+.cmp-att-size { font-size: 0.7rem; color: var(--faint); }
+.cmp-att-x {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.cmp-att-x:hover { background: var(--surface); color: var(--ink); }
+
+/* attachments on a sent user bubble */
+.bubble-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.bubble-att-img {
+  max-width: 220px; max-height: 220px; border-radius: 10px;
+  border: 1px solid var(--border); object-fit: cover;
+}
+.bubble-att-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; color: var(--muted);
+  background: var(--bg-2); border: 1px solid var(--border);
+  padding: 5px 9px; border-radius: 8px;
 }
 .cmp-inputbox {
   display: flex;

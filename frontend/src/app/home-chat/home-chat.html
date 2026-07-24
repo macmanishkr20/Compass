@@ -1,0 +1,145 @@
+<section class="home">
+  <div class="home-scroll" #chatlog>
+    @if (messages().length === 0) {
+      <div class="home-hero">
+        <div class="home-hero-mark">
+          <app-compass-mark [size]="46" [active]="streaming()" />
+        </div>
+        <h1 class="home-greeting">{{ greeting() }}</h1>
+        <p class="home-tagline">Compass Chat — ask, brainstorm, or think it through. No tools, just conversation.</p>
+      </div>
+    } @else {
+      <div class="chat-log">
+        @for (m of messages(); track m.id) {
+          <div class="crow" [class.mine]="m.role === 'user'">
+            @if (m.role === 'assistant') {
+              <span class="cavatar"><app-compass-mark [size]="22" /></span>
+            }
+            <div class="cbubble" [class.user]="m.role === 'user'">
+              @if (m.role === 'assistant') {
+                <app-markdown [text]="m.text || '…'" />
+              } @else {
+                @if (m.atts?.length) {
+                  <div class="cbubble-atts">
+                    @for (a of m.atts!; track a.id) {
+                      @if (a.kind === 'image') {
+                        <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name" />
+                      } @else {
+                        <span class="cbubble-file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
+                          {{ a.name }}
+                        </span>
+                      }
+                    }
+                  </div>
+                }
+                @if (m.text) { <p class="ctext">{{ m.text }}</p> }
+              }
+            </div>
+          </div>
+        }
+        @if (awaitingReply()) {
+          <div class="crow">
+            <span class="cavatar"><app-compass-mark [size]="22" [active]="true" /></span>
+            <div class="cthinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <div class="home-composer-wrap"
+    (dragover)="onDragOver($event)" (dragleave)="onDragLeave()" (drop)="onDrop($event)">
+
+    @if (attachError()) { <div class="home-attach-err">{{ attachError() }}</div> }
+
+    <div class="home-composer" [class.drag]="dragOver()">
+      @if (dragOver()) {
+        <div class="home-drop-hint">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Drop files to attach
+        </div>
+      }
+
+      @if (attachments().length) {
+        <div class="home-atts">
+          @for (a of attachments(); track a.id) {
+            <div class="home-att" [class.img]="a.kind === 'image'">
+              @if (a.kind === 'image') {
+                <img class="home-att-thumb" [src]="a.dataUrl" [alt]="a.name" />
+              } @else {
+                <span class="home-att-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg></span>
+              }
+              <span class="home-att-meta">
+                <span class="home-att-name">{{ a.name }}</span>
+                <span class="home-att-size">{{ formatSize(a.size) }}</span>
+              </span>
+              <button class="home-att-x" type="button" (click)="removeAttachment(a.id)" [attr.aria-label]="'Remove ' + a.name">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          }
+        </div>
+      }
+
+      <textarea class="home-input" rows="1"
+        placeholder="Message Compass Chat…"
+        [value]="draft()" (input)="draft.set($any($event.target).value)"
+        (paste)="onPaste($event)" (keydown)="onKeydown($event)"></textarea>
+
+      <input #fileInput type="file" multiple hidden
+        (change)="onFilesPicked($event)" [attr.accept]="accept" />
+
+      <div class="home-toolbar">
+        <button class="home-plus" type="button" (click)="openPicker()"
+          title="Attach images or files" aria-label="Attach files">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+
+        <div class="home-seg" role="tablist" aria-label="Mode">
+          <button class="home-seg-btn on" type="button" role="tab" aria-selected="true">Chat</button>
+          <button class="home-seg-btn" type="button" role="tab" aria-selected="false"
+            title="Switch to the Agent Console" (click)="goAgent()">Agent</button>
+        </div>
+
+        <span class="home-spacer"></span>
+
+        @if (models().length) {
+          <label class="home-pick" title="Model">
+            <i class="home-dot"></i>
+            <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="activeModel.set($event)">
+              @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+            </select>
+          </label>
+        }
+        <label class="home-pick" title="Effort">
+          <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="activeEffort.set($event)">
+            @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
+          </select>
+        </label>
+
+        @if (streaming()) {
+          <button class="home-send stop" type="button" (click)="abort()" aria-label="Stop">
+            <span class="home-spin"></span>
+          </button>
+        } @else {
+          <button class="home-send" type="button" [disabled]="!canSend()" (click)="send()" aria-label="Send">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (messages().length === 0) {
+      <div class="home-ideas">
+        <div class="home-ideas-label">Ideas for you</div>
+        @for (s of ideas; track s) {
+          <button class="home-idea" type="button" (click)="useIdea(s)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3a6 6 0 00-4 10.5c.6.6 1 1.3 1 2.1V17h6v-1.4c0-.8.4-1.5 1-2.1A6 6 0 0012 3z"/><path d="M9 21h6" stroke-linecap="round"/></svg>
+            <span>{{ s }}</span>
+          </button>
+        }
+      </div>
+    }
+  </div>
+</section>

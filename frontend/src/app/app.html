@@ -66,7 +66,7 @@
       <div class="search-list">
         @for (c of searchResults(); track c.id; let i = $index) {
           <button class="search-item" [class.active]="i === searchIndex()"
-            (mouseenter)="searchIndex.set(i)" (click)="openSearchResult(c)">
+            (mouseenter)="searchIndex.set(i)" (click)="enterCode(); openSearchResult(c)">
             <svg class="search-item-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="search-item-title">{{ c.title || 'Untitled' }}</span>
             @if (i === searchIndex()) {
@@ -98,14 +98,14 @@
       </div>
     </div>
 
-    <button class="new-chat" (click)="newSession()">
+    <button class="new-chat" (click)="enterCode(); newSession()">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
       </svg>
       New conversation
     </button>
 
-    <button class="side-nav-item" [class.active]="view() === 'routines'" (click)="openRoutines()">
+    <button class="side-nav-item" [class.active]="section() === 'code' && view() === 'routines'" (click)="enterCode(); openRoutines()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
       Routines
     </button>
@@ -169,8 +169,8 @@
         <div class="side-routines-scroll">
           @for (r of routines(); track r.id) {
             <button class="side-routine-item"
-              [class.active]="view() === 'routines' && activeRoutine()?.id === r.id"
-              (click)="openRoutineFromSidebar(r.id)">
+              [class.active]="section() === 'code' && view() === 'routines' && activeRoutine()?.id === r.id"
+              (click)="enterCode(); openRoutineFromSidebar(r.id)">
               <span class="side-routine-dot"></span>
               <span class="side-routine-name">{{ r.name }}</span>
             </button>
@@ -276,8 +276,8 @@
           (blur)="commitMoveGroup(gp.value)" />
       </div>
     } @else {
-      <div class="conv" [class.active]="c.id === sessionId()" [class.arch]="c.archived"
-        (click)="resumeSession(c.id)" role="button" tabindex="0" (keydown.enter)="resumeSession(c.id)">
+      <div class="conv" [class.active]="section() === 'code' && c.id === sessionId()" [class.arch]="c.archived"
+        (click)="enterCode(); resumeSession(c.id)" role="button" tabindex="0" (keydown.enter)="enterCode(); resumeSession(c.id)">
         <span class="conv-rail"
           [style.background]="c.id === sessionId() ? activeDotColor() : null"
           [style.border-color]="c.id === sessionId() ? activeDotColor() : null"
@@ -321,8 +321,29 @@
       <button class="icon-btn ghost" aria-label="Search conversations" title="Search conversations (⌘K)" (click)="openSearch()">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
       </button>
+      <div class="hc-switch" role="tablist" aria-label="Section"
+        style="display:inline-flex;background:var(--bg-2);border:1px solid var(--border);border-radius:9px;padding:2px;gap:2px;margin:0 4px 0 2px">
+        <button type="button" role="tab" [attr.aria-selected]="section() === 'home'"
+          (click)="enterHome()"
+          [style.background]="section() === 'home' ? 'var(--surface)' : 'transparent'"
+          [style.color]="section() === 'home' ? 'var(--ink)' : 'var(--muted)'"
+          [style.font-weight]="section() === 'home' ? 600 : 400"
+          style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 11l9-8 9 8M5 9.5V20a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V9.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Home
+        </button>
+        <button type="button" role="tab" [attr.aria-selected]="section() === 'code'"
+          (click)="enterCode()"
+          [style.background]="section() === 'code' ? 'var(--surface)' : 'transparent'"
+          [style.color]="section() === 'code' ? 'var(--ink)' : 'var(--muted)'"
+          [style.font-weight]="section() === 'code' ? 600 : 400"
+          style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Code
+        </button>
+      </div>
       <div class="topbar-title">
-        <span class="crumb">{{ activeCard()?.title || 'New conversation' }}</span>
+        <span class="crumb">{{ section() === 'home' ? 'Compass Chat' : (activeCard()?.title || 'New conversation') }}</span>
       </div>
 
 
@@ -352,7 +373,13 @@
       </div>
     </header>
 
-    @if (view() === 'chat') {
+    <!-- Home stays mounted (hidden in Code) so its chat thread survives a
+         section switch — the Code console keeps its own state in App signals. -->
+    <app-home-chat [style.display]="section() === 'home' ? null : 'none'"
+      [models]="models()" [deployment]="activeModel()"
+      (switchToAgent)="enterCode()" />
+
+    @if (section() === 'code' && view() === 'chat') {
     <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">
       @if (timeline().length === 0) {
         <section class="hero">
@@ -424,7 +451,21 @@
                     @if (b.role === 'assistant') {
                       <app-markdown [text]="b.text" />
                     } @else {
-                      <p class="bubble-text">{{ b.text }}</p>
+                      @if (b.atts?.length) {
+                        <div class="bubble-atts">
+                          @for (a of b.atts!; track a.id) {
+                            @if (a.kind === 'image') {
+                              <img class="bubble-att-img" [src]="a.dataUrl" [alt]="a.name" />
+                            } @else {
+                              <span class="bubble-att-file">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
+                                {{ a.name }}
+                              </span>
+                            }
+                          }
+                        </div>
+                      }
+                      @if (b.text) { <p class="bubble-text">{{ b.text }}</p> }
                     }
                   </article>
                   <div class="bubble-actions" [class.mine]="b.role === 'user'">
@@ -657,11 +698,41 @@
       </div>
 
       <!-- Prompt box: input row + meta row inside one rounded panel -->
-      <div class="composer-box">
+      <div class="composer-box" [class.drag]="agentDragOver()"
+        (dragover)="onAttachDragOver($event)" (dragleave)="onAttachDragLeave()" (drop)="onAttachDrop($event)">
+      @if (agentDragOver()) {
+        <div class="cmp-drop-hint">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Drop files to attach
+        </div>
+      }
+      @if (attachError()) { <div class="cmp-attach-err">{{ attachError() }}</div> }
+      @if (attachments().length) {
+        <div class="cmp-atts">
+          @for (a of attachments(); track a.id) {
+            <div class="cmp-att">
+              @if (a.kind === 'image') {
+                <img class="cmp-att-thumb" [src]="a.dataUrl" [alt]="a.name" />
+              } @else {
+                <span class="cmp-att-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg></span>
+              }
+              <span class="cmp-att-meta">
+                <span class="cmp-att-name">{{ a.name }}</span>
+                <span class="cmp-att-size">{{ agentFormatSize(a.size) }}</span>
+              </span>
+              <button class="cmp-att-x" type="button" (click)="removeAttachment(a.id)" [attr.aria-label]="'Remove ' + a.name">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          }
+        </div>
+      }
+      <input #agentFileInput type="file" multiple hidden (change)="onAttachPicked($event)" [attr.accept]="attachAccept" />
       <div class="cmp-inputbox">
         <textarea class="composer-input" rows="1"
           placeholder="Ask Compass to build, inspect, or run something…"
-          [value]="draft()" (input)="draft.set($any($event.target).value)" (keydown)="onKeydown($event)"></textarea>
+          [value]="draft()" (input)="draft.set($any($event.target).value)"
+          (paste)="onAttachPaste($event)" (keydown)="onKeydown($event)"></textarea>
         <button class="cmp-enter" [disabled]="!canSend()" (click)="send()" aria-label="Send">
           @if (streaming()) { <span class="spin"></span> }
           @else { <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg> }
@@ -677,6 +748,9 @@
         </label>
         <button class="tb-icon" (click)="toggleWorkspacePanel()" title="Add workspace / context" aria-label="Add">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+        <button class="tb-icon" (click)="openAttachPicker()" title="Attach images or files" aria-label="Attach files">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8.5-8.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <span class="tb-div"></span>
         @if (health()?.tts && voices().length) {
@@ -704,7 +778,7 @@
     </footer>
     }
 
-    @if (view() === 'routines') {
+    @if (section() === 'code' && view() === 'routines') {
     <section class="routines-page">
 
       <!-- ============ LIST ============ -->

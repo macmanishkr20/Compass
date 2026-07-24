@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from compass.api.auth import require_user
 from compass.api.auth import router as auth_router
+from compass.api.chat_routes import router as chat_router
 from compass.config import get_settings
 from compass.core.query_engine import QueryEngine, Session
 from compass.models.events import ErrorEvent
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Compass", version="0.2.0", lifespan=lifespan)
 app.include_router(auth_router)
+app.include_router(chat_router)  # Home/Chat — isolated, tool-free workflow
 engine = QueryEngine()
 sessions: dict[str, Session] = {}
 
@@ -76,8 +78,19 @@ class CreateSessionRequest(BaseModel):
     session_id: str | None = None
 
 
+class MessageAttachment(BaseModel):
+    """A raw uploaded file for the Agent Console — same shape/handling as the
+    chat surface (services.attachments classifies + extracts)."""
+
+    name: str = ""
+    mime: str = ""
+    data_url: str | None = None
+    text: str | None = None
+
+
 class SendMessageRequest(BaseModel):
     content: str
+    attachments: list[MessageAttachment] = []
 
 
 class ResolvePermissionRequest(BaseModel):
@@ -260,7 +273,8 @@ async def send_message(
     session = _get_session(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
-    return _sse(engine.ask(session, body.content))
+    attachments = [a.model_dump() for a in body.attachments]
+    return _sse(engine.ask(session, body.content, attachments))
 
 
 @app.post("/v1/sessions/{session_id}/messages/{message_uuid}/edit")

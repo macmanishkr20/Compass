@@ -1,0 +1,286 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* -- scroll region (hero when empty, transcript when chatting) ------------ */
+.home-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+}
+.home-scroll::-webkit-scrollbar { display: none; }
+
+/* Empty state: greeting sits low, near the composer, like the reference. */
+.home-hero {
+  margin-top: auto;
+  text-align: center;
+  padding: 24px 20px 10px;
+}
+.home-hero-mark { display: inline-flex; margin-bottom: 14px; }
+.home-greeting {
+  font-family: var(--sans);
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+.home-tagline {
+  margin: 10px auto 0;
+  max-width: 460px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* -- transcript ----------------------------------------------------------- */
+.chat-log {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 26px 18px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.crow { display: flex; gap: 11px; align-items: flex-start; }
+.crow.mine { justify-content: flex-end; }
+.cavatar {
+  flex: 0 0 auto;
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  margin-top: 2px;
+}
+.cbubble {
+  max-width: 82%;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.cbubble.user {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.ctext { margin: 0; white-space: pre-wrap; word-break: break-word; }
+
+.cthinking { display: flex; gap: 5px; align-items: center; padding: 8px 2px; }
+.cthinking .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--faint);
+  animation: cbounce 1.2s ease-in-out infinite;
+}
+.cthinking .dot:nth-child(2) { animation-delay: 0.15s; }
+.cthinking .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes cbounce {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* -- composer ------------------------------------------------------------- */
+.home-composer-wrap {
+  flex: 0 0 auto;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 8px 18px 22px;
+}
+.home-composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.home-input {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  resize: none;
+  outline: none;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.98rem;
+  line-height: 1.5;
+  padding: 15px 16px 6px;
+  min-height: 52px;
+  max-height: 220px;
+}
+.home-input::placeholder { color: var(--faint); }
+
+.home-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 10px;
+}
+.home-plus {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  color: var(--muted);
+  border: 0; background: transparent; cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.home-plus:hover { background: var(--bg-2); color: var(--ink); }
+
+/* -- composer: drag-and-drop + attachments ------------------------------- */
+.home-composer { position: relative; }
+.home-composer.drag { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.home-drop-hint {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-size: 0.9rem; font-weight: 600;
+  border-radius: var(--radius);
+  pointer-events: none;
+}
+.home-attach-err {
+  margin: 0 2px 8px;
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: var(--danger-tint);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.home-atts {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 12px 12px 2px;
+}
+.home-att {
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: 240px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px 6px 8px;
+}
+.home-att-thumb {
+  width: 34px; height: 34px; border-radius: 6px; object-fit: cover; flex: 0 0 auto;
+}
+.home-att-ico {
+  width: 30px; height: 30px; border-radius: 6px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--muted);
+}
+.home-att-meta { display: flex; flex-direction: column; min-width: 0; }
+.home-att-name {
+  font-size: 0.8rem; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;
+}
+.home-att-size { font-size: 0.7rem; color: var(--faint); }
+.home-att-x {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.home-att-x:hover { background: var(--surface); color: var(--ink); }
+
+/* attachments shown inside a sent user bubble */
+.cbubble-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.cbubble-img {
+  max-width: 220px; max-height: 220px; border-radius: 10px;
+  border: 1px solid var(--border); object-fit: cover;
+}
+.cbubble-file {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; color: var(--muted);
+  background: var(--bg-2); border: 1px solid var(--border);
+  padding: 5px 9px; border-radius: 8px;
+}
+
+.home-seg {
+  display: inline-flex;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 2px;
+}
+.home-seg-btn {
+  border: 0; background: transparent; cursor: pointer;
+  font-family: var(--sans); font-size: 0.82rem;
+  color: var(--muted);
+  padding: 4px 12px; border-radius: 7px;
+  transition: background 0.15s, color 0.15s;
+}
+.home-seg-btn:hover { color: var(--ink); }
+.home-seg-btn.on {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.home-spacer { flex: 1 1 auto; }
+
+.home-pick {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--muted);
+}
+.home-pick select {
+  border: 0; background: transparent; outline: none;
+  color: var(--muted); font-family: var(--sans); font-size: 0.82rem;
+  cursor: pointer; padding: 3px 2px;
+}
+.home-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+.home-send {
+  flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+  width: 32px; height: 32px; border-radius: 9px;
+  border: 0; cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.home-send:hover { opacity: 0.9; }
+.home-send:active { transform: scale(0.95); }
+.home-send:disabled { opacity: 0.4; cursor: default; }
+.home-send.stop { background: var(--danger); }
+
+.home-spin {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: hspin 0.7s linear infinite;
+}
+@keyframes hspin { to { transform: rotate(360deg); } }
+
+/* -- ideas ---------------------------------------------------------------- */
+.home-ideas { padding: 18px 4px 2px; }
+.home-ideas-label {
+  font-size: 0.78rem; color: var(--faint);
+  margin-bottom: 10px;
+}
+.home-idea {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%;
+  border: 0; background: transparent; cursor: pointer;
+  text-align: left;
+  font-family: var(--sans); font-size: 0.95rem;
+  color: var(--ink);
+  padding: 9px 8px;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+.home-idea:hover { background: var(--surface-2); }
+.home-idea svg { color: var(--muted); flex: 0 0 auto; }
