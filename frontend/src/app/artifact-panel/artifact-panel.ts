@@ -407,8 +407,10 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
     if (a.kind === 'azure' || a.kind === 'drawio') return this.openNewTab();
     try {
       const url = await ArtifactService.drawioViewerUrl(this.mermaidDrawioModel());
-      // diagrams.net silently blanks on an over-long fragment — cap it.
-      if (url.length > 60_000) {
+      // The diagram travels in the URL *fragment* (after #), which stays
+      // client-side, so browsers allow ~2MB. Only fall back to a download if
+      // it exceeds that (very large diagrams) or the popup is blocked.
+      if (url.length > 1_800_000) {
         this.downloadMermaidDrawio();
         return;
       }
