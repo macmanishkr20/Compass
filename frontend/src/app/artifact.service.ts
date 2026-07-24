@@ -137,9 +137,23 @@ export class ArtifactService {
     s = s.replace(/\\n/g, '<br/>').replace(/\\t/g, ' ');
 
     const quote = (inner: string): string => {
-      const t = inner.trim();
-      if (/^".*"$/.test(t)) return t; // already quoted
-      return `"${t.replace(/"/g, '&quot;')}"`;
+      let t = inner.trim();
+      // Normalize every quote form the model emits (HTML `&quot;`, Mermaid
+      // `#quot;`, or a raw `"`) to a real quote, so we can re-escape cleanly.
+      // Leaving a stray `&quot;`/unbalanced `"` in the label is what trips the
+      // Mermaid lexer ("Unrecognized text").
+      t = t
+        .replace(/&quot;|&#0*34;|#quot;/gi, '"')
+        .replace(/&#0*39;|&apos;|#39;/gi, "'")
+        .replace(/&lt;|#lt;/gi, '<')
+        .replace(/&gt;|#gt;/gi, '>')
+        .replace(/&amp;/gi, '&');
+      // Strip one layer of wrapping quotes (handles already-quoted inners and a
+      // stray trailing quote a model adds after an escaped one)…
+      if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) t = t.slice(1, -1);
+      // …then emit exactly one clean quoted label, escaping any inner quotes
+      // with Mermaid's own entity so the parser never sees a bare `"`.
+      return `"${t.replace(/"/g, '#quot;')}"`;
     };
 
     // Node shapes, most-specific delimiters first so `[[`, `[(`, `([`, `((`,
@@ -151,8 +165,10 @@ export class ArtifactService {
       [/(\b\w+)\(\[([^\]]+?)\]\)/g, (id, i) => `${id}([${quote(i)}])`], // stadium
       [/(\b\w+)\(\(([^)]+?)\)\)/g, (id, i) => `${id}((${quote(i)}))`], // circle
       [/(\b\w+)\{\{([^}]+?)\}\}/g, (id, i) => `${id}{{${quote(i)}}}`], // hexagon
-      [/(\b\w+)\{([^}]+?)\}/g, (id, i) => `${id}{${quote(i)}}`], // rhombus
-      [/(\b\w+)\((?!\[)([^)]+?)\)/g, (id, i) => `${id}(${quote(i)})`], // round
+      // rhombus — the `(?!\{)` opener guard skips the already-processed hexagon.
+      [/(\b\w+)\{(?!\{)([^}]+?)\}/g, (id, i) => `${id}{${quote(i)}}`], // rhombus
+      // round — `(?![[(])` skips the already-processed stadium `([` / circle `((`.
+      [/(\b\w+)\((?![[(])([^)]+?)\)/g, (id, i) => `${id}(${quote(i)})`], // round
       // rectangle + subgraph title — the `(?![[(])` opener guard already skips
       // the already-processed `[[`/`[(` shapes, so match to the first `]`.
       [/(\b\w+)\[(?![[(])([^\]]+?)\]/g, (id, i) => `${id}[${quote(i)}]`],
