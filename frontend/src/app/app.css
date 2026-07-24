@@ -732,7 +732,11 @@
 .log {
   overflow-y: auto;
   min-height: 0;
-  padding: 26px clamp(16px, 5vw, 56px);
+  /* Same centered column as the composer, so chat content aligns with the
+     prompt window's left/right edges. */
+  width: min(100%, 900px);
+  justify-self: center;
+  padding: 26px 6px;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1308,7 +1312,15 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .notice.error { color: var(--danger); }
 
 /* ============================= Composer ============================ */
-.composer-wrap { display: flex; flex-direction: column; gap: 8px; }
+.composer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Centered column so the prompt window sits in the middle with margins;
+     the chat log uses the same width so content aligns with its edges. */
+  width: min(100%, 900px);
+  justify-self: center;
+}
 .banner {
   padding: 10px 14px;
   border-radius: 10px;
