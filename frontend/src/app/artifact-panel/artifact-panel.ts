@@ -51,6 +51,11 @@ import { ThemeService } from '../theme.service';
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
             }
           </button>
+          @if (a.kind === 'mermaid') {
+            <button class="ap-btn" title="Open in draw.io" (click)="openInDrawio()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a1 1 0 011 1V14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          }
           <button class="ap-btn" [title]="a.kind === 'drawio' || a.kind === 'azure' ? 'Open in diagrams.net' : 'Open in new tab'" (click)="openNewTab()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
@@ -181,10 +186,48 @@ export class ArtifactPanel {
   private async renderMermaid(code: string): Promise<void> {
     try {
       const mermaid = (await import('mermaid')).default;
+      const dark = this.theme.theme() === 'dark';
       mermaid.initialize({
         startOnLoad: false,
-        securityLevel: 'strict',
-        theme: this.theme.theme() === 'dark' ? 'dark' : 'default',
+        securityLevel: 'loose', // allow classDef/style colours from the model
+        theme: 'base',
+        themeVariables: dark
+          ? {
+              darkMode: true,
+              background: '#0F1219',
+              primaryColor: '#312E81',
+              primaryBorderColor: '#818CF8',
+              primaryTextColor: '#E0E7FF',
+              secondaryColor: '#4A1D3F',
+              secondaryBorderColor: '#F472B6',
+              tertiaryColor: '#14532D',
+              tertiaryBorderColor: '#4ADE80',
+              lineColor: '#94A3B8',
+              textColor: '#E2E8F0',
+              edgeLabelBackground: '#1B202B',
+              clusterBkg: 'rgba(129,140,248,0.08)',
+              clusterBorder: '#3B4252',
+              titleColor: '#E0E7FF',
+              nodeBorder: '#818CF8',
+            }
+          : {
+              background: '#FFFFFF',
+              primaryColor: '#E0E7FF',
+              primaryBorderColor: '#6366F1',
+              primaryTextColor: '#1E1B4B',
+              secondaryColor: '#FCE7F3',
+              secondaryBorderColor: '#EC4899',
+              tertiaryColor: '#DCFCE7',
+              tertiaryBorderColor: '#22C55E',
+              lineColor: '#475569',
+              textColor: '#1E293B',
+              edgeLabelBackground: '#FFFFFF',
+              clusterBkg: '#F8FAFC',
+              clusterBorder: '#CBD5E1',
+              titleColor: '#1E1B4B',
+              nodeBorder: '#6366F1',
+            },
+        flowchart: { curve: 'basis', htmlLabels: true, padding: 12 },
         fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
       });
       const id = 'mmd-' + Math.random().toString(36).slice(2);
@@ -305,6 +348,52 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
     setTimeout(() => URL.revokeObjectURL(url), 30_000);
   }
 
+  /** Wrap the rendered mermaid SVG into a draw.io model (as a scalable image),
+   * so the flowchart can be opened/annotated/exported in diagrams.net. */
+  private mermaidDrawioModel(): string {
+    const svg = this.mermaidSvg || '<svg xmlns="http://www.w3.org/2000/svg"/>';
+    const vb = /viewBox="([\d.\- ]+)"/
+      .exec(svg)?.[1]
+      ?.trim()
+      .split(/\s+/)
+      .map(Number);
+    const w = vb && vb.length === 4 ? Math.round(vb[2]) : 1200;
+    const h = vb && vb.length === 4 ? Math.round(vb[3]) : 800;
+    const dataUri = 'data:image/svg+xml,' + encodeURIComponent(svg);
+    return `<mxGraphModel dx="1200" dy="800" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="2" value="" style="shape=image;imageAspect=1;aspect=fixed;image=${dataUri};" vertex="1" parent="1">
+      <mxGeometry x="40" y="40" width="${w}" height="${h}" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>`;
+  }
+
+  /** Open the current diagram in draw.io. Azure/drawio go through the existing
+   * diagrams.net path; mermaid is embedded as an image and opened there too. */
+  async openInDrawio(): Promise<void> {
+    const a = this.svc.active();
+    if (!a) return;
+    if (a.kind === 'azure' || a.kind === 'drawio') return this.openNewTab();
+    const model = this.mermaidDrawioModel();
+    try {
+      const url = await ArtifactService.drawioViewerUrl(model);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      // Fallback: download a .drawio file the user can open manually.
+      const xml = ArtifactService.drawioFile(model);
+      const blob = new Blob([xml], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = (a.title || 'diagram') + '.drawio';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+  }
+
   /** Open the current artifact full-size in a new popup window: a zoomable,
    * scrollable page for diagrams; the live document for html/svg. */
   popOut(): void {
@@ -325,20 +414,26 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
   .bar b{font-size:13px;color:#1f2733;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bar button{font:inherit;font-size:13px;font-weight:600;padding:5px 12px;border-radius:8px;border:1px solid #d7dee7;background:#fff;color:#26313d;cursor:pointer}
   .bar button:hover{background:#eef2f7}
-  .stage{position:absolute;inset:46px 0 0 0;overflow:auto;padding:28px;display:flex;justify-content:center;align-items:flex-start}
-  .wrap{transform-origin:top center;transition:transform .1s ease-out}
+  .stage{position:absolute;inset:46px 0 0 0;overflow:auto;padding:28px;display:flex;justify-content:center;align-items:flex-start;cursor:grab}
+  .stage.grabbing{cursor:grabbing}
+  .wrap{transform-origin:top center;transition:transform .08s ease-out}
   .wrap svg{${sizeStyle};height:auto;display:block;background:#fff;border-radius:10px;box-shadow:0 4px 24px rgba(15,26,43,.12)}
 </style></head><body>
 <div class="bar"><b>${title}</b>
   <button onclick="z(-1)">−</button><span id="zl" style="font-size:12px;color:#5a6b7b;min-width:42px;text-align:center">100%</span><button onclick="z(1)">+</button>
-  <button onclick="z(0)">Reset</button><button onclick="window.print()">Print</button>
+  <button onclick="z(0)">Reset</button><button onclick="fit()">Fit</button><button onclick="window.print()">Print</button>
 </div>
-<div class="stage"><div class="wrap" id="wrap">${svg}</div></div>
+<div class="stage" id="stage"><div class="wrap" id="wrap">${svg}</div></div>
 <script>
-  var s=1;var wrap=document.getElementById('wrap');var zl=document.getElementById('zl');
+  var s=1;var wrap=document.getElementById('wrap');var zl=document.getElementById('zl');var stage=document.getElementById('stage');
   function apply(){wrap.style.transform='scale('+s+')';zl.textContent=Math.round(s*100)+'%';}
-  function z(d){s=d===0?1:Math.min(4,Math.max(0.2,s+d*0.15));apply();}
+  function z(d){s=d===0?1:Math.min(6,Math.max(0.15,s+d*0.15));apply();}
+  function fit(){var svg=wrap.querySelector('svg');if(!svg)return;var r=svg.getBoundingClientRect();var aw=stage.clientWidth-56,ah=stage.clientHeight-56;s=Math.min(aw/(r.width/s),ah/(r.height/s),3);apply();}
   addEventListener('wheel',function(e){if(e.ctrlKey||e.metaKey){e.preventDefault();z(e.deltaY<0?1:-1);}},{passive:false});
+  var pan=false,px,py,pl,pt;
+  stage.addEventListener('pointerdown',function(e){pan=true;px=e.clientX;py=e.clientY;pl=stage.scrollLeft;pt=stage.scrollTop;stage.classList.add('grabbing');});
+  addEventListener('pointerup',function(){pan=false;stage.classList.remove('grabbing');});
+  stage.addEventListener('pointermove',function(e){if(!pan)return;stage.scrollLeft=pl-(e.clientX-px);stage.scrollTop=pt-(e.clientY-py);});
 </script>
 </body></html>`;
     } else {

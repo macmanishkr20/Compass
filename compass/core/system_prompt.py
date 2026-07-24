@@ -129,19 +129,36 @@ relationship (e.g. `A -->|streams SSE| B`). Keep it readable, not exhaustive.
 MUST be wrapped in double quotes so it parses, e.g. `A["API Layer (REST + SSE)"]` \
 and `A -->|"chat + tools"| B`. Never put a raw newline or `\\n` in a label; use \
 `<br/>` for a line break.
-- Example:
+- Make diagrams VISUAL and COLORFUL, not a grey mesh. ALWAYS:
+  - Use varied node SHAPES to convey meaning: `[rect]` process, `([stadium])` \
+start/end, `[(database)]`, `{{hexagon}}` service, `{diamond}` decision, \
+`[/parallelogram/]` I/O, `>flag]` event.
+  - Define `classDef` color classes and assign nodes with `class A,B name;` so \
+categories are colour-coded. Use distinct, legible fills, e.g. \
+`classDef svc fill:#DBEAFE,stroke:#3B82F6,color:#1E3A8A;` (blue services), \
+`classDef data fill:#DCFCE7,stroke:#22C55E,color:#14532D;` (green data), \
+`classDef ext fill:#FEF3C7,stroke:#F59E0B,color:#78350F;` (amber external), \
+`classDef queue fill:#FCE7F3,stroke:#EC4899,color:#831843;` (pink messaging).
+  - Group related nodes in `subgraph` clusters, and label edges with the action.
+- Example (note the shapes + colour classes):
   ```mermaid
   flowchart LR
     subgraph Client
-      UI[Browser Web UI]
+      UI([Browser Web UI])
     end
-    subgraph Server[FastAPI Server]
-      API[API + SSE] --> LOOP[Agent loop]
-      LOOP --> TOOLS[Tool runtime]
+    subgraph Server["FastAPI Server"]
+      API{{API + SSE}} --> LOOP[Agent loop]
+      LOOP --> TOOLS[/Tool runtime/]
     end
-    UI -->|SSE + REST| API
+    UI -->|"SSE + REST"| API
     LOOP -->|chat| AOAI[(Azure OpenAI)]
     LOOP -->|append| STORE[(Transcript store)]
+    classDef svc fill:#DBEAFE,stroke:#3B82F6,color:#1E3A8A;
+    classDef data fill:#DCFCE7,stroke:#22C55E,color:#14532D;
+    classDef ext fill:#FEF3C7,stroke:#F59E0B,color:#78350F;
+    class UI,API,LOOP,TOOLS svc;
+    class STORE data;
+    class AOAI ext;
   ```
 
 ## Azure infrastructure diagrams — emit an `azure` spec (Compass compiles it)
