@@ -147,7 +147,7 @@
           }
         </div>
       }
-      @for (g of groups(); track g.label) {
+      @for (g of limitedGroups(); track g.label) {
         <div class="hist-group">
           <div class="hist-label">{{ g.label }}</div>
           @if (g.cards.length === 0) { <p class="hist-empty">No conversations.</p> }
@@ -155,6 +155,11 @@
             <ng-container [ngTemplateOutlet]="convItem" [ngTemplateOutletContext]="{ $implicit: c }" />
           }
         </div>
+      }
+      @if (moreConvs() > 0) {
+        <button class="conv-more" (click)="loadMoreConvs()" [attr.aria-label]="'Show ' + (moreConvs() < 4 ? moreConvs() : 4) + ' more conversations'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
       }
     </nav>
 
@@ -273,7 +278,10 @@
     } @else {
       <div class="conv" [class.active]="c.id === sessionId()" [class.arch]="c.archived"
         (click)="resumeSession(c.id)" role="button" tabindex="0" (keydown.enter)="resumeSession(c.id)">
-        <span class="conv-rail"></span>
+        <span class="conv-rail"
+          [style.background]="c.id === sessionId() ? activeDotColor() : null"
+          [style.border-color]="c.id === sessionId() ? activeDotColor() : null"
+          [style.box-shadow]="c.id === sessionId() && activeDotColor() ? '0 0 7px ' + activeDotColor() : null"></span>
         <span class="conv-title">{{ c.title }}</span>
         @if (c.archived) { <span class="conv-badge">archived</span> }
         <button class="conv-icon" [class.pinned]="c.pinned"

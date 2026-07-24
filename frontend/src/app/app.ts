@@ -482,6 +482,34 @@ export class App {
     return buckets;
   });
 
+  // -- conversation pagination: show N, "load more" reveals 4 at a time.
+  readonly convLimit = signal(4);
+  readonly totalConvs = computed(() =>
+    this.groups().reduce((n, g) => n + g.cards.length, 0),
+  );
+  /** Groups trimmed so at most convLimit() conversations show in total. */
+  readonly limitedGroups = computed<SessionGroup[]>(() => {
+    let budget = this.convLimit();
+    const out: SessionGroup[] = [];
+    for (const g of this.groups()) {
+      if (budget <= 0) break;
+      const cards = g.cards.slice(0, budget);
+      budget -= cards.length;
+      out.push({ label: g.label, cards });
+    }
+    return out;
+  });
+  readonly moreConvs = computed(() => Math.max(0, this.totalConvs() - this.convLimit()));
+  loadMoreConvs(): void {
+    this.convLimit.update((n) => n + 4);
+  }
+
+  // -- active conversation's dot lights up in a random colour on open.
+  readonly activeDotColor = signal('');
+  private randomDotColor(): string {
+    return `hsl(${Math.floor(Math.random() * 360)}, 72%, 58%)`;
+  }
+
   private sortCards(cards: SessionCard[]): SessionCard[] {
     const by = this.sortBy();
     const copy = [...cards];
@@ -1438,6 +1466,7 @@ export class App {
   async resumeSession(id: string): Promise<void> {
     if (!id) return this.newSession();
     this.view.set('chat');
+    this.activeDotColor.set(this.randomDotColor()); // light up this conv's dot
     const card = this.cards().find((c) => c.id === id);
     this.activeMode.set(card?.mode ?? 'default');
     this.activeEffort.set(card?.effort ?? 'medium');
