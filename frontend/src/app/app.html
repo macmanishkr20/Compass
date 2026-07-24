@@ -595,7 +595,7 @@
                   <button (click)="openWorkspaceTerminal()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open in terminal</span></button>
                 </div>
               }
-              <button class="cmp-branch" (click)="$event.stopPropagation(); branchMenuOpen.set(!branchMenuOpen())" title="Branch actions">{{ gitStatus()?.branch }}</button>
+              <button class="cmp-branch" (click)="$event.stopPropagation(); branchMenuOpen.set(!branchMenuOpen())" title="Branch actions"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-2.5 4.5-6 4.5"/></svg>{{ gitStatus()?.branch }}</button>
             </span>
           }
         </span>
