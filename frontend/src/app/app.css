@@ -48,6 +48,12 @@
   flex-direction: column;
   min-height: 0;
   padding: 14px 12px;
+  /* Its own surface panel, so the chat window on the right reads as a
+     distinct section rather than blending into the background. */
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   transition: opacity 0.26s ease, transform 0.26s ease;
 }
 .side-head {
@@ -156,7 +162,7 @@
   flex-direction: column;
   gap: 16px;
 }
-.hist-group { display: flex; flex-direction: column; gap: 2px; }
+.hist-group { display: flex; flex-direction: column; gap: 5px; }
 .hist-label {
   display: flex;
   align-items: center;
@@ -175,7 +181,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 9px;
+  padding: 9px 11px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.83rem;
