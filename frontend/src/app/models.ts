@@ -66,6 +66,14 @@ export interface ChatAttachment {
   data_url: string;
 }
 
+/** A Home/Chat conversation in the sidebar list. */
+export interface ChatCard {
+  id: string;
+  title: string;
+  updated_at: number;
+  created_at: number;
+}
+
 // UI-side view models -------------------------------------------------------
 
 export type Role = 'user' | 'assistant';

@@ -6,6 +6,7 @@ import {
   BackgroundTask,
   BackgroundTasksResponse,
   ChatAttachment,
+  ChatCard,
   CompassEvent,
   GitStatus,
   GithubRepo,
@@ -284,6 +285,18 @@ export class CompassApiService {
   chatTranscript(sessionId: string): Promise<TranscriptResponse> {
     return firstValueFrom(
       this.http.get<TranscriptResponse>(`/v1/chat/sessions/${sessionId}/transcript`),
+    );
+  }
+
+  listChatSessions(): Promise<{ sessions: ChatCard[] }> {
+    return firstValueFrom(
+      this.http.get<{ sessions: ChatCard[] }>('/v1/chat/sessions'),
+    );
+  }
+
+  deleteChatSession(sessionId: string): Promise<{ deleted: string }> {
+    return firstValueFrom(
+      this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
     );
   }
 

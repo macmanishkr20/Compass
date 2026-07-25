@@ -124,4 +124,12 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
 
 @router.get("/sessions")
 async def list_chat_sessions(user: str = Depends(require_user)) -> dict:
-    return {"sessions": await chat_engine.store.list_sessions()}
+    """Home conversation cards (id, title, timestamps), most-recent first."""
+    return {"sessions": await chat_engine.store.list_cards()}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_chat_session(session_id: str, user: str = Depends(require_user)) -> dict:
+    await chat_engine.store.delete(session_id)
+    chat_sessions.pop(session_id, None)
+    return {"deleted": session_id}

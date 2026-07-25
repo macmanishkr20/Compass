@@ -73,9 +73,13 @@ class BashTool(Tool):
         return None
 
     async def call(self, inp: BashInput, ctx: ToolUseContext) -> AsyncIterator[ToolYield]:
-        if inp.run_in_background:
-            from compass.services.background_tasks import registry
+        from compass.services.background_tasks import looks_like_server, registry
 
+        # Long-lived dev servers must be detached — running one in the foreground
+        # blocks the turn until the timeout (up to 10 min). Honour an explicit
+        # request, and also auto-detect a forgotten one so the turn never hangs.
+        auto_bg = not inp.run_in_background and looks_like_server(inp.command)
+        if inp.run_in_background or auto_bg:
             name = inp.description or inp.command.split("&&")[-1].strip()[:60]
             task = await registry.start(
                 name=name,
@@ -84,8 +88,15 @@ class BashTool(Tool):
                 workspace_id=getattr(ctx, "workspace_id", None),
             )
             where = f" — preview at {task.url}" if task.url else ""
+            auto_note = (
+                " (a long-lived server was auto-detected and started in the "
+                "background so this turn isn't blocked; give it a few seconds to "
+                "come up, then use the screenshot tool on its preview URL)"
+                if auto_bg
+                else ""
+            )
             yield ToolOutput(
-                f"Started background task [{task.id}] “{task.name}”{where}. "
+                f"Started background task [{task.id}] “{task.name}”{where}.{auto_note} "
                 f"It is running in the Background tasks panel; the user can stop it there."
             )
             return

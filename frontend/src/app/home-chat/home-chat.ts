@@ -19,6 +19,7 @@ import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
+import { SmoothText } from '../smooth-text';
 
 interface ChatMsg {
   id: string;
@@ -50,10 +51,17 @@ export class HomeChat {
   // Inputs from the shell so we don't duplicate health fetching.
   readonly models = input<string[]>([]);
   readonly deployment = input<string>('');
+  // The Home conversation to display: an id to resume, or null for a fresh
+  // thread. Driven by the sidebar (App owns the Home conversation list).
+  readonly activeSession = input<string | null>(null);
 
   // Fired when the user flips the composer toggle to "Agent" — the shell
   // switches to the Code (Agent Console) section.
   readonly switchToAgent = output<void>();
+  // A new chat session was created (first message of a fresh thread).
+  readonly sessionCreated = output<string>();
+  // The thread changed (new session or a completed turn) — refresh the list.
+  readonly threadChanged = output<void>();
 
   readonly efforts = EFFORTS;
   readonly accept = ATTACH_ACCEPT;
@@ -68,7 +76,9 @@ export class HomeChat {
   readonly attachError = signal('');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
   private sessionId: string | null = null;
+  private loadedId: string | null = null; // which session the view is showing
   private currentAssistant: ChatMsg | null = null;
+  private smoother: SmoothText | null = null; // smooth token reveal
 
   readonly ideas = [
     'Explain a tricky concept in simple terms',
@@ -86,6 +96,23 @@ export class HomeChat {
     return this.streaming() && (list.length === 0 || list[list.length - 1].role === 'user');
   });
 
+  // Live "still working…" meter, so a long first-token wait never looks stuck.
+  readonly elapsedMs = signal(0);
+  private turnStartMs = 0;
+  private readonly workingLines = [
+    'Thinking…',
+    'Working on it…',
+    'Still working…',
+    'Composing a response…',
+    'Almost there…',
+  ];
+  readonly workingMsg = signal(this.workingLines[0]);
+
+  formatElapsed(ms: number): string {
+    const s = Math.floor(ms / 1000);
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('chatlog');
 
   constructor() {
@@ -93,9 +120,78 @@ export class HomeChat {
       this.messages();
       queueMicrotask(() => {
         const el = this.logEl()?.nativeElement;
-        el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        // Instant follow: with rAF-paced text the content grows every frame, so
+        // a competing 'smooth' scroll animation would stutter — 'auto' tracks it.
+        el?.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
       });
     });
+    // React to the sidebar selecting a conversation (or "new" = null). Ignore
+    // when it already matches what we're showing (e.g. the id we just created).
+    effect(() => {
+      const target = this.activeSession();
+      if (target === this.loadedId) return;
+      if (!target) this.resetThread();
+      else void this.loadThread(target);
+    });
+    // Tick the elapsed meter and rotate the "still working…" line while a turn
+    // is in flight, so a long wait shows progress instead of looking stuck.
+    effect((onCleanup) => {
+      if (!this.streaming()) return;
+      let i = 0;
+      this.workingMsg.set(this.workingLines[0]);
+      const id = setInterval(() => {
+        this.elapsedMs.set(Math.round(performance.now() - this.turnStartMs));
+        if (this.elapsedMs() > (i + 1) * 2400) {
+          i++;
+          this.workingMsg.set(this.workingLines[i % this.workingLines.length]);
+        }
+      }, 250);
+      onCleanup(() => clearInterval(id));
+    });
+  }
+
+  private resetThread(): void {
+    this.smoother?.cancel();
+    this.smoother = null;
+    this.messages.set([]);
+    this.attachments.set([]);
+    this.draft.set('');
+    this.sessionId = null;
+    this.loadedId = null;
+    this.currentAssistant = null;
+  }
+
+  private async loadThread(id: string): Promise<void> {
+    this.loadedId = id;
+    this.sessionId = id;
+    this.currentAssistant = null;
+    try {
+      const t = await this.api.chatTranscript(id);
+      const msgs: ChatMsg[] = [];
+      for (const m of t.messages) {
+        if (m.role !== 'user' && m.role !== 'assistant') continue;
+        const text = typeof m.content === 'string' ? m.content : this.contentText(m.content);
+        msgs.push({ id: m.uuid || crypto.randomUUID(), role: m.role, text, streaming: false });
+      }
+      // Ensure a chat session object exists on the server for follow-up turns.
+      await this.api.createChatSession({ resume: true, sessionId: id });
+      this.messages.set(msgs);
+    } catch {
+      this.messages.set([]);
+    }
+  }
+
+  /** Plain text from a transcript message's content (string or multimodal). */
+  private contentText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((p): p is { type: string; text: string } =>
+          !!p && typeof p === 'object' && (p as { type?: string }).type === 'text')
+        .map((p) => p.text)
+        .join(' ');
+    }
+    return '';
   }
 
   /** Time-aware greeting using the signed-in user's name. */
@@ -187,6 +283,8 @@ export class HomeChat {
 
     const payload = toWire(atts);
 
+    this.turnStartMs = performance.now();
+    this.elapsedMs.set(0);
     this.streaming.set(true);
     this.currentAssistant = null;
     try {
@@ -196,6 +294,8 @@ export class HomeChat {
           effort: this.activeEffort(),
         });
         this.sessionId = res.session_id;
+        this.loadedId = res.session_id; // keep in sync so the input echo is a no-op
+        this.sessionCreated.emit(res.session_id);
       }
       await this.api.streamChatMessage(
         this.sessionId,
@@ -215,14 +315,18 @@ export class HomeChat {
       // which TS's flow analysis can't see, so it would otherwise narrow to null.
       const pending = this.currentAssistant as ChatMsg | null;
       if (pending) {
+        this.smoother?.finish();
+        this.smoother = null;
         this.patch(pending.id, (m) => ({ ...m, streaming: false }));
         this.currentAssistant = null;
       }
       this.streaming.set(false);
+      this.threadChanged.emit(); // refresh the sidebar (title / recency)
     }
   }
 
   async abort(): Promise<void> {
+    this.smoother?.cancel();
     if (this.sessionId) {
       try {
         await this.api.abortChat(this.sessionId);
@@ -243,14 +347,19 @@ export class HomeChat {
             streaming: true,
           };
           this.push(this.currentAssistant);
+          // Reveal tokens smoothly (rAF-paced) instead of per-network-chunk.
+          const id = this.currentAssistant.id;
+          this.smoother = new SmoothText((t) => this.patch(id, (m) => ({ ...m, text: t })));
         }
-        const delta = (ev['text'] as string) ?? '';
-        this.patch(this.currentAssistant.id, (m) => ({ ...m, text: m.text + delta }));
+        this.smoother?.push((ev['text'] as string) ?? '');
         break;
       }
       case 'assistant_message':
         if (this.currentAssistant) {
-          this.patch(this.currentAssistant.id, (m) => ({ ...m, streaming: false }));
+          const id = this.currentAssistant.id;
+          this.smoother?.finish();
+          this.smoother = null;
+          this.patch(id, (m) => ({ ...m, streaming: false }));
           this.currentAssistant = null;
         }
         break;

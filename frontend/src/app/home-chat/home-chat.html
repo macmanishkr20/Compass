@@ -41,7 +41,11 @@
         @if (awaitingReply()) {
           <div class="crow">
             <span class="cavatar"><app-compass-mark [size]="22" [active]="true" /></span>
-            <div class="cthinking"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+            <div class="cthinking">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="cthinking-label">{{ workingMsg() }}</span>
+              @if (elapsedMs() > 2000) { <span class="cthinking-meta">{{ formatElapsed(elapsedMs()) }}</span> }
+            </div>
           </div>
         }
       </div>

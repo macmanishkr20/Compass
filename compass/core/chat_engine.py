@@ -22,7 +22,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from compass.config import get_settings
 from compass.core.query_loop import query
@@ -43,6 +43,37 @@ CHAT_SYSTEM_PROMPT = (
     "where Compass can act with tools and your approval. Be concise by default "
     "and expand when the user wants depth."
 )
+
+
+def _content_text(content: Any) -> str:
+    """Plain text from a message's content (a string, or multimodal parts)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def _first_user_title(path: "Path") -> str:
+    """First user message's text, trimmed to a short title — read lazily so a
+    transcript with big base64 image parts isn't loaded whole."""
+    try:
+        with path.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                if rec.get("role") == "user":
+                    text = " ".join(_content_text(rec.get("content")).split())
+                    return text[:60] + ("…" if len(text) > 60 else "")
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 class ChatStore:
@@ -83,6 +114,26 @@ class ChatStore:
 
     async def list_sessions(self) -> list[str]:
         return sorted(p.stem for p in self._dir().glob("*.jsonl"))
+
+    async def list_cards(self) -> list[dict]:
+        """Conversation cards for the Home sidebar: id + a title derived from
+        the first user message + file timestamps (most-recent first)."""
+        cards: list[dict] = []
+        for p in self._dir().glob("*.jsonl"):
+            st = p.stat()
+            cards.append(
+                {
+                    "id": p.stem,
+                    "title": _first_user_title(p) or "New chat",
+                    "updated_at": st.st_mtime,
+                    "created_at": getattr(st, "st_birthtime", st.st_ctime),
+                }
+            )
+        cards.sort(key=lambda c: c["updated_at"], reverse=True)
+        return cards
+
+    async def delete(self, session_id: str) -> None:
+        self._path(session_id).unlink(missing_ok=True)
 
 
 @dataclass

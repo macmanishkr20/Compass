@@ -98,13 +98,40 @@
       </div>
     </div>
 
-    <button class="new-chat" (click)="enterCode(); newSession()">
+    <button class="new-chat" (click)="newConversation()">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
       </svg>
       New conversation
     </button>
 
+    <!-- Home section: its own chat history; agent Conversations are hidden. -->
+    @if (section() === 'home') {
+      <nav class="history" aria-label="Chats">
+        <div class="hist-group">
+          <div class="hist-label">Chats</div>
+          @if (homeSessions().length === 0) {
+            <p class="hist-empty">No chats yet.</p>
+          }
+          @for (c of homeSessions(); track c.id) {
+            <div class="conv" [class.active]="c.id === homeActiveId()"
+              (click)="openHomeConversation(c.id)" role="button" tabindex="0"
+              (keydown.enter)="openHomeConversation(c.id)">
+              <span class="conv-rail"
+                [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
+              <span class="conv-title">{{ c.title || 'New chat' }}</span>
+              <button class="conv-icon" aria-label="Delete chat" (click)="deleteHomeConversation(c, $event)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          }
+        </div>
+      </nav>
+    }
+
+    @if (section() === 'code') {
     <button class="side-nav-item" [class.active]="section() === 'code' && view() === 'routines'" (click)="enterCode(); openRoutines()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
       Routines
@@ -177,6 +204,7 @@
           }
         </div>
       </nav>
+    }
     }
 
     <div class="side-collab">
@@ -376,8 +404,10 @@
     <!-- Home stays mounted (hidden in Code) so its chat thread survives a
          section switch — the Code console keeps its own state in App signals. -->
     <app-home-chat [style.display]="section() === 'home' ? null : 'none'"
-      [models]="models()" [deployment]="activeModel()"
-      (switchToAgent)="enterCode()" />
+      [models]="models()" [deployment]="activeModel()" [activeSession]="homeActiveId()"
+      (switchToAgent)="enterCode()"
+      (sessionCreated)="onHomeSessionCreated($event)"
+      (threadChanged)="loadHomeSessions()" />
 
     @if (section() === 'code' && view() === 'chat') {
     <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">

@@ -33,6 +33,40 @@ _BARE_PORT_RE = re.compile(
 
 MAX_LOG_LINES = 400
 
+# Long-lived dev/servers that must never run in the foreground — doing so blocks
+# the whole turn until the command timeout (up to 10 min). Matched at the START
+# of each chained segment (after stripping `cd`/env prefixes) so a build/test or
+# a git message that merely mentions a server word is NOT misclassified.
+_SERVER_START_RE = re.compile(
+    r"""(?xi)^(
+        ng\s+serve | ng\s+s\b |
+        (npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|preview|watch)\b |
+        next\s+(dev|start)\b | nuxt\s+(dev|start)\b | remix\s+dev\b |
+        (npx\s+)?vite(?!\s+build)\b | (npx\s+)?astro\s+dev\b |
+        webpack(-dev-server|\s+serve)\b | nodemon\b |
+        (npx\s+)?(http-server|serve|live-server)\b |
+        python[0-9.]*\s+-m\s+(http\.server|uvicorn|gunicorn|hypercorn|daphne|flask|streamlit|gradio)\b |
+        (python[0-9.]*\s+)?manage\.py\s+runserver\b |
+        streamlit\s+run\b |
+        uvicorn\b | gunicorn\b | hypercorn\b | daphne\b |
+        flask\s+run\b | fastapi\s+dev\b |
+        rails\s+(s|server)\b | php\s+-S\b | dotnet\s+(run|watch)\b |
+        jekyll\s+serve\b | hugo\s+server\b
+    )"""
+)
+
+
+def looks_like_server(command: str) -> bool:
+    """True when a chained command starts a long-lived dev server, so the bash
+    tool can auto-detach it instead of blocking the turn."""
+    for seg in re.split(r"&&|\|\||;|\n", command):
+        s = seg.strip()
+        s = re.sub(r"^cd\s+\S+\s+", "", s)  # drop a leading `cd path`
+        s = re.sub(r"^([A-Za-z_][A-Za-z0-9_]*=\S+\s+)+", "", s)  # drop env prefixes
+        if _SERVER_START_RE.match(s):
+            return True
+    return False
+
 
 @dataclass
 class BackgroundTask:

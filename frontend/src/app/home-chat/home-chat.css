@@ -76,7 +76,13 @@
 }
 .ctext { margin: 0; white-space: pre-wrap; word-break: break-word; }
 
-.cthinking { display: flex; gap: 5px; align-items: center; padding: 8px 2px; }
+.cthinking { display: flex; gap: 6px; align-items: center; padding: 8px 2px; }
+.cthinking-label { font-size: 0.85rem; color: var(--muted); margin-left: 4px; }
+.cthinking-meta {
+  font-size: 0.75rem; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  padding-left: 6px; border-left: 1px solid var(--border);
+}
 .cthinking .dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--faint);

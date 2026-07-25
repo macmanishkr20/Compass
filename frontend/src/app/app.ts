@@ -24,9 +24,11 @@ import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from './attachments';
+import { SmoothText } from './smooth-text';
 import {
   BackgroundTask,
   ChatBubble,
+  ChatCard,
   CompassEvent,
   GitStatus,
   GithubRepo,
@@ -108,9 +110,52 @@ export class App {
   readonly section = signal<'home' | 'code'>('home');
   enterHome(): void {
     this.section.set('home');
+    void this.loadHomeSessions();
   }
   enterCode(): void {
     this.section.set('code');
+  }
+
+  // -- Home conversation history (separate from agent Conversations) -------
+  readonly homeSessions = signal<ChatCard[]>([]);
+  readonly homeActiveId = signal<string | null>(null);
+
+  async loadHomeSessions(): Promise<void> {
+    try {
+      this.homeSessions.set((await this.api.listChatSessions()).sessions);
+    } catch {
+      /* non-fatal */
+    }
+  }
+  openHomeConversation(id: string): void {
+    this.section.set('home');
+    this.homeActiveId.set(id);
+  }
+  /** The HomeChat created a fresh session on its first message. */
+  onHomeSessionCreated(id: string): void {
+    this.homeActiveId.set(id);
+    void this.loadHomeSessions();
+  }
+  async deleteHomeConversation(card: ChatCard, ev: Event): Promise<void> {
+    ev.stopPropagation();
+    try {
+      await this.api.deleteChatSession(card.id);
+    } catch {
+      /* ignore */
+    }
+    if (this.homeActiveId() === card.id) this.homeActiveId.set(null);
+    await this.loadHomeSessions();
+  }
+
+  /** New-conversation button: section-aware — a fresh Home chat when on Home,
+   *  a new agent session when on Code. */
+  newConversation(): void {
+    if (this.section() === 'home') {
+      this.homeActiveId.set(null); // HomeChat resets to an empty thread
+      void this.loadHomeSessions();
+    } else {
+      void this.newSession();
+    }
   }
 
   // -- main view switch (within the Code section): console vs. Routines page.
@@ -596,6 +641,8 @@ export class App {
 
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('log');
   private currentBubble: ChatBubble | null = null;
+  private textSmoother: SmoothText | null = null; // smooth token reveal
+  private lastAssistantText = ''; // authoritative full text of the last reply
   private turnStartMs = 0;
   private turnStartCompletion = 0;
 
@@ -617,7 +664,9 @@ export class App {
       this.thinking();
       queueMicrotask(() => {
         const el = this.logEl()?.nativeElement;
-        el?.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+        // Instant follow so rAF-paced streaming text doesn't fight a smooth
+        // scroll animation (which stutters when content grows every frame).
+        el?.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
       });
     });
     // Rotate the status message for the whole turn (Claude keeps its verbs
@@ -648,6 +697,8 @@ export class App {
     setInterval(() => this.nowTick.set(Date.now()), 1000);
     // Populate the sidebar Routines section up front.
     void this.loadRoutines();
+    // Populate the Home conversation list (shown when the Home tab is active).
+    void this.loadHomeSessions();
     // Watch for finished routine runs and fire a native push notification for
     // any routine with push enabled — works whenever the app is open (including
     // a background tab), which is how a laptop "push" is delivered.
@@ -1903,6 +1954,9 @@ export class App {
     this.streaming.set(true);
     this.thinking.set(true);
     this.turnAborted = false;
+    this.textSmoother?.cancel();
+    this.textSmoother = null;
+    this.lastAssistantText = '';
     this.currentBubble = null;
     this.turnStartMs = performance.now();
     this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
@@ -1933,15 +1987,12 @@ export class App {
   /** When a completed response contains an artifact, open it in the panel —
    * the way Claude reveals an artifact as soon as it's produced. */
   private autoOpenArtifact(): void {
-    const items = this.timeline();
-    for (let i = items.length - 1; i >= 0; i--) {
-      const it = items[i];
-      if (it.kind === 'bubble' && it.role === 'assistant' && it.text) {
-        const art = ArtifactService.extract(it.text);
-        if (art) this.artifacts.open(art);
-        return; // only consider the most recent assistant message
-      }
-    }
+    // Use the authoritative full reply text (the smoother may still be animating
+    // the bubble's last characters, which would truncate a closing code fence).
+    const text = this.lastAssistantText;
+    if (!text) return;
+    const art = ArtifactService.extract(text);
+    if (art) this.artifacts.open(art);
   }
 
   /** Turn off any lingering streaming/caret/star animation. */
@@ -1991,6 +2042,8 @@ export class App {
     // clear loading state, drop the Stop button, and ignore any in-flight
     // events so no stray tokens land after the user stopped.
     this.turnAborted = true;
+    this.textSmoother?.cancel();
+    this.textSmoother = null;
     this.streaming.set(false);
     this.thinking.set(false);
     this.clearStreamingFlags();
@@ -2066,20 +2119,25 @@ export class App {
         if (!this.currentBubble) {
           this.currentBubble = this.bubble('assistant', '', true);
           this.push(this.currentBubble);
+          // Reveal tokens smoothly (rAF-paced) rather than per-network-chunk.
+          const id = this.currentBubble.id;
+          this.textSmoother = new SmoothText((t) =>
+            this.patch(id, (b) => ({ ...(b as ChatBubble), text: t })),
+          );
         }
-        const text = (ev['text'] as string) ?? '';
-        this.patch(this.currentBubble.id, (b) => ({
-          ...(b as ChatBubble),
-          text: (b as ChatBubble).text + text,
-        }));
+        this.textSmoother?.push((ev['text'] as string) ?? '');
         break;
       }
       case 'assistant_message':
         if (!agentId && this.currentBubble) {
-          this.patch(this.currentBubble.id, (b) => ({
-            ...(b as ChatBubble),
-            streaming: false,
-          }));
+          const id = this.currentBubble.id;
+          // Keep the authoritative full text for artifact extraction while the
+          // smoother animates the last few characters into the bubble.
+          this.lastAssistantText =
+            (ev['content'] as string) ?? this.textSmoother?.fullText ?? '';
+          this.textSmoother?.finish();
+          this.textSmoother = null;
+          this.patch(id, (b) => ({ ...(b as ChatBubble), streaming: false }));
           this.currentBubble = null;
         }
         break;
