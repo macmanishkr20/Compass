@@ -201,6 +201,7 @@
 .cbubble-img {
   max-width: 220px; max-height: 220px; border-radius: 10px;
   border: 1px solid var(--border); object-fit: cover;
+  cursor: zoom-in;
 }
 .cbubble-file {
   display: inline-flex; align-items: center; gap: 6px;
@@ -238,9 +239,18 @@
   color: var(--muted);
 }
 .home-pick select {
-  border: 0; background: transparent; outline: none;
+  /* strip the native OS control (its box/height caused the misalignment) and
+     draw one consistent chevron instead */
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0; outline: none; cursor: pointer;
   color: var(--muted); font-family: var(--sans); font-size: 0.82rem;
-  cursor: pointer; padding: 3px 2px;
+  line-height: 1.3;
+  padding: 3px 16px 3px 2px;
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right center;
+  background-size: 11px;
 }
 .home-dot {
   width: 7px; height: 7px; border-radius: 50%;

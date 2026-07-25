@@ -1,0 +1,25 @@
+@if (svc.isOpen()) {
+  <div class="lbx" (click)="svc.close()" (wheel)="onWheel($event)">
+    <div class="lbx-bar" (click)="$event.stopPropagation()">
+      <button class="lbx-btn" (click)="svc.zoomOut()" aria-label="Zoom out" title="Zoom out ( − )">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
+      </button>
+      <span class="lbx-pct" (click)="svc.reset()" title="Reset (0)">{{ pct() }}%</span>
+      <button class="lbx-btn" (click)="svc.zoomIn()" aria-label="Zoom in" title="Zoom in ( + )">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+      </button>
+      <span class="lbx-sep"></span>
+      <button class="lbx-btn" (click)="svc.close()" aria-label="Close" title="Close (Esc)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <img class="lbx-img" [src]="svc.src()" [alt]="svc.alt()"
+      [class.grab]="svc.scale() > 1"
+      [style.transform]="'translate(' + tx() + 'px,' + ty() + 'px) scale(' + svc.scale() + ')'"
+      (click)="$event.stopPropagation()"
+      (dblclick)="toggleZoom()"
+      (pointerdown)="onDown($event)" (pointermove)="onMove($event)"
+      (pointerup)="onUp()" (pointerleave)="onUp()" />
+  </div>
+}

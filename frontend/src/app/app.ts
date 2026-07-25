@@ -23,6 +23,8 @@ import { Markdown } from './markdown/markdown';
 import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
+import { Lightbox } from './lightbox/lightbox';
+import { LightboxService } from './lightbox.service';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from './attachments';
 import { SmoothText } from './smooth-text';
 import {
@@ -80,6 +82,7 @@ type RenderBlock =
     Markdown,
     ArtifactPanel,
     HomeChat,
+    Lightbox,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -121,7 +124,39 @@ export class App {
   readonly homeActiveId = signal<string | null>(null);
   // Show 4 initially; the down-arrow reveals 4 more at a time (like the agent).
   readonly homeLimit = signal(4);
-  readonly limitedHomeSessions = computed(() => this.homeSessions().slice(0, this.homeLimit()));
+  // Home chats honour the same Group/Sort controls as the agent list.
+  private readonly sortedHome = computed(() => {
+    const list = [...this.homeSessions()];
+    const by = this.sortBy();
+    if (by === 'title') list.sort((a, b) => a.title.localeCompare(b.title));
+    else if (by === 'created') list.sort((a, b) => b.created_at - a.created_at);
+    else list.sort((a, b) => b.updated_at - a.updated_at);
+    return list;
+  });
+  readonly homeGroups = computed<{ label: string; cards: ChatCard[] }[]>(() => {
+    const list = this.sortedHome();
+    if (this.groupBy() === 'date') {
+      const order = ['Today', 'Yesterday', 'Previous 7 days', 'Older'];
+      const map = new Map<string, ChatCard[]>();
+      for (const c of list) {
+        const k = this.dateBucket(c.updated_at);
+        (map.get(k) ?? map.set(k, []).get(k)!).push(c);
+      }
+      return order.filter((k) => map.has(k)).map((label) => ({ label, cards: map.get(label)! }));
+    }
+    return [{ label: 'Chats', cards: list }];
+  });
+  readonly limitedHomeGroups = computed<{ label: string; cards: ChatCard[] }[]>(() => {
+    let budget = this.homeLimit();
+    const out: { label: string; cards: ChatCard[] }[] = [];
+    for (const g of this.homeGroups()) {
+      if (budget <= 0) break;
+      const cards = g.cards.slice(0, budget);
+      budget -= cards.length;
+      out.push({ label: g.label, cards });
+    }
+    return out;
+  });
   readonly moreHome = computed(() => Math.max(0, this.homeSessions().length - this.homeLimit()));
   loadMoreHome(): void {
     this.homeLimit.update((n) => n + 4);
@@ -315,9 +350,13 @@ export class App {
   readonly searchQuery = signal('');
   readonly searchIndex = signal(0);
   private readonly searchInput = viewChild<ElementRef<HTMLInputElement>>('searchInput');
-  readonly searchResults = computed<SessionCard[]>(() => {
+  // Search is section-aware: Home searches its chats, Code the agent list.
+  readonly searchResults = computed<{ id: string; title: string; updated_at: number }[]>(() => {
     const q = this.searchQuery().trim().toLowerCase();
-    const list = this.cards().filter((c) => !this.isRoutineRun(c));
+    const list: { id: string; title: string; updated_at: number }[] =
+      this.section() === 'home'
+        ? this.homeSessions()
+        : this.cards().filter((c) => !this.isRoutineRun(c));
     const matched = q ? list.filter((c) => (c.title || '').toLowerCase().includes(q)) : list;
     return [...matched].sort((a, b) => b.updated_at - a.updated_at).slice(0, 50);
   });
@@ -1054,21 +1093,18 @@ export class App {
 
   readonly shotBusy = signal(false);
   readonly cbMenuOpen = signal(false);
-  // Chat image lightbox (click to open, click to zoom in/out, ✕ to close).
-  readonly lightboxSrc = signal<string | null>(null);
-  readonly lightboxZoom = signal(false);
+  // Chat image lightbox — open any inline (md-img) or attached (bubble-att-img)
+  // image in the shared full-screen viewer (zoom in/out, pan, close).
+  readonly lightbox = inject(LightboxService);
   onLogClick(e: MouseEvent): void {
     const t = e.target as HTMLElement;
-    if (t?.tagName === 'IMG' && t.classList.contains('md-img')) {
-      this.lightboxZoom.set(false);
-      this.lightboxSrc.set((t as HTMLImageElement).src);
+    if (
+      t?.tagName === 'IMG' &&
+      (t.classList.contains('md-img') || t.classList.contains('bubble-att-img'))
+    ) {
+      const img = t as HTMLImageElement;
+      this.lightbox.open(img.src, img.alt || 'Image');
     }
-  }
-  toggleLightboxZoom(): void {
-    this.lightboxZoom.update((v) => !v);
-  }
-  closeLightbox(): void {
-    this.lightboxSrc.set(null);
   }
   readonly annotateOn = signal(false);
   private readonly annoCanvas =
@@ -1680,9 +1716,10 @@ export class App {
       if (c) void this.openSearchResult(c);
     }
   }
-  async openSearchResult(card: SessionCard): Promise<void> {
+  async openSearchResult(card: { id: string }): Promise<void> {
     this.closeSearch();
-    await this.resumeSession(card.id);
+    if (this.section() === 'home') this.openHomeConversation(card.id);
+    else await this.resumeSession(card.id);
   }
   /** "Past week" / "Past month" / "Past year" / "Older" bucket for a card. */
   recencyLabel(updatedAt: number): string {

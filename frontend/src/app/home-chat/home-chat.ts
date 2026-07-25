@@ -20,6 +20,7 @@ import { Markdown } from '../markdown/markdown';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
+import { LightboxService } from '../lightbox.service';
 
 interface ChatMsg {
   id: string;
@@ -47,6 +48,7 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 export class HomeChat {
   private readonly api = inject(CompassApiService);
   private readonly auth = inject(AuthService);
+  readonly lightbox = inject(LightboxService);
 
   // Inputs from the shell so we don't duplicate health fetching.
   readonly models = input<string[]>([]);

@@ -66,7 +66,7 @@
       <div class="search-list">
         @for (c of searchResults(); track c.id; let i = $index) {
           <button class="search-item" [class.active]="i === searchIndex()"
-            (mouseenter)="searchIndex.set(i)" (click)="enterCode(); openSearchResult(c)">
+            (mouseenter)="searchIndex.set(i)" (click)="openSearchResult(c)">
             <svg class="search-item-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="search-item-title">{{ capFirst(c.title) || 'Untitled' }}</span>
             @if (i === searchIndex()) {
@@ -105,44 +105,13 @@
       New conversation
     </button>
 
-    <!-- Home section: its own chat history; agent Conversations are hidden. -->
-    @if (section() === 'home') {
-      <nav class="history" aria-label="Chats">
-        <div class="hist-group">
-          <div class="hist-label">Chats</div>
-          @if (homeSessions().length === 0) {
-            <p class="hist-empty">No chats yet.</p>
-          }
-          @for (c of limitedHomeSessions(); track c.id) {
-            <div class="conv" [class.active]="c.id === homeActiveId()"
-              (click)="openHomeConversation(c.id)" role="button" tabindex="0"
-              (keydown.enter)="openHomeConversation(c.id)">
-              <span class="conv-rail"
-                [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
-                [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
-                [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
-              <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
-              <button class="conv-icon" aria-label="Delete chat" (click)="deleteHomeConversation(c, $event)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-            </div>
-          }
-          @if (moreHome() > 0) {
-            <button class="conv-more" (click)="loadMoreHome()" [attr.aria-label]="'Show ' + (moreHome() < 4 ? moreHome() : 4) + ' more chats'">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-            </button>
-          }
-        </div>
-      </nav>
-    }
-
-    @if (section() === 'code') {
+    <!-- Routines launcher — shown in both Home and Code (it's a shared feature). -->
     <button class="side-nav-item" [class.active]="section() === 'code' && view() === 'routines'" (click)="enterCode(); openRoutines()">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
       Routines
     </button>
 
-    <!-- Group-by / Sort-by / Archived controls -->
+    <!-- Group / Sort / Archived controls — apply to Home chats and agent conversations. -->
     <div class="hist-controls">
       <label class="ctl">
         <span class="ctl-label">Group</span>
@@ -167,6 +136,40 @@
       </button>
     </div>
 
+    <!-- Home section: its own chat history; agent Conversations are hidden. -->
+    @if (section() === 'home') {
+      <nav class="history" aria-label="Chats">
+        @if (homeSessions().length === 0) {
+          <div class="hist-group"><div class="hist-label">Chats</div><p class="hist-empty">No chats yet.</p></div>
+        }
+        @for (g of limitedHomeGroups(); track g.label) {
+          <div class="hist-group">
+            <div class="hist-label">{{ g.label }}</div>
+            @for (c of g.cards; track c.id) {
+              <div class="conv" [class.active]="c.id === homeActiveId()"
+                (click)="openHomeConversation(c.id)" role="button" tabindex="0"
+                (keydown.enter)="openHomeConversation(c.id)">
+                <span class="conv-rail"
+                  [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                  [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                  [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
+                <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
+                <button class="conv-icon" aria-label="Delete chat" (click)="deleteHomeConversation(c, $event)">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+            }
+          </div>
+        }
+        @if (moreHome() > 0) {
+          <button class="conv-more" (click)="loadMoreHome()" [attr.aria-label]="'Show ' + (moreHome() < 4 ? moreHome() : 4) + ' more chats'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        }
+      </nav>
+    }
+
+    @if (section() === 'code') {
     <nav class="history" aria-label="Conversation history" (click)="closeMenu()">
       @if (pinnedGroup(); as pg) {
         <div class="hist-group">
@@ -194,7 +197,9 @@
         </button>
       }
     </nav>
+    }
 
+    <!-- Routines list — shown in both Home and Code. -->
     @if (routines().length) {
       <nav class="side-routines" aria-label="Routines">
         <div class="hist-label">Routines</div>
@@ -209,7 +214,6 @@
           }
         </div>
       </nav>
-    }
     }
 
     <div class="side-collab">
@@ -482,27 +486,29 @@
                 </div>
               } @else {
                 <div class="bubble-wrap" [class.mine]="b.role === 'user'">
+                  @if (b.role === 'user' && b.atts?.length) {
+                    <div class="bubble-atts">
+                      @for (a of b.atts!; track a.id) {
+                        @if (a.kind === 'image') {
+                          <img class="bubble-att-img" [src]="a.dataUrl" [alt]="a.name" />
+                        } @else {
+                          <span class="bubble-att-file">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
+                            {{ a.name }}
+                          </span>
+                        }
+                      }
+                    </div>
+                  }
+                  @if (b.role === 'assistant' || b.text) {
                   <article class="bubble" [class.user]="b.role === 'user'" [class.assistant]="b.role === 'assistant'">
                     @if (b.role === 'assistant') {
                       <app-markdown [text]="b.text" />
                     } @else {
-                      @if (b.atts?.length) {
-                        <div class="bubble-atts">
-                          @for (a of b.atts!; track a.id) {
-                            @if (a.kind === 'image') {
-                              <img class="bubble-att-img" [src]="a.dataUrl" [alt]="a.name" />
-                            } @else {
-                              <span class="bubble-att-file">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
-                                {{ a.name }}
-                              </span>
-                            }
-                          }
-                        </div>
-                      }
-                      @if (b.text) { <p class="bubble-text">{{ b.text }}</p> }
+                      <p class="bubble-text">{{ b.text }}</p>
                     }
                   </article>
+                  }
                   <div class="bubble-actions" [class.mine]="b.role === 'user'">
                     @if (b.role === 'user') {
                       @if (b.at) { <span class="msg-time">{{ formatTime(b.at) }}</span> }
@@ -1275,16 +1281,8 @@
     </aside>
   }
 
-  @if (lightboxSrc(); as src) {
-    <div class="lb-overlay" (click)="closeLightbox()">
-      <button class="lb-close" (click)="closeLightbox()" aria-label="Close">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
-      </button>
-      <div class="lb-stage" [class.zoom]="lightboxZoom()" (click)="$event.stopPropagation()">
-        <img [src]="src" [class.zoom]="lightboxZoom()" (click)="toggleLightboxZoom()" alt="Screenshot" />
-      </div>
-    </div>
-  }
+  <app-lightbox />
+
 
   @if (diffOpen()) {
     <div class="diff-overlay" (click)="diffOpen.set(false)">

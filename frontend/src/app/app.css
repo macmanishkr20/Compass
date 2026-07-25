@@ -956,21 +956,21 @@
   font-size: 0.92rem;
 }
 .bubble.user {
-  /* slightly translucent so the surface glows through, with a blur so text
-     behind never bleeds into legibility */
-  background: color-mix(in oklab, var(--accent) 72%, transparent);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid color-mix(in oklab, var(--accent) 55%, transparent);
-  color: #fff;
-  border-bottom-right-radius: 4px;
-  box-shadow: var(--shadow-sm);
-}
-:root[data-theme="dark"] .bubble.user { color: #FFF7EC; }
-.bubble.assistant {
-  background: var(--surface);
+  /* very light neutral bubble (claude-style), not the accent colour */
+  background: var(--bg-2);
   border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
+  color: var(--ink);
+  border-bottom-right-radius: 4px;
+}
+/* Assistant replies are plain text, not a bubble (like claude.ai) — no
+   background, border, or padding box; the markdown flows on the page. */
+.bubble.assistant {
+  width: auto;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
 }
 .bubble-text { margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
 .caret {
@@ -1570,11 +1570,14 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .cmp-att-x:hover { background: var(--surface); color: var(--ink); }
 
-/* attachments on a sent user bubble */
-.bubble-atts { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+/* attachments sit ABOVE the user bubble, separate from it (like claude.ai) */
+.bubble-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
 .bubble-att-img {
-  max-width: 220px; max-height: 220px; border-radius: 10px;
-  border: 1px solid var(--border); object-fit: cover;
+  display: block;
+  max-width: min(360px, 100%); max-height: 360px;
+  width: auto; height: auto;
+  border-radius: 12px; border: 1px solid var(--border);
+  cursor: zoom-in;
 }
 .bubble-att-file {
   display: inline-flex; align-items: center; gap: 6px;

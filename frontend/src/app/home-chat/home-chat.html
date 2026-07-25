@@ -23,7 +23,8 @@
                   <div class="cbubble-atts">
                     @for (a of m.atts!; track a.id) {
                       @if (a.kind === 'image') {
-                        <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name" />
+                        <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name"
+                          (click)="lightbox.open(a.dataUrl, a.name)" />
                       } @else {
                         <span class="cbubble-file">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
