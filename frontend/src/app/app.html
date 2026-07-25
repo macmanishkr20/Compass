@@ -68,7 +68,7 @@
           <button class="search-item" [class.active]="i === searchIndex()"
             (mouseenter)="searchIndex.set(i)" (click)="enterCode(); openSearchResult(c)">
             <svg class="search-item-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span class="search-item-title">{{ c.title || 'Untitled' }}</span>
+            <span class="search-item-title">{{ capFirst(c.title) || 'Untitled' }}</span>
             @if (i === searchIndex()) {
               <span class="search-item-enter">↵</span>
             } @else {
@@ -113,7 +113,7 @@
           @if (homeSessions().length === 0) {
             <p class="hist-empty">No chats yet.</p>
           }
-          @for (c of homeSessions(); track c.id) {
+          @for (c of limitedHomeSessions(); track c.id) {
             <div class="conv" [class.active]="c.id === homeActiveId()"
               (click)="openHomeConversation(c.id)" role="button" tabindex="0"
               (keydown.enter)="openHomeConversation(c.id)">
@@ -121,11 +121,16 @@
                 [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
                 [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
                 [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
-              <span class="conv-title">{{ c.title || 'New chat' }}</span>
+              <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
               <button class="conv-icon" aria-label="Delete chat" (click)="deleteHomeConversation(c, $event)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
             </div>
+          }
+          @if (moreHome() > 0) {
+            <button class="conv-more" (click)="loadMoreHome()" [attr.aria-label]="'Show ' + (moreHome() < 4 ? moreHome() : 4) + ' more chats'">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
           }
         </div>
       </nav>
@@ -310,7 +315,7 @@
           [style.background]="c.id === sessionId() ? activeDotColor() : null"
           [style.border-color]="c.id === sessionId() ? activeDotColor() : null"
           [style.box-shadow]="c.id === sessionId() && activeDotColor() ? '0 0 7px ' + activeDotColor() : null"></span>
-        <span class="conv-title">{{ c.title }}</span>
+        <span class="conv-title">{{ capFirst(c.title) }}</span>
         @if (c.archived) { <span class="conv-badge">archived</span> }
         <button class="conv-icon" [class.pinned]="c.pinned"
           [attr.aria-label]="c.pinned ? 'Unpin' : 'Pin'" (click)="togglePin(c, $event)">
@@ -371,7 +376,7 @@
         </button>
       </div>
       <div class="topbar-title">
-        <span class="crumb">{{ section() === 'home' ? 'Compass Chat' : (activeCard()?.title || 'New conversation') }}</span>
+        <span class="crumb">{{ section() === 'home' ? 'Compass Chat' : (capFirst(activeCard()?.title) || 'New conversation') }}</span>
       </div>
 
 

@@ -119,6 +119,13 @@ export class App {
   // -- Home conversation history (separate from agent Conversations) -------
   readonly homeSessions = signal<ChatCard[]>([]);
   readonly homeActiveId = signal<string | null>(null);
+  // Show 4 initially; the down-arrow reveals 4 more at a time (like the agent).
+  readonly homeLimit = signal(4);
+  readonly limitedHomeSessions = computed(() => this.homeSessions().slice(0, this.homeLimit()));
+  readonly moreHome = computed(() => Math.max(0, this.homeSessions().length - this.homeLimit()));
+  loadMoreHome(): void {
+    this.homeLimit.update((n) => n + 4);
+  }
 
   async loadHomeSessions(): Promise<void> {
     try {
@@ -804,9 +811,15 @@ export class App {
       )
       .map((b) => ({
         id: b.id,
-        text: (b.text || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+        text: String(b.text ?? '').replace(/\s+/g, ' ').trim().slice(0, 80),
       })),
   );
+
+  /** Capitalize the first visible character (for conversation titles). */
+  capFirst(s: string | null | undefined): string {
+    const t = (s ?? '').trimStart();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
   scrollToPrompt(id: string): void {
     document.getElementById('msg-' + id)?.scrollIntoView({ block: 'start' });
     this.navActive.set(id);
@@ -1603,13 +1616,32 @@ export class App {
     for (const m of t.messages) {
       const meta = m.meta ?? {};
       const at = m.timestamp ? m.timestamp * 1000 : undefined;
+      // content may be a multimodal parts array (image attachments) — flatten
+      // to text so bubbles always carry a string (a raw array crashes render).
+      const text = this.msgText(m.content);
       if (m.role === 'user' && !meta['synthetic'] && !meta['compact_boundary']) {
-        items.push(this.bubble('user', m.content ?? '', false, m.uuid, at));
-      } else if (m.role === 'assistant' && m.content) {
-        items.push(this.bubble('assistant', m.content, false, undefined, at));
+        items.push(this.bubble('user', text, false, m.uuid, at));
+      } else if (m.role === 'assistant' && text) {
+        items.push(this.bubble('assistant', text, false, undefined, at));
       }
     }
     this.timeline.set(items);
+  }
+
+  /** Plain text from a stored message's content — a string, or the text parts
+   *  of a multimodal (image-attachment) content array. */
+  private msgText(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter(
+          (p): p is { type: string; text: string } =>
+            !!p && typeof p === 'object' && (p as { type?: string }).type === 'text',
+        )
+        .map((p) => p.text)
+        .join(' ');
+    }
+    return '';
   }
 
   // -- conversation actions (menu) ----------------------------------------
