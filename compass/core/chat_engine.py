@@ -32,6 +32,19 @@ from compass.models.messages import Message
 from compass.services.attachments import build_user_message
 from compass.tools.base import PermissionBroker, ToolUseContext
 
+@dataclass
+class _WorkIqSources:
+    """A one-off SSE event carrying the Work IQ retrieved sources to the UI.
+    Local to the chat surface (not in the shared events module) so nothing about
+    the agent console changes."""
+
+    sources: list[dict]
+
+    def to_sse(self) -> str:
+        payload = json.dumps({"type": "work_iq_sources", "sources": self.sources})
+        return f"event: work_iq_sources\ndata: {payload}\n\n"
+
+
 CHAT_SYSTEM_PROMPT = (
     "You are Compass Chat — a friendly, knowledgeable conversational assistant "
     "running on Azure OpenAI (gpt-5). This is a plain chat: you have no tools, "
@@ -175,6 +188,7 @@ class ChatEngine:
         session: ChatSession,
         user_input: str,
         attachments: list[dict] | None = None,
+        work_iq: bool = False,
     ) -> AsyncIterator[events.Event]:
         async with session.turn_lock:
             session.abort_event.clear()
@@ -182,12 +196,27 @@ class ChatEngine:
             session.messages.append(message)
             self.store.append(session.id, message)
 
+            # Work IQ (Home-only, opt-in): retrieve from Azure AI Search and
+            # ground this turn. The context lives in the per-turn system prompt
+            # (not persisted), so history stays clean; sources go to the UI.
+            system_prompt = CHAT_SYSTEM_PROMPT
+            if work_iq:
+                from compass.services import work_iq as wiq
+
+                if wiq.configured():
+                    docs = await wiq.hybrid_search(user_input)
+                    system_prompt = wiq.WORK_IQ_SYSTEM_PROMPT.format(
+                        context=wiq.format_context(docs)
+                    )
+                    if docs:
+                        yield _WorkIqSources(sources=wiq.sources_for_ui(docs))
+
             ctx = session.make_context()
             try:
                 async for event in query(
                     session.messages,
                     ctx,
-                    system_prompt=CHAT_SYSTEM_PROMPT,
+                    system_prompt=system_prompt,
                     effort=session.effort,
                     model=session.model,
                     on_message=lambda m: self.store.append(session.id, m),

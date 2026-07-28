@@ -22,12 +22,19 @@ import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../a
 import { SmoothText } from '../smooth-text';
 import { LightboxService } from '../lightbox.service';
 
+interface WorkIqSource {
+  n: number;
+  title: string;
+  url: string;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   streaming: boolean;
   atts?: UiAttachment[];
+  sources?: WorkIqSource[];
 }
 
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
@@ -56,6 +63,8 @@ export class HomeChat {
   // The Home conversation to display: an id to resume, or null for a fresh
   // thread. Driven by the sidebar (App owns the Home conversation list).
   readonly activeSession = input<string | null>(null);
+  // Work IQ (owned by the shell topbar) — ground replies in Azure AI Search.
+  readonly workIq = input<boolean>(false);
 
   // Fired when the user flips the composer toggle to "Agent" — the shell
   // switches to the Code (Agent Console) section.
@@ -81,6 +90,7 @@ export class HomeChat {
   private loadedId: string | null = null; // which session the view is showing
   private currentAssistant: ChatMsg | null = null;
   private smoother: SmoothText | null = null; // smooth token reveal
+  private pendingSources: WorkIqSource[] | null = null; // Work IQ sources for the reply
 
   readonly ideas = [
     'Explain a tricky concept in simple terms',
@@ -299,11 +309,13 @@ export class HomeChat {
         this.loadedId = res.session_id; // keep in sync so the input echo is a no-op
         this.sessionCreated.emit(res.session_id);
       }
+      this.pendingSources = null;
       await this.api.streamChatMessage(
         this.sessionId,
         content,
         (ev) => this.onEvent(ev),
         payload,
+        this.workIq(),
       );
     } catch (err) {
       this.push({
@@ -340,6 +352,10 @@ export class HomeChat {
 
   private onEvent(ev: CompassEvent): void {
     switch (ev.type) {
+      case 'work_iq_sources':
+        // Arrives before the answer streams — hold it for the reply bubble.
+        this.pendingSources = (ev['sources'] as WorkIqSource[]) ?? null;
+        break;
       case 'text_delta': {
         if (!this.currentAssistant) {
           this.currentAssistant = {
@@ -347,8 +363,10 @@ export class HomeChat {
             role: 'assistant',
             text: '',
             streaming: true,
+            sources: this.pendingSources ?? undefined,
           };
           this.push(this.currentAssistant);
+          this.pendingSources = null;
           // Reveal tokens smoothly (rAF-paced) instead of per-network-chunk.
           const id = this.currentAssistant.id;
           this.smoother = new SmoothText((t) => this.patch(id, (m) => ({ ...m, text: t })));

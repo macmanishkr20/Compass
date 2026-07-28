@@ -2037,6 +2037,26 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .side-nav-item svg { flex-shrink: 0; }
 
 /* Top-bar background-tasks button badge */
+/* Work IQ chip (Home only) — off by default, shown struck-through. */
+.workiq-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans); font-size: 0.8rem; font-weight: 550;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.workiq-chip:hover { color: var(--ink); border-color: var(--accent-line); }
+.workiq-chip .workiq-label.strike { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.workiq-chip.on {
+  color: var(--accent-strong);
+  border-color: var(--accent-line);
+  background: var(--accent-tint);
+}
+
 .bg-toggle { position: relative; }
 .bg-badge {
   position: absolute;

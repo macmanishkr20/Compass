@@ -59,6 +59,28 @@ class AzureOpenAISettings(BaseModel):
         return opts or [self.deployment]
 
 
+class AiSearchSettings(BaseModel):
+    """Azure AI Search — powers the Home-only "Work IQ" hybrid retrieval.
+    Entirely optional; when unset, Work IQ reports itself as not configured and
+    the Home chat behaves exactly as it does without it."""
+
+    endpoint: str = ""  # https://<name>.search.windows.net
+    api_key: str = ""
+    index: str = ""
+    api_version: str = "2024-07-01"
+    vector_field: str = "contentVector"  # embedding field to search
+    content_fields: str = "content"  # comma-sep fields returned as context
+    title_field: str = "title"  # optional field used to label sources
+    url_field: str = ""  # optional field with a source URL
+    top_k: int = 5
+    semantic_config: str = ""  # optional — enables semantic reranking when set
+    embed_deployment: str = ""  # Azure OpenAI embeddings deployment for vectors
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.endpoint and self.api_key and self.index)
+
+
 class GitHubSettings(BaseModel):
     # Personal access token with `repo` scope. Enables repo listing, clone,
     # and push. Empty = GitHub features disabled (local folders still work).
@@ -154,6 +176,7 @@ class PermissionRule(BaseModel):
 
 class Settings(BaseModel):
     azure: AzureOpenAISettings = Field(default_factory=AzureOpenAISettings)
+    ai_search: AiSearchSettings = Field(default_factory=AiSearchSettings)
     github: GitHubSettings = Field(default_factory=GitHubSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
@@ -252,6 +275,23 @@ def get_settings() -> Settings:
     if mot := os.environ.get("COMPASS_MAX_OUTPUT_TOKENS"):
         try:
             settings.context.max_output_tokens = int(mot)
+        except ValueError:
+            pass
+
+    ais = settings.ai_search
+    ais.endpoint = os.environ.get("AZURE_AISEARCH_ENDPOINT", ais.endpoint)
+    ais.api_key = os.environ.get("AZURE_AISEARCH_API_KEY", ais.api_key)
+    ais.index = os.environ.get("AZURE_AISEARCH_INDEX", ais.index)
+    ais.api_version = os.environ.get("AZURE_AISEARCH_API_VERSION", ais.api_version)
+    ais.vector_field = os.environ.get("AZURE_AISEARCH_VECTOR_FIELD", ais.vector_field)
+    ais.content_fields = os.environ.get("AZURE_AISEARCH_CONTENT_FIELDS", ais.content_fields)
+    ais.title_field = os.environ.get("AZURE_AISEARCH_TITLE_FIELD", ais.title_field)
+    ais.url_field = os.environ.get("AZURE_AISEARCH_URL_FIELD", ais.url_field)
+    ais.semantic_config = os.environ.get("AZURE_AISEARCH_SEMANTIC_CONFIG", ais.semantic_config)
+    ais.embed_deployment = os.environ.get("AZURE_AISEARCH_EMBED_DEPLOYMENT", ais.embed_deployment)
+    if tk := os.environ.get("AZURE_AISEARCH_TOP_K"):
+        try:
+            ais.top_k = int(tk)
         except ValueError:
             pass
 

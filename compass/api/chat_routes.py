@@ -51,6 +51,7 @@ class ChatAttachment(BaseModel):
 class ChatMessageRequest(BaseModel):
     content: str
     attachments: list[ChatAttachment] = []
+    work_iq: bool = False  # ground this turn in Azure AI Search (Home "Work IQ")
 
 
 def _sse(gen) -> StreamingResponse:
@@ -104,7 +105,7 @@ async def send_chat_message(
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
     attachments = [a.model_dump() for a in body.attachments]
-    return _sse(chat_engine.ask(session, body.content, attachments))
+    return _sse(chat_engine.ask(session, body.content, attachments, body.work_iq))
 
 
 @router.post("/sessions/{session_id}/abort")
@@ -120,6 +121,14 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
         raise HTTPException(status_code=404, detail="unknown chat session")
     messages = await chat_engine.store.load(session_id)
     return {"session_id": session_id, "messages": [m.to_record() for m in messages]}
+
+
+@router.get("/work-iq")
+async def work_iq_status(user: str = Depends(require_user)) -> dict:
+    """Whether Work IQ (Azure AI Search) is configured — drives the Home toggle."""
+    from compass.services import work_iq
+
+    return {"configured": work_iq.configured()}
 
 
 @router.get("/sessions")

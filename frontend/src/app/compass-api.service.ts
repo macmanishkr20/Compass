@@ -270,11 +270,18 @@ export class CompassApiService {
     content: string,
     onEvent: (event: CompassEvent) => void,
     attachments: ChatAttachment[] = [],
+    workIq = false,
   ): Promise<void> {
     return this.streamPost(
       `/v1/chat/sessions/${sessionId}/messages`,
-      { content, attachments },
+      { content, attachments, work_iq: workIq },
       onEvent,
+    );
+  }
+
+  workIqStatus(): Promise<{ configured: boolean }> {
+    return firstValueFrom(
+      this.http.get<{ configured: boolean }>('/v1/chat/work-iq'),
     );
   }
 

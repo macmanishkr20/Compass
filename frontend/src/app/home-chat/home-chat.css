@@ -76,6 +76,29 @@
 }
 .ctext { margin: 0; white-space: pre-wrap; word-break: break-word; }
 
+/* Work IQ sources under a grounded reply */
+.wiq-sources {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 10px; padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.wiq-sources-head {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--faint); text-transform: uppercase;
+}
+.wiq-source {
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 8px;
+  text-decoration: none;
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-line); }
+
 .cthinking { display: flex; gap: 6px; align-items: center; padding: 8px 2px; }
 .cthinking-label { font-size: 0.85rem; color: var(--muted); margin-left: 4px; }
 .cthinking-meta {

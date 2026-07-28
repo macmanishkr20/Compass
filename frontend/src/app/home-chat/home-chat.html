@@ -18,6 +18,21 @@
             <div class="cbubble" [class.user]="m.role === 'user'">
               @if (m.role === 'assistant') {
                 <app-markdown [text]="m.text || '…'" />
+                @if (m.sources?.length) {
+                  <div class="wiq-sources">
+                    <span class="wiq-sources-head">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.6 3.6 3 8 3s8-1.4 8-3V5" stroke-linecap="round"/></svg>
+                      Sources
+                    </span>
+                    @for (s of m.sources!; track s.n) {
+                      @if (s.url) {
+                        <a class="wiq-source" [href]="s.url" target="_blank" rel="noopener">[{{ s.n }}] {{ s.title }}</a>
+                      } @else {
+                        <span class="wiq-source">[{{ s.n }}] {{ s.title }}</span>
+                      }
+                    }
+                  </div>
+                }
               } @else {
                 @if (m.atts?.length) {
                   <div class="cbubble-atts">

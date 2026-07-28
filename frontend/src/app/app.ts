@@ -119,6 +119,26 @@ export class App {
     this.section.set('code');
   }
 
+  // -- Work IQ (Home-only): toggle grounding the chat in Azure AI Search.
+  readonly workIqOn = signal(false); // default off → plain chat
+  readonly workIqConfigured = signal(false);
+  readonly workIqToast = signal('');
+  async loadWorkIqStatus(): Promise<void> {
+    try {
+      this.workIqConfigured.set((await this.api.workIqStatus()).configured);
+    } catch {
+      this.workIqConfigured.set(false);
+    }
+  }
+  toggleWorkIq(): void {
+    if (!this.workIqConfigured()) {
+      this.workIqToast.set('Work IQ isn’t configured — set AZURE_AISEARCH_* in .env');
+      setTimeout(() => this.workIqToast.set(''), 4500);
+      return;
+    }
+    this.workIqOn.update((v) => !v);
+  }
+
   // -- Home conversation history (separate from agent Conversations) -------
   readonly homeSessions = signal<ChatCard[]>([]);
   readonly homeActiveId = signal<string | null>(null);
@@ -745,6 +765,8 @@ export class App {
     void this.loadRoutines();
     // Populate the Home conversation list (shown when the Home tab is active).
     void this.loadHomeSessions();
+    // Is Work IQ (Azure AI Search) configured? Drives the Home toggle.
+    void this.loadWorkIqStatus();
     // Watch for finished routine runs and fire a native push notification for
     // any routine with push enabled — works whenever the app is open (including
     // a background tab), which is how a laptop "push" is delivered.
