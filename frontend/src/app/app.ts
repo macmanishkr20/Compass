@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { COLLAB_APPS, CollabApp } from './collab-apps.config';
 import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
@@ -25,6 +24,7 @@ import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Lightbox } from './lightbox/lightbox';
 import { LightboxService } from './lightbox.service';
+import { BrowserSelectService } from './browser-select.service';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from './attachments';
 import { SmoothText } from './smooth-text';
 import {
@@ -96,7 +96,6 @@ export class App {
   readonly theme = inject(ThemeService);
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
-  private readonly sanitizer = inject(DomSanitizer);
 
   // Compass Collab — sibling apps launched from the sidebar.
   readonly collabApps = COLLAB_APPS;
@@ -104,8 +103,44 @@ export class App {
   // In-app browser ("Compass's own browser", like Claude's preview pane).
   readonly browserOpen = signal(false);
   readonly browserAddr = signal('');
-  readonly browserSrc = signal<SafeResourceUrl | ''>('');
-  readonly browserBlocked = signal(false);
+  // Maximize the browser pane in-app (float it over the chat), like claude.ai's
+  // ⤢ — not a separate OS window. A shrink button restores the docked size.
+  readonly browserExpanded = signal(false);
+  // Live JPEG frame from the server-side Chromium (data: URI) + last error.
+  readonly rbFrame = signal<string>('');
+  readonly rbError = signal<string>('');
+  // Select/inspect tool (arrow): Chromium's DevTools element overlay follows
+  // the cursor. Viewport tool (device): render at a device size like claude.ai.
+  readonly browserSelect = signal(false);
+  readonly browserViewport = signal<'responsive' | 'mobile' | 'tablet'>('responsive');
+  readonly cbViewMenuOpen = signal(false);
+  // Select-tool highlight: pixel rect (within .cb-view) + label of the element
+  // under the cursor, drawn as a DevTools-style overlay.
+  readonly inspectInfo = signal<{
+    left: number; top: number; w: number; h: number;
+    tag: string; sub: string; dim: string; role: string;
+    name: string; focusable: boolean;
+  } | null>(null);
+  readonly inspectView = computed(() =>
+    this.browserSelect() ? this.inspectInfo() : null,
+  );
+  // Picked elements from the Select tool → chips in the Home composer.
+  readonly browserSelectSvc = inject(BrowserSelectService);
+  private static readonly VIEWPORTS = {
+    responsive: null,
+    mobile: { w: 375, h: 812 },
+    tablet: { w: 768, h: 1024 },
+  } as const;
+  readonly deviceAspect = computed(() => {
+    const d = App.VIEWPORTS[this.browserViewport()];
+    return d ? `${d.w} / ${d.h}` : null;
+  });
+  private rbWs: WebSocket | null = null;
+  private rbMoveTs = 0;
+  private readonly cbView =
+    viewChild<ElementRef<HTMLDivElement>>('cbView');
+  private readonly cbImg =
+    viewChild<ElementRef<HTMLImageElement>>('cbImg');
 
   // -- top-level section: Home (Chat) vs Code (the Agent Console). Home is a
   // separate, tool-free surface (HomeChat) and shares no state with the
@@ -113,6 +148,12 @@ export class App {
   readonly section = signal<'home' | 'code'>('home');
   enterHome(): void {
     this.section.set('home');
+    // Background tasks & the browser are Code-only surfaces — close them so
+    // Home stays a clean, tool-free chat.
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
     void this.loadHomeSessions();
   }
   enterCode(): void {
@@ -128,6 +169,16 @@ export class App {
       this.workIqConfigured.set((await this.api.workIqStatus()).configured);
     } catch {
       this.workIqConfigured.set(false);
+    }
+  }
+
+  // -- Voice mode availability (Home): realtime deployment configured?
+  readonly voiceAvailable = signal(false);
+  async loadVoiceStatus(): Promise<void> {
+    try {
+      this.voiceAvailable.set((await this.api.voiceStatus()).available);
+    } catch {
+      this.voiceAvailable.set(false);
     }
   }
   toggleWorkIq(): void {
@@ -225,8 +276,12 @@ export class App {
 
   // -- Background tasks panel (long-running processes the agent spawned).
   readonly bgOpen = signal(false);
+  readonly bgExpanded = signal(false); // widen the panel (like claude.ai's expand)
   readonly bgTasks = signal<BackgroundTask[]>([]);
   readonly bgFinishedOpen = signal(false);
+  toggleBgExpand(): void {
+    this.bgExpanded.update((v) => !v);
+  }
   readonly nowTick = signal(Date.now()); // drives live elapsed timers
   readonly bgRunning = computed(() => this.bgTasks().filter((t) => t.status === 'running'));
   readonly bgFinished = computed(() => this.bgTasks().filter((t) => t.status !== 'running'));
@@ -447,7 +502,9 @@ export class App {
 
   readonly canSend = computed(
     () =>
-      (this.draft().trim().length > 0 || this.attachments().length > 0) &&
+      (this.draft().trim().length > 0 ||
+        this.attachments().length > 0 ||
+        this.browserSelectSvc.picks().length > 0) &&
       !this.streaming(),
   );
   readonly activeCard = computed(() =>
@@ -756,6 +813,20 @@ export class App {
       );
       onCleanup(() => clearInterval(id));
     });
+    // Interactive remote browser: connect the frame stream while the pane is
+    // open, tear it down when it closes. Resize the server viewport once the
+    // pane has laid out (and again whenever it expands/collapses).
+    effect(() => {
+      if (this.browserOpen()) {
+        this.rbConnect();
+        this.browserExpanded(); // re-run on expand/collapse to re-fit
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => this.rbSendResize()),
+        );
+      } else {
+        this.rbDisconnect();
+      }
+    });
     // Poll background tasks so the top-bar badge and panel stay live; tick a
     // clock every second so "18m 26s" style timers advance without a refetch.
     void this.refreshBgTasks();
@@ -767,6 +838,8 @@ export class App {
     void this.loadHomeSessions();
     // Is Work IQ (Azure AI Search) configured? Drives the Home toggle.
     void this.loadWorkIqStatus();
+    // Is realtime voice configured? Drives the Home voice-mode button.
+    void this.loadVoiceStatus();
     // Watch for finished routine runs and fire a native push notification for
     // any routine with push enabled — works whenever the app is open (including
     // a background tab), which is how a laptop "push" is delivered.
@@ -1135,12 +1208,35 @@ export class App {
   private annoLast: { x: number; y: number } | null = null;
 
   toggleAnnotate(): void {
-    this.annotateOn.update((v) => !v);
+    const on = !this.annotateOn();
+    this.annotateOn.set(on);
+    if (on) this.setSelect(false); // one active tool at a time
     // Size after the canvas actually paints. A microtask fires before the
     // zoneless render, so the viewChild is still undefined then — rAF x2 lands
     // after layout. Drawing also re-checks the size on pointerdown as a backstop.
-    if (this.annotateOn())
+    if (on)
       requestAnimationFrame(() => requestAnimationFrame(() => this.sizeAnnoCanvas()));
+  }
+
+  /** Select / inspect tool (arrow) — Chromium's own element overlay follows the
+   *  cursor (like claude.ai). Clicking still interacts with the page. */
+  setSelect(on: boolean): void {
+    if (this.browserSelect() === on) return;
+    this.browserSelect.set(on);
+    if (on) this.annotateOn.set(false);
+    else this.inspectInfo.set(null);
+    this.rbSend({ t: 'select', on });
+  }
+  toggleSelect(): void {
+    this.setSelect(!this.browserSelect());
+  }
+
+  /** Viewport tool (device) — render the page at a device size, like claude.ai's
+   *  Responsive / Mobile 375×812 / Tablet 768×1024. */
+  setViewport(v: 'responsive' | 'mobile' | 'tablet'): void {
+    this.browserViewport.set(v);
+    this.cbViewMenuOpen.set(false);
+    requestAnimationFrame(() => this.rbSendResize());
   }
   /** Match the canvas backing store to its displayed size (× DPR). A <canvas>
    *  keeps its default 300×150 buffer until this runs, which is why strokes
@@ -1192,6 +1288,27 @@ export class App {
     c?.getContext('2d')?.clearRect(0, 0, c.width, c.height);
   }
 
+  /** Post the CURRENT frame with the annotation drawing baked in — this is what
+   *  "Screenshot → chat" does in annotate mode, so the marks are included
+   *  (exactly like claude.ai), rather than a fresh clean re-render. */
+  captureAnnotatedShot(): void {
+    const img = this.cbImg()?.nativeElement;
+    if (!img || !img.naturalWidth) {
+      void this.captureBrowserShot(false); // no frame yet — fall back
+      return;
+    }
+    const off = document.createElement('canvas');
+    off.width = img.naturalWidth;
+    off.height = img.naturalHeight;
+    const ctx = off.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(img, 0, 0, off.width, off.height);
+    const canvas = this.annoCanvas()?.nativeElement;
+    if (canvas && canvas.width && canvas.height)
+      ctx.drawImage(canvas, 0, 0, off.width, off.height);
+    this.postImage(off.toDataURL('image/png'), this.browserAddr());
+  }
+
   /** Screenshot the current in-app browser URL (headless) and post to chat. */
   async captureBrowserShot(download = false): Promise<void> {
     const url = this.browserAddr();
@@ -1233,6 +1350,7 @@ export class App {
       this.browserAddr.set('https://learn.microsoft.com/azure/architecture/');
       this.navigateBrowser();
     }
+    if (!this.browserOpen()) this.browserExpanded.set(false);
   }
 
   navigateBrowser(): void {
@@ -1240,16 +1358,204 @@ export class App {
     if (!u) return;
     if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
     this.browserAddr.set(u);
-    this.browserBlocked.set(false);
-    this.browserSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(u));
+    this.rbError.set('');
+    // Drive the live server-side Chromium (renders any site, interactive) —
+    // rbConnect's onopen navigates to browserAddr; if already open, go now.
+    this.rbConnect();
+    this.rbSend({ t: 'nav', url: u });
   }
 
   reloadBrowser(): void {
-    const cur = this.browserAddr();
-    this.browserSrc.set('');
-    setTimeout(() => {
-      if (cur) this.browserSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(cur));
-    }, 0);
+    this.rbError.set('');
+    this.rbSend({ t: 'reload' });
+  }
+
+  // -- remote browser: frame stream + input forwarding ---------------------
+  private rbSend(msg: Record<string, unknown>): void {
+    const ws = this.rbWs;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  rbConnect(): void {
+    const existing = this.rbWs;
+    if (
+      existing &&
+      (existing.readyState === WebSocket.OPEN ||
+        existing.readyState === WebSocket.CONNECTING)
+    )
+      return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${location.host}/v1/browser/ws`);
+    this.rbWs = ws;
+    ws.onopen = () => {
+      this.rbSendResize();
+      if (this.browserSelect()) this.rbSend({ t: 'select', on: true });
+      const u = this.browserAddr();
+      if (u) this.rbSend({ t: 'nav', url: u });
+    };
+    ws.onmessage = (ev) => {
+      let m: {
+        t: string; data?: string; url?: string; message?: string;
+        box?: { x: number; y: number; w: number; h: number };
+        label?: string; tag?: string; sub?: string; dim?: string;
+        role?: string; name?: string; focusable?: boolean;
+        opening?: string; selector?: string; text?: string;
+        styles?: Record<string, string>;
+      };
+      try {
+        m = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      if (m.t === 'frame' && m.data) {
+        this.rbFrame.set('data:image/jpeg;base64,' + m.data);
+        this.rbError.set('');
+      } else if (m.t === 'nav' && m.url) {
+        this.browserAddr.set(m.url);
+      } else if (m.t === 'error') {
+        this.rbError.set(m.message || 'Navigation failed.');
+      } else if (m.t === 'inspect' && m.box) {
+        // Map the element box (0..1 of the frame) to pixels within .cb-view.
+        const img = this.cbImg()?.nativeElement;
+        const view = this.cbView()?.nativeElement;
+        if (img && view) {
+          const ir = img.getBoundingClientRect();
+          const vr = view.getBoundingClientRect();
+          this.inspectInfo.set({
+            left: ir.left - vr.left + m.box.x * ir.width,
+            top: ir.top - vr.top + m.box.y * ir.height,
+            w: m.box.w * ir.width,
+            h: m.box.h * ir.height,
+            tag: m.tag ?? m.label ?? '',
+            sub: m.sub ?? '',
+            dim: m.dim ?? '',
+            role: m.role ?? '',
+            name: m.name ?? '',
+            focusable: !!m.focusable,
+          });
+        }
+      } else if (m.t === 'pick' && m.opening) {
+        this.addBrowserPick(m);
+      }
+    };
+    ws.onclose = () => {
+      if (this.rbWs === ws) this.rbWs = null;
+    };
+    ws.onerror = () => {};
+  }
+
+  rbDisconnect(): void {
+    const ws = this.rbWs;
+    this.rbWs = null;
+    if (ws) {
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+    }
+    this.rbFrame.set('');
+    this.rbError.set('');
+  }
+
+  private rbSendResize(): void {
+    // Server viewport = a fixed device size (mobile/tablet) or, in responsive
+    // mode, the live pane size so the frame is 1:1.
+    const dev = App.VIEWPORTS[this.browserViewport()];
+    if (dev) {
+      this.rbSend({ t: 'resize', w: dev.w, h: dev.h });
+      return;
+    }
+    const el = this.cbView()?.nativeElement;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width && r.height)
+      this.rbSend({ t: 'resize', w: Math.round(r.width), h: Math.round(r.height) });
+  }
+
+  /** Normalise a pointer to 0..1 of the DISPLAYED frame image (not the pane),
+   *  so clicks stay accurate when a device viewport is letterboxed/centred. */
+  private rbNorm(e: PointerEvent | WheelEvent): { x: number; y: number } {
+    const el = this.cbImg()?.nativeElement ?? this.cbView()!.nativeElement;
+    const r = el.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  }
+
+  rbDown(e: PointerEvent): void {
+    if (this.annotateOn()) return;
+    this.cbView()?.nativeElement.focus();
+    // In Select mode a click PICKS the element (adds it to the prompt) rather
+    // than interacting with the page — same as claude.ai's Select tool.
+    if (this.browserSelect() && e.button === 0) {
+      const p = this.rbNorm(e);
+      this.rbSend({ t: 'pick', x: p.x, y: p.y });
+      return;
+    }
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const p = this.rbNorm(e);
+    this.rbSend({ t: 'down', x: p.x, y: p.y, button: e.button });
+  }
+  /** Turn a picked element into a Home-composer chip: a compact label plus a
+   *  full context block (tag, selector, size, text, CSS) for the model. */
+  private addBrowserPick(m: {
+    opening?: string; selector?: string; dim?: string; text?: string;
+    styles?: Record<string, string>;
+  }): void {
+    const styles = m.styles ?? {};
+    const css = Object.entries(styles)
+      .map(([k, v]) => `  ${k}: ${v};`)
+      .join('\n');
+    const detail =
+      `Selected element (from ${this.browserAddr()}):\n` +
+      `${m.opening ?? ''}\n` +
+      `Selector: ${m.selector ?? ''}\n` +
+      `Size: ${m.dim ?? ''}\n` +
+      (m.text ? `Text: ${m.text}\n` : '') +
+      (css ? `CSS:\n${css}` : '');
+    this.browserSelectSvc.add({
+      id: crypto.randomUUID(),
+      label: m.opening ?? m.selector ?? 'element',
+      detail,
+    });
+  }
+  rbMove(e: PointerEvent): void {
+    if (this.annotateOn()) return;
+    const now = performance.now();
+    if (now - this.rbMoveTs < 16) return; // ~60fps cap on the wire
+    this.rbMoveTs = now;
+    const p = this.rbNorm(e);
+    this.rbSend({ t: 'move', x: p.x, y: p.y });
+    // Select tool: ask Chromium to highlight the element under the cursor.
+    if (this.browserSelect()) this.rbSend({ t: 'inspect', x: p.x, y: p.y });
+  }
+  rbUp(e: PointerEvent): void {
+    if (this.annotateOn()) return;
+    if (this.browserSelect() && e.button === 0) return; // handled on down (pick)
+    const p = this.rbNorm(e);
+    this.rbSend({ t: 'up', x: p.x, y: p.y, button: e.button });
+  }
+  rbWheel(e: WheelEvent): void {
+    if (this.annotateOn()) return;
+    e.preventDefault();
+    this.rbSend({ t: 'wheel', dx: e.deltaX, dy: e.deltaY });
+  }
+  rbLeave(): void {
+    this.inspectInfo.set(null);
+  }
+  private static readonly RB_KEYS = new Set([
+    'Enter', 'Backspace', 'Delete', 'Tab', 'Escape', 'ArrowLeft', 'ArrowRight',
+    'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown',
+  ]);
+  rbKey(e: KeyboardEvent): void {
+    if (this.annotateOn()) return;
+    const k = e.key;
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      this.rbSend({ t: 'type', text: k });
+      e.preventDefault();
+    } else if (App.RB_KEYS.has(k)) {
+      this.rbSend({ t: 'key', key: k });
+      e.preventDefault();
+    }
   }
 
   openBrowserExternal(): void {
@@ -1257,10 +1563,11 @@ export class App {
     if (u) window.open(u, '_blank', 'noopener');
   }
 
-  /** Expand the docked browser into a full standalone window. */
+  /** Maximize the browser pane in-app (float over the chat), like claude.ai's
+   *  expand — a shrink press restores the docked size. Opening it in a real OS
+   *  window stays available via the "…" menu (Export / open externally). */
   expandBrowser(): void {
-    const u = this.browserAddr();
-    if (u) window.open(u, 'compass-browser', 'popup,width=1440,height=940');
+    this.browserExpanded.update((v) => !v);
   }
 
   // -- background tasks ----------------------------------------------------
@@ -1271,10 +1578,34 @@ export class App {
     } catch {
       /* backend may be briefly unavailable */
     }
+    // Keep an open task's log view live.
+    if (this.bgLogsOpenId()) void this.loadBgLogs(this.bgLogsOpenId()!);
+  }
+
+  // -- background task log/output viewer (like Claude's task output) --------
+  readonly bgLogsOpenId = signal<string | null>(null);
+  readonly bgLogs = signal<string[]>([]);
+  toggleBgLogs(t: BackgroundTask): void {
+    if (this.bgLogsOpenId() === t.id) {
+      this.bgLogsOpenId.set(null);
+      this.bgLogs.set([]);
+    } else {
+      this.bgLogsOpenId.set(t.id);
+      this.bgLogs.set([]);
+      void this.loadBgLogs(t.id);
+    }
+  }
+  private async loadBgLogs(id: string): Promise<void> {
+    try {
+      this.bgLogs.set((await this.api.backgroundTaskLogs(id)).lines);
+    } catch {
+      /* task may have been cleared */
+    }
   }
   toggleBgPanel(): void {
     this.bgOpen.update((v) => !v);
     if (this.bgOpen()) void this.refreshBgTasks();
+    else this.bgExpanded.set(false);
   }
   async stopBgTask(t: BackgroundTask): Promise<void> {
     try {
@@ -1781,6 +2112,7 @@ export class App {
     this.prMenuOpen.set(false);
     this.routineMenuOpen.set(false);
     this.cbMenuOpen.set(false);
+    this.cbViewMenuOpen.set(false);
   }
   onGlobalClick(): void {
     this.closeAllMenus();
@@ -1980,14 +2312,21 @@ export class App {
     const sid = this.sessionId();
     if (!sid) return;
     const atts = this.attachments();
+    const picks = this.browserSelectSvc.picks();
     this.draft.set('');
     this.attachments.set([]);
-    const b = this.bubble('user', content);
+    this.browserSelectSvc.clear();
+    // Element references picked from the browser Select tool become context for
+    // the model; the visible bubble shows the typed text (or the chip labels).
+    const context = picks.map((p) => p.detail).join('\n\n');
+    const apiContent = context ? `${context}\n\n${content}`.trim() : content;
+    const shownText = content || picks.map((p) => p.label).join('  ');
+    const b = this.bubble('user', shownText);
     if (atts.length) b.atts = atts;
     this.push(b);
     const payload = toWire(atts);
     await this.runStream(sid, (cb) =>
-      this.api.streamMessage(sid, content, cb, payload),
+      this.api.streamMessage(sid, apiContent, cb, payload),
     );
   }
 

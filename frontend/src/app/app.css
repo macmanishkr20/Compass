@@ -14,17 +14,45 @@
   grid-template-columns: 272px 1fr;
   gap: 12px;
   padding: 12px;
-  transition: grid-template-columns 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .shell.sidebar-collapsed { grid-template-columns: 0 1fr; }
 .shell.sidebar-collapsed .sidebar {
   opacity: 0;
   transform: translateX(-14px);
   pointer-events: none;
+  transition: opacity 0.25s, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* Right dock open: chat keeps a readable min width, the panel takes the rest. */
 .shell.right-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
 .shell.right-open.sidebar-collapsed { grid-template-columns: 0 minmax(360px, 1fr) minmax(420px, 1.15fr); }
+/* Expanded dock panel (Background tasks or the in-app Browser): it FLOATS OVER
+   the chat (like claude.ai) rather than reflowing the grid. The underlying grid
+   returns to its normal two-column layout so the chat stays fully intact
+   underneath, and the dock is lifted out of flow as an absolute overlay beside
+   the sidebar. */
+.shell.right-open.dock-expanded { grid-template-columns: 272px 1fr; }
+.shell.right-open.dock-expanded.sidebar-collapsed { grid-template-columns: 0 1fr; }
+.shell.dock-expanded .right-dock {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  right: 12px;
+  left: 296px; /* shell padding (12) + sidebar (272) + gap (12) */
+  z-index: 40;
+  border-radius: var(--radius);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.30), 0 2px 10px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+.shell.dock-expanded.sidebar-collapsed .right-dock { left: 12px; }
+/* Dim the chat behind the floating panel so it reads as an overlay. */
+.shell.dock-expanded .right-dock::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.18);
+  z-index: -1;
+  pointer-events: none;
+}
 .artifact-dock { min-width: 0; min-height: 0; flex: 1; }
 .right-dock {
   min-width: 0;
@@ -670,8 +698,96 @@
   padding: 5px 11px; border-radius: 999px;
   background: rgba(20, 26, 34, 0.9); color: #fff; font-size: 0.72rem;
 }
-.cb-frame { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
-.cb-empty { flex: 1; display: grid; place-items: center; color: var(--muted); font-size: 0.9rem; }
+/* Live remote-browser frame surface. It owns all pointer/scroll input in
+   interact mode; touch-action:none + overscroll containment keep gestures from
+   leaking to the app behind it. */
+.cb-view {
+  flex: 1; min-width: 0; min-height: 0;
+  position: relative;
+  display: flex;
+  background: #fff;
+  outline: none;
+  overflow: hidden;
+}
+.cb-view.interact { cursor: default; touch-action: none; overscroll-behavior: contain; }
+.cb-view.selecting { cursor: crosshair; }
+/* Select tool — DevTools-style element highlight + info card (like claude.ai).
+   pointer-events:none so clicks still reach the page underneath. */
+.cb-inspect {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  background: rgba(111, 168, 220, 0.30);
+  outline: 1px solid rgba(64, 128, 208, 0.9);
+}
+/* DevTools-style white info card, matching claude.ai's Select tool. */
+.cb-inspect-card {
+  position: absolute;
+  z-index: 7;
+  pointer-events: none;
+  min-width: 210px;
+  max-width: min(340px, calc(100% - 8px));
+  padding: 12px 14px 11px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1c2024;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+  font-family: var(--sans);
+}
+.cb-card-head {
+  display: flex; align-items: baseline; gap: 14px;
+  justify-content: space-between;
+}
+.cb-card-tag {
+  font-family: var(--mono); font-weight: 700; font-size: 0.92rem;
+  color: #1c2024; word-break: break-all;
+}
+.cb-card-cls { color: #b3179e; }
+.cb-card-dim { flex: 0 0 auto; color: #3a4048; font-size: 0.82rem; }
+.cb-card-a11y {
+  margin: 11px 0 7px;
+  padding-top: 9px;
+  border-top: 1px solid #e6e8eb;
+  font-size: 0.66rem; font-weight: 600; letter-spacing: 0.06em;
+  color: #8a9099;
+}
+.cb-card-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 3px 0;
+  font-size: 0.84rem;
+}
+.cb-card-k { color: #3a4048; }
+.cb-card-v { color: #1c2024; font-weight: 500; text-align: right; word-break: break-word; }
+.cb-card-ico.yes { color: #1a8a4a; }
+.cb-card-ico.no { color: #b0b6bd; }
+/* Device viewport (Mobile/Tablet): centre the frame on a neutral backdrop so
+   it reads as a device preview, like claude.ai's Responsive/Mobile/Tablet. */
+.cb-view.device {
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in oklab, var(--ink) 10%, #d9dde3);
+  padding: 12px;
+}
+.cb-frame-img {
+  width: 100%; height: 100%;
+  object-fit: fill;          /* server viewport tracks the pane, so 1:1 */
+  display: block;
+  user-select: none; -webkit-user-drag: none;
+}
+.cb-frame-img.device-fit {
+  width: auto; height: 100%;
+  max-width: 100%;
+  object-fit: contain;       /* aspect-ratio is set inline per device */
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  background: #fff;
+}
+/* Viewport dropdown rows: label + dimensions + check. */
+.cb-view-menu button { display: flex; align-items: center; gap: 8px; }
+.cb-view-menu button > span:first-child { flex: 1; }
+.cb-view-menu .cb-dim { color: var(--muted); font-size: 0.72rem; }
+.cb-view-menu .cb-check { color: var(--accent); font-weight: 700; }
+.cb-empty { flex: 1; display: grid; place-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
 .cb-hint {
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -1570,6 +1686,26 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .cmp-att-x:hover { background: var(--surface); color: var(--ink); }
 
+/* Element references picked from the Compass browser's Select tool. */
+.cmp-picks { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 12px 0; }
+.cmp-pick {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 260px;
+  padding: 4px 6px 4px 9px; border-radius: 8px;
+  background: var(--accent-tint, color-mix(in oklab, var(--accent) 12%, transparent));
+  border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border));
+}
+.cmp-pick-ico { flex: 0 0 auto; color: var(--accent); }
+.cmp-pick-label {
+  font-family: var(--mono); font-size: 0.76rem; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px;
+}
+.cmp-pick-x {
+  flex: 0 0 auto; display: grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 5px;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.cmp-pick-x:hover { background: var(--surface); color: var(--ink); }
+
 /* attachments sit ABOVE the user bubble, separate from it (like claude.ai) */
 .bubble-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
 .bubble-att-img {
@@ -2109,8 +2245,32 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   margin-bottom: 9px;
 }
 .bg-task.done { opacity: 0.72; }
+.bg-task.done.open { opacity: 1; }
 .bg-task-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bg-task-name-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-width: 0; flex: 1 1 auto;
+  border: 0; background: transparent; cursor: pointer; text-align: left; padding: 0;
+}
+.bg-log-caret { flex-shrink: 0; color: var(--faint); transition: transform 0.15s; }
+.bg-log-caret.open { transform: rotate(90deg); }
 .bg-task-name { font-weight: 650; font-size: 0.9rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-cmd {
+  margin-top: 3px;
+  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bg-logs {
+  margin: 10px 0 0;
+  max-height: 260px; overflow: auto;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 0.72rem; line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}
 .bg-stop {
   flex-shrink: 0;
   display: grid; place-items: center;

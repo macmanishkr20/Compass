@@ -1,5 +1,5 @@
 {
-  "/v1": { "target": "http://localhost:8000", "secure": false },
+  "/v1": { "target": "http://localhost:8000", "secure": false, "ws": true },
   "/healthz": { "target": "http://localhost:8000", "secure": false },
   "/api": { "target": "http://localhost:65100", "secure": false }
 }

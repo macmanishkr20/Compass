@@ -97,7 +97,8 @@ class BashTool(Tool):
             )
             yield ToolOutput(
                 f"Started background task [{task.id}] “{task.name}”{where}.{auto_note} "
-                f"It is running in the Background tasks panel; the user can stop it there."
+                f"It runs in the Background tasks panel (the user can stop it there). "
+                f"Call bash_output with task_id \"{task.id}\" to read its output."
             )
             return
 
@@ -138,3 +139,57 @@ class BashTool(Tool):
             )
         else:
             yield ToolOutput(output.strip() or "(no output)")
+
+
+class BashOutputInput(BaseModel):
+    task_id: str = Field(
+        description=(
+            "The background task id returned when the task was started with "
+            "run_in_background (shown as [id] in that tool's result)."
+        )
+    )
+    filter: str = Field(
+        default="",
+        description="Optional regular expression; only output lines matching it are returned.",
+    )
+
+
+class BashOutputTool(Tool):
+    """Read new stdout from a background task — the port of Claude Code's
+    BashOutput. Returns only the output printed since the last check, plus the
+    task's current status, so the agent can monitor a dev server, build, or
+    watcher it started with run_in_background."""
+
+    name = "bash_output"
+    description = (
+        "Read new output from a background task started with run_in_background. "
+        "Returns the stdout/stderr printed since your last check for that task, "
+        "plus its status (running/finished/error) and exit code. Poll it to "
+        "confirm a server came up, watch a build, or read a long-running command."
+    )
+    input_model = BashOutputInput
+
+    def is_read_only(self, inp: BashOutputInput) -> bool:
+        return True
+
+    async def call(self, inp: BashOutputInput, ctx: ToolUseContext) -> AsyncIterator[ToolYield]:
+        from compass.services.background_tasks import registry
+
+        task = registry.get(inp.task_id)
+        if task is None:
+            yield ToolOutput(f"No background task with id {inp.task_id}.", is_error=True)
+            return
+        lines = registry.read_new(inp.task_id)
+        if inp.filter:
+            import re
+
+            try:
+                pat = re.compile(inp.filter)
+                lines = [ln for ln in lines if pat.search(ln)]
+            except re.error:
+                pass
+        status = f"status={task.status}"
+        if task.exit_code is not None:
+            status += f" exit={task.exit_code}"
+        body = "\n".join(lines) if lines else "(no new output)"
+        yield ToolOutput(f"[{task.name}] {status}\n{body}")

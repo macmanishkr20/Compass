@@ -170,6 +170,11 @@ export class CompassApiService {
   backgroundTasks(): Promise<BackgroundTasksResponse> {
     return firstValueFrom(this.http.get<BackgroundTasksResponse>('/v1/background-tasks'));
   }
+  backgroundTaskLogs(id: string): Promise<{ lines: string[] }> {
+    return firstValueFrom(
+      this.http.get<{ lines: string[] }>(`/v1/background-tasks/${id}/logs`),
+    );
+  }
   stopBackgroundTask(id: string): Promise<{ stopped: boolean }> {
     return firstValueFrom(
       this.http.post<{ stopped: boolean }>(`/v1/background-tasks/${id}/stop`, {}),
@@ -282,6 +287,16 @@ export class CompassApiService {
   workIqStatus(): Promise<{ configured: boolean }> {
     return firstValueFrom(
       this.http.get<{ configured: boolean }>('/v1/chat/work-iq'),
+    );
+  }
+
+  // -- realtime voice mode (Azure OpenAI Realtime / WebRTC) -----------------
+  voiceStatus(): Promise<{ available: boolean }> {
+    return firstValueFrom(this.http.get<{ available: boolean }>('/v1/chat/voice'));
+  }
+  voiceSession(): Promise<{ token: string; webrtc_url: string }> {
+    return firstValueFrom(
+      this.http.post<{ token: string; webrtc_url: string }>('/v1/chat/voice/session', {}),
     );
   }
 

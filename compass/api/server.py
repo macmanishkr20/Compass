@@ -17,11 +17,13 @@ remote permission bridge. A minimal web UI is served at /.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -504,6 +506,52 @@ async def take_screenshot(
     except Exception as err:  # noqa: BLE001 - surface a readable message
         raise HTTPException(status_code=502, detail=f"screenshot failed: {err}")
     return {"image": image}
+
+
+@app.websocket("/v1/browser/ws")
+async def browser_ws(ws: WebSocket) -> None:
+    """Interactive remote browser: streams a live server-side Chromium into the
+    Compass browser pane and drives it from the client's mouse/keyboard — so any
+    site renders and is interactive, like claude.ai (no iframe embedding limits).
+
+    Client → server JSON: nav/reload/back/forward, move/down/up/wheel, type/key,
+    resize. Server → client JSON: {t:'frame',data} JPEG frames and {t:'nav',...}.
+    """
+    import json
+
+    from compass.services.remote_browser import RemoteBrowserSession, handle_command
+
+    await ws.accept()
+    # Serialise sends so screencast frames and nav events never interleave on
+    # the wire, and a send after disconnect can't crash the reader loop.
+    send_lock = asyncio.Lock()
+
+    async def emit(event: dict) -> None:
+        async with send_lock:
+            with contextlib.suppress(Exception):
+                await ws.send_text(json.dumps(event))
+
+    sess = RemoteBrowserSession(emit)
+    try:
+        try:
+            await sess.start()
+        except Exception as err:  # Playwright/Chromium missing or failed
+            await emit({"t": "error", "message": f"remote browser unavailable: {err}"})
+            await ws.close()
+            return
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            await handle_command(sess, msg)
+    except WebSocketDisconnect:
+        pass
+    except Exception as err:  # noqa: BLE001
+        logger.warning("browser_ws error: %s", err)
+    finally:
+        await sess.close()
 
 
 @app.get("/v1/screenshot-cache/{shot_id}")

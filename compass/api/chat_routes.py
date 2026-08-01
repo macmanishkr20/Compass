@@ -131,6 +131,71 @@ async def work_iq_status(user: str = Depends(require_user)) -> dict:
     return {"configured": work_iq.configured()}
 
 
+VOICE_INSTRUCTIONS = (
+    "You are Compass, a warm, concise voice assistant. Speak naturally and "
+    "conversationally, keep answers brief and to the point, and ask a short "
+    "follow-up when it helps. You are talking out loud, so avoid code blocks, "
+    "long lists, or reading URLs aloud."
+)
+
+
+@router.get("/voice")
+async def voice_status(user: str = Depends(require_user)) -> dict:
+    """Whether realtime voice mode is available (a realtime deployment set)."""
+    from compass.config import get_settings
+
+    return {"available": get_settings().azure.realtime_configured}
+
+
+@router.post("/voice/session")
+async def voice_session(user: str = Depends(require_user)) -> dict:
+    """Mint a short-lived ephemeral key for the browser's WebRTC realtime
+    session (keeps the Azure api-key server-side), per the Azure OpenAI GA
+    Realtime WebRTC flow. Returns the token + the WebRTC calls URL."""
+    import httpx
+
+    from compass.config import get_settings
+
+    az = get_settings().azure
+    if not az.realtime_configured:
+        raise HTTPException(status_code=400, detail="realtime voice not configured")
+
+    base = az.endpoint.rstrip("/")
+    session = {
+        "type": "realtime",
+        "model": az.realtime_deployment,
+        "instructions": VOICE_INSTRUCTIONS,
+        "audio": {
+            "output": {"voice": az.realtime_voice},
+            "input": {"transcription": {"model": "whisper-1"}},
+        },
+    }
+    headers = {"api-key": az.api_key, "content-type": "application/json"}
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            f"{base}/openai/v1/realtime/client_secrets",
+            headers=headers,
+            json={"session": session},
+        )
+        # Input transcription may be rejected by some deployments — retry the
+        # documented minimal session (voice-to-voice still works without it).
+        if resp.status_code >= 400:
+            session["audio"].pop("input", None)
+            resp = await client.post(
+                f"{base}/openai/v1/realtime/client_secrets",
+                headers=headers,
+                json={"session": session},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"realtime session failed: {resp.text[:300]}")
+        data = resp.json()
+
+    token = data.get("value") or (data.get("client_secret") or {}).get("value")
+    if not token:
+        raise HTTPException(status_code=502, detail="no ephemeral token returned")
+    return {"token": token, "webrtc_url": f"{base}/openai/v1/realtime/calls?webrtcfilter=on"}
+
+
 @router.get("/sessions")
 async def list_chat_sessions(user: str = Depends(require_user)) -> dict:
     """Home conversation cards (id, title, timestamps), most-recent first."""

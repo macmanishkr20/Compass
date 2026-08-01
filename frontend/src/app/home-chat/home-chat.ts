@@ -65,6 +65,8 @@ export class HomeChat {
   readonly activeSession = input<string | null>(null);
   // Work IQ (owned by the shell topbar) — ground replies in Azure AI Search.
   readonly workIq = input<boolean>(false);
+  // Voice mode: whether a realtime deployment is configured on the server.
+  readonly voiceAvailable = input<boolean>(false);
 
   // Fired when the user flips the composer toggle to "Agent" — the shell
   // switches to the Code (Agent Console) section.
@@ -86,6 +88,19 @@ export class HomeChat {
   readonly dragOver = signal(false);
   readonly attachError = signal('');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  // -- Voice mode (Azure OpenAI Realtime, speech-to-speech over WebRTC) -----
+  readonly voiceMode = signal(false);
+  readonly voiceState = signal<'connecting' | 'listening' | 'speaking'>('connecting');
+  readonly voiceHeard = signal(''); // live transcript of what the user said
+  readonly voiceReply = signal(''); // live transcript of the assistant's speech
+  readonly voiceError = signal('');
+  readonly voiceSupported =
+    typeof window !== 'undefined' && typeof RTCPeerConnection !== 'undefined';
+  private pc: RTCPeerConnection | null = null;
+  private dc: RTCDataChannel | null = null;
+  private micStream: MediaStream | null = null;
+  private voiceAudioEl: HTMLAudioElement | null = null;
+
   private sessionId: string | null = null;
   private loadedId: string | null = null; // which session the view is showing
   private currentAssistant: ChatMsg | null = null;
@@ -163,6 +178,7 @@ export class HomeChat {
   }
 
   private resetThread(): void {
+    if (this.voiceMode()) this.exitVoice();
     this.smoother?.cancel();
     this.smoother = null;
     this.messages.set([]);
@@ -350,6 +366,157 @@ export class HomeChat {
     }
   }
 
+  // -- voice mode (Azure OpenAI Realtime, speech-to-speech over WebRTC) -----
+  /** Enter voice mode: mint an ephemeral key, open a WebRTC session with the
+   *  realtime model, and stream mic audio in / the model's voice out. Server
+   *  voice-activity-detection drives the turns — no push-to-talk. */
+  async openVoice(): Promise<void> {
+    if (!this.voiceSupported) {
+      this.flashVoiceError('Voice mode needs a modern browser with WebRTC.');
+      return;
+    }
+    if (!this.voiceAvailable()) {
+      this.flashVoiceError('Voice mode isn’t configured — set AZURE_OPENAI_REALTIME_DEPLOYMENT in .env');
+      return;
+    }
+    this.voiceError.set('');
+    this.voiceHeard.set('');
+    this.voiceReply.set('');
+    this.voiceState.set('connecting');
+    this.voiceMode.set(true);
+    try {
+      await this.connectRealtime();
+    } catch (err) {
+      this.flashVoiceError(err instanceof Error ? err.message : 'Could not start voice mode.');
+      this.exitVoice();
+    }
+  }
+
+  private async connectRealtime(): Promise<void> {
+    const { token, webrtc_url } = await this.api.voiceSession();
+
+    const pc = new RTCPeerConnection();
+    this.pc = pc;
+
+    // Play the model's voice output.
+    const audioEl = document.createElement('audio');
+    audioEl.autoplay = true;
+    this.voiceAudioEl = audioEl;
+    pc.ontrack = (e) => {
+      if (e.streams[0]) audioEl.srcObject = e.streams[0];
+    };
+
+    // Stream the microphone in.
+    const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.micStream = mic;
+    for (const track of mic.getAudioTracks()) pc.addTrack(track, mic);
+
+    // Events channel (server VAD drives the conversation turns automatically).
+    const dc = pc.createDataChannel('realtime-channel');
+    this.dc = dc;
+    dc.addEventListener('open', () => {
+      if (this.voiceMode()) this.voiceState.set('listening');
+    });
+    dc.addEventListener('message', (e) => this.onRealtimeEvent(e));
+
+    pc.onconnectionstatechange = () => {
+      if (
+        this.voiceMode() &&
+        (pc.connectionState === 'failed' || pc.connectionState === 'disconnected')
+      ) {
+        this.flashVoiceError('Voice connection lost.');
+        this.exitVoice();
+      }
+    };
+
+    // SDP offer → Azure WebRTC calls endpoint (auth with the ephemeral key).
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const resp = await fetch(webrtc_url, {
+      method: 'POST',
+      body: offer.sdp,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/sdp' },
+    });
+    if (!resp.ok) throw new Error('Voice handshake failed (' + resp.status + ').');
+    const answer = await resp.text();
+    await pc.setRemoteDescription({ type: 'answer', sdp: answer });
+  }
+
+  /** Realtime data-channel events (webrtcfilter=on keeps this set small). */
+  private onRealtimeEvent(e: MessageEvent): void {
+    let ev: any;
+    try {
+      ev = JSON.parse(e.data);
+    } catch {
+      return;
+    }
+    switch (ev.type) {
+      case 'input_audio_buffer.speech_started':
+        this.voiceState.set('listening');
+        this.voiceHeard.set('');
+        break;
+      case 'conversation.item.input_audio_transcription.completed':
+        this.voiceHeard.set((ev.transcript || '').trim());
+        break;
+      case 'output_audio_buffer.started':
+        this.voiceState.set('speaking');
+        this.voiceReply.set('');
+        break;
+      case 'response.output_audio_transcript.delta':
+        this.voiceReply.update((t) => t + (ev.delta || ''));
+        break;
+      case 'response.output_audio_transcript.done':
+        if (ev.transcript) this.voiceReply.set(ev.transcript);
+        break;
+      case 'output_audio_buffer.stopped':
+        if (this.voiceMode()) this.voiceState.set('listening');
+        break;
+    }
+  }
+
+  /** Barge-in: tap while the assistant is speaking to cut it off and listen. */
+  interruptVoice(): void {
+    if (this.voiceState() === 'speaking' && this.dc?.readyState === 'open') {
+      try {
+        this.dc.send(JSON.stringify({ type: 'response.cancel' }));
+        this.dc.send(JSON.stringify({ type: 'output_audio_buffer.clear' }));
+      } catch {
+        /* ignore */
+      }
+      this.voiceState.set('listening');
+    }
+  }
+
+  /** Leave voice mode: tear down the WebRTC session and release the mic. */
+  exitVoice(): void {
+    this.voiceMode.set(false);
+    this.voiceState.set('connecting');
+    try {
+      this.dc?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.pc?.close();
+    } catch {
+      /* ignore */
+    }
+    this.micStream?.getTracks().forEach((t) => t.stop());
+    if (this.voiceAudioEl) {
+      this.voiceAudioEl.srcObject = null;
+      this.voiceAudioEl.remove();
+    }
+    this.dc = null;
+    this.pc = null;
+    this.micStream = null;
+    this.voiceAudioEl = null;
+    this.voiceHeard.set('');
+  }
+
+  private flashVoiceError(msg: string): void {
+    this.voiceError.set(msg);
+    setTimeout(() => this.voiceError.set(''), 5000);
+  }
   private onEvent(ev: CompassEvent): void {
     switch (ev.type) {
       case 'work_iq_sources':

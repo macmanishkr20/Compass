@@ -92,7 +92,8 @@
 }
 
 <div class="shell" [class.sidebar-collapsed]="!sidebarOpen()"
-  [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()">
+  [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()"
+  [class.dock-expanded]="(bgOpen() && bgExpanded()) || (browserOpen() && browserExpanded())">
   <!-- ===================== Conversation history ===================== -->
   <aside class="sidebar panel">
     <div class="side-head">
@@ -278,10 +279,12 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
               Open in VS Code
             </button>
-            <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
-              Open Compass browser
-            </button>
+            @if (section() === 'code') {
+              <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+                Open Compass browser
+              </button>
+            }
             <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Open in new window
@@ -320,12 +323,13 @@
           (blur)="commitMoveGroup(gp.value)" />
       </div>
     } @else {
-      <div class="conv" [class.active]="section() === 'code' && c.id === sessionId()" [class.arch]="c.archived"
+      @let convActive = section() === 'code' && view() === 'chat' && c.id === sessionId();
+      <div class="conv" [class.active]="convActive" [class.arch]="c.archived"
         (click)="enterCode(); resumeSession(c.id)" role="button" tabindex="0" (keydown.enter)="enterCode(); resumeSession(c.id)">
         <span class="conv-rail"
-          [style.background]="c.id === sessionId() ? activeDotColor() : null"
-          [style.border-color]="c.id === sessionId() ? activeDotColor() : null"
-          [style.box-shadow]="c.id === sessionId() && activeDotColor() ? '0 0 7px ' + activeDotColor() : null"></span>
+          [style.background]="convActive ? activeDotColor() : null"
+          [style.border-color]="convActive ? activeDotColor() : null"
+          [style.box-shadow]="convActive && activeDotColor() ? '0 0 7px ' + activeDotColor() : null"></span>
         <span class="conv-title">{{ capFirst(c.title) }}</span>
         @if (c.archived) { <span class="conv-badge">archived</span> }
         <button class="conv-icon" [class.pinned]="c.pinned"
@@ -403,15 +407,17 @@
             <span class="workiq-label" [class.strike]="!workIqOn()">Work IQ</span>
           </button>
         }
-        <button class="icon-btn ghost bg-toggle" [class.on]="bgOpen()" aria-label="Background tasks"
-          title="Background tasks" (click)="toggleBgPanel()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          @if (bgRunning().length) { <span class="bg-badge">{{ bgRunning().length }}</span> }
-        </button>
-        <button class="icon-btn ghost" [class.on]="browserOpen()" aria-label="Compass browser"
-          title="Compass browser" (click)="toggleBrowser()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
-        </button>
+        @if (section() === 'code') {
+          <button class="icon-btn ghost bg-toggle" [class.on]="bgOpen()" aria-label="Background tasks"
+            title="Background tasks" (click)="toggleBgPanel()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            @if (bgRunning().length) { <span class="bg-badge">{{ bgRunning().length }}</span> }
+          </button>
+          <button class="icon-btn ghost" [class.on]="browserOpen()" aria-label="Compass browser"
+            title="Compass browser" (click)="toggleBrowser()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+          </button>
+        }
         <button class="icon-btn ghost"
           [attr.aria-label]="'Switch to ' + (theme.theme() === 'dark' ? 'light' : 'dark') + ' theme'"
           (click)="theme.toggle()">
@@ -430,6 +436,7 @@
     <app-home-chat [style.display]="section() === 'home' ? null : 'none'"
       [models]="models()" [deployment]="activeModel()" [activeSession]="homeActiveId()"
       [workIq]="workIqOn()"
+      [voiceAvailable]="voiceAvailable()"
       (switchToAgent)="enterCode()"
       (sessionCreated)="onHomeSessionCreated($event)"
       (threadChanged)="loadHomeSessions()" />
@@ -779,6 +786,19 @@
               </span>
               <button class="cmp-att-x" type="button" (click)="removeAttachment(a.id)" [attr.aria-label]="'Remove ' + a.name">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          }
+        </div>
+      }
+      @if (browserSelectSvc.picks().length) {
+        <div class="cmp-picks">
+          @for (p of browserSelectSvc.picks(); track p.id) {
+            <div class="cmp-pick" title="Selected from the Compass browser">
+              <svg class="cmp-pick-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l6 16 2-6 6-2z" stroke-linejoin="round"/></svg>
+              <span class="cmp-pick-label">{{ p.label }}</span>
+              <button class="cmp-pick-x" type="button" (click)="browserSelectSvc.remove(p.id)" aria-label="Remove element reference">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
               </button>
             </div>
           }
@@ -1182,9 +1202,31 @@
           <button class="cb-btn" [class.on]="annotateOn()" title="Annotate" (click)="toggleAnnotate()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
           </button>
-          <button class="cb-btn" [class.on]="!annotateOn()" title="Select / interact" (click)="annotateOn.set(false)">
+          <button class="cb-btn" [class.on]="browserSelect()" title="Select / inspect" (click)="toggleSelect()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l6 16 2-6 6-2z" stroke-linejoin="round"/></svg>
           </button>
+          <div class="cb-menu-wrap">
+            <button class="cb-btn" [class.on]="cbViewMenuOpen() || browserViewport() !== 'responsive'"
+              title="Viewport" (click)="$event.stopPropagation(); cbViewMenuOpen.set(!cbViewMenuOpen())">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4" stroke-linecap="round"/></svg>
+            </button>
+            @if (cbViewMenuOpen()) {
+              <div class="cb-menu cb-view-menu panel" (click)="$event.stopPropagation()">
+                <button (click)="setViewport('responsive')">
+                  <span>Responsive</span>
+                  @if (browserViewport() === 'responsive') { <span class="cb-check">✓</span> }
+                </button>
+                <button (click)="setViewport('mobile')">
+                  <span>Mobile</span><span class="cb-dim">375 × 812</span>
+                  @if (browserViewport() === 'mobile') { <span class="cb-check">✓</span> }
+                </button>
+                <button (click)="setViewport('tablet')">
+                  <span>Tablet</span><span class="cb-dim">768 × 1024</span>
+                  @if (browserViewport() === 'tablet') { <span class="cb-check">✓</span> }
+                </button>
+              </div>
+            }
+          </div>
           <div class="cb-menu-wrap">
             <button class="cb-btn" [class.on]="cbMenuOpen()" title="More" (click)="$event.stopPropagation(); cbMenuOpen.set(!cbMenuOpen())">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
@@ -1197,21 +1239,63 @@
               </div>
             }
           </div>
-          <button class="cb-btn" title="Expand to a new window" (click)="expandBrowser()">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M21 3l-8 8M9 21H3v-6M3 21l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <button class="cb-btn" [title]="browserExpanded() ? 'Collapse' : 'Expand'" (click)="expandBrowser()">
+            @if (browserExpanded()) {
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 9L4 4M9 9V5M9 9H5M15 15l5 5M15 15v4M15 15h4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            } @else {
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M21 3l-8 8M9 21H3v-6M3 21l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            }
           </button>
           <button class="cb-btn" title="Close" (click)="toggleBrowser()">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
           </button>
         </div>
         <div class="cb-body">
-          @if (browserSrc()) {
-            <iframe class="cb-frame" [src]="browserSrc()"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-              referrerpolicy="no-referrer" title="Compass browser"></iframe>
-          } @else {
-            <div class="cb-empty">Type a URL above to browse.</div>
-          }
+          <!-- Live server-side Chromium streamed as frames; pointer/keyboard/
+               scroll are forwarded so it's fully interactive on any site.
+               In "select / interact" mode this view drives the page; in
+               "annotate" mode the overlay canvas captures drawing instead. -->
+          <div class="cb-view" #cbView tabindex="0"
+            [class.interact]="!annotateOn()"
+            [class.device]="browserViewport() !== 'responsive'"
+            [class.selecting]="browserSelect()"
+            (pointerdown)="rbDown($event)" (pointermove)="rbMove($event)"
+            (pointerup)="rbUp($event)" (wheel)="rbWheel($event)"
+            (pointerleave)="rbLeave()"
+            (keydown)="rbKey($event)" (contextmenu)="$event.preventDefault()">
+            @if (rbFrame()) {
+              <img class="cb-frame-img" #cbImg [src]="rbFrame()" draggable="false" alt="Remote page"
+                [class.device-fit]="browserViewport() !== 'responsive'"
+                [style.aspect-ratio]="deviceAspect()" />
+            } @else {
+              <div class="cb-empty">
+                @if (rbError()) { {{ rbError() }} }
+                @else if (browserAddr()) { <span class="spin"></span> Loading… }
+                @else { Type a URL above to browse. }
+              </div>
+            }
+            @if (inspectView(); as ins) {
+              <div class="cb-inspect" [style.left.px]="ins.left" [style.top.px]="ins.top"
+                [style.width.px]="ins.w" [style.height.px]="ins.h"></div>
+              <div class="cb-inspect-card" [style.left.px]="ins.left"
+                [style.top.px]="ins.top + ins.h + 9">
+                <div class="cb-card-head">
+                  <span class="cb-card-tag">{{ ins.tag }}<span class="cb-card-cls">{{ ins.sub }}</span></span>
+                  <span class="cb-card-dim">{{ ins.dim }}</span>
+                </div>
+                <div class="cb-card-a11y">ACCESSIBILITY</div>
+                <div class="cb-card-row"><span class="cb-card-k">Name</span><span class="cb-card-v">{{ ins.name || '—' }}</span></div>
+                <div class="cb-card-row"><span class="cb-card-k">Role</span><span class="cb-card-v">{{ ins.role }}</span></div>
+                <div class="cb-card-row"><span class="cb-card-k">Keyboard-focusable</span>
+                  @if (ins.focusable) {
+                    <svg class="cb-card-ico yes" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  } @else {
+                    <svg class="cb-card-ico no" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12" stroke-linecap="round"/></svg>
+                  }
+                </div>
+              </div>
+            }
+          </div>
           @if (annotateOn()) {
             <canvas #annoCanvas class="cb-anno"
               (pointerdown)="annoStart($event)" (pointermove)="annoMove($event)"
@@ -1219,11 +1303,10 @@
             <div class="cb-anno-bar">
               <span>Annotating</span>
               <button (click)="clearAnno()">Clear</button>
-              <button (click)="captureBrowserShot(false)">Screenshot → chat</button>
+              <button (click)="captureAnnotatedShot()">Screenshot → chat</button>
             </div>
           }
           @if (shotBusy()) { <div class="cb-shot-busy"><span class="spin"></span> capturing…</div> }
-          <div class="cb-hint">Some sites block embedding — use <strong>↗</strong> to open them in your system browser.</div>
         </div>
       </div>
       }
@@ -1238,7 +1321,14 @@
               <button class="bg-x" title="Refresh" (click)="refreshBgTasks()">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
-              <button class="bg-x" title="Close" (click)="bgOpen.set(false)">
+              <button class="bg-x" [title]="bgExpanded() ? 'Collapse' : 'Expand'" (click)="toggleBgExpand()">
+                @if (bgExpanded()) {
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 9L4 4M9 9V5M9 9H5M15 15l5 5M15 15v4M15 15h4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                } @else {
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 3h6v6M21 3l-8 8M9 21H3v-6M3 21l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                }
+              </button>
+              <button class="bg-x" title="Close" (click)="bgOpen.set(false); bgExpanded.set(false)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
               </button>
             </div>
@@ -1247,19 +1337,26 @@
             <div class="bg-section-label">Running</div>
             @if (bgRunning().length) {
               @for (t of bgRunning(); track t.id) {
-                <div class="bg-task">
+                <div class="bg-task" [class.open]="bgLogsOpenId() === t.id">
                   <div class="bg-task-top">
-                    <span class="bg-task-name">{{ t.name }}</span>
+                    <button class="bg-task-name-btn" (click)="toggleBgLogs(t)" title="View output">
+                      <svg class="bg-log-caret" [class.open]="bgLogsOpenId() === t.id" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      <span class="bg-task-name">{{ t.name }}</span>
+                    </button>
                     <button class="bg-stop" title="Stop task" (click)="stopBgTask(t)">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                     </button>
                   </div>
+                  <div class="bg-cmd">{{ t.command }}</div>
                   <div class="bg-task-meta">
-                    <span class="bg-kind">Preview</span>
+                    @if (t.url) { <span class="bg-kind">Preview</span> }
                     <span class="bg-elapsed">{{ bgElapsed(t) }}</span>
                   </div>
                   @if (t.url) {
                     <button class="bg-url" (click)="openBgUrl(t)">{{ t.url.replace('http://', '').replace('https://', '') }}</button>
+                  }
+                  @if (bgLogsOpenId() === t.id) {
+                    <pre class="bg-logs">{{ bgLogs().length ? bgLogs().join('\n') : '(no output yet)' }}</pre>
                   }
                 </div>
               }
@@ -1279,15 +1376,22 @@
             </div>
             @if (bgFinishedOpen()) {
               @for (t of bgFinished(); track t.id) {
-                <div class="bg-task done">
+                <div class="bg-task done" [class.open]="bgLogsOpenId() === t.id">
                   <div class="bg-task-top">
-                    <span class="bg-task-name">{{ t.name }}</span>
+                    <button class="bg-task-name-btn" (click)="toggleBgLogs(t)" title="View output">
+                      <svg class="bg-log-caret" [class.open]="bgLogsOpenId() === t.id" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      <span class="bg-task-name">{{ t.name }}</span>
+                    </button>
                     <span class="bg-status" [class]="'st-' + t.status">{{ t.status }}</span>
                   </div>
+                  <div class="bg-cmd">{{ t.command }}</div>
                   <div class="bg-task-meta">
                     <span class="bg-elapsed">ran {{ bgElapsed(t) }}</span>
                     @if (t.exit_code !== null) { <span class="bg-exit">exit {{ t.exit_code }}</span> }
                   </div>
+                  @if (bgLogsOpenId() === t.id) {
+                    <pre class="bg-logs">{{ bgLogs().length ? bgLogs().join('\n') : '(no output)' }}</pre>
+                  }
                 </div>
               }
             }

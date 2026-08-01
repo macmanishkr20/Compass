@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from compass.tools.agent import AgentTool
 from compass.tools.base import Tool
-from compass.tools.bash import BashTool
+from compass.tools.bash import BashOutputTool, BashTool
 from compass.tools.filesystem import FileEditTool, FileReadTool, FileWriteTool
 from compass.tools.screenshot import ScreenshotTool
 from compass.tools.search import GlobTool, GrepTool
@@ -19,6 +19,7 @@ def get_all_tools() -> list[Tool]:
         GlobTool(),
         GrepTool(),
         BashTool(),
+        BashOutputTool(),
         TodoWriteTool(),
         ScreenshotTool(),
         AgentTool(),
@@ -38,5 +39,6 @@ def subagent_tools(subagent_type: str) -> list[Tool]:
         GlobTool(),
         GrepTool(),
         BashTool(),
+        BashOutputTool(),
         TodoWriteTool(),
     ]

@@ -81,6 +81,8 @@ class BackgroundTask:
     workspace_id: str | None = None
     _proc: asyncio.subprocess.Process | None = field(default=None, repr=False)
     _log: deque[str] = field(default_factory=lambda: deque(maxlen=MAX_LOG_LINES), repr=False)
+    _produced: int = 0  # total lines ever appended (survives the deque cap)
+    _read_cursor: int = 0  # index up to which bash_output has already returned
 
     def to_dict(self) -> dict:
         return {
@@ -143,6 +145,7 @@ class BackgroundTaskRegistry:
         if proc.stdout is not None:
             async for raw in proc.stdout:
                 task._log.append(raw.decode(errors="replace").rstrip("\n"))
+                task._produced += 1
         code = await proc.wait()
         # A user stop() sets status to "stopped" first; don't overwrite it.
         if task.status == "running":
@@ -163,6 +166,20 @@ class BackgroundTaskRegistry:
     def logs(self, task_id: str) -> list[str]:
         t = self._tasks.get(task_id)
         return list(t._log) if t else []
+
+    def read_new(self, task_id: str) -> list[str]:
+        """Lines produced since the last read_new() for this task (the analog of
+        Claude Code's BashOutput). Handles the deque's line-cap: if old lines
+        were dropped, it returns from the oldest still-buffered line."""
+        t = self._tasks.get(task_id)
+        if t is None:
+            return []
+        buffered = list(t._log)
+        buffer_start = t._produced - len(buffered)  # abs index of buffered[0]
+        start = max(t._read_cursor, buffer_start)
+        new = buffered[start - buffer_start:] if start < t._produced else []
+        t._read_cursor = t._produced
+        return new
 
     async def stop(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)

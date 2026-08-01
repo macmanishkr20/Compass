@@ -38,6 +38,15 @@ class AzureOpenAISettings(BaseModel):
     # Voice for TTS: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
     # shimmer. "coral" and "sage" are the warm, expressive ones.
     tts_voice: str = "coral"
+    # Realtime (speech-to-speech) — powers the Home "voice mode" via the Azure
+    # OpenAI Realtime API/WebRTC. A SEPARATE deployment from the chat model
+    # (e.g. gpt-4o-realtime-preview). Empty = voice mode unavailable.
+    realtime_deployment: str = ""
+    realtime_voice: str = "alloy"  # alloy|ash|ballad|coral|echo|sage|shimmer|verse|marin
+
+    @property
+    def realtime_configured(self) -> bool:
+        return bool(self.endpoint and self.api_key and self.realtime_deployment)
 
     @property
     def tts_endpoint_effective(self) -> str:
@@ -271,6 +280,12 @@ def get_settings() -> Settings:
         "AZURE_OPENAI_TTS_API_VERSION", azure.tts_api_version
     )
     azure.tts_voice = os.environ.get("COMPASS_TTS_VOICE", azure.tts_voice)
+    azure.realtime_deployment = os.environ.get(
+        "AZURE_OPENAI_REALTIME_DEPLOYMENT", azure.realtime_deployment
+    )
+    azure.realtime_voice = os.environ.get(
+        "AZURE_OPENAI_REALTIME_VOICE", azure.realtime_voice
+    )
 
     if mot := os.environ.get("COMPASS_MAX_OUTPUT_TOKENS"):
         try:

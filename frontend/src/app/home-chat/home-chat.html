@@ -127,16 +127,25 @@
         @if (models().length) {
           <label class="home-pick" title="Model">
             <i class="home-dot"></i>
+            <span class="home-pick-val">{{ activeModel() }}</span>
+            <svg class="home-pick-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
             <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="activeModel.set($event)">
               @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
             </select>
           </label>
         }
         <label class="home-pick" title="Effort">
+          <span class="home-pick-val">{{ activeEffort() }}</span>
+          <svg class="home-pick-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
           <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="activeEffort.set($event)">
             @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
           </select>
         </label>
+
+        <button class="home-voice" type="button" (click)="openVoice()"
+          aria-label="Use voice mode" title="Use voice mode">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4"/></svg>
+        </button>
 
         @if (streaming()) {
           <button class="home-send stop" type="button" (click)="abort()" aria-label="Stop">
@@ -162,4 +171,35 @@
       </div>
     }
   </div>
+
+  @if (voiceError()) { <div class="home-attach-err voice-err">{{ voiceError() }}</div> }
+
+  <!-- Voice mode: hands-free listen → answer → speak → listen loop. -->
+  @if (voiceMode()) {
+    <div class="voice-overlay" (click)="interruptVoice()">
+      <button class="voice-close" type="button" (click)="$event.stopPropagation(); exitVoice()" aria-label="End voice mode">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+      </button>
+
+      <div class="voice-orb" [class]="'vs-' + voiceState()">
+        <span class="voice-ring r1"></span>
+        <span class="voice-ring r2"></span>
+        <app-compass-mark [size]="88" [active]="voiceState() !== 'speaking'" />
+      </div>
+
+      <div class="voice-status">
+        {{ voiceState() === 'connecting' ? 'Connecting…' : voiceState() === 'listening' ? 'Listening…' : 'Speaking…' }}
+      </div>
+
+      <p class="voice-caption">
+        @if (voiceState() === 'speaking' && voiceReply()) { {{ voiceReply() }} }
+        @else if (voiceHeard()) { {{ voiceHeard() }} }
+        @else if (voiceState() === 'listening') { Say something — Compass is listening. }
+      </p>
+
+      <div class="voice-hint">
+        @if (voiceState() === 'speaking') { Tap anywhere to interrupt } @else { Tap ✕ to end voice mode }
+      </div>
+    </div>
+  }
 </section>
