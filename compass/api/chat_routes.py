@@ -242,7 +242,7 @@ async def patch_chat_session(
     session_id: str, body: ChatPatchRequest, user: str = Depends(require_user)
 ) -> dict:
     """Rename or star (pin) a Home chat — persisted to the chat meta index."""
-    chat_engine.store.set_meta(session_id, title=body.title, pinned=body.pinned)
+    await chat_engine.store.set_meta(session_id, title=body.title, pinned=body.pinned)
     return {"ok": True}
 
 

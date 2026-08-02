@@ -117,7 +117,7 @@ class ChatStore:
     def _write_meta(self, meta: dict[str, dict]) -> None:
         self._meta_path().write_text(json.dumps(meta))
 
-    def set_meta(
+    async def set_meta(
         self, session_id: str, *, title: str | None = None, pinned: bool | None = None
     ) -> None:
         meta = self._read_meta()
@@ -182,13 +182,25 @@ class ChatStore:
         if meta.pop(session_id, None) is not None:
             self._write_meta(meta)
 
-    def rewrite(self, session_id: str, messages: list[Message]) -> None:
+    async def rewrite(self, session_id: str, messages: list[Message]) -> None:
         """Overwrite a transcript with `messages` — used by regenerate/edit,
         which truncate the thread before re-answering (the append-only log
         can't otherwise drop the messages that were rolled back)."""
         with self._path(session_id).open("w") as f:
             for m in messages:
                 f.write(json.dumps(m.to_record(), default=str) + "\n")
+
+
+def get_chat_store():
+    """Pick the Home/Chat backend: Azure Cosmos DB when configured, else the
+    local JSONL store — the same config-or-fallback contract the agent
+    transcript store uses. Absent Cosmos credentials, nothing changes."""
+    cfg = get_settings().storage
+    if cfg.backend == "cosmos" and cfg.cosmos_configured:
+        from compass.persistence.chat_cosmos import CosmosChatStore
+
+        return CosmosChatStore()
+    return ChatStore()
 
 
 @dataclass
@@ -218,7 +230,7 @@ class ChatSession:
 
 class ChatEngine:
     def __init__(self) -> None:
-        self.store = ChatStore()
+        self.store = get_chat_store()
 
     async def resume(self, session_id: str, **kwargs) -> ChatSession:
         session = ChatSession(id=session_id, **kwargs)
@@ -252,7 +264,7 @@ class ChatEngine:
                 session.messages.pop()
             if not session.messages or session.messages[-1].role != "user":
                 return
-            self.store.rewrite(session.id, session.messages)
+            await self.store.rewrite(session.id, session.messages)
             rollback = list(session.messages)
             query_text = _content_text(session.messages[-1].content)
             async for ev in self._answer(session, query_text, work_iq, rollback):
@@ -278,7 +290,7 @@ class ChatEngine:
             del session.messages[index:]
             message = build_user_message(new_text, None)
             session.messages.append(message)
-            self.store.rewrite(session.id, session.messages)
+            await self.store.rewrite(session.id, session.messages)
             rollback = list(session.messages)
             async for ev in self._answer(session, new_text, work_iq, rollback):
                 yield ev
@@ -321,7 +333,7 @@ class ChatEngine:
                 yield event
         except Exception as err:  # noqa: BLE001 — surface as an in-stream event
             session.messages[:] = rollback
-            self.store.rewrite(session.id, session.messages)
+            await self.store.rewrite(session.id, session.messages)
             yield events.ErrorEvent(message=str(err))
             yield events.TurnComplete(reason="error", detail="chat turn failed")
         finally:

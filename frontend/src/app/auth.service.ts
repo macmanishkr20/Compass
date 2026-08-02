@@ -6,10 +6,10 @@ export interface AuthUser {
   username: string;
 }
 
-const TOKEN_KEY = 'compass-auth-token';
-
 /**
- * Session-token auth state. The token lives in localStorage; `user` is the
+ * Session auth state. The token lives ONLY in a secure httpOnly cookie set by
+ * the server — never in browser storage — so JS can't read it and the client
+ * just relies on the cookie riding along (withCredentials). `user` is the
  * reactive source of truth the shell gates on: null = show the login screen.
  * When the backend reports auth disabled, we run as "guest" with no login.
  */
@@ -32,15 +32,8 @@ export class AuthService {
     return name.slice(0, 2).toUpperCase() || '??';
   });
 
-  get token(): string | null {
-    try {
-      return localStorage.getItem(TOKEN_KEY);
-    } catch {
-      return null;
-    }
-  }
-
-  /** Boot check: restore a stored token, or bypass when auth is disabled. */
+  /** Boot check: ask the server who we are (the cookie rides along), or bypass
+   *  when auth is disabled. A 401 just means "not signed in". */
   async restore(authEnabled: boolean): Promise<void> {
     this.authEnabled.set(authEnabled);
     try {
@@ -48,13 +41,12 @@ export class AuthService {
         this.user.set({ username: 'guest' });
         return;
       }
-      if (!this.token) return;
       const me = await firstValueFrom(
         this.http.get<{ username: string }>('/v1/auth/me'),
       );
       this.user.set({ username: me.username });
     } catch {
-      this.clearToken(); // expired/invalid — fall through to login
+      this.user.set(null); // no/invalid cookie — fall through to login
     } finally {
       this.checking.set(false);
     }
@@ -64,17 +56,10 @@ export class AuthService {
     this.busy.set(true);
     this.loginError.set(null);
     try {
+      // The server sets the httpOnly cookie on this response; we keep nothing.
       const res = await firstValueFrom(
-        this.http.post<{ token: string; user: AuthUser }>('/v1/auth/login', {
-          username,
-          password,
-        }),
+        this.http.post<{ user: AuthUser }>('/v1/auth/login', { username, password }),
       );
-      try {
-        localStorage.setItem(TOKEN_KEY, res.token);
-      } catch {
-        /* private mode: token lives for the tab only */
-      }
       this.user.set(res.user);
       return true;
     } catch (err: unknown) {
@@ -90,25 +75,20 @@ export class AuthService {
     }
   }
 
-  logout(): void {
-    this.clearToken();
+  async logout(): Promise<void> {
+    try {
+      await firstValueFrom(this.http.post('/v1/auth/logout', {}));
+    } catch {
+      /* clearing the cookie is best-effort */
+    }
     this.user.set(null);
   }
 
   /** Called by the interceptor on a 401 from any API call. */
   sessionExpired(): void {
     if (this.authEnabled() && this.user()) {
-      this.clearToken();
       this.user.set(null);
       this.loginError.set('Your session expired — please sign in again.');
-    }
-  }
-
-  private clearToken(): void {
-    try {
-      localStorage.removeItem(TOKEN_KEY);
-    } catch {
-      /* ignore */
     }
   }
 }

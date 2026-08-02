@@ -8,6 +8,7 @@ Mirrors Claude Code's settings cascade in miniature: environment variables
 from __future__ import annotations
 
 import json
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -109,6 +110,9 @@ class StorageSettings(BaseModel):
     cosmos_key: str = ""
     cosmos_database: str = "compass"
     cosmos_container: str = "transcripts"
+    # Home/Chat threads live in their own container so they stay isolated from
+    # the agent transcripts (same isolation the local JSONL layout gives).
+    cosmos_chat_container: str = "chat"
     # Blob storage for large artifacts (tool-result spills). Empty = local disk.
     blob_connection_string: str = ""
     blob_container: str = "compass-artifacts"
@@ -120,6 +124,29 @@ class StorageSettings(BaseModel):
     @property
     def blob_configured(self) -> bool:
         return bool(self.blob_connection_string)
+
+
+class RedisSettings(BaseModel):
+    """Azure Cache for Redis — cross-instance state/cache (session cache,
+    distributed locks, ephemeral caches). Empty URL = in-process only."""
+
+    url: str = ""  # rediss://:<key>@<name>.redis.cache.windows.net:6380/0
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.url)
+
+
+class ServiceBusSettings(BaseModel):
+    """Azure Service Bus — async/queued jobs (Routines, long agent runs).
+    Empty = run inline (current behaviour)."""
+
+    connection_string: str = ""
+    queue_name: str = "compass-jobs"
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.connection_string)
 
 
 class TelemetrySettings(BaseModel):
@@ -145,6 +172,11 @@ class AuthSettings(BaseModel):
     users: dict[str, str] = {"admin": "compass"}  # demo default; see .env
     secret: str = ""
     token_ttl_hours: float = 12.0
+    # The token is also set as an httpOnly cookie (no browser localStorage).
+    # Behind TLS (Azure Front Door / Container Apps) set COMPASS_AUTH_COOKIE_SECURE=1.
+    cookie_name: str = "compass_token"
+    cookie_secure: bool = False
+    cookie_samesite: str = "lax"  # lax | strict | none
 
 
 class ContextSettings(BaseModel):
@@ -188,8 +220,13 @@ class Settings(BaseModel):
     ai_search: AiSearchSettings = Field(default_factory=AiSearchSettings)
     github: GitHubSettings = Field(default_factory=GitHubSettings)
     storage: StorageSettings = Field(default_factory=StorageSettings)
+    redis: RedisSettings = Field(default_factory=RedisSettings)
+    service_bus: ServiceBusSettings = Field(default_factory=ServiceBusSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    # Azure Key Vault URL; when set, secrets are pulled into the environment at
+    # startup (Container Apps can also map them to env vars natively).
+    key_vault_url: str = ""
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -250,9 +287,35 @@ def _load_dotenv() -> None:
             return
 
 
+def _load_key_vault() -> None:
+    """When AZURE_KEY_VAULT_URL is set, pull every secret into os.environ before
+    settings are read — so the same code runs locally from .env and in Azure
+    from Key Vault. Key Vault names use '-'; they map to '_' env vars (e.g.
+    'AZURE-OPENAI-API-KEY' -> 'AZURE_OPENAI_API_KEY'). Real env vars still win.
+    Best-effort: a missing SDK, bad URL, or denied access never blocks startup.
+    """
+    url = os.environ.get("AZURE_KEY_VAULT_URL", "").strip()
+    if not url:
+        return
+    try:
+        from azure.identity import DefaultAzureCredential
+        from azure.keyvault.secrets import SecretClient
+
+        client = SecretClient(vault_url=url, credential=DefaultAzureCredential())
+        for prop in client.list_properties_of_secrets():
+            name = (prop.name or "").replace("-", "_")
+            if name and name not in os.environ:
+                os.environ[name] = client.get_secret(prop.name).value or ""
+    except Exception as err:  # noqa: BLE001 — never let secret loading crash boot
+        logging.getLogger("compass.config").warning(
+            "Key Vault load skipped (%s): %s", url, err
+        )
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     _load_dotenv()
+    _load_key_vault()
     root = Path(os.environ.get("COMPASS_WORKSPACE", os.getcwd())).resolve()
     data = _load_project_file(root)
     settings = Settings.model_validate(data) if data else Settings()
@@ -325,10 +388,22 @@ def get_settings() -> Settings:
         "AZURE_STORAGE_CONNECTION_STRING", storage.blob_connection_string
     )
     storage.blob_container = os.environ.get("AZURE_STORAGE_CONTAINER", storage.blob_container)
+    storage.cosmos_chat_container = os.environ.get(
+        "AZURE_COSMOS_CHAT_CONTAINER", storage.cosmos_chat_container
+    )
     # Convenience: setting Cosmos credentials implies the cosmos backend
     # unless the backend was pinned explicitly.
     if storage.cosmos_configured and "COMPASS_STORAGE_BACKEND" not in os.environ:
         storage.backend = "cosmos"
+
+    settings.redis.url = os.environ.get("AZURE_REDIS_URL", settings.redis.url)
+    settings.service_bus.connection_string = os.environ.get(
+        "AZURE_SERVICE_BUS_CONNECTION_STRING", settings.service_bus.connection_string
+    )
+    settings.service_bus.queue_name = os.environ.get(
+        "AZURE_SERVICE_BUS_QUEUE", settings.service_bus.queue_name
+    )
+    settings.key_vault_url = os.environ.get("AZURE_KEY_VAULT_URL", settings.key_vault_url)
 
     settings.telemetry.connection_string = os.environ.get(
         "APPLICATIONINSIGHTS_CONNECTION_STRING", settings.telemetry.connection_string
@@ -354,6 +429,12 @@ def get_settings() -> Settings:
             auth.token_ttl_hours = float(ttl)
         except ValueError:
             pass
+    auth.cookie_name = os.environ.get("COMPASS_AUTH_COOKIE_NAME", auth.cookie_name)
+    if os.environ.get("COMPASS_AUTH_COOKIE_SECURE", "").lower() in ("1", "true", "yes"):
+        auth.cookie_secure = True
+    auth.cookie_samesite = os.environ.get(
+        "COMPASS_AUTH_COOKIE_SAMESITE", auth.cookie_samesite
+    ).lower()
 
     settings.mcp_config_path = os.environ.get(
         "COMPASS_MCP_CONFIG", settings.mcp_config_path

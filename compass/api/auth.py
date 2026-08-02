@@ -23,7 +23,7 @@ import json
 import secrets as _secrets
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -75,16 +75,34 @@ def verify_token(token: str) -> str | None:
         return None
 
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    auth = get_settings().auth
+    response.set_cookie(
+        key=auth.cookie_name,
+        value=token,
+        httponly=True,  # never readable by browser JS
+        secure=auth.cookie_secure,
+        samesite=auth.cookie_samesite,
+        max_age=int(auth.token_ttl_hours * 3600),
+        path="/",
+    )
+
+
 async def require_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> str:
-    """FastAPI dependency guarding every stateful route. When auth is
-    disabled, everything runs as 'guest' and no header is needed."""
+    """FastAPI dependency guarding every stateful route. The token is read from
+    the secure httpOnly cookie (no browser storage), falling back to a Bearer
+    header for API clients. When auth is disabled, everything runs as 'guest'."""
     if not get_settings().auth.enabled:
         return "guest"
-    if credentials is None:
+    token = credentials.credentials if credentials else None
+    if not token:
+        token = request.cookies.get(get_settings().auth.cookie_name)
+    if not token:
         raise HTTPException(status_code=401, detail="authentication required")
-    username = verify_token(credentials.credentials)
+    username = verify_token(token)
     if username is None:
         raise HTTPException(status_code=401, detail="invalid or expired token")
     return username
@@ -96,10 +114,10 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/login")
-async def login(body: LoginRequest) -> dict:
+async def login(body: LoginRequest, response: Response) -> dict:
     auth = get_settings().auth
     if not auth.enabled:
-        return {"token": "", "user": {"username": "guest"}}
+        return {"user": {"username": "guest"}}
     expected = auth.users.get(body.username)
     ok = expected is not None and hmac.compare_digest(
         expected.encode(), body.password.encode()
@@ -107,10 +125,16 @@ async def login(body: LoginRequest) -> dict:
     log_event("auth_login", ok=ok)
     if not ok:
         raise HTTPException(status_code=401, detail="invalid username or password")
-    return {
-        "token": mint_token(body.username),
-        "user": {"username": body.username},
-    }
+    token = mint_token(body.username)
+    _set_auth_cookie(response, token)
+    # token still returned for non-browser API clients; browsers use the cookie.
+    return {"token": token, "user": {"username": body.username}}
+
+
+@router.post("/logout")
+async def logout(response: Response) -> dict:
+    response.delete_cookie(get_settings().auth.cookie_name, path="/")
+    return {"ok": True}
 
 
 @router.get("/me")

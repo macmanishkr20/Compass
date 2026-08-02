@@ -25,6 +25,7 @@ import { HomeChat } from './home-chat/home-chat';
 import { Lightbox } from './lightbox/lightbox';
 import { LightboxService } from './lightbox.service';
 import { BrowserSelectService } from './browser-select.service';
+import { getPref, setPref } from './prefs';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from './attachments';
 import { SmoothText } from './smooth-text';
 import {
@@ -971,7 +972,7 @@ export class App {
 
   signOut(): void {
     this.userMenuOpen.set(false);
-    this.auth.logout();
+    void this.auth.logout();
     this.sessionId.set(null);
     this.timeline.set([]);
     this.usage.set(null);
@@ -2841,19 +2842,11 @@ export class App {
 
   setVoice(voice: string): void {
     this.activeVoice.set(voice);
-    try {
-      localStorage.setItem('compass-tts-voice', voice);
-    } catch {
-      /* private mode — in-memory only */
-    }
+    setPref('compass-tts-voice', voice);
   }
 
   private loadVoicePref(): string {
-    try {
-      return localStorage.getItem('compass-tts-voice') ?? '';
-    } catch {
-      return '';
-    }
+    return getPref('compass-tts-voice') ?? '';
   }
 
   private browserSpeak(b: ChatBubble): void {

@@ -1,4 +1,5 @@
 import { Injectable, effect, signal } from '@angular/core';
+import { getPref, setPref } from './prefs';
 
 export type Theme = 'light' | 'dark';
 
@@ -12,11 +13,7 @@ export class ThemeService {
     effect(() => {
       const t = this.theme();
       document.documentElement.setAttribute('data-theme', t);
-      try {
-        localStorage.setItem(KEY, t);
-      } catch {
-        /* private mode — ignore */
-      }
+      setPref(KEY, t);
     });
   }
 
@@ -25,12 +22,8 @@ export class ThemeService {
   }
 
   private initial(): Theme {
-    try {
-      const saved = localStorage.getItem(KEY) as Theme | null;
-      if (saved === 'light' || saved === 'dark') return saved;
-    } catch {
-      /* ignore */
-    }
+    const saved = getPref(KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
     return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 }

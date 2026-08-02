@@ -227,16 +227,14 @@ export class CompassApiService {
     );
   }
 
-  /** Expressive TTS — returns an mp3 blob. Raw fetch so the token is attached
-   * and binary comes back untouched. Throws on 503 (TTS not deployed) so the
-   * caller can fall back to the browser voice. */
+  /** Expressive TTS — returns an mp3 blob. Raw fetch (binary comes back
+   * untouched); the auth cookie rides along via credentials. Throws on 503
+   * (TTS not deployed) so the caller can fall back to the browser voice. */
   async synthesizeSpeech(text: string, voice?: string): Promise<Blob> {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    const token = this.auth.token;
-    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch('/v1/speech', {
       method: 'POST',
-      headers,
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ text, voice: voice ?? null }),
     });
     if (!res.ok) {
@@ -422,16 +420,12 @@ export class CompassApiService {
     body: unknown,
     onEvent: (event: CompassEvent) => void,
   ): Promise<void> {
-    // Raw fetch (EventSource can't POST, HttpClient buffers) — so the bearer
-    // token is attached here directly; the interceptor can't see this call.
-    const headers: Record<string, string> = {
-      'content-type': 'application/json',
-    };
-    const token = this.auth.token;
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    // Raw fetch (EventSource can't POST, HttpClient buffers) — the auth cookie
+    // rides along via credentials; the interceptor can't see this call.
     const res = await fetch(url, {
       method: 'POST',
-      headers,
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(body),
     });
     if (res.status === 401) {
