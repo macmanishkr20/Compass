@@ -284,6 +284,32 @@ export class CompassApiService {
     );
   }
 
+  async streamChatRegenerate(
+    sessionId: string,
+    onEvent: (event: CompassEvent) => void,
+    workIq = false,
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/chat/sessions/${sessionId}/regenerate`,
+      { work_iq: workIq },
+      onEvent,
+    );
+  }
+
+  async streamChatEdit(
+    sessionId: string,
+    index: number,
+    content: string,
+    onEvent: (event: CompassEvent) => void,
+    workIq = false,
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/chat/sessions/${sessionId}/edit`,
+      { index, content, work_iq: workIq },
+      onEvent,
+    );
+  }
+
   workIqStatus(): Promise<{ configured: boolean }> {
     return firstValueFrom(
       this.http.get<{ configured: boolean }>('/v1/chat/work-iq'),
@@ -319,6 +345,15 @@ export class CompassApiService {
   deleteChatSession(sessionId: string): Promise<{ deleted: string }> {
     return firstValueFrom(
       this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
+    );
+  }
+
+  patchChatSession(
+    sessionId: string,
+    patch: { title?: string; pinned?: boolean },
+  ): Promise<{ ok: boolean }> {
+    return firstValueFrom(
+      this.http.patch<{ ok: boolean }>(`/v1/chat/sessions/${sessionId}`, patch),
     );
   }
 

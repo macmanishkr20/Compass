@@ -143,6 +143,7 @@ async def run_tool_use(
             arguments,
             is_read_only=tool.is_read_only(parsed),
             permission_mode=ctx.permission_mode,
+            extra_rules=getattr(ctx.broker, "session_rules", None),
         )
     if verdict.behavior is Behavior.DENY:
         async for item in finish(
@@ -155,7 +156,13 @@ async def run_tool_use(
     if verdict.behavior is Behavior.ASK:
         request_id = str(uuid.uuid4())
         if ctx.broker.policy == "interactive":
-            ctx.broker.create(request_id)
+            primary = str(
+                arguments.get("command")
+                or arguments.get("path")
+                or arguments.get("file_path")
+                or ""
+            )
+            ctx.broker.create(request_id, tool_name=tool.name, primary=primary)
         yield events.PermissionRequest(
             request_id=request_id,
             tool_call_id=tool_call.id,

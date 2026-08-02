@@ -76,6 +76,47 @@
 }
 .ctext { margin: 0; white-space: pre-wrap; word-break: break-word; }
 
+/* bubble + its hover actions, stacked */
+.cwrap { display: flex; flex-direction: column; min-width: 0; max-width: 82%; }
+.cwrap.mine { align-items: flex-end; }
+.cwrap .cbubble { max-width: 100%; }
+
+/* message actions (Copy / Retry / Edit) — revealed on row hover, like claude.ai */
+.cmsg-actions {
+  display: flex; gap: 2px;
+  margin: 4px 2px 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cmsg-actions.mine { justify-content: flex-end; }
+.crow:hover .cmsg-actions,
+.cmsg-actions:focus-within { opacity: 1; }
+.cmsg-act {
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border: 0; background: transparent; border-radius: 7px;
+  color: var(--muted); cursor: pointer;
+}
+.cmsg-act:hover { background: var(--surface-2); color: var(--ink); }
+
+/* inline edit box for a user message */
+.cedit { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }
+.cedit-input {
+  width: 100%; resize: vertical; min-height: 52px;
+  font: inherit; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px;
+}
+.cedit-input:focus { outline: none; border-color: var(--accent); }
+.cedit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cedit-btn {
+  font: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 6px 13px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; background: var(--accent); color: #fff;
+}
+.cedit-btn.ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+.cedit-btn.ghost:hover { color: var(--ink); background: var(--surface-2); }
+
 /* Work IQ sources under a grounded reply */
 .wiq-sources {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;

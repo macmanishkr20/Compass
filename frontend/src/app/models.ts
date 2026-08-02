@@ -49,7 +49,7 @@ export interface GithubRepo {
   html_url: string;
 }
 
-export type PermissionBehavior = 'allow' | 'deny' | 'timeout';
+export type PermissionBehavior = 'allow' | 'deny' | 'timeout' | 'allow_always';
 
 export interface CompassEvent {
   type: string;
@@ -70,6 +70,7 @@ export interface ChatAttachment {
 export interface ChatCard {
   id: string;
   title: string;
+  pinned?: boolean;
   updated_at: number;
   created_at: number;
 }

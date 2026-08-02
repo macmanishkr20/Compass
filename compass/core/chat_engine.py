@@ -101,6 +101,33 @@ class ChatStore:
     def _path(self, session_id: str) -> Path:
         return self._dir() / f"{session_id}.jsonl"
 
+    # -- per-thread metadata (title override + starred), a tiny JSON index ----
+    def _meta_path(self) -> Path:
+        return self._dir() / "_meta.json"
+
+    def _read_meta(self) -> dict[str, dict]:
+        p = self._meta_path()
+        if not p.is_file():
+            return {}
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def _write_meta(self, meta: dict[str, dict]) -> None:
+        self._meta_path().write_text(json.dumps(meta))
+
+    def set_meta(
+        self, session_id: str, *, title: str | None = None, pinned: bool | None = None
+    ) -> None:
+        meta = self._read_meta()
+        entry = meta.setdefault(session_id, {})
+        if title is not None:
+            entry["title"] = title
+        if pinned is not None:
+            entry["pinned"] = pinned
+        self._write_meta(meta)
+
     def append(self, session_id: str, message: Message) -> None:
         with self._path(session_id).open("a") as f:
             f.write(json.dumps(message.to_record(), default=str) + "\n")
@@ -129,15 +156,19 @@ class ChatStore:
         return sorted(p.stem for p in self._dir().glob("*.jsonl"))
 
     async def list_cards(self) -> list[dict]:
-        """Conversation cards for the Home sidebar: id + a title derived from
-        the first user message + file timestamps (most-recent first)."""
+        """Conversation cards for the Home sidebar: id + a title (a manual
+        rename overrides the one derived from the first user message) + starred
+        flag + file timestamps (most-recent first)."""
+        meta = self._read_meta()
         cards: list[dict] = []
         for p in self._dir().glob("*.jsonl"):
             st = p.stat()
+            m = meta.get(p.stem, {})
             cards.append(
                 {
                     "id": p.stem,
-                    "title": _first_user_title(p) or "New chat",
+                    "title": m.get("title") or _first_user_title(p) or "New chat",
+                    "pinned": bool(m.get("pinned")),
                     "updated_at": st.st_mtime,
                     "created_at": getattr(st, "st_birthtime", st.st_ctime),
                 }
@@ -147,6 +178,17 @@ class ChatStore:
 
     async def delete(self, session_id: str) -> None:
         self._path(session_id).unlink(missing_ok=True)
+        meta = self._read_meta()
+        if meta.pop(session_id, None) is not None:
+            self._write_meta(meta)
+
+    def rewrite(self, session_id: str, messages: list[Message]) -> None:
+        """Overwrite a transcript with `messages` — used by regenerate/edit,
+        which truncate the thread before re-answering (the append-only log
+        can't otherwise drop the messages that were rolled back)."""
+        with self._path(session_id).open("w") as f:
+            for m in messages:
+                f.write(json.dumps(m.to_record(), default=str) + "\n")
 
 
 @dataclass
@@ -192,49 +234,98 @@ class ChatEngine:
     ) -> AsyncIterator[events.Event]:
         async with session.turn_lock:
             session.abort_event.clear()
+            rollback = list(session.messages)
             message = build_user_message(user_input, attachments)
             session.messages.append(message)
             self.store.append(session.id, message)
+            async for ev in self._answer(session, user_input, work_iq, rollback):
+                yield ev
 
-            # Work IQ (Home-only, opt-in): retrieve from Azure AI Search and
-            # ground this turn. The context lives in the per-turn system prompt
-            # (not persisted), so history stays clean; sources go to the UI.
-            system_prompt = CHAT_SYSTEM_PROMPT
-            if work_iq:
-                from compass.services import work_iq as wiq
+    async def regenerate(
+        self, session: ChatSession, work_iq: bool = False
+    ) -> AsyncIterator[events.Event]:
+        """Re-answer the last user turn (claude.ai's Retry): drop the trailing
+        assistant reply, then run the model again on the same prompt."""
+        async with session.turn_lock:
+            session.abort_event.clear()
+            while session.messages and session.messages[-1].role == "assistant":
+                session.messages.pop()
+            if not session.messages or session.messages[-1].role != "user":
+                return
+            self.store.rewrite(session.id, session.messages)
+            rollback = list(session.messages)
+            query_text = _content_text(session.messages[-1].content)
+            async for ev in self._answer(session, query_text, work_iq, rollback):
+                yield ev
 
-                if wiq.configured():
-                    docs = await wiq.hybrid_search(user_input)
-                    system_prompt = wiq.WORK_IQ_SYSTEM_PROMPT.format(
-                        context=wiq.format_context(docs)
-                    )
-                    if docs:
-                        yield _WorkIqSources(sources=wiq.sources_for_ui(docs))
+    async def edit(
+        self,
+        session: ChatSession,
+        index: int,
+        new_text: str,
+        work_iq: bool = False,
+    ) -> AsyncIterator[events.Event]:
+        """Edit a prior user message and resend (claude.ai's Edit): truncate the
+        thread at that message, replace it, and re-answer from there. `index` is
+        the message's position — Home chat is strictly alternating user/assistant
+        so the client's bubble order maps 1:1 onto the stored messages."""
+        async with session.turn_lock:
+            session.abort_event.clear()
+            if index < 0 or index >= len(session.messages):
+                return
+            if session.messages[index].role != "user":
+                return
+            del session.messages[index:]
+            message = build_user_message(new_text, None)
+            session.messages.append(message)
+            self.store.rewrite(session.id, session.messages)
+            rollback = list(session.messages)
+            async for ev in self._answer(session, new_text, work_iq, rollback):
+                yield ev
 
-            ctx = session.make_context()
-            try:
-                async for event in query(
-                    session.messages,
-                    ctx,
-                    system_prompt=system_prompt,
-                    effort=session.effort,
-                    model=session.model,
-                    on_message=lambda m: self.store.append(session.id, m),
-                ):
-                    yield event
-            except Exception as err:  # noqa: BLE001 — surface as an in-stream event
-                # A rejected turn (e.g. an image Azure can't parse) must not
-                # poison the thread: every later turn re-sends the whole
-                # history. Drop the user message we just added so the next
-                # turn starts clean, and report the failure inline.
-                try:
-                    session.messages.remove(message)
-                except ValueError:
-                    pass
-                yield events.ErrorEvent(message=str(err))
-                yield events.TurnComplete(reason="error", detail="chat turn failed")
-            finally:
-                await self.store.flush()
+    async def _answer(
+        self,
+        session: ChatSession,
+        query_text: str,
+        work_iq: bool,
+        rollback: list[Message],
+    ) -> AsyncIterator[events.Event]:
+        """Run one model turn over the current history. `rollback` is the state
+        to restore (and rewrite to disk) if the turn errors, so a failed turn
+        never poisons the thread that later turns re-send in full."""
+        # Work IQ (Home-only, opt-in): retrieve from Azure AI Search and ground
+        # this turn. The context lives in the per-turn system prompt (not
+        # persisted), so history stays clean; sources go to the UI.
+        system_prompt = CHAT_SYSTEM_PROMPT
+        if work_iq:
+            from compass.services import work_iq as wiq
+
+            if wiq.configured():
+                docs = await wiq.hybrid_search(query_text)
+                system_prompt = wiq.WORK_IQ_SYSTEM_PROMPT.format(
+                    context=wiq.format_context(docs)
+                )
+                if docs:
+                    yield _WorkIqSources(sources=wiq.sources_for_ui(docs))
+
+        ctx = session.make_context()
+        try:
+            async for event in query(
+                session.messages,
+                ctx,
+                system_prompt=system_prompt,
+                effort=session.effort,
+                model=session.model,
+                on_message=lambda m: self.store.append(session.id, m),
+            ):
+                yield event
+        except Exception as err:  # noqa: BLE001 — surface as an in-stream event
+            session.messages[:] = rollback
+            self.store.rewrite(session.id, session.messages)
+            yield events.ErrorEvent(message=str(err))
+            yield events.TurnComplete(reason="error", detail="chat turn failed")
+        finally:
+            await self.store.flush()
 
     def abort(self, session: ChatSession) -> None:
         session.abort_event.set()

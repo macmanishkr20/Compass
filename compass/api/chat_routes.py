@@ -108,6 +108,36 @@ async def send_chat_message(
     return _sse(chat_engine.ask(session, body.content, attachments, body.work_iq))
 
 
+class ChatRegenRequest(BaseModel):
+    work_iq: bool = False
+
+
+class ChatEditRequest(BaseModel):
+    index: int
+    content: str
+    work_iq: bool = False
+
+
+@router.post("/sessions/{session_id}/regenerate")
+async def regenerate_chat(
+    session_id: str, body: ChatRegenRequest, user: str = Depends(require_user)
+) -> StreamingResponse:
+    session = _get_chat_session(session_id)
+    if session.turn_lock.locked():
+        raise HTTPException(status_code=409, detail="a turn is already running")
+    return _sse(chat_engine.regenerate(session, body.work_iq))
+
+
+@router.post("/sessions/{session_id}/edit")
+async def edit_chat(
+    session_id: str, body: ChatEditRequest, user: str = Depends(require_user)
+) -> StreamingResponse:
+    session = _get_chat_session(session_id)
+    if session.turn_lock.locked():
+        raise HTTPException(status_code=409, detail="a turn is already running")
+    return _sse(chat_engine.edit(session, body.index, body.content, body.work_iq))
+
+
 @router.post("/sessions/{session_id}/abort")
 async def abort_chat_turn(session_id: str, user: str = Depends(require_user)) -> dict:
     session = _get_chat_session(session_id)
@@ -200,6 +230,20 @@ async def voice_session(user: str = Depends(require_user)) -> dict:
 async def list_chat_sessions(user: str = Depends(require_user)) -> dict:
     """Home conversation cards (id, title, timestamps), most-recent first."""
     return {"sessions": await chat_engine.store.list_cards()}
+
+
+class ChatPatchRequest(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+
+
+@router.patch("/sessions/{session_id}")
+async def patch_chat_session(
+    session_id: str, body: ChatPatchRequest, user: str = Depends(require_user)
+) -> dict:
+    """Rename or star (pin) a Home chat — persisted to the chat meta index."""
+    chat_engine.store.set_meta(session_id, title=body.title, pinned=body.pinned)
+    return {"ok": True}
 
 
 @router.delete("/sessions/{session_id}")

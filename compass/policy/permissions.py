@@ -50,10 +50,13 @@ def check_permissions(
     *,
     is_read_only: bool,
     permission_mode: str | None = None,
+    extra_rules: list[PermissionRule] | None = None,
 ) -> PermissionDecision:
     settings = get_settings()
     mode = permission_mode or settings.permission_mode
-    rules = settings.permission_rules
+    # Session "Always allow" rules take precedence over the global config rules
+    # (they're consulted first, but deny still beats allow within the merged set).
+    rules = [*(extra_rules or []), *settings.permission_rules]
 
     if tool_name == "bash":
         return _check_bash_permissions(arguments, mode, rules)

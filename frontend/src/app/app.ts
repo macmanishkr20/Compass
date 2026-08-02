@@ -205,17 +205,24 @@ export class App {
     return list;
   });
   readonly homeGroups = computed<{ label: string; cards: ChatCard[] }[]>(() => {
-    const list = this.sortedHome();
+    const all = this.sortedHome();
+    // Starred (pinned) chats float to a section at the top, like claude.ai.
+    const pinned = all.filter((c) => c.pinned);
+    const rest = all.filter((c) => !c.pinned);
+    const groups: { label: string; cards: ChatCard[] }[] = [];
+    if (pinned.length) groups.push({ label: 'Starred', cards: pinned });
     if (this.groupBy() === 'date') {
       const order = ['Today', 'Yesterday', 'Previous 7 days', 'Older'];
       const map = new Map<string, ChatCard[]>();
-      for (const c of list) {
+      for (const c of rest) {
         const k = this.dateBucket(c.updated_at);
         (map.get(k) ?? map.set(k, []).get(k)!).push(c);
       }
-      return order.filter((k) => map.has(k)).map((label) => ({ label, cards: map.get(label)! }));
+      for (const label of order) if (map.has(label)) groups.push({ label, cards: map.get(label)! });
+    } else if (rest.length) {
+      groups.push({ label: 'Chats', cards: rest });
     }
-    return [{ label: 'Chats', cards: list }];
+    return groups;
   });
   readonly limitedHomeGroups = computed<{ label: string; cards: ChatCard[] }[]>(() => {
     let budget = this.homeLimit();
@@ -249,14 +256,59 @@ export class App {
     this.homeActiveId.set(id);
     void this.loadHomeSessions();
   }
-  async deleteHomeConversation(card: ChatCard, ev: Event): Promise<void> {
-    ev.stopPropagation();
+  async deleteHomeConversation(card: ChatCard, ev?: Event): Promise<void> {
+    ev?.stopPropagation();
+    this.homeMenuOpenId.set(null);
     try {
       await this.api.deleteChatSession(card.id);
     } catch {
       /* ignore */
     }
     if (this.homeActiveId() === card.id) this.homeActiveId.set(null);
+    await this.loadHomeSessions();
+  }
+
+  // -- Home chat-row menu: Rename / Star / Delete (like claude.ai + Code) ----
+  readonly homeMenuOpenId = signal<string | null>(null);
+  readonly homeRenamingId = signal<string | null>(null);
+
+  openHomeMenu(id: string, ev: Event): void {
+    ev.stopPropagation();
+    if (this.homeMenuOpenId() === id) {
+      this.homeMenuOpenId.set(null);
+      return;
+    }
+    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    this.menuX.set(r.right);
+    this.menuY.set(r.bottom + 4);
+    this.homeMenuOpenId.set(id);
+  }
+  closeHomeMenu(): void {
+    this.homeMenuOpenId.set(null);
+  }
+  startHomeRename(card: ChatCard): void {
+    this.homeMenuOpenId.set(null);
+    this.homeRenamingId.set(card.id);
+  }
+  async commitHomeRename(card: ChatCard, value: string): Promise<void> {
+    const title = value.trim();
+    this.homeRenamingId.set(null);
+    if (!title || title === card.title) return;
+    try {
+      await this.api.patchChatSession(card.id, { title });
+    } catch {
+      /* ignore */
+    }
+    await this.loadHomeSessions();
+  }
+  async toggleHomePin(card: ChatCard, ev?: Event): Promise<void> {
+    ev?.stopPropagation();
+    this.homeMenuOpenId.set(null);
+    try {
+      await this.api.patchChatSession(card.id, { pinned: !card.pinned });
+    } catch {
+      /* ignore */
+    }
     await this.loadHomeSessions();
   }
 
@@ -415,7 +467,9 @@ export class App {
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
   readonly cards = signal<SessionCard[]>([]);
-  readonly groupBy = signal<GroupBy>('none');
+  // Default to date-grouping so both lists open in claude.ai's Today/Yesterday/
+  // Previous 7 days sections; the Group control can still switch it.
+  readonly groupBy = signal<GroupBy>('date');
   readonly sortBy = signal<SortBy>('recent');
   readonly showArchived = signal(false);
   readonly historyMenuOpen = signal(false);
@@ -2106,6 +2160,7 @@ export class App {
    *  dismisses open menus. Toggles stopPropagation so they aren't re-closed. */
   closeAllMenus(): void {
     this.menuOpenId.set(null);
+    this.homeMenuOpenId.set(null);
     this.userMenuOpen.set(false);
     this.repoMenuOpen.set(false);
     this.branchMenuOpen.set(false);
@@ -2479,11 +2534,16 @@ export class App {
     this.clearStreamingFlags();
   }
 
-  async resolve(perm: PermissionVM, behavior: 'allow' | 'deny'): Promise<void> {
+  async resolve(
+    perm: PermissionVM,
+    behavior: 'allow' | 'deny' | 'allow_always',
+  ): Promise<void> {
     const sid = this.sessionId();
     if (!sid) return;
     await this.api.resolvePermission(sid, perm.id, behavior);
-    this.patch(perm.id, (p) => ({ ...(p as PermissionVM), resolved: behavior }));
+    // 'allow_always' displays as allowed (and future calls stop prompting).
+    const shown = behavior === 'deny' ? 'deny' : 'allow';
+    this.patch(perm.id, (p) => ({ ...(p as PermissionVM), resolved: shown }));
   }
 
   /** The newest unresolved permission — target of keyboard shortcuts. */
@@ -2516,6 +2576,9 @@ export class App {
     } else if (ev.key === '1' && !typing) {
       ev.preventDefault();
       void this.resolve(p, 'deny');
+    } else if (ev.key === '3' && !typing) {
+      ev.preventDefault();
+      void this.resolve(p, 'allow_always');
     }
   }
 

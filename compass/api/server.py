@@ -362,9 +362,14 @@ async def resolve_permission(
     user: str = Depends(require_user),
 ) -> dict:
     session = _get_session(session_id)
-    if body.behavior not in ("allow", "deny"):
-        raise HTTPException(status_code=422, detail="behavior must be allow or deny")
-    resolved = session.broker.resolve(request_id, body.behavior == "allow")
+    if body.behavior not in ("allow", "deny", "allow_always"):
+        raise HTTPException(
+            status_code=422, detail="behavior must be allow, deny, or allow_always"
+        )
+    if body.behavior == "allow_always":
+        resolved = session.broker.allow_always(request_id)
+    else:
+        resolved = session.broker.resolve(request_id, body.behavior == "allow")
     if not resolved:
         raise HTTPException(status_code=404, detail="no pending request with that id")
     return {"request_id": request_id, "behavior": body.behavior}

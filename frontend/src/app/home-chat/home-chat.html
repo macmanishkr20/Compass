@@ -10,46 +10,80 @@
       </div>
     } @else {
       <div class="chat-log">
-        @for (m of messages(); track m.id) {
+        @for (m of messages(); track m.id; let last = $last) {
           <div class="crow" [class.mine]="m.role === 'user'">
             @if (m.role === 'assistant') {
               <span class="cavatar"><app-compass-mark [size]="22" /></span>
             }
-            <div class="cbubble" [class.user]="m.role === 'user'">
-              @if (m.role === 'assistant') {
-                <app-markdown [text]="m.text || '…'" />
-                @if (m.sources?.length) {
-                  <div class="wiq-sources">
-                    <span class="wiq-sources-head">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.6 3.6 3 8 3s8-1.4 8-3V5" stroke-linecap="round"/></svg>
-                      Sources
-                    </span>
-                    @for (s of m.sources!; track s.n) {
-                      @if (s.url) {
-                        <a class="wiq-source" [href]="s.url" target="_blank" rel="noopener">[{{ s.n }}] {{ s.title }}</a>
-                      } @else {
-                        <span class="wiq-source">[{{ s.n }}] {{ s.title }}</span>
+            <div class="cwrap" [class.mine]="m.role === 'user'">
+              <div class="cbubble" [class.user]="m.role === 'user'">
+                @if (m.role === 'assistant') {
+                  <app-markdown [text]="m.text || '…'" />
+                  @if (m.sources?.length) {
+                    <div class="wiq-sources">
+                      <span class="wiq-sources-head">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.6 3.6 3 8 3s8-1.4 8-3V5" stroke-linecap="round"/></svg>
+                        Sources
+                      </span>
+                      @for (s of m.sources!; track s.n) {
+                        @if (s.url) {
+                          <a class="wiq-source" [href]="s.url" target="_blank" rel="noopener">[{{ s.n }}] {{ s.title }}</a>
+                        } @else {
+                          <span class="wiq-source">[{{ s.n }}] {{ s.title }}</span>
+                        }
                       }
-                    }
+                    </div>
+                  }
+                } @else if (editingId() === m.id) {
+                  <div class="cedit">
+                    <textarea class="cedit-input" #editBox [value]="editDraft()"
+                      (input)="editDraft.set($any($event.target).value)"
+                      (keydown.escape)="cancelEdit()"
+                      (keydown.enter)="$event.preventDefault(); commitEdit(m)"></textarea>
+                    <div class="cedit-actions">
+                      <button class="cedit-btn ghost" type="button" (click)="cancelEdit()">Cancel</button>
+                      <button class="cedit-btn" type="button" (click)="commitEdit(m)">Save &amp; submit</button>
+                    </div>
                   </div>
-                }
-              } @else {
-                @if (m.atts?.length) {
-                  <div class="cbubble-atts">
-                    @for (a of m.atts!; track a.id) {
-                      @if (a.kind === 'image') {
-                        <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name"
-                          (click)="lightbox.open(a.dataUrl, a.name)" />
-                      } @else {
-                        <span class="cbubble-file">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
-                          {{ a.name }}
-                        </span>
+                } @else {
+                  @if (m.atts?.length) {
+                    <div class="cbubble-atts">
+                      @for (a of m.atts!; track a.id) {
+                        @if (a.kind === 'image') {
+                          <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name"
+                            (click)="lightbox.open(a.dataUrl, a.name)" />
+                        } @else {
+                          <span class="cbubble-file">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
+                            {{ a.name }}
+                          </span>
+                        }
                       }
-                    }
-                  </div>
+                    </div>
+                  }
+                  @if (m.text) { <p class="ctext">{{ m.text }}</p> }
                 }
-                @if (m.text) { <p class="ctext">{{ m.text }}</p> }
+              </div>
+
+              @if (editingId() !== m.id && (m.text || m.role === 'assistant') && !(m.role === 'assistant' && m.streaming)) {
+                <div class="cmsg-actions" [class.mine]="m.role === 'user'">
+                  <button class="cmsg-act" [title]="copiedId() === m.id ? 'Copied' : 'Copy'" (click)="copyMsg(m)">
+                    @if (copiedId() === m.id) {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    } @else {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round"/></svg>
+                    }
+                  </button>
+                  @if (m.role === 'user') {
+                    <button class="cmsg-act" title="Edit" (click)="startEdit(m)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
+                    </button>
+                  } @else if (last && !streaming()) {
+                    <button class="cmsg-act" title="Retry" (click)="regenerate()">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  }
+                </div>
               }
             </div>
           </div>

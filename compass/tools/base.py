@@ -56,16 +56,41 @@ class PermissionBroker:
         # policy: interactive | auto_grant | auto_deny (headless agents)
         self.policy = policy
         self._pending: dict[str, asyncio.Future[bool]] = {}
+        # request_id -> (tool_name, primary_arg), so "allow always" can build a
+        # session rule for the right tool/command.
+        self._meta: dict[str, tuple[str, str]] = {}
+        # Session-scoped allow rules added by the user's "Always allow" choice;
+        # consulted by check_permissions so matching calls stop prompting.
+        self.session_rules: list = []
 
-    def create(self, request_id: str) -> None:
+    def create(self, request_id: str, tool_name: str = "", primary: str = "") -> None:
         self._pending[request_id] = asyncio.get_running_loop().create_future()
+        self._meta[request_id] = (tool_name, primary)
 
     def resolve(self, request_id: str, allow: bool) -> bool:
         future = self._pending.get(request_id)
         if future is None or future.done():
             return False
         future.set_result(allow)
+        self._meta.pop(request_id, None)
         return True
+
+    def allow_always(self, request_id: str) -> bool:
+        """Grant this request AND remember the choice for the session: future
+        calls to the same tool (for bash, the same command prefix) auto-allow —
+        claude.ai's 'Yes, and don't ask again' option."""
+        from compass.config import PermissionRule
+
+        tool_name, primary = self._meta.get(request_id, ("", ""))
+        if tool_name:
+            if tool_name == "bash" and primary.strip():
+                pattern = primary.strip().split()[0] + " *"
+            else:
+                pattern = "*"
+            self.session_rules.append(
+                PermissionRule(tool=tool_name, pattern=pattern, action="allow")
+            )
+        return self.resolve(request_id, True)
 
     async def wait(self, request_id: str, timeout: float) -> bool | None:
         """True=granted, False=denied, None=timed out."""

@@ -146,7 +146,7 @@
 
     <!-- Home section: its own chat history; agent Conversations are hidden. -->
     @if (section() === 'home') {
-      <nav class="history" aria-label="Chats">
+      <nav class="history" aria-label="Chats" (click)="closeHomeMenu()">
         @if (homeSessions().length === 0) {
           <div class="hist-group"><div class="hist-label">Chats</div><p class="hist-empty">No chats yet.</p></div>
         }
@@ -154,18 +154,41 @@
           <div class="hist-group">
             <div class="hist-label">{{ g.label }}</div>
             @for (c of g.cards; track c.id) {
-              <div class="conv" [class.active]="c.id === homeActiveId()"
-                (click)="openHomeConversation(c.id)" role="button" tabindex="0"
-                (keydown.enter)="openHomeConversation(c.id)">
-                <span class="conv-rail"
-                  [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
-                  [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
-                  [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
-                <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
-                <button class="conv-icon" aria-label="Delete chat" (click)="deleteHomeConversation(c, $event)">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-              </div>
+              @if (homeRenamingId() === c.id) {
+                <div class="conv editing">
+                  <input class="conv-edit" #hrn [value]="c.title" autofocus
+                    (keydown.enter)="commitHomeRename(c, hrn.value)"
+                    (keydown.escape)="homeRenamingId.set(null)"
+                    (blur)="commitHomeRename(c, hrn.value)" />
+                </div>
+              } @else {
+                <div class="conv" [class.active]="c.id === homeActiveId()"
+                  (click)="openHomeConversation(c.id)" role="button" tabindex="0"
+                  (keydown.enter)="openHomeConversation(c.id)">
+                  <span class="conv-rail"
+                    [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                    [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
+                    [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
+                  <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
+                  <button class="conv-icon" [class.pinned]="c.pinned"
+                    [attr.aria-label]="c.pinned ? 'Unstar' : 'Star'" (click)="toggleHomePin(c, $event)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" [attr.fill]="c.pinned ? 'currentColor' : 'none'"
+                      stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.4L12 18.3 6.2 21.3l1.1-6.4L2.6 10.3l6.5-.9z" stroke-linejoin="round"/></svg>
+                  </button>
+                  <button class="conv-icon" aria-label="Chat menu" (click)="openHomeMenu(c.id, $event)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                  </button>
+                  @if (homeMenuOpenId() === c.id) {
+                    <div class="conv-menu panel" (click)="$event.stopPropagation()" role="menu"
+                      [style.left.px]="menuX() - 178" [style.top.px]="menuY()">
+                      <button role="menuitem" (click)="startHomeRename(c)">Rename</button>
+                      <button role="menuitem" (click)="toggleHomePin(c)">{{ c.pinned ? 'Unstar' : 'Star' }}</button>
+                      <div class="menu-sep"></div>
+                      <button role="menuitem" class="danger" (click)="deleteHomeConversation(c)">Delete</button>
+                    </div>
+                  }
+                </div>
+              }
             }
           </div>
         }
@@ -637,6 +660,10 @@
                   </button>
                   <button class="perm-btn allow" (click)="resolve(p, 'allow')">
                     Allow once <kbd>2 ⌘↵</kbd>
+                  </button>
+                  <button class="perm-btn allow-always" (click)="resolve(p, 'allow_always')"
+                    title="Allow this and don't ask again for it this session">
+                    Always allow <kbd>3</kbd>
                   </button>
                 </div>
               } @else {

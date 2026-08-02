@@ -1423,6 +1423,12 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .perm-btn.allow:hover { filter: brightness(1.12); }
 .perm-btn.allow kbd { opacity: 0.75; }
+.perm-btn.allow-always {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, var(--border));
+  color: var(--ink);
+}
+.perm-btn.allow-always:hover { background: color-mix(in oklab, var(--accent) 26%, transparent); }
 .perm-verdict {
   margin-top: 13px;
   text-align: right;

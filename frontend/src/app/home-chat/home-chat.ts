@@ -310,12 +310,7 @@ export class HomeChat {
     });
 
     const payload = toWire(atts);
-
-    this.turnStartMs = performance.now();
-    this.elapsedMs.set(0);
-    this.streaming.set(true);
-    this.currentAssistant = null;
-    try {
+    await this.runStream(async () => {
       if (!this.sessionId) {
         const res = await this.api.createChatSession({
           model: this.activeModel() || undefined,
@@ -325,7 +320,6 @@ export class HomeChat {
         this.loadedId = res.session_id; // keep in sync so the input echo is a no-op
         this.sessionCreated.emit(res.session_id);
       }
-      this.pendingSources = null;
       await this.api.streamChatMessage(
         this.sessionId,
         content,
@@ -333,6 +327,20 @@ export class HomeChat {
         payload,
         this.workIq(),
       );
+    });
+  }
+
+  /** Shared turn runner: set up streaming state, run `fn`, then finalise the
+   *  pending assistant bubble. Used by send / regenerate / edit. */
+  private async runStream(fn: () => Promise<void>): Promise<void> {
+    if (this.streaming()) return;
+    this.turnStartMs = performance.now();
+    this.elapsedMs.set(0);
+    this.streaming.set(true);
+    this.currentAssistant = null;
+    this.pendingSources = null;
+    try {
+      await fn();
     } catch (err) {
       this.push({
         id: crypto.randomUUID(),
@@ -341,8 +349,6 @@ export class HomeChat {
         streaming: false,
       });
     } finally {
-      // Read through a cast: the field is mutated inside the onEvent callback,
-      // which TS's flow analysis can't see, so it would otherwise narrow to null.
       const pending = this.currentAssistant as ChatMsg | null;
       if (pending) {
         this.smoother?.finish();
@@ -353,6 +359,55 @@ export class HomeChat {
       this.streaming.set(false);
       this.threadChanged.emit(); // refresh the sidebar (title / recency)
     }
+  }
+
+  // -- message actions (Copy / Retry / Edit), like claude.ai ----------------
+  readonly copiedId = signal<string | null>(null);
+  readonly editingId = signal<string | null>(null);
+  readonly editDraft = signal('');
+
+  async copyMsg(m: ChatMsg): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(m.text || '');
+      this.copiedId.set(m.id);
+      setTimeout(() => this.copiedId() === m.id && this.copiedId.set(null), 1300);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  /** Retry: drop the last assistant reply and re-answer the same prompt. */
+  async regenerate(): Promise<void> {
+    if (!this.sessionId || this.streaming()) return;
+    this.messages.update((list) => {
+      const copy = [...list];
+      while (copy.length && copy[copy.length - 1].role === 'assistant') copy.pop();
+      return copy;
+    });
+    await this.runStream(() =>
+      this.api.streamChatRegenerate(this.sessionId!, (ev) => this.onEvent(ev), this.workIq()),
+    );
+  }
+
+  startEdit(m: ChatMsg): void {
+    if (this.streaming()) return;
+    this.editDraft.set(m.text || '');
+    this.editingId.set(m.id);
+  }
+  cancelEdit(): void {
+    this.editingId.set(null);
+  }
+  /** Edit a user message: truncate the thread there, resend the new text. */
+  async commitEdit(m: ChatMsg): Promise<void> {
+    const idx = this.messages().findIndex((x) => x.id === m.id);
+    const text = this.editDraft().trim();
+    this.editingId.set(null);
+    if (idx < 0 || !text || !this.sessionId || this.streaming()) return;
+    this.messages.update((list) => list.slice(0, idx));
+    this.push({ id: crypto.randomUUID(), role: 'user', text, streaming: false });
+    await this.runStream(() =>
+      this.api.streamChatEdit(this.sessionId!, idx, text, (ev) => this.onEvent(ev), this.workIq()),
+    );
   }
 
   async abort(): Promise<void> {
