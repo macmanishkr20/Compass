@@ -843,8 +843,9 @@ export class App {
       queueMicrotask(() => {
         const el = this.logEl()?.nativeElement;
         // Instant follow so rAF-paced streaming text doesn't fight a smooth
-        // scroll animation (which stutters when content grows every frame).
-        el?.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+        // scroll animation (which stutters when content grows every frame) —
+        // but only while the user is still parked at the bottom.
+        if (el && this.stickBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
       });
     });
     // Rotate the status message for the whole turn (Claude keeps its verbs
@@ -1013,9 +1014,15 @@ export class App {
     document.getElementById('msg-' + id)?.scrollIntoView({ block: 'start' });
     this.navActive.set(id);
   }
+  // Auto-follow streaming output ONLY while the user is parked near the bottom.
+  // The moment they scroll up to read, we stop yanking them back down (claude.ai
+  // behaviour); scrolling back to the bottom re-arms the follow.
+  private stickBottom = true;
+
   onLogScroll(): void {
     const log = this.logEl()?.nativeElement;
     if (!log) return;
+    this.stickBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
     const marker = log.getBoundingClientRect().top + 120;
     let current: string | null = null;
     for (const p of this.promptNav()) {
@@ -2364,6 +2371,7 @@ export class App {
 
   async send(): Promise<void> {
     if (!this.canSend()) return;
+    this.stickBottom = true; // a fresh prompt re-arms auto-follow
     const content = this.draft().trim();
     const sid = this.sessionId();
     if (!sid) return;

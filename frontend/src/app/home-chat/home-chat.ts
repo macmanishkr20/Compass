@@ -141,6 +141,12 @@ export class HomeChat {
   }
 
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('chatlog');
+  // Auto-follow streaming only while the user is parked near the bottom.
+  private stickBottom = true;
+  onScroll(): void {
+    const el = this.logEl()?.nativeElement;
+    if (el) this.stickBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  }
 
   constructor() {
     effect(() => {
@@ -149,7 +155,9 @@ export class HomeChat {
         const el = this.logEl()?.nativeElement;
         // Instant follow: with rAF-paced text the content grows every frame, so
         // a competing 'smooth' scroll animation would stutter — 'auto' tracks it.
-        el?.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+        // Only while the user is parked at the bottom; if they scrolled up to
+        // read, don't yank them back down (claude.ai behaviour).
+        if (el && this.stickBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
       });
     });
     // React to the sidebar selecting a conversation (or "new" = null). Ignore
@@ -299,6 +307,7 @@ export class HomeChat {
     const content = this.draft().trim();
     const atts = this.attachments();
     if ((!content && atts.length === 0) || this.streaming()) return;
+    this.stickBottom = true; // a fresh prompt re-arms auto-follow
     this.draft.set('');
     this.attachments.set([]);
     this.push({
