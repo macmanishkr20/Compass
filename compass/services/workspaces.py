@@ -387,6 +387,53 @@ def open_in_vscode(path: Path) -> str:
     raise RuntimeError(last_err)
 
 
+def choose_folder() -> str:
+    """Show the host's native folder chooser and return the selected absolute
+    path (empty string if cancelled). Works when the backend shares the user's
+    desktop session (the normal local-app setup) — macOS Finder, the Windows
+    folder dialog, or zenity on Linux.
+
+    Raises RuntimeError only when no picker is available on the platform."""
+    import platform
+    import shutil
+    import subprocess
+
+    system = platform.system()
+    if system == "Darwin":
+        out = subprocess.run(
+            [
+                "osascript",
+                "-e", 'tell application "System Events" to activate',
+                "-e", 'POSIX path of (choose folder with prompt "Select a folder for Compass")',
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    if system == "Windows":  # pragma: no cover - platform-specific
+        # WinForms FolderBrowserDialog via PowerShell (STA required for a dialog).
+        ps = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$d.Description = 'Select a folder for Compass';"
+            "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)"
+            " { [Console]::Out.Write($d.SelectedPath) }"
+        )
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-STA", "-Command", ps],
+            capture_output=True, text=True, timeout=300,
+        )
+        return out.stdout.strip()
+    # Linux: zenity if present.
+    if shutil.which("zenity"):  # pragma: no cover - platform-specific
+        out = subprocess.run(
+            ["zenity", "--file-selection", "--directory",
+             "--title=Select a folder for Compass"],
+            capture_output=True, text=True, timeout=300,
+        )
+        return out.stdout.strip() if out.returncode == 0 else ""
+    raise RuntimeError("no native folder picker available on this host")
+
+
 _registry: WorkspaceRegistry | None = None
 
 

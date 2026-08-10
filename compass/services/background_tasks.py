@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import subprocess
+import sys
 import time
 import uuid
 from collections import deque
@@ -124,14 +126,22 @@ class BackgroundTaskRegistry:
             url=self._guess_url(command),
             workspace_id=workspace_id,
         )
+        # Own process group so stop() can kill the whole tree (a dev server and
+        # its children). POSIX uses a new session; Windows uses a new process
+        # group. macOS/Linux behaviour is unchanged.
+        from compass.tools.shell_runtime import shell_argv
+
+        group_kwargs: dict = {}
+        if sys.platform == "win32":  # pragma: no cover - platform-specific
+            group_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            group_kwargs["start_new_session"] = True
         proc = await asyncio.create_subprocess_exec(
-            "bash",
-            "-lc",
-            command,
+            *shell_argv(command, login=True),
             cwd=str(cwd),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,  # own process group, so stop() kills children
+            **group_kwargs,
         )
         task._proc = proc
         async with self._lock:
@@ -191,8 +201,18 @@ class BackgroundTaskRegistry:
 
         task.status = "stopped"
         task.finished_at = time.time()
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(os.getpgid(task._proc.pid), signal.SIGTERM)
+        pid = task._proc.pid
+        if sys.platform == "win32":  # pragma: no cover - platform-specific
+            # taskkill /T ends the whole process tree (the dev server + children).
+            with contextlib.suppress(Exception):
+                await asyncio.create_subprocess_exec(
+                    "taskkill", "/PID", str(pid), "/T", "/F",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+        else:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
         return True
 
     async def clear_finished(self) -> int:

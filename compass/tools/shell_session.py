@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shlex
 import tempfile
 import uuid
 from dataclasses import dataclass, field
@@ -30,6 +29,7 @@ from pathlib import Path
 from typing import AsyncIterator, Callable
 
 from compass.config import get_settings
+from compass.tools.shell_runtime import cwd_tracking_argv
 
 logger = logging.getLogger("compass.shell")
 
@@ -84,20 +84,13 @@ class ShellSession:
         cwd = self.state.resolved_cwd()
         cwd_file = Path(tempfile.gettempdir()) / f"compass-cwd-{uuid.uuid4().hex}"
 
-        # Preserve the command's own exit code, then record the final cwd.
-        # `>|` overrides noclobber. The trailing `exit $__ec` makes the wrapper
-        # exit with the command's status, not pwd's.
-        wrapped = (
-            f"{command}\n"
-            f"__ec=$?\n"
-            f"pwd -P >| {shlex.quote(str(cwd_file))} 2>/dev/null || true\n"
-            f"exit $__ec\n"
-        )
+        # Wrap the command so it preserves its own exit code and records the
+        # final cwd — cross-platform (bash on macOS/Linux & Git Bash, cmd.exe as
+        # a Windows fallback). macOS/Linux behaviour is unchanged.
+        argv = cwd_tracking_argv(command, cwd_file)
 
         proc = await asyncio.create_subprocess_exec(
-            "bash",
-            "-c",
-            wrapped,
+            *argv,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
