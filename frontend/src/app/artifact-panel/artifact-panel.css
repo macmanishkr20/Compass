@@ -127,8 +127,39 @@
     0 0 / 22px 22px,
     var(--surface);
 }
-.ap-mermaid { width: 100%; display: grid; place-items: center; }
-.ap-mermaid svg { max-width: 100%; height: auto; }
+/* In-panel diagram viewport: fit-to-view + drag-to-pan + wheel-to-zoom, so the
+   diagram is fully visible and interactive right here (like claude.ai) — no
+   need to pop out. The host is absolutely positioned and driven by a transform. */
+.ap-dstage {
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
+  cursor: grab; touch-action: none;
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--ink) 8%, transparent) 1px, transparent 0)
+    0 0 / 22px 22px,
+    var(--surface);
+}
+.ap-dstage.grabbing { cursor: grabbing; }
+.ap-mermaid {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0; will-change: transform;
+  display: inline-block;
+}
+.ap-mermaid svg { display: block; }
+.ap-zoombar {
+  position: absolute; bottom: 52px; right: 14px; z-index: 6;
+  display: flex; align-items: center; gap: 2px;
+  padding: 3px 5px; border-radius: 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.ap-zoombar button {
+  border: 0; background: none; cursor: pointer;
+  color: var(--ink); font: inherit; font-size: 0.85rem; font-weight: 600;
+  padding: 3px 8px; border-radius: 6px; line-height: 1;
+}
+.ap-zoombar button:hover { background: var(--surface-2); }
+.ap-zoombar .ap-zoompct { font-size: 0.72rem; color: var(--muted); min-width: 40px; text-align: center; }
+.ap-zoombar .ap-zoomfit { font-size: 0.72rem; }
 
 /* Azure (ELK) diagrams: fit the whole correctly-aligned diagram into the panel
    (the SVG's viewBox scales it responsively). Detail via "Open in diagrams.net". */

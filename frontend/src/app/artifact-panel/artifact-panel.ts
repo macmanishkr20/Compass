@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  computed,
   effect,
   inject,
   signal,
@@ -113,10 +114,19 @@ import { ThemeService } from '../theme.service';
             </div>
           </div>
         } @else if (a.kind === 'mermaid') {
-          <div class="ap-diagram ap-azure" [hidden]="tab() !== 'preview'">
+          <div class="ap-dstage" [class.grabbing]="dgPanning()" [hidden]="tab() !== 'preview'"
+            (wheel)="dgWheel($event)" (pointerdown)="dgDown($event)"
+            (pointermove)="dgMove($event)" (pointerup)="dgUp()" (pointerleave)="dgUp()">
             @if (mermaidError()) { <pre class="ap-derr">{{ mermaidError() }}</pre> }
-            <div #mermaidHost class="ap-mermaid"></div>
+            <div #mermaidHost class="ap-mermaid"
+              [style.transform]="'translate(' + dgX() + 'px,' + dgY() + 'px) scale(' + dgScale() + ')'"></div>
             @if (!mermaidError()) {
+              <div class="ap-zoombar">
+                <button (click)="dgZoom(-1)" title="Zoom out">−</button>
+                <span class="ap-zoompct">{{ dgPct() }}%</span>
+                <button (click)="dgZoom(1)" title="Zoom in">+</button>
+                <button class="ap-zoomfit" (click)="fitDiagram()" title="Fit to view">Fit</button>
+              </div>
               <div class="ap-azure-bar">
                 <span>Flowchart · export to draw.io to edit</span>
                 <span class="ap-azure-acts">
@@ -155,6 +165,96 @@ export class ArtifactPanel {
     viewChild<ElementRef<HTMLDivElement>>('mermaidHost');
   private readonly azureHost =
     viewChild<ElementRef<HTMLDivElement>>('azureHost');
+
+  // -- in-panel diagram zoom/pan (fit-to-view by default, like claude.ai) ----
+  readonly dgScale = signal(1);
+  readonly dgX = signal(0);
+  readonly dgY = signal(0);
+  readonly dgPct = computed(() => Math.round(this.dgScale() * 100));
+  readonly dgPanning = signal(false);
+  private dgStartX = 0;
+  private dgStartY = 0;
+  private dgOrigX = 0;
+  private dgOrigY = 0;
+
+  /** Natural (pre-transform) size of the current diagram, in CSS px. Read from
+   *  the SVG's viewBox each time so it's never stale across diagrams. */
+  private dgNatural(): { w: number; h: number } | null {
+    const svg = this.mermaidHost()?.nativeElement.querySelector('svg');
+    if (!svg) return null;
+    const vb = svg.viewBox?.baseVal;
+    if (vb && vb.width && vb.height) return { w: vb.width, h: vb.height };
+    const s = this.dgScale() || 1;
+    const r = svg.getBoundingClientRect();
+    return r.width ? { w: r.width / s, h: r.height / s } : null;
+  }
+
+  /** Center the diagram and scale it to fit the panel — the whole diagram is
+   *  visible, filling the space, exactly like claude.ai's artifact viewer. */
+  fitDiagram(): void {
+    const host = this.mermaidHost()?.nativeElement;
+    const stage = host?.parentElement;
+    const nat = this.dgNatural();
+    if (!host || !stage || !nat) return;
+    const pad = 40;
+    const aw = Math.max(50, stage.clientWidth - pad);
+    const ah = Math.max(50, stage.clientHeight - pad);
+    const s = Math.max(0.1, Math.min(aw / nat.w, ah / nat.h, 4));
+    this.dgScale.set(s);
+    this.dgX.set((stage.clientWidth - nat.w * s) / 2);
+    this.dgY.set((stage.clientHeight - nat.h * s) / 2);
+  }
+  dgZoom(dir: number): void {
+    const s = Math.min(6, Math.max(0.1, this.dgScale() + dir * 0.15));
+    this.dgScale.set(s);
+  }
+  dgWheel(e: WheelEvent): void {
+    e.preventDefault();
+    // Zoom toward the cursor so the point under the pointer stays put.
+    const host = this.mermaidHost()?.nativeElement;
+    const stage = host?.parentElement;
+    if (!stage) return;
+    const r = stage.getBoundingClientRect();
+    const cx = e.clientX - r.left;
+    const cy = e.clientY - r.top;
+    const old = this.dgScale();
+    const next = Math.min(6, Math.max(0.1, old * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    const k = next / old;
+    this.dgX.set(cx - (cx - this.dgX()) * k);
+    this.dgY.set(cy - (cy - this.dgY()) * k);
+    this.dgScale.set(next);
+  }
+  dgDown(e: PointerEvent): void {
+    this.dgPanning.set(true);
+    this.dgStartX = e.clientX;
+    this.dgStartY = e.clientY;
+    this.dgOrigX = this.dgX();
+    this.dgOrigY = this.dgY();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+  dgMove(e: PointerEvent): void {
+    if (!this.dgPanning()) return;
+    this.dgX.set(this.dgOrigX + (e.clientX - this.dgStartX));
+    this.dgY.set(this.dgOrigY + (e.clientY - this.dgStartY));
+  }
+  dgUp(): void {
+    this.dgPanning.set(false);
+  }
+  /** Pin the SVG to its natural pixel size (so the host transform maps 1:1),
+   *  then fit-to-view once layout has settled. */
+  private fitDiagramSoon(): void {
+    const svg = this.mermaidHost()?.nativeElement.querySelector('svg');
+    const nat = this.dgNatural();
+    if (svg && nat) {
+      svg.style.width = nat.w + 'px';
+      svg.style.height = nat.h + 'px';
+      svg.style.maxWidth = 'none';
+    }
+    // rAF for the pinned size to apply, plus a short backstop in case the stage
+    // hadn't been measured yet (panel just opened).
+    requestAnimationFrame(() => requestAnimationFrame(() => this.fitDiagram()));
+    setTimeout(() => this.fitDiagram(), 80);
+  }
 
   constructor() {
     // Render the preview when the artifact, tab, or theme changes.
@@ -250,7 +350,15 @@ export class ArtifactPanel {
       );
     }
     const host = this.mermaidHost()?.nativeElement;
-    if (host) host.innerHTML = this.mermaidSvg;
+    if (host) {
+      host.innerHTML = this.mermaidSvg;
+      // Fit-to-view + centre in the panel (claude.ai behaviour); the user can
+      // then zoom/pan right here without popping out.
+      this.dgScale.set(1);
+      this.dgX.set(0);
+      this.dgY.set(0);
+      this.fitDiagramSoon();
+    }
   }
 
   /** Compile the Azure spec into a laid-out inline SVG (and cache the matching
@@ -461,6 +569,11 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
   stage.addEventListener('pointerdown',function(e){pan=true;px=e.clientX;py=e.clientY;pl=stage.scrollLeft;pt=stage.scrollTop;stage.classList.add('grabbing');});
   addEventListener('pointerup',function(){pan=false;stage.classList.remove('grabbing');});
   stage.addEventListener('pointermove',function(e){if(!pan)return;stage.scrollLeft=pl-(e.clientX-px);stage.scrollTop=pt-(e.clientY-py);});
+  // Auto-fit on open so the diagram fills the view (like claude.ai) instead of
+  // opening at 100% with a tiny diagram in a large canvas.
+  function autofit(){try{fit();}catch(e){}}
+  requestAnimationFrame(function(){requestAnimationFrame(autofit);});
+  addEventListener('load',autofit);
 </script>
 </body></html>`;
     } else {
