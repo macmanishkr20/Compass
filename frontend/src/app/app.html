@@ -499,9 +499,29 @@
             </button>
             @if (isActivityExpanded(block.id)) {
               <div class="activity-body">
-                @for (item of block.items; track item.id) {
-                  <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: item }" />
-                }
+                <div class="steps">
+                  @for (item of block.items; track item.id) {
+                    @if (item.kind === 'tool') {
+                      @let st = asTool(item);
+                      <div class="step" [class.open]="isActivityExpanded('step-' + st.id)">
+                        <button class="step-head" (click)="toggleActivity('step-' + st.id)">
+                          @if (st.agentId) { <span class="step-agent">subagent</span> }
+                          <span class="step-label">{{ stepLabel(st) }}</span>
+                          @if (st.status === 'running') { <span class="step-spin"></span> }
+                          <svg class="step-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        @if (isActivityExpanded('step-' + st.id)) {
+                          <div class="step-body">
+                            <pre class="step-cmd">{{ stepDetail(st) }}</pre>
+                            @if (st.output) { <pre class="step-out">{{ st.output }}</pre> }
+                          </div>
+                        }
+                      </div>
+                    } @else {
+                      <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: item }" />
+                    }
+                  }
+                </div>
               </div>
             }
           </div>
@@ -678,6 +698,24 @@
             @let n = asNotice(item);
             <div class="notice" [class]="n.tone">
               <span class="notice-line"></span>{{ n.text }}<span class="notice-line"></span>
+            </div>
+          }
+
+          @case ('preview') {
+            @let pv = asPreview(item);
+            <div class="row">
+              <span class="avatar bare"><app-compass-mark [size]="26" /></span>
+              <div class="preview-card">
+                <img class="preview-shot" [src]="pv.imageUrl" [alt]="pv.title"
+                  (click)="lightbox.open(pv.imageUrl, pv.title)" />
+                <div class="preview-bar">
+                  <div class="preview-meta">
+                    <span class="preview-title">{{ pv.title }}</span>
+                    <span class="preview-url">{{ pv.pageUrl.replace('http://','').replace('https://','') }} · Opened in Browser</span>
+                  </div>
+                  <button class="preview-open" (click)="openPreview(pv.pageUrl)">Open</button>
+                </div>
+              </div>
             </div>
           }
         }

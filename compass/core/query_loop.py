@@ -194,6 +194,34 @@ async def query(
                     append(item)
                 else:
                     yield item
+            # Computer-use vision: if the browser tool captured screenshots this
+            # turn, feed them to the model as a user image message AFTER all the
+            # tool results (keeping the tool_call→tool_result ordering valid), so
+            # the agent actually sees the page it's driving.
+            if ctx.pending_vision:
+                shots = ctx.pending_vision[-2:]  # only the most recent views
+                ctx.pending_vision.clear()
+                # Stale page views bloat context (images are heavy) and only the
+                # CURRENT view matters — replace prior screenshots with a stub.
+                for prior in messages:
+                    if prior.meta.get("_vision") and isinstance(prior.content, list):
+                        prior.content = "[earlier browser screenshot — superseded]"
+                meta: dict = {"synthetic": True, "_vision": True}
+                if ctx.agent_id:
+                    meta["agent_id"] = ctx.agent_id
+                append(
+                    Message(
+                        role="user",
+                        content=[
+                            {"type": "text", "text": "Current browser view(s):"},
+                            *(
+                                {"type": "image_url", "image_url": {"url": uri}}
+                                for uri in shots
+                            ),
+                        ],
+                        meta=meta,
+                    )
+                )
             transition = Continue("tool_results")
             continue
 

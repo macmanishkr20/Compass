@@ -16,8 +16,8 @@
               <span class="cavatar"><app-compass-mark [size]="22" /></span>
             }
             <div class="cwrap" [class.mine]="m.role === 'user'">
-              <div class="cbubble" [class.user]="m.role === 'user'">
-                @if (m.role === 'assistant') {
+              @if (m.role === 'assistant') {
+                <div class="cbubble">
                   <app-markdown [text]="m.text || '…'" />
                   @if (m.sources?.length) {
                     <div class="wiq-sources">
@@ -34,7 +34,9 @@
                       }
                     </div>
                   }
-                } @else if (editingId() === m.id) {
+                </div>
+              } @else if (editingId() === m.id) {
+                <div class="cbubble user">
                   <div class="cedit">
                     <textarea class="cedit-input" #editBox [value]="editDraft()"
                       (input)="editDraft.set($any($event.target).value)"
@@ -45,25 +47,29 @@
                       <button class="cedit-btn" type="button" (click)="commitEdit(m)">Save &amp; submit</button>
                     </div>
                   </div>
-                } @else {
-                  @if (m.atts?.length) {
-                    <div class="cbubble-atts">
-                      @for (a of m.atts!; track a.id) {
-                        @if (a.kind === 'image') {
-                          <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name"
-                            (click)="lightbox.open(a.dataUrl, a.name)" />
-                        } @else {
-                          <span class="cbubble-file">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
-                            {{ a.name }}
-                          </span>
-                        }
+                </div>
+              } @else {
+                <!-- Attachments render as their own cards, separate from the
+                     text bubble (like claude.ai). -->
+                @if (m.atts?.length) {
+                  <div class="cbubble-atts">
+                    @for (a of m.atts!; track a.id) {
+                      @if (a.kind === 'image') {
+                        <img class="cbubble-img" [src]="a.dataUrl" [alt]="a.name"
+                          (click)="lightbox.open(a.dataUrl, a.name)" />
+                      } @else {
+                        <span class="cbubble-file">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>
+                          {{ a.name }}
+                        </span>
                       }
-                    </div>
-                  }
-                  @if (m.text) { <p class="ctext">{{ m.text }}</p> }
+                    }
+                  </div>
                 }
-              </div>
+                @if (m.text) {
+                  <div class="cbubble user"><p class="ctext">{{ m.text }}</p></div>
+                }
+              }
 
               @if (editingId() !== m.id && (m.text || m.role === 'assistant') && !(m.role === 'assistant' && m.streaming)) {
                 <div class="cmsg-actions" [class.mine]="m.role === 'user'">

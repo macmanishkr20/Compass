@@ -163,6 +163,36 @@ class BackgroundTaskRegistry:
             task.exit_code = code
             task.finished_at = time.time()
 
+    def register_browser(
+        self, session_id: str, url: str, *, workspace_id: str | None = None
+    ) -> BackgroundTask:
+        """Register/refresh the agent's live browser session as a visible entry
+        (no subprocess) so the Background tasks panel shows it with an
+        Open/Preview URL — like claude.ai's browser session. Keyed per session."""
+        tid = f"browser-{session_id}"
+        task = self._tasks.get(tid)
+        if task is None:
+            task = BackgroundTask(
+                id=tid,
+                name="Agent browser",
+                command=url,
+                url=url,
+                workspace_id=workspace_id,
+            )
+            self._tasks[tid] = task
+        else:
+            task.url = url
+            task.command = url
+            task.status = "running"
+            task.finished_at = None
+        return task
+
+    def end_browser(self, session_id: str) -> None:
+        task = self._tasks.get(f"browser-{session_id}")
+        if task and task.status == "running":
+            task.status = "finished"
+            task.finished_at = time.time()
+
     def list(self) -> list[BackgroundTask]:
         # Running first, then most-recently-finished.
         return sorted(
@@ -193,7 +223,7 @@ class BackgroundTaskRegistry:
 
     async def stop(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)
-        if not task or task.status != "running" or not task._proc:
+        if not task or task.status != "running":
             return False
         import contextlib
         import os
@@ -201,6 +231,16 @@ class BackgroundTaskRegistry:
 
         task.status = "stopped"
         task.finished_at = time.time()
+
+        # Browser sessions have no subprocess — close the Playwright session.
+        if task._proc is None:
+            if task.id.startswith("browser-"):
+                with contextlib.suppress(Exception):
+                    from compass.services.agent_browser import close_agent_browser
+
+                    await close_agent_browser(task.id[len("browser-"):])
+            return True
+
         pid = task._proc.pid
         if sys.platform == "win32":  # pragma: no cover - platform-specific
             # taskkill /T ends the whole process tree (the dev server + children).

@@ -39,6 +39,7 @@ import {
   HealthInfo,
   NoticeVM,
   PermissionVM,
+  PreviewCardVM,
   Routine,
   RoutineRun,
   RoutineTemplate,
@@ -682,30 +683,98 @@ export class App {
   }
   isActivityExpanded = (id: string): boolean => this.expandedActivities().has(id);
 
+  /** claude.ai-style activity summary: comma-joined natural phrases, the first
+   *  capitalised, filenames included for reads — e.g. "Ran a command, read
+   *  app.ts", "Ran 2 commands", "Ran a command, used 2 tools". */
   private summarizeActivity(tools: ToolCardVM[]): string {
     if (!tools.length) return 'Working…';
-    const counts: Record<string, number> = {};
+    let commands = 0, searches = 0, plans = 0, edits = 0, wrote = 0, delegated = 0, others = 0;
+    const reads: string[] = [];
     for (const t of tools) {
-      const cat = this.toolCategory(t.name);
-      counts[cat] = (counts[cat] ?? 0) + 1;
+      const a = this.argObj(t);
+      switch (t.name) {
+        case 'bash': commands++; break;
+        case 'grep': case 'glob': searches++; break;
+        case 'todo_write': plans++; break;
+        case 'file_edit': edits++; break;
+        case 'file_write': wrote++; break;
+        case 'file_read': reads.push(this.baseName(String(a['path'] ?? a['file_path'] ?? 'a file'))); break;
+        case 'agent': delegated++; break;
+        default: others++; break; // browser & anything else
+      }
     }
-    const n = (c: number, one: string, many: string) =>
-      `${c} ${c === 1 ? one : many}`;
-    const phrases: Record<string, (c: number) => string> = {
-      read: (c) => `Read ${n(c, 'file', 'files')}`,
-      searched: () => 'Searched the code',
-      ran: (c) => `Ran ${n(c, 'command', 'commands')}`,
-      edited: (c) => `Edited ${n(c, 'file', 'files')}`,
-      wrote: (c) => `Wrote ${n(c, 'file', 'files')}`,
-      planned: () => 'Updated the plan',
-      delegated: (c) => `Delegated to ${n(c, 'subagent', 'subagents')}`,
-      used: (c) => `Used ${n(c, 'tool', 'tools')}`,
-    };
-    const order = ['ran', 'edited', 'wrote', 'read', 'searched', 'delegated', 'planned', 'used'];
-    const parts = order
-      .filter((k) => counts[k])
-      .map((k) => phrases[k](counts[k]));
-    return parts.slice(0, 3).join(' · ') || 'Used a tool';
+    const parts: string[] = [];
+    if (commands) parts.push(commands === 1 ? 'ran a command' : `ran ${commands} commands`);
+    if (reads.length === 1) parts.push(`read ${reads[0]}`);
+    else if (reads.length > 1) parts.push(`read ${reads.length} files`);
+    if (searches) parts.push('searched the code');
+    if (plans) parts.push('updated the plan');
+    if (edits) parts.push(edits === 1 ? 'edited a file' : `edited ${edits} files`);
+    if (wrote) parts.push(wrote === 1 ? 'wrote a file' : `wrote ${wrote} files`);
+    if (delegated) parts.push(delegated === 1 ? 'delegated to a subagent' : `delegated to ${delegated} subagents`);
+    if (others) parts.push(others === 1 ? 'used a tool' : `used ${others} tools`);
+    const s = parts.join(', ') || `used ${tools.length} tools`;
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  private argObj(t: ToolCardVM): Record<string, unknown> {
+    try {
+      return JSON.parse(t.args || '{}') as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  private baseName(p: string): string {
+    return (p || '').split(/[\\/]/).pop() || p;
+  }
+
+  /** Human label for one tool step — claude.ai shows the command's description
+   *  or a derived action ("Read app.ts", "Interacted with the page"), not the
+   *  raw tool name + args. */
+  stepLabel(t: ToolCardVM): string {
+    const a = this.argObj(t);
+    const s = (v: unknown) => (typeof v === 'string' ? v : '');
+    switch (t.name) {
+      case 'bash':
+        return s(a['description']) || s(a['command']).split('\n')[0].trim() || 'Ran a command';
+      case 'file_read':
+        return 'Read ' + this.baseName(s(a['path']) || s(a['file_path']) || 'a file');
+      case 'file_write':
+        return 'Wrote ' + this.baseName(s(a['path']) || s(a['file_path']) || 'a file');
+      case 'file_edit':
+        return 'Edited ' + this.baseName(s(a['path']) || s(a['file_path']) || 'a file');
+      case 'grep':
+        return s(a['pattern']) ? `Searched for “${s(a['pattern'])}”` : 'Searched the code';
+      case 'glob':
+        return s(a['pattern']) ? `Found files matching “${s(a['pattern'])}”` : 'Listed files';
+      case 'todo_write':
+        return 'Updated the plan';
+      case 'agent':
+        return 'Delegated to a subagent';
+      case 'browser':
+        return this.browserStepLabel(a);
+      default:
+        return t.name;
+    }
+  }
+  private browserStepLabel(a: Record<string, unknown>): string {
+    const host = (typeof a['url'] === 'string' ? a['url'] : '').replace(/^https?:\/\//, '');
+    switch (a['action']) {
+      case 'navigate': return host ? `Opened ${host}` : 'Opened a page';
+      case 'click': return 'Clicked in the page';
+      case 'type': return 'Typed text';
+      case 'key': return 'Pressed a key';
+      case 'scroll': return 'Scrolled the page';
+      case 'screenshot': return 'Captured a screenshot';
+      case 'read': return 'Read the page';
+      default: return 'Interacted with the page';
+    }
+  }
+  /** The raw command / args shown when a step is expanded. */
+  stepDetail(t: ToolCardVM): string {
+    const a = this.argObj(t);
+    if (t.name === 'bash' && typeof a['command'] === 'string') return a['command'];
+    return t.args;
   }
 
   private toolCategory(name: string): string {
@@ -1686,6 +1755,13 @@ export class App {
   openBgUrl(t: BackgroundTask): void {
     if (!t.url) return;
     this.browserAddr.set(t.url);
+    this.navigateBrowser();
+    this.browserOpen.set(true);
+  }
+  /** Open a browser-preview card's page live in the Compass browser pane. */
+  openPreview(pageUrl: string): void {
+    if (!pageUrl) return;
+    this.browserAddr.set(pageUrl);
     this.navigateBrowser();
     this.browserOpen.set(true);
   }
@@ -2672,12 +2748,27 @@ export class App {
             ? ((ev['content'] as string) ?? (c as ToolCardVM).output)
             : (c as ToolCardVM).output,
         }));
-        // A screenshot tool result posts the captured image into the chat.
-        const shot = /screenshot:\/\/([a-f0-9]+)/.exec(
-          (ev['content'] as string) ?? '',
-        );
+        // A screenshot/browser tool result posts the captured image into chat.
+        const content = (ev['content'] as string) ?? '';
+        const shot = /screenshot:\/\/([a-f0-9]+)/.exec(content);
         if (shot && !(ev['is_error'] as boolean)) {
-          this.postImage('/v1/screenshot-cache/' + shot[1], 'Screenshot');
+          const imageUrl = '/v1/screenshot-cache/' + shot[1];
+          if ((ev['tool_name'] as string) === 'browser') {
+            // Render a browser-preview card (app screenshot + Open button),
+            // like claude.ai — not a bare inline image.
+            const pageUrl = (/Now at (https?:\/\/[^\s]+)/.exec(content)?.[1] ?? '')
+              .replace(/[.\s]+$/, '');
+            const title = (/Title:\s*(.+?)\.\s*Now at/.exec(content)?.[1] ?? '').trim();
+            this.push({
+              kind: 'preview',
+              id: crypto.randomUUID(),
+              imageUrl,
+              pageUrl,
+              title: title || 'Preview',
+            });
+          } else {
+            this.postImage(imageUrl, 'Screenshot');
+          }
         }
         break;
       }
@@ -2914,6 +3005,7 @@ export class App {
   asTool = (i: TimelineItem): ToolCardVM => i as ToolCardVM;
   asPerm = (i: TimelineItem): PermissionVM => i as PermissionVM;
   asNotice = (i: TimelineItem): NoticeVM => i as NoticeVM;
+  asPreview = (i: TimelineItem): PreviewCardVM => i as PreviewCardVM;
 
   trackItem = (_: number, i: TimelineItem): string => i.id;
   trackCard = (_: number, c: SessionCard): string => c.id;

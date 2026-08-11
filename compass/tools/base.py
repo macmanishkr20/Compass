@@ -128,6 +128,10 @@ class ToolUseContext:
     # path -> mtime at last read; enforces read-before-edit and staleness
     # detection (fileStateCache analog).
     file_state: dict[str, float] = field(default_factory=dict)
+    # Screenshots (data: URIs) the browser tool captured this turn; the loop
+    # feeds them back to the model as a vision user-message after the tool
+    # results, so the agent can SEE the page it's driving (computer-use).
+    pending_vision: list[str] = field(default_factory=list)
     # session-scoped todo list (TodoWriteTool state)
     todos: list[dict[str, Any]] = field(default_factory=list)
     # persistent shell working directory (Shell.ts cwd-tracking analog); a `cd`

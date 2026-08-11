@@ -135,7 +135,23 @@ export interface NoticeVM {
   text: string;
 }
 
-export type TimelineItem = ChatBubble | ToolCardVM | PermissionVM | NoticeVM;
+/** A browser-preview card the agent produced (the `browser` tool) — the app
+ *  screenshot plus a header with the page title, its URL, and an Open button
+ *  that opens the live page in the Compass browser pane (like claude.ai). */
+export interface PreviewCardVM {
+  kind: 'preview';
+  id: string;
+  imageUrl: string;
+  pageUrl: string;
+  title: string;
+}
+
+export type TimelineItem =
+  | ChatBubble
+  | ToolCardVM
+  | PermissionVM
+  | NoticeVM
+  | PreviewCardVM;
 
 export interface UsageVM {
   promptTokens: number;

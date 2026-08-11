@@ -58,5 +58,17 @@ async def capture_cached(url: str, *, full_page: bool = False) -> tuple[str, int
     return sid, w, h
 
 
+def store_png(png: bytes) -> tuple[str, int, int]:
+    """Cache raw PNG bytes (e.g. from the agent browser) under a short id and
+    return (id, width, height) — the same screenshot://<id> path the UI serves."""
+    sid = _uuid.uuid4().hex[:12]
+    _CACHE[sid] = png
+    while len(_CACHE) > _CACHE_MAX:
+        _CACHE.popitem(last=False)
+    w = int.from_bytes(png[16:20], "big") if len(png) > 24 else 0
+    h = int.from_bytes(png[20:24], "big") if len(png) > 24 else 0
+    return sid, w, h
+
+
 def get_cached(sid: str) -> bytes | None:
     return _CACHE.get(sid)
