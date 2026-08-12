@@ -513,6 +513,61 @@ async def take_screenshot(
     return {"image": image}
 
 
+class MemoryCreate(BaseModel):
+    scope: str = "home"
+    category: str = "Context"
+    summary: str
+    details: str = ""
+
+
+class MemoryPatch(BaseModel):
+    summary: str | None = None
+    details: str | None = None
+    category: str | None = None
+
+
+@app.get("/v1/memory")
+async def list_memory(scope: str | None = None, user: str = Depends(require_user)) -> dict:
+    """Everything Compass remembers, grouped by category in the UI."""
+    from compass.services.memory import CATEGORIES, get_memory_store
+
+    entries = await get_memory_store().list(scope)
+    return {"entries": entries, "categories": CATEGORIES}
+
+
+@app.post("/v1/memory")
+async def add_memory(body: MemoryCreate, user: str = Depends(require_user)) -> dict:
+    from compass.services.memory import get_memory_store
+
+    return await get_memory_store().add(
+        scope=body.scope,
+        category=body.category,
+        summary=body.summary,
+        details=body.details,
+    )
+
+
+@app.patch("/v1/memory/{entry_id}")
+async def patch_memory(
+    entry_id: str, body: MemoryPatch, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.memory import get_memory_store
+
+    row = await get_memory_store().update(
+        entry_id, summary=body.summary, details=body.details, category=body.category
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such memory entry")
+    return row
+
+
+@app.delete("/v1/memory/{entry_id}")
+async def delete_memory(entry_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.memory import get_memory_store
+
+    return {"deleted": await get_memory_store().delete(entry_id)}
+
+
 @app.websocket("/v1/browser/ws")
 async def browser_ws(ws: WebSocket) -> None:
     """Interactive remote browser: streams a live server-side Chromium into the

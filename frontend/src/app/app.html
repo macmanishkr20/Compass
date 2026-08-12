@@ -58,6 +58,57 @@
     <button (click)="workIqToast.set('')" aria-label="Dismiss">✕</button>
   </div>
 }
+@if (memoryOpen()) {
+  <div class="search-overlay" (click)="memoryOpen.set(false)">
+    <div class="mem-modal" (click)="$event.stopPropagation()">
+      <div class="mem-head">
+        <div class="mem-heading">
+          <h2 class="mem-title">Memory</h2>
+          <p class="mem-sub">What Compass remembers about you, so you don’t have to repeat yourself.</p>
+        </div>
+        <button class="search-x" (click)="memoryOpen.set(false)" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="mem-body">
+        @if (!memoryGroups().length) {
+          <p class="mem-empty">Nothing remembered yet. Tell Compass something durable —
+            “remember that I prefer TypeScript” — and it will appear here.</p>
+        }
+        @for (g of memoryGroups(); track g.category) {
+          <div class="mem-group">
+            <div class="mem-cat">{{ g.category }}</div>
+            @for (e of g.items; track e.id) {
+              <div class="mem-item">
+                @if (memoryEditId() === e.id) {
+                  <input class="mem-edit" #me [value]="memoryDraft()"
+                    (input)="memoryDraft.set($any($event.target).value)"
+                    (keydown.enter)="commitMemoryEdit(e)"
+                    (keydown.escape)="memoryEditId.set(null)"
+                    (blur)="commitMemoryEdit(e)" autofocus />
+                } @else {
+                  <div class="mem-text">
+                    <span class="mem-summary">{{ e.summary }}</span>
+                    @if (e.details) { <span class="mem-details">{{ e.details }}</span> }
+                  </div>
+                  <div class="mem-acts">
+                    <button class="mem-act" title="Edit" (click)="startMemoryEdit(e)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
+                    </button>
+                    <button class="mem-act danger" title="Delete" (click)="deleteMemory(e)">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}
+
 @if (searchOpen()) {
   <div class="search-overlay" (click)="closeSearch()">
     <div class="search-modal" (click)="$event.stopPropagation()">
@@ -308,6 +359,10 @@
                 Open Compass browser
               </button>
             }
+            <button class="user-menu-item" role="menuitem" (click)="openMemory()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v2a3 3 0 003 3h1V3zM12 3a4 4 0 014 4v1a3 3 0 010 6v2a3 3 0 01-3 3h-1" stroke-linejoin="round"/></svg>
+              Memory
+            </button>
             <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Open in new window

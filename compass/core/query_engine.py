@@ -172,13 +172,19 @@ class QueryEngine:
         """Shared turn runner — assumes session.messages already ends with the
         input to respond to. Used by ask(), edit, and regenerate."""
         ctx = session.make_context()
+        # Memory: this project's entries (plus the global ones) are prepended so
+        # the model starts the turn already knowing what it has learned.
+        from compass.services.memory import GLOBAL_SCOPE, memory_prompt
+
+        mem = await memory_prompt(session.workspace_id or GLOBAL_SCOPE)
+        base_prompt = build_system_prompt(
+            role="main", workspace_root=session.workspace_root
+        )
         try:
             async for event in query(
                 session.messages,
                 ctx,
-                system_prompt=build_system_prompt(
-                    role="main", workspace_root=session.workspace_root
-                ),
+                system_prompt=f"{base_prompt}\n\n{mem}" if mem else base_prompt,
                 effort=session.effort,
                 model=session.model,
                 on_message=lambda m: self.store.append(session.id, m),

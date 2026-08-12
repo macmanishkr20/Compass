@@ -11,6 +11,7 @@ import {
   GitStatus,
   GithubRepo,
   HealthInfo,
+  MemoryEntry,
   PermissionBehavior,
   Routine,
   RoutineRun,
@@ -344,6 +345,23 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
     );
+  }
+
+  // -- memory (Settings → Memory) -------------------------------------------
+  listMemory(scope?: string): Promise<{ entries: MemoryEntry[]; categories: string[] }> {
+    const q = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+    return firstValueFrom(
+      this.http.get<{ entries: MemoryEntry[]; categories: string[] }>('/v1/memory' + q),
+    );
+  }
+  patchMemory(
+    id: string,
+    patch: { summary?: string; details?: string; category?: string },
+  ): Promise<MemoryEntry> {
+    return firstValueFrom(this.http.patch<MemoryEntry>(`/v1/memory/${id}`, patch));
+  }
+  deleteMemory(id: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/memory/${id}`));
   }
 
   patchChatSession(

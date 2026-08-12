@@ -47,8 +47,9 @@ class _WorkIqSources:
 
 CHAT_SYSTEM_PROMPT = (
     "You are Compass Chat — a friendly, knowledgeable conversational assistant "
-    "running on Azure OpenAI (gpt-5). This is a plain chat: you have no tools, "
-    "no file access, and cannot run commands or make changes. Just talk with "
+    "running on Azure OpenAI (gpt-5). This is a plain chat: your only tool is "
+    "`memory` (to remember durable facts about the user). You have no file "
+    "access and cannot run commands or make changes. Just talk with "
     "the user — answer questions, brainstorm, explain, draft, and reason things "
     "through in clear, well-structured Markdown. If a request genuinely needs "
     "running code, editing files, inspecting a repository, or executing tools, "
@@ -214,12 +215,18 @@ class ChatSession:
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def make_context(self) -> ToolUseContext:
-        """A tool-free context. The broker is auto_deny as a belt-and-braces
-        guard — with no tools it can never be consulted, but should the loop
-        ever try, nothing is silently granted."""
+        """Home's context carries exactly ONE tool: `memory`, so Compass can
+        save what it learns while you chat (Claude's memory behaviour). It
+        touches no files, runs no commands and needs no approval — every other
+        tool stays out, so Home remains pure conversation. The broker is still
+        auto_deny as a belt-and-braces guard: `memory` is read-only so it is
+        auto-allowed and the broker is never consulted, but anything that
+        somehow asked for permission is refused rather than silently granted."""
+        from compass.tools.memory import MemoryTool
+
         return ToolUseContext(
             session_id=self.id,
-            tools=[],
+            tools=[MemoryTool()],
             broker=PermissionBroker(policy="auto_deny"),
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,
@@ -319,6 +326,15 @@ class ChatEngine:
                 )
                 if docs:
                     yield _WorkIqSources(sources=wiq.sources_for_ui(docs))
+
+        # Memory: appended last so it survives the Work IQ prompt swap above.
+        # Home reads the global scope — what the user tells Compass here is
+        # remembered across chats (Claude's memory behaviour).
+        from compass.services.memory import GLOBAL_SCOPE, memory_prompt
+
+        mem = await memory_prompt(GLOBAL_SCOPE)
+        if mem:
+            system_prompt = f"{system_prompt}\n\n{mem}"
 
         ctx = session.make_context()
         try:

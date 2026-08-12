@@ -37,6 +37,7 @@ import {
   GithubRepo,
   GroupBy,
   HealthInfo,
+  MemoryEntry,
   NoticeVM,
   PermissionVM,
   PreviewCardVM,
@@ -1758,6 +1759,60 @@ export class App {
     this.navigateBrowser();
     this.browserOpen.set(true);
   }
+  // -- Memory (Settings → Memory): what Compass remembers, by category -------
+  readonly memoryOpen = signal(false);
+  readonly memoryEntries = signal<MemoryEntry[]>([]);
+  readonly memoryCategories = signal<string[]>([]);
+  readonly memoryEditId = signal<string | null>(null);
+  readonly memoryDraft = signal('');
+  /** Entries grouped by category, in the canonical category order. */
+  readonly memoryGroups = computed<{ category: string; items: MemoryEntry[] }[]>(() => {
+    const out: { category: string; items: MemoryEntry[] }[] = [];
+    for (const c of this.memoryCategories()) {
+      const items = this.memoryEntries().filter((e) => e.category === c);
+      if (items.length) out.push({ category: c, items });
+    }
+    return out;
+  });
+
+  async openMemory(): Promise<void> {
+    this.userMenuOpen.set(false);
+    this.memoryOpen.set(true);
+    await this.loadMemory();
+  }
+  async loadMemory(): Promise<void> {
+    try {
+      const r = await this.api.listMemory();
+      this.memoryEntries.set(r.entries);
+      this.memoryCategories.set(r.categories);
+    } catch {
+      /* non-fatal */
+    }
+  }
+  startMemoryEdit(e: MemoryEntry): void {
+    this.memoryEditId.set(e.id);
+    this.memoryDraft.set(e.summary);
+  }
+  async commitMemoryEdit(e: MemoryEntry): Promise<void> {
+    const summary = this.memoryDraft().trim();
+    this.memoryEditId.set(null);
+    if (!summary || summary === e.summary) return;
+    try {
+      await this.api.patchMemory(e.id, { summary });
+    } catch {
+      /* ignore */
+    }
+    await this.loadMemory();
+  }
+  async deleteMemory(e: MemoryEntry): Promise<void> {
+    try {
+      await this.api.deleteMemory(e.id);
+    } catch {
+      /* ignore */
+    }
+    await this.loadMemory();
+  }
+
   /** Open a browser-preview card's page live in the Compass browser pane. */
   openPreview(pageUrl: string): void {
     if (!pageUrl) return;

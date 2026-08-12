@@ -2743,6 +2743,56 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding-top: 12vh;
   animation: toastIn 0.14s ease;
 }
+/* Settings → Memory: entries grouped by category, each editable/deletable. */
+.mem-modal {
+  width: min(720px, 92vw);
+  max-height: 72vh;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.mem-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.mem-heading { flex: 1; min-width: 0; }
+.mem-title { margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--ink); }
+.mem-sub { margin: 4px 0 0; font-size: 0.84rem; color: var(--muted); }
+.mem-body { overflow-y: auto; padding: 8px 20px 20px; }
+.mem-empty { color: var(--muted); font-size: 0.88rem; padding: 18px 0; }
+.mem-group { margin-top: 16px; }
+.mem-cat {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
+}
+.mem-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; margin-bottom: 7px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface);
+}
+.mem-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mem-summary { font-size: 0.9rem; color: var(--ink); font-weight: 550; }
+.mem-details { font-size: 0.8rem; color: var(--muted); }
+.mem-acts { display: flex; gap: 4px; flex-shrink: 0; }
+.mem-act {
+  display: grid; place-items: center; width: 28px; height: 28px;
+  border: 0; background: transparent; border-radius: 7px;
+  color: var(--muted); cursor: pointer;
+}
+.mem-act:hover { background: color-mix(in oklab, var(--ink) 8%, transparent); color: var(--ink); }
+.mem-act.danger:hover { color: var(--danger); }
+.mem-edit {
+  flex: 1; font: inherit; font-size: 0.9rem; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--accent);
+  border-radius: 8px; padding: 6px 9px;
+}
+.mem-edit:focus { outline: none; }
+
 .search-modal {
   width: min(720px, 92vw);
   max-height: 68vh;

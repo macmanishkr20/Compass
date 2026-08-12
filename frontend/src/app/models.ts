@@ -135,6 +135,19 @@ export interface NoticeVM {
   text: string;
 }
 
+/** One thing Compass remembers about the user, shown in Settings → Memory
+ *  grouped by category (Claude's memory model: individual categorized entries
+ *  the model reads and updates while you chat). */
+export interface MemoryEntry {
+  id: string;
+  scope: string;
+  category: string;
+  summary: string;
+  details: string;
+  created_at: number;
+  updated_at: number;
+}
+
 /** A browser-preview card the agent produced (the `browser` tool) — the app
  *  screenshot plus a header with the page title, its URL, and an Open button
  *  that opens the live page in the Compass browser pane (like claude.ai). */
