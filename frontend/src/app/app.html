@@ -1082,9 +1082,13 @@
       <input #agentFileInput type="file" multiple hidden (change)="onAttachPicked($event)" [attr.accept]="attachAccept" />
       <div class="cmp-inputbox">
         <textarea class="composer-input" rows="1"
-          placeholder="Ask Compass to build, inspect, or run something…"
-          [value]="draft()" (input)="draft.set($any($event.target).value)"
+          [placeholder]="nextSuggestion() || 'Ask Compass to build, inspect, or run something…'"
+          [value]="draft()" (input)="draft.set($any($event.target).value); nextSuggestion.set('')"
           (paste)="onAttachPaste($event)" (keydown)="onKeydown($event)"></textarea>
+        @if (nextSuggestion() && !draft()) {
+          <button class="cmp-suggest" (click)="acceptSuggestion()"
+            title="Use this suggestion (Tab)">Tab</button>
+        }
         <button class="cmp-enter" [disabled]="!canSend()" (click)="send()" aria-label="Send">
           @if (streaming()) { <span class="spin"></span> }
           @else { <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 10l-5 5 5 5M4 15h11a5 5 0 005-5V4" stroke-linecap="round" stroke-linejoin="round"/></svg> }

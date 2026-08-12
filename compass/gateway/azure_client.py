@@ -280,27 +280,43 @@ class AzureModelClient:
         )
 
     async def complete_utility(self, prompt: str, text: str) -> str:
-        """Small non-streaming call for compaction summaries (queryHaiku analog)."""
-        settings = get_settings()
-        deployment = settings.azure.utility_deployment or settings.azure.deployment
-        from openai import BadRequestError
+        """Small non-streaming call for compaction summaries (queryHaiku analog).
 
-        base = {
-            "model": deployment,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": text},
-            ],
-        }
-        try:
-            response = await self._get_client().chat.completions.create(
-                **base, max_completion_tokens=2_000
-            )
-        except BadRequestError:
-            response = await self._get_client().chat.completions.create(
-                **base, max_tokens=2_000
-            )
-        return response.choices[0].message.content or ""
+        Falls back to the main deployment when the configured utility deployment
+        does not exist on the resource — otherwise a stale
+        AZURE_OPENAI_UTILITY_DEPLOYMENT silently breaks every caller (compaction
+        summaries included) with a 404."""
+        settings = get_settings()
+        from openai import BadRequestError, NotFoundError
+
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": text},
+        ]
+        candidates = [
+            d
+            for d in (settings.azure.utility_deployment, settings.azure.deployment)
+            if d
+        ]
+        last: Exception | None = None
+        for deployment in dict.fromkeys(candidates):  # de-duped, order kept
+            base = {"model": deployment, "messages": messages}
+            try:
+                try:
+                    response = await self._get_client().chat.completions.create(
+                        **base, max_completion_tokens=2_000
+                    )
+                except BadRequestError:
+                    response = await self._get_client().chat.completions.create(
+                        **base, max_tokens=2_000
+                    )
+                return response.choices[0].message.content or ""
+            except NotFoundError as err:  # deployment missing — try the next one
+                logger.warning("utility deployment %r not found; falling back", deployment)
+                last = err
+        if last:
+            raise last
+        return ""
 
     async def synthesize_speech(
         self, text: str, voice: str, instructions: str | None

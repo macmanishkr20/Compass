@@ -513,6 +513,65 @@ async def take_screenshot(
     return {"image": image}
 
 
+SUGGEST_PROMPT = (
+    "You suggest the ONE most likely next thing the user will ask, based on the "
+    "exchange below. Reply with that single instruction, phrased the way the "
+    "user would type it: imperative, lower-case, under 8 words, no quotes, no "
+    "trailing period. It must be a concrete follow-up action that clearly "
+    "follows from what just happened — e.g. after merging and pushing a branch: "
+    "delete the feat/x branch. If nothing obvious follows, reply with exactly: "
+    "NONE"
+)
+
+
+@app.post("/v1/sessions/{session_id}/suggest")
+async def suggest_next(session_id: str, user: str = Depends(require_user)) -> dict:
+    """The next-step suggestion pre-filled in the composer after a turn."""
+    session = sessions.get(session_id)
+
+    def _text(c) -> str:
+        if isinstance(c, str):
+            return c
+        if isinstance(c, list):
+            return " ".join(
+                p.get("text", "")
+                for p in c
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        return ""
+
+    # Fall back to the stored transcript: a resumed conversation (or one from
+    # before a restart) is not in the in-memory registry, and the suggestion
+    # should still work there.
+    messages = session.messages if session is not None else []
+    if not messages:
+        try:
+            messages = await get_transcript_store().load(session_id)
+        except Exception:  # noqa: BLE001
+            messages = []
+
+    turns = [
+        f"{m.role}: {_text(m.content)[:600]}"
+        for m in messages[-6:]
+        if m.role in ("user", "assistant") and _text(m.content).strip()
+    ]
+    if not turns:
+        return {"suggestion": ""}
+    try:
+        from compass.gateway.azure_client import get_model_client
+
+        out = (await get_model_client().complete_utility(
+            SUGGEST_PROMPT, "\n\n".join(turns)
+        )).strip()
+    except Exception:  # noqa: BLE001 — a suggestion is never worth an error
+        return {"suggestion": ""}
+    # Normalise: single line, drop quotes/trailing period, ignore refusals.
+    out = out.splitlines()[0].strip().strip('"“”').rstrip(".")
+    if not out or out.upper().startswith("NONE") or len(out) > 80:
+        return {"suggestion": ""}
+    return {"suggestion": out}
+
+
 @app.get("/v1/customize")
 async def get_customize(user: str = Depends(require_user)) -> dict:
     """One place listing what Compass can do and what it's connected to —

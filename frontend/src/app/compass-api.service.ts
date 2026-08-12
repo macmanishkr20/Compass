@@ -349,6 +349,12 @@ export class CompassApiService {
     );
   }
 
+  suggestNext(sessionId: string): Promise<{ suggestion: string }> {
+    return firstValueFrom(
+      this.http.post<{ suggestion: string }>(`/v1/sessions/${sessionId}/suggest`, {}),
+    );
+  }
+
   customize(): Promise<CustomizeInfo> {
     return firstValueFrom(this.http.get<CustomizeInfo>('/v1/customize'));
   }

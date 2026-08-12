@@ -2703,7 +2703,32 @@ export class App {
       await this.backfillUuids(sid);
       await this.refreshSessions();
       void this.loadGitStatus();
+      void this.loadNextSuggestion(sid);
     }
+  }
+
+  // -- next-step suggestion pre-filled in the composer (claude.ai style) -----
+  readonly nextSuggestion = signal('');
+  /** Ask the model for the single most likely follow-up, shown as ghost text
+   *  in the composer; Tab (or clicking it) accepts. */
+  private async loadNextSuggestion(sid: string): Promise<void> {
+    this.nextSuggestion.set('');
+    if (this.turnAborted) return;
+    try {
+      const r = await this.api.suggestNext(sid);
+      // Only offer it while the composer is still empty and idle.
+      if (!this.draft().trim() && !this.streaming()) {
+        this.nextSuggestion.set(r.suggestion || '');
+      }
+    } catch {
+      /* a suggestion is optional */
+    }
+  }
+  acceptSuggestion(): void {
+    const s = this.nextSuggestion();
+    if (!s) return;
+    this.draft.set(s);
+    this.nextSuggestion.set('');
   }
 
   /** When a completed response contains an artifact, open it in the panel —
@@ -2820,6 +2845,12 @@ export class App {
   }
 
   onKeydown(ev: KeyboardEvent): void {
+    // Tab accepts the pre-filled next-step suggestion (claude.ai behaviour).
+    if (ev.key === 'Tab' && !this.draft().trim() && this.nextSuggestion()) {
+      ev.preventDefault();
+      this.acceptSuggestion();
+      return;
+    }
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault();
       void this.send();

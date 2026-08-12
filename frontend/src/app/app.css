@@ -1823,6 +1823,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding: 5px 9px; border-radius: 8px;
 }
 .cmp-inputbox {
+  position: relative; /* anchors the Tab suggestion pill */
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -2743,6 +2744,18 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding-top: 12vh;
   animation: toastIn 0.14s ease;
 }
+/* Next-step suggestion pre-filled in the composer: the text shows as the
+   placeholder, this pill accepts it (Tab also works). */
+.cmp-suggest {
+  position: absolute; right: 52px; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 0.66rem; font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  color: var(--muted); background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.cmp-suggest:hover { color: var(--ink); border-color: var(--border-strong); }
+
 /* Settings → Customize: connectors, MCP servers, tools, routines. */
 .cz-row {
   display: flex; align-items: center; gap: 10px;
