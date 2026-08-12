@@ -23,6 +23,7 @@ import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Lightbox } from './lightbox/lightbox';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
 import { BrowserSelectService } from './browser-select.service';
 import { getPref, setPref } from './prefs';
@@ -101,6 +102,7 @@ export class App {
   readonly theme = inject(ThemeService);
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   // Compass Collab — sibling apps launched from the sidebar.
   readonly collabApps = COLLAB_APPS;
@@ -773,6 +775,25 @@ export class App {
       default: return 'Interacted with the page';
     }
   }
+  /** Minimal shell highlighting for an expanded bash step: the command word in
+   *  each segment, quoted strings, and flags — the way Claude colours the
+   *  command it ran. Escaped first, so the output is safe to bind as HTML. */
+  shellHtml(cmd: string): SafeHtml {
+    const esc = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let html = esc(cmd);
+    // quoted strings
+    html = html.replace(/(&#39;|')[^']*\1|"[^"]*"/g, (m) => `<i class="sh-str">${m}</i>`);
+    // the command word at the start, or after a ; | && || pipeline separator
+    html = html.replace(
+      /(^|[;|]\s*|&amp;&amp;\s*)([a-zA-Z_][\w./-]*)/g,
+      (_m, pre, word) => `${pre}<b class="sh-cmd">${word}</b>`,
+    );
+    // flags
+    html = html.replace(/(\s)(--?[\w-]+)/g, (_m, sp, flag) => `${sp}<u class="sh-flag">${flag}</u>`);
+    return this.sanitizer.bypassSecurityTrustHtml(html);
+  }
+
   /** The raw command / args shown when a step is expanded. */
   stepDetail(t: ToolCardVM): string {
     const a = this.argObj(t);
@@ -1910,6 +1931,19 @@ export class App {
     await this.loadMemory();
   }
 
+  /** Which preview card's "⋮" menu is open. */
+  readonly previewMenuId = signal<string | null>(null);
+  openExternal(url: string): void {
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+  async copyText(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
   /** Open a browser-preview card's page live in the Compass browser pane. */
   openPreview(pageUrl: string): void {
     if (!pageUrl) return;
@@ -2396,6 +2430,7 @@ export class App {
    *  dismisses open menus. Toggles stopPropagation so they aren't re-closed. */
   closeAllMenus(): void {
     this.menuOpenId.set(null);
+    this.previewMenuId.set(null);
     this.homeMenuOpenId.set(null);
     this.userMenuOpen.set(false);
     this.repoMenuOpen.set(false);
@@ -3172,12 +3207,19 @@ export class App {
   }
 
   /** "2:14 PM" for a hover timestamp. */
+  /** Relative age ("just now", "7 hours ago", "3 days ago") — Claude labels
+   *  messages by how long ago they were sent, not the wall-clock time. */
   formatTime(ms: number | undefined): string {
     if (!ms) return '';
-    return new Date(ms).toLocaleTimeString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    const secs = Math.max(0, Math.round((this.nowTick() - ms) / 1000));
+    if (secs < 45) return 'just now';
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.round(hours / 24);
+    if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+    return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
   formatDuration(ms: number): string {

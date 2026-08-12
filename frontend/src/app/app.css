@@ -2744,6 +2744,36 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding-top: 12vh;
   animation: toastIn 0.14s ease;
 }
+/* Inline "N running tasks" line above the composer. */
+.run-indicator {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 8px;
+  margin: 0 0 8px 4px; padding: 4px 6px;
+  border: 0; background: none; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 0.85rem;
+}
+.run-indicator:hover { color: var(--ink); }
+.run-star {
+  color: var(--accent); font-size: 1rem; line-height: 1;
+  animation: spin 3.2s linear infinite;
+}
+
+/* Shell highlighting inside an expanded bash step. */
+.step-cmd.shell .sh-prompt { color: var(--faint); user-select: none; }
+.step-cmd.shell .sh-cmd { color: #6ea8fe; font-weight: 600; font-style: normal; }
+.step-cmd.shell .sh-str { color: #7ec87e; font-style: normal; }
+.step-cmd.shell .sh-flag { color: var(--muted); text-decoration: none; }
+
+/* Preview card "\u22ee" overflow menu. */
+.preview-more-wrap { position: relative; flex-shrink: 0; }
+.preview-more {
+  display: grid; place-items: center; width: 30px; height: 30px;
+  border: 0; background: none; border-radius: 8px;
+  color: var(--muted); cursor: pointer;
+}
+.preview-more:hover { background: color-mix(in oklab, var(--ink) 8%, transparent); color: var(--ink); }
+.preview-menu { position: absolute; right: 0; top: 34px; z-index: 20; }
+
 /* Next-step suggestion pre-filled in the composer: the text shows as the
    placeholder, this pill accepts it (Tab also works). */
 .cmp-suggest {

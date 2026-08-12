@@ -722,8 +722,12 @@
                         </button>
                         @if (isActivityExpanded('step-' + st.id)) {
                           <div class="step-body">
-                            <pre class="step-cmd">{{ stepDetail(st) }}</pre>
-                            @if (st.output) { <pre class="step-out">{{ st.output }}</pre> }
+                            @if (st.name === 'bash') {
+                              <pre class="step-cmd shell"><span class="sh-prompt">$</span> <span [innerHTML]="shellHtml(stepDetail(st))"></span></pre>
+                            } @else {
+                              <pre class="step-cmd">{{ stepDetail(st) }}</pre>
+                            }
+                            <pre class="step-out">{{ st.output || (st.name === 'bash' ? '(Bash completed with no output)' : '(no output)') }}</pre>
                           </div>
                         }
                       </div>
@@ -924,6 +928,20 @@
                     <span class="preview-url">{{ pv.pageUrl.replace('http://','').replace('https://','') }} · Opened in Browser</span>
                   </div>
                   <button class="preview-open" (click)="openPreview(pv.pageUrl)">Open</button>
+                  <div class="preview-more-wrap">
+                    <button class="preview-more" aria-label="More"
+                      (click)="$event.stopPropagation(); previewMenuId.set(previewMenuId() === pv.id ? null : pv.id)">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+                    </button>
+                    @if (previewMenuId() === pv.id) {
+                      <div class="conv-menu panel preview-menu" role="menu" (click)="$event.stopPropagation()">
+                        <button role="menuitem" (click)="openPreview(pv.pageUrl); previewMenuId.set(null)">Open in Compass browser</button>
+                        <button role="menuitem" (click)="openExternal(pv.pageUrl); previewMenuId.set(null)">Open in system browser</button>
+                        <button role="menuitem" (click)="copyText(pv.pageUrl); previewMenuId.set(null)">Copy link</button>
+                        <button role="menuitem" (click)="lightbox.open(pv.imageUrl, pv.title); previewMenuId.set(null)">View screenshot</button>
+                      </div>
+                    }
+                  </div>
                 </div>
               </div>
             </div>
@@ -955,6 +973,14 @@
 
     <footer class="composer-wrap">
       @if (connError()) { <div class="banner">{{ connError() }}</div> }
+      <!-- Live "N running task(s)" line, directly above the composer. -->
+      @if (bgRunning().length) {
+        <button class="run-indicator" (click)="toggleBgPanel()"
+          title="Show background tasks">
+          <span class="run-star">✳</span>
+          {{ bgRunning().length }} running task{{ bgRunning().length === 1 ? '' : 's' }}
+        </button>
+      }
       <!-- Status block: repo · branch … diff · warn · Create PR -->
       <div class="cmp-status">
         <span class="cmp-repo">
