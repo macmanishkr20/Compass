@@ -953,6 +953,28 @@ export class App {
         this.rbDisconnect();
       }
     });
+    // Inline artifact editing: the panel raises "change this highlighted part";
+    // turn it into a targeted edit prompt and send it like any other message.
+    effect(() => {
+      const req = this.artifacts.editRequest();
+      if (!req) return;
+      this.artifacts.editRequest.set(null);
+      const a = this.artifacts.active();
+      if (!a) return;
+      const lang = a.kind === 'mermaid' ? 'mermaid' : a.kind || '';
+      // The full current source is included: the artifact may predate this
+      // thread (or have been edited since), so the model must not rely on the
+      // transcript to know what it is editing.
+      this.draft.set(
+        `Here is the current artifact${a.title ? ` "${a.title}"` : ''}:\n\n` +
+          '```' + lang + '\n' + a.code + '\n```\n\n' +
+          `Change only this highlighted part:\n\n"""\n${req.selection}\n"""\n\n` +
+          `${req.instruction}\n\n` +
+          'Leave everything else exactly as-is and re-emit the complete ' +
+          'updated artifact in a single code block.',
+      );
+      void this.send();
+    });
     // Poll background tasks so the top-bar badge and panel stay live; tick a
     // clock every second so "18m 26s" style timers advance without a refetch.
     void this.refreshBgTasks();

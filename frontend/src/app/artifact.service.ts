@@ -15,6 +15,16 @@ export class ArtifactService {
   readonly active = signal<Artifact | null>(null);
   readonly isOpen = computed(() => this.active() !== null);
 
+  /** An "edit this part" request raised from the artifact panel: the user
+   *  highlighted `selection` and typed `instruction`. The shell watches this
+   *  and sends it to the model as a targeted edit. */
+  readonly editRequest = signal<{ selection: string; instruction: string } | null>(
+    null,
+  );
+  requestEdit(selection: string, instruction: string): void {
+    this.editRequest.set({ selection, instruction });
+  }
+
   open(a: Artifact): void {
     this.active.set(a);
   }
@@ -218,10 +228,32 @@ export class ArtifactService {
 
   /** Wrap raw content into a full, standalone HTML document for preview /
    * new-tab. HTML passes through; SVG is centered on a white ground. */
+  /** Reports the user's text selection up to the parent so the panel can offer
+   *  "edit this part" — the frame is sandboxed (opaque origin), so postMessage
+   *  is the only channel. Injected into every previewed artifact. */
+  static readonly SELECT_SCRIPT = `<script>
+(function(){
+  function send(){
+    try{
+      var s=String(getSelection());
+      parent.postMessage({__compassSel:true,text:s.trim()},'*');
+    }catch(e){}
+  }
+  document.addEventListener('mouseup',send);
+  document.addEventListener('keyup',send);
+})();
+</script>`;
+
   static toDocument(a: Artifact): string {
-    if (a.kind === 'html') return a.code;
+    if (a.kind === 'html') {
+      // Append the selection reporter just before </body> (or at the end).
+      const s = ArtifactService.SELECT_SCRIPT;
+      return a.code.includes('</body>')
+        ? a.code.replace('</body>', `${s}</body>`)
+        : a.code + s;
+    }
     return `<!doctype html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;height:100%}body{display:grid;place-items:center;background:#fff}
-svg{max-width:100%;max-height:100vh}</style></head><body>${a.code}</body></html>`;
+svg{max-width:100%;max-height:100vh}</style></head><body>${a.code}${ArtifactService.SELECT_SCRIPT}</body></html>`;
   }
 }

@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -142,7 +143,28 @@ import { ThemeService } from '../theme.service';
             title="Artifact preview"></iframe>
         }
         @if (tab() === 'code') {
-          <pre class="ap-code"><code>{{ a.code }}</code></pre>
+          <pre class="ap-code" (mouseup)="onLocalSelect()"><code>{{ a.code }}</code></pre>
+        }
+
+        <!-- Inline editing: highlight part of the artifact, then describe the
+             change and Claude edits it right where you marked it. -->
+        @if (selText() && !editOpen()) {
+          <button class="ap-editpill" (click)="openEdit()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
+            Edit this
+          </button>
+        }
+        @if (editOpen()) {
+          <div class="ap-editbox">
+            <div class="ap-editsel">“{{ selText().slice(0, 90) }}{{ selText().length > 90 ? '…' : '' }}”</div>
+            <input class="ap-editinput" placeholder="Describe the change…" autofocus
+              [value]="editInstr()" (input)="editInstr.set($any($event.target).value)"
+              (keydown.enter)="submitEdit()" (keydown.escape)="cancelEdit()" />
+            <div class="ap-editacts">
+              <button class="ap-editbtn ghost" (click)="cancelEdit()">Cancel</button>
+              <button class="ap-editbtn" (click)="submitEdit()">Update</button>
+            </div>
+          </div>
         }
       </div>
     }
@@ -171,6 +193,43 @@ export class ArtifactPanel {
   readonly dgX = signal(0);
   readonly dgY = signal(0);
   readonly dgPct = computed(() => Math.round(this.dgScale() * 100));
+  // -- inline editing: highlight part of the artifact, type the change -------
+  readonly selText = signal('');       // what the user highlighted
+  readonly editOpen = signal(false);   // the "describe the change" popover
+  readonly editInstr = signal('');
+
+  /** Selection reported from the sandboxed preview frame (postMessage), or from
+   *  the Code tab / diagram, which live in our own DOM. */
+  private onSelectionMessage = (ev: MessageEvent): void => {
+    const d = ev.data as { __compassSel?: boolean; text?: string } | null;
+    if (!d || !d.__compassSel) return;
+    const t = (d.text ?? '').trim();
+    this.selText.set(t);
+    if (!t) this.editOpen.set(false);
+  };
+  /** Selection made directly in the panel (code view / inline SVG). */
+  onLocalSelect(): void {
+    const t = String(getSelection() ?? '').trim();
+    this.selText.set(t);
+    if (!t) this.editOpen.set(false);
+  }
+  openEdit(): void {
+    if (!this.selText()) return;
+    this.editInstr.set('');
+    this.editOpen.set(true);
+  }
+  cancelEdit(): void {
+    this.editOpen.set(false);
+  }
+  submitEdit(): void {
+    const instruction = this.editInstr().trim();
+    const selection = this.selText();
+    if (!instruction || !selection) return;
+    this.editOpen.set(false);
+    this.selText.set('');
+    this.svc.requestEdit(selection, instruction);
+  }
+
   readonly dgPanning = signal(false);
   private dgStartX = 0;
   private dgStartY = 0;
@@ -257,6 +316,17 @@ export class ArtifactPanel {
   }
 
   constructor() {
+    // Selections inside the sandboxed preview arrive by postMessage.
+    addEventListener('message', this.onSelectionMessage);
+    inject(DestroyRef).onDestroy(() =>
+      removeEventListener('message', this.onSelectionMessage),
+    );
+    // Clear any pending selection when the artifact changes.
+    effect(() => {
+      this.svc.active();
+      this.selText.set('');
+      this.editOpen.set(false);
+    });
     // Render the preview when the artifact, tab, or theme changes.
     effect(() => {
       const a = this.svc.active();

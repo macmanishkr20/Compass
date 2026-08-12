@@ -92,6 +92,47 @@
 }
 
 .ap-body { flex: 1; min-height: 0; position: relative; display: flex; }
+
+/* Inline editing — "Edit this" pill on a selection, then a small popover to
+   describe the change (claude.ai edits the artifact right where you marked). */
+.ap-editpill {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 12;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 15px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+  font: inherit; font-size: 0.84rem; font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0,0,0,.22);
+}
+.ap-editpill:hover { filter: brightness(1.1); }
+.ap-editbox {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 12; width: min(420px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 13px 14px; border-radius: 13px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 34px rgba(0,0,0,.26);
+}
+.ap-editsel {
+  font-size: 0.78rem; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ap-editinput {
+  font: inherit; font-size: 0.88rem; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 9px; padding: 9px 11px;
+}
+.ap-editinput:focus { outline: none; border-color: var(--accent); }
+.ap-editacts { display: flex; justify-content: flex-end; gap: 8px; }
+.ap-editbtn {
+  font: inherit; font-size: 0.82rem; font-weight: 600;
+  padding: 6px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+}
+.ap-editbtn.ghost {
+  background: transparent; color: var(--muted); border-color: var(--border);
+}
+.ap-editbtn.ghost:hover { color: var(--ink); }
 .ap-frame {
   flex: 1;
   width: 100%;
