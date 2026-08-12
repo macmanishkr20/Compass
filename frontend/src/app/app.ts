@@ -41,6 +41,7 @@ import {
   NoticeVM,
   PermissionVM,
   PreviewCardVM,
+  Recap,
   Routine,
   RoutineRun,
   RoutineTemplate,
@@ -975,6 +976,13 @@ export class App {
       );
       void this.send();
     });
+    // Time & focus: nudge for a break after the configured stretch of work.
+    // Quiet hours mute the nudge entirely.
+    setInterval(() => {
+      const every = this.breakEvery();
+      if (!every || this.breakDue() || this.inQuietHours()) return;
+      if (Date.now() - this.sessionStartMs >= every * 60_000) this.breakDue.set(true);
+    }, 30_000);
     // Poll background tasks so the top-bar badge and panel stay live; tick a
     // clock every second so "18m 26s" style timers advance without a refetch.
     void this.refreshBgTasks();
@@ -1781,6 +1789,59 @@ export class App {
     this.navigateBrowser();
     this.browserOpen.set(true);
   }
+  // -- Reflect (Settings → Reflect): how you've been working, + Time & focus --
+  readonly reflectOpen = signal(false);
+  readonly recap = signal<Recap | null>(null);
+  /** Break reminder cadence in minutes; 0 = off. Quiet hours mute reminders. */
+  readonly breakEvery = signal(Number(getPref('compass-break-every') ?? 0));
+  readonly quietFrom = signal(getPref('compass-quiet-from') ?? '');
+  readonly quietTo = signal(getPref('compass-quiet-to') ?? '');
+  readonly breakDue = signal(false);
+  private sessionStartMs = Date.now();
+
+  async openReflect(): Promise<void> {
+    this.userMenuOpen.set(false);
+    this.reflectOpen.set(true);
+    try {
+      this.recap.set(await this.api.recap());
+    } catch {
+      /* non-fatal */
+    }
+  }
+  setBreakEvery(v: string): void {
+    const n = Number(v) || 0;
+    this.breakEvery.set(n);
+    setPref('compass-break-every', String(n));
+    this.sessionStartMs = Date.now();
+    this.breakDue.set(false);
+  }
+  setQuiet(which: 'from' | 'to', v: string): void {
+    if (which === 'from') {
+      this.quietFrom.set(v);
+      setPref('compass-quiet-from', v);
+    } else {
+      this.quietTo.set(v);
+      setPref('compass-quiet-to', v);
+    }
+  }
+  /** True inside the configured quiet hours (handles overnight ranges). */
+  inQuietHours(): boolean {
+    const f = this.quietFrom();
+    const t = this.quietTo();
+    if (!f || !t) return false;
+    const now = new Date();
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const [fh, fm] = f.split(':').map(Number);
+    const [th, tm] = t.split(':').map(Number);
+    const start = fh * 60 + (fm || 0);
+    const end = th * 60 + (tm || 0);
+    return start <= end ? cur >= start && cur < end : cur >= start || cur < end;
+  }
+  dismissBreak(): void {
+    this.breakDue.set(false);
+    this.sessionStartMs = Date.now();
+  }
+
   // -- Memory (Settings → Memory): what Compass remembers, by category -------
   readonly memoryOpen = signal(false);
   readonly memoryEntries = signal<MemoryEntry[]>([]);

@@ -513,6 +513,14 @@ async def take_screenshot(
     return {"image": image}
 
 
+@app.get("/v1/recap")
+async def get_recap(days: int = 30, user: str = Depends(require_user)) -> dict:
+    """"How you've been working with Compass" — topics, busiest day, peak hour."""
+    from compass.services.recap import build_recap
+
+    return await build_recap(days)
+
+
 class MemoryCreate(BaseModel):
     scope: str = "home"
     category: str = "Context"

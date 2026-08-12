@@ -58,6 +58,94 @@
     <button (click)="workIqToast.set('')" aria-label="Dismiss">✕</button>
   </div>
 }
+@if (breakDue()) {
+  <div class="break-toast">
+    <span>You’ve been at it a while — time for a break?</span>
+    <button (click)="dismissBreak()">Dismiss</button>
+  </div>
+}
+
+@if (reflectOpen()) {
+  <div class="search-overlay" (click)="reflectOpen.set(false)">
+    <div class="mem-modal" (click)="$event.stopPropagation()">
+      <div class="mem-head">
+        <div class="mem-heading">
+          <h2 class="mem-title">Reflect</h2>
+          <p class="mem-sub">How you’ve been working with Compass.</p>
+        </div>
+        <button class="search-x" (click)="reflectOpen.set(false)" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="mem-body">
+        @if (recap(); as r) {
+          <div class="rc-stats">
+            <div class="rc-stat"><b>{{ r.conversations }}</b><span>conversations</span></div>
+            <div class="rc-stat"><b>{{ r.agent_conversations }}</b><span>in Code</span></div>
+            <div class="rc-stat"><b>{{ r.chat_conversations }}</b><span>in Home</span></div>
+            @if (r.peak_hour) { <div class="rc-stat"><b>{{ r.peak_hour.label }}</b><span>peak hour</span></div> }
+          </div>
+
+          @if (r.by_day.length) {
+            <div class="mem-cat">Activity by day</div>
+            <div class="rc-days">
+              @for (d of r.by_day; track d.day) {
+                @let mx = (r.top_day?.count || 1);
+                <div class="rc-day">
+                  <div class="rc-bar-wrap">
+                    <div class="rc-bar" [style.height.%]="(d.count / mx) * 100"></div>
+                  </div>
+                  <span class="rc-daylabel">{{ d.day.slice(0, 3) }}</span>
+                </div>
+              }
+            </div>
+          }
+
+          @if (r.topics.length) {
+            <div class="mem-cat">Topics you spent time on</div>
+            <div class="rc-topics">
+              @for (t of r.topics; track t.topic) {
+                <span class="rc-topic">{{ t.topic }} <i>{{ t.count }}</i></span>
+              }
+            </div>
+          }
+
+          @if (r.observations.length) {
+            <div class="mem-cat">Observations</div>
+            <ul class="rc-obs">
+              @for (o of r.observations; track o) { <li>{{ o }}</li> }
+            </ul>
+          }
+        } @else {
+          <p class="mem-empty">Gathering your activity…</p>
+        }
+
+        <div class="mem-cat">Time and focus</div>
+        <div class="rc-focus">
+          <label class="rc-field">
+            <span>Break reminder</span>
+            <select [value]="breakEvery()" (change)="setBreakEvery($any($event.target).value)">
+              <option value="0">Off</option>
+              <option value="30">Every 30 min</option>
+              <option value="60">Every hour</option>
+              <option value="90">Every 90 min</option>
+            </select>
+          </label>
+          <label class="rc-field">
+            <span>Quiet hours</span>
+            <span class="rc-quiet">
+              <input type="time" [value]="quietFrom()" (change)="setQuiet('from', $any($event.target).value)" />
+              <i>to</i>
+              <input type="time" [value]="quietTo()" (change)="setQuiet('to', $any($event.target).value)" />
+            </span>
+          </label>
+          @if (inQuietHours()) { <p class="rc-quietnote">Quiet hours are active — reminders are muted.</p> }
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 @if (memoryOpen()) {
   <div class="search-overlay" (click)="memoryOpen.set(false)">
     <div class="mem-modal" (click)="$event.stopPropagation()">
@@ -359,6 +447,10 @@
                 Open Compass browser
               </button>
             }
+            <button class="user-menu-item" role="menuitem" (click)="openReflect()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" stroke-linecap="round"/></svg>
+              Reflect
+            </button>
             <button class="user-menu-item" role="menuitem" (click)="openMemory()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v2a3 3 0 003 3h1V3zM12 3a4 4 0 014 4v1a3 3 0 010 6v2a3 3 0 01-3 3h-1" stroke-linejoin="round"/></svg>
               Memory

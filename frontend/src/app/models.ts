@@ -135,6 +135,19 @@ export interface NoticeVM {
   text: string;
 }
 
+/** "How you've been working with Compass" — the Settings → Reflect recap. */
+export interface Recap {
+  days: number;
+  conversations: number;
+  agent_conversations: number;
+  chat_conversations: number;
+  top_day: { day: string; count: number } | null;
+  peak_hour: { hour: number; label: string; count: number } | null;
+  by_day: { day: string; count: number }[];
+  topics: { topic: string; count: number }[];
+  observations: string[];
+}
+
 /** One thing Compass remembers about the user, shown in Settings → Memory
  *  grouped by category (Claude's memory model: individual categorized entries
  *  the model reads and updates while you chat). */

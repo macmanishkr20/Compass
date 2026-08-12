@@ -12,6 +12,7 @@ import {
   GithubRepo,
   HealthInfo,
   MemoryEntry,
+  Recap,
   PermissionBehavior,
   Routine,
   RoutineRun,
@@ -345,6 +346,10 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
     );
+  }
+
+  recap(days = 30): Promise<Recap> {
+    return firstValueFrom(this.http.get<Recap>(`/v1/recap?days=${days}`));
   }
 
   // -- memory (Settings → Memory) -------------------------------------------
