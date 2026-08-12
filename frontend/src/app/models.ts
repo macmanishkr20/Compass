@@ -135,6 +135,15 @@ export interface NoticeVM {
   text: string;
 }
 
+/** Settings → Customize: what Compass can do and what it is connected to. */
+export interface CustomizeInfo {
+  tools: { name: string; description: string }[];
+  connectors: { name: string; detail: string; connected: boolean }[];
+  mcp_servers: { name: string; detail: string; connected: boolean }[];
+  mcp_tools: string[];
+  routines: { name: string; detail: string }[];
+}
+
 /** "How you've been working with Compass" — the Settings → Reflect recap. */
 export interface Recap {
   days: number;

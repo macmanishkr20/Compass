@@ -11,6 +11,7 @@ import {
   GitStatus,
   GithubRepo,
   HealthInfo,
+  CustomizeInfo,
   MemoryEntry,
   Recap,
   PermissionBehavior,
@@ -346,6 +347,10 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
     );
+  }
+
+  customize(): Promise<CustomizeInfo> {
+    return firstValueFrom(this.http.get<CustomizeInfo>('/v1/customize'));
   }
 
   recap(days = 30): Promise<Recap> {

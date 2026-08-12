@@ -37,6 +37,7 @@ import {
   GithubRepo,
   GroupBy,
   HealthInfo,
+  CustomizeInfo,
   MemoryEntry,
   NoticeVM,
   PermissionVM,
@@ -1789,6 +1790,19 @@ export class App {
     this.navigateBrowser();
     this.browserOpen.set(true);
   }
+  // -- Customize: tools, connectors and automations in one place ------------
+  readonly customizeOpen = signal(false);
+  readonly customize = signal<CustomizeInfo | null>(null);
+  async openCustomize(): Promise<void> {
+    this.userMenuOpen.set(false);
+    this.customizeOpen.set(true);
+    try {
+      this.customize.set(await this.api.customize());
+    } catch {
+      /* non-fatal */
+    }
+  }
+
   // -- Reflect (Settings → Reflect): how you've been working, + Time & focus --
   readonly reflectOpen = signal(false);
   readonly recap = signal<Recap | null>(null);

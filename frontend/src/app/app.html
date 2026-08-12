@@ -65,6 +65,65 @@
   </div>
 }
 
+@if (customizeOpen()) {
+  <div class="search-overlay" (click)="customizeOpen.set(false)">
+    <div class="mem-modal" (click)="$event.stopPropagation()">
+      <div class="mem-head">
+        <div class="mem-heading">
+          <h2 class="mem-title">Customize</h2>
+          <p class="mem-sub">What Compass can do, and what it’s connected to.</p>
+        </div>
+        <button class="search-x" (click)="customizeOpen.set(false)" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="mem-body">
+        @if (customize(); as c) {
+          <div class="mem-cat">Connectors</div>
+          @for (x of c.connectors; track x.name) {
+            <div class="cz-row">
+              <span class="cz-dot" [class.on]="x.connected"></span>
+              <span class="cz-name">{{ x.name }}</span>
+              <span class="cz-detail">{{ x.detail }}</span>
+            </div>
+          }
+
+          <div class="mem-cat">MCP servers</div>
+          @if (!c.mcp_servers.length) {
+            <p class="cz-none">None configured — add servers in <code>.compass/mcp.json</code>.</p>
+          }
+          @for (m of c.mcp_servers; track m.name) {
+            <div class="cz-row">
+              <span class="cz-dot" [class.on]="m.connected"></span>
+              <span class="cz-name">{{ m.name }}</span>
+              <span class="cz-detail">{{ m.detail }}</span>
+            </div>
+          }
+
+          <div class="mem-cat">Tools ({{ c.tools.length }})</div>
+          <div class="cz-tools">
+            @for (t of c.tools; track t.name) {
+              <span class="cz-tool" [title]="t.description">{{ t.name }}</span>
+            }
+          </div>
+
+          <div class="mem-cat">Routines</div>
+          @if (!c.routines.length) { <p class="cz-none">No routines yet.</p> }
+          @for (r of c.routines; track r.name) {
+            <div class="cz-row">
+              <span class="cz-dot on"></span>
+              <span class="cz-name">{{ r.name }}</span>
+              <span class="cz-detail">{{ r.detail }}</span>
+            </div>
+          }
+        } @else {
+          <p class="mem-empty">Loading…</p>
+        }
+      </div>
+    </div>
+  </div>
+}
+
 @if (reflectOpen()) {
   <div class="search-overlay" (click)="reflectOpen.set(false)">
     <div class="mem-modal" (click)="$event.stopPropagation()">
@@ -447,6 +506,10 @@
                 Open Compass browser
               </button>
             }
+            <button class="user-menu-item" role="menuitem" (click)="openCustomize()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke-linecap="round"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+              Customize
+            </button>
             <button class="user-menu-item" role="menuitem" (click)="openReflect()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" stroke-linecap="round"/></svg>
               Reflect

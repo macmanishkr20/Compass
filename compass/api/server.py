@@ -513,6 +513,87 @@ async def take_screenshot(
     return {"image": image}
 
 
+@app.get("/v1/customize")
+async def get_customize(user: str = Depends(require_user)) -> dict:
+    """One place listing what Compass can do and what it's connected to —
+    the port of Claude's Customize section (skills / plugins / connectors)."""
+    from compass.tools.registry import get_all_tools
+
+    settings = get_settings()
+    manager = get_mcp_manager()
+
+    tools = [
+        {"name": t.name, "description": (t.description or "").split(". ")[0] + "."}
+        for t in get_all_tools()
+    ]
+
+    connectors: list[dict] = [
+        {
+            "name": "Azure OpenAI",
+            "detail": settings.azure.deployment or "not configured",
+            "connected": bool(settings.azure.endpoint and settings.azure.api_key),
+        },
+        {
+            "name": "Work IQ (Azure AI Search)",
+            "detail": settings.ai_search.index or "not configured",
+            "connected": settings.ai_search.configured,
+        },
+        {
+            "name": "GitHub",
+            "detail": "pull requests and repo access",
+            "connected": settings.github.enabled,
+        },
+        {
+            "name": "Read-aloud (TTS)",
+            "detail": settings.azure.tts_voice or "not configured",
+            "connected": bool(settings.azure.tts_deployment),
+        },
+        {
+            "name": "Voice mode (Realtime)",
+            "detail": settings.azure.realtime_deployment or "not configured",
+            "connected": settings.azure.realtime_configured,
+        },
+        {
+            "name": "Cosmos DB",
+            "detail": settings.storage.cosmos_database
+            if settings.storage.cosmos_configured
+            else "local files",
+            "connected": settings.storage.cosmos_configured,
+        },
+        {
+            "name": "Blob storage",
+            "detail": settings.storage.blob_container
+            if settings.storage.blob_configured
+            else "local disk",
+            "connected": settings.storage.blob_configured,
+        },
+    ]
+
+    mcp = [
+        {"name": name, "detail": state, "connected": state == "connected"}
+        for name, state in (manager.status or {}).items()
+    ]
+
+    routines: list[dict] = []
+    try:
+        from compass.services.routines import store as routine_store
+
+        routines = [
+            {"name": r.name, "detail": f"{len(r.triggers)} trigger(s)"}
+            for r in await routine_store.list()
+        ]
+    except Exception:  # noqa: BLE001 — the panel must render regardless
+        pass
+
+    return {
+        "tools": tools,
+        "connectors": connectors,
+        "mcp_servers": mcp,
+        "mcp_tools": [t.name for t in manager.tools],
+        "routines": routines,
+    }
+
+
 @app.get("/v1/recap")
 async def get_recap(days: int = 30, user: str = Depends(require_user)) -> dict:
     """"How you've been working with Compass" — topics, busiest day, peak hour."""
