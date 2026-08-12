@@ -2744,6 +2744,84 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding-top: 12vh;
   animation: toastIn 0.14s ease;
 }
+/* Top-right overflow menu. */
+.topmenu-wrap { position: relative; }
+.topmenu {
+  position: absolute; right: 0; top: 38px; z-index: 60;
+  min-width: 236px; padding: 6px;
+  border: 1px solid var(--border-strong); border-radius: 12px;
+  background: var(--surface-2); box-shadow: var(--shadow-lg);
+}
+.topmenu button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: 0; background: none; cursor: pointer;
+  border-radius: 8px; color: var(--ink); font: inherit; font-size: 0.88rem;
+  text-align: left;
+}
+.topmenu button:hover { background: color-mix(in oklab, var(--ink) 8%, transparent); }
+.topmenu button.danger { color: var(--danger); }
+.topmenu button span { flex: 1; }
+.topmenu kbd {
+  font-family: var(--sans); font-size: 0.74rem; color: var(--faint);
+}
+.topmenu-dot {
+  position: absolute; top: 5px; right: 5px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.topmenu-dot.inline { position: static; }
+
+/* Files browser. */
+.files-modal {
+  width: min(1000px, 94vw); height: min(76vh, 760px);
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border-strong); border-radius: 16px;
+  background: var(--surface-2); box-shadow: var(--shadow-lg); overflow: hidden;
+}
+.files-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px;
+}
+.files-title { font-size: 1.02rem; font-weight: 700; color: var(--ink); }
+.files-search {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 16px 10px; padding: 9px 12px;
+  border: 1px solid var(--accent); border-radius: 10px; background: var(--bg);
+  color: var(--muted);
+}
+.files-input {
+  flex: 1; border: 0; background: none; color: var(--ink);
+  font: inherit; font-size: 0.88rem;
+}
+.files-input:focus { outline: none; }
+.files-body { flex: 1; min-height: 0; display: flex; gap: 0; }
+.files-tree {
+  width: 320px; flex-shrink: 0; overflow: auto;
+  padding: 4px 8px 14px; border-right: 1px solid var(--border);
+}
+.file-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 8px; border: 0; background: none; cursor: pointer;
+  border-radius: 7px; color: var(--ink); font: inherit; font-size: 0.86rem;
+  text-align: left;
+}
+.file-row:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
+.file-row.active { background: color-mix(in oklab, var(--accent) 16%, transparent); }
+.file-caret { flex-shrink: 0; color: var(--faint); transition: transform 0.15s; }
+.file-caret.open { transform: rotate(90deg); }
+.file-ico { flex-shrink: 0; font-family: var(--mono); font-size: 0.7rem; color: var(--faint); }
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-hitline { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); }
+.files-view { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.files-viewhead {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  font-family: var(--mono); font-size: 0.76rem; color: var(--muted);
+}
+.files-code {
+  flex: 1; margin: 0; padding: 12px 14px; overflow: auto;
+  font-family: var(--mono); font-size: 0.76rem; line-height: 1.55;
+  color: var(--ink); white-space: pre; background: var(--bg);
+}
+
 /* Inline "N running tasks" line above the composer. */
 .run-indicator {
   align-self: flex-start;

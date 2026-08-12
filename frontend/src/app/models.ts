@@ -135,6 +135,21 @@ export interface NoticeVM {
   text: string;
 }
 
+/** One entry in the Files tree. */
+export interface FileEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size: number;
+}
+
+/** A filename or content-search hit in the Files panel. */
+export interface FileHit {
+  path: string;
+  line: number;
+  text: string;
+}
+
 /** Settings → Customize: what Compass can do and what it is connected to. */
 export interface CustomizeInfo {
   tools: { name: string; description: string }[];

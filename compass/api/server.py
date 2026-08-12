@@ -825,6 +825,99 @@ async def pick_folder(user: str = Depends(require_user)) -> dict:
         raise HTTPException(status_code=422, detail=str(err))
 
 
+_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".angular", "dist", ".next"}
+
+
+def _safe_join(root: Path, rel: str) -> Path:
+    """Resolve `rel` under `root`, refusing anything that escapes the workspace."""
+    target = (root / rel).resolve() if rel else root.resolve()
+    if target != root.resolve() and root.resolve() not in target.parents:
+        raise HTTPException(status_code=400, detail="path escapes the workspace")
+    return target
+
+
+@app.get("/v1/workspaces/{workspace_id}/files")
+async def list_files(
+    workspace_id: str, path: str = "", user: str = Depends(require_user)
+) -> dict:
+    """One directory level, folders first — backs the Files tree."""
+    from compass.services.workspaces import get_workspace_registry
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    target = _safe_join(root, path)
+    if not target.is_dir():
+        raise HTTPException(status_code=404, detail="not a directory")
+    entries = []
+    for p in target.iterdir():
+        if p.name in _SKIP_DIRS:
+            continue
+        try:
+            entries.append(
+                {
+                    "name": p.name,
+                    "path": str(p.relative_to(root)),
+                    "dir": p.is_dir(),
+                    "size": 0 if p.is_dir() else p.stat().st_size,
+                }
+            )
+        except OSError:
+            continue
+    entries.sort(key=lambda e: (not e["dir"], e["name"].lower()))
+    return {"path": path, "entries": entries}
+
+
+@app.get("/v1/workspaces/{workspace_id}/file")
+async def read_file(
+    workspace_id: str, path: str, user: str = Depends(require_user)
+) -> dict:
+    """File contents for the Files viewer (text only, size-capped)."""
+    from compass.services.workspaces import get_workspace_registry
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    target = _safe_join(root, path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="not a file")
+    if target.stat().st_size > 2_000_000:
+        raise HTTPException(status_code=413, detail="file too large to preview")
+    try:
+        return {"path": path, "content": target.read_text(errors="replace")}
+    except (OSError, UnicodeDecodeError):
+        raise HTTPException(status_code=415, detail="not a text file")
+
+
+@app.get("/v1/workspaces/{workspace_id}/files/search")
+async def search_files(
+    workspace_id: str, q: str, content: bool = False, user: str = Depends(require_user)
+) -> dict:
+    """Filter by filename, or (content=true, the '?text' syntax) grep contents."""
+    from compass.services.workspaces import get_workspace_registry
+
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    needle = q.lower()
+    hits: list[dict] = []
+    for p in root.rglob("*"):
+        if len(hits) >= 200:
+            break
+        if any(part in _SKIP_DIRS for part in p.parts):
+            continue
+        if not p.is_file():
+            continue
+        rel = str(p.relative_to(root))
+        if content:
+            try:
+                if p.stat().st_size > 1_000_000:
+                    continue
+                for i, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+                    if needle in line.lower():
+                        hits.append({"path": rel, "line": i, "text": line.strip()[:200]})
+                        break
+            except (OSError, UnicodeDecodeError):
+                continue
+        elif needle in rel.lower():
+            hits.append({"path": rel, "line": 0, "text": ""})
+    return {"query": q, "content": content, "hits": hits}
+
+
 @app.post("/v1/workspaces/{workspace_id}/reveal")
 async def reveal_workspace(
     workspace_id: str, user: str = Depends(require_user)

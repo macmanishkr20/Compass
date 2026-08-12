@@ -12,6 +12,8 @@ import {
   GithubRepo,
   HealthInfo,
   CustomizeInfo,
+  FileEntry,
+  FileHit,
   MemoryEntry,
   Recap,
   PermissionBehavior,
@@ -352,6 +354,26 @@ export class CompassApiService {
   suggestNext(sessionId: string): Promise<{ suggestion: string }> {
     return firstValueFrom(
       this.http.post<{ suggestion: string }>(`/v1/sessions/${sessionId}/suggest`, {}),
+    );
+  }
+
+  // -- Files browser --------------------------------------------------------
+  listFiles(ws: string, path: string): Promise<{ entries: FileEntry[] }> {
+    return firstValueFrom(
+      this.http.get<{ entries: FileEntry[] }>(
+        `/v1/workspaces/${ws}/files?path=${encodeURIComponent(path)}`),
+    );
+  }
+  readFile(ws: string, path: string): Promise<{ content: string }> {
+    return firstValueFrom(
+      this.http.get<{ content: string }>(
+        `/v1/workspaces/${ws}/file?path=${encodeURIComponent(path)}`),
+    );
+  }
+  searchFiles(ws: string, q: string, content: boolean): Promise<{ hits: FileHit[] }> {
+    return firstValueFrom(
+      this.http.get<{ hits: FileHit[] }>(
+        `/v1/workspaces/${ws}/files/search?q=${encodeURIComponent(q)}&content=${content}`),
     );
   }
 

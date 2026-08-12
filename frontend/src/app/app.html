@@ -65,6 +65,70 @@
   </div>
 }
 
+@if (filesOpen()) {
+  <div class="search-overlay" (click)="filesOpen.set(false)">
+    <div class="files-modal" (click)="$event.stopPropagation()">
+      <div class="files-head">
+        <span class="files-title">Files</span>
+        <button class="search-x" (click)="filesOpen.set(false)" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div class="files-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+        <input class="files-input" placeholder="Filter files… (?text to search contents)"
+          [value]="filesQuery()" (input)="filesQuery.set($any($event.target).value)"
+          (keydown.enter)="runFileSearch()" />
+      </div>
+      <div class="files-body">
+        <div class="files-tree">
+          @if (filesHits().length) {
+            @for (h of filesHits(); track h.path + h.line) {
+              <button class="file-row hit" (click)="openFile({name: h.path, path: h.path, dir: false, size: 0})">
+                <span class="file-ico">&lt;/&gt;</span>
+                <span class="file-name">{{ h.path }}</span>
+                @if (h.line) { <span class="file-hitline">:{{ h.line }}</span> }
+              </button>
+            }
+          } @else {
+            @for (e of filesRoot(); track e.path) {
+              <ng-container [ngTemplateOutlet]="fileNode"
+                [ngTemplateOutletContext]="{ $implicit: e, depth: 0 }" />
+            }
+          }
+        </div>
+        @if (fileOpenPath()) {
+          <div class="files-view">
+            <div class="files-viewhead">{{ fileOpenPath() }}</div>
+            <pre class="files-code">{{ fileContent() }}</pre>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  <ng-template #fileNode let-e let-depth="depth">
+    @if (e.dir) {
+      <button class="file-row" [style.padding-left.px]="10 + depth * 14" (click)="toggleFolder(e)">
+        <svg class="file-caret" [class.open]="isFolderOpen(e.path)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="file-name">{{ e.name }}</span>
+      </button>
+      @if (isFolderOpen(e.path)) {
+        @for (c of childrenOf(e.path); track c.path) {
+          <ng-container [ngTemplateOutlet]="fileNode"
+            [ngTemplateOutletContext]="{ $implicit: c, depth: depth + 1 }" />
+        }
+      }
+    } @else {
+      <button class="file-row" [class.active]="fileOpenPath() === e.path"
+        [style.padding-left.px]="10 + depth * 14 + 16" (click)="openFile(e)">
+        <span class="file-ico">&lt;/&gt;</span>
+        <span class="file-name">{{ e.name }}</span>
+      </button>
+    }
+  </ng-template>
+}
+
 @if (customizeOpen()) {
   <div class="search-overlay" (click)="customizeOpen.set(false)">
     <div class="mem-modal" (click)="$event.stopPropagation()">
@@ -651,6 +715,55 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
           </button>
         }
+        <!-- Overflow menu: artifacts, files, background tasks, conversation
+             actions — the grouping claude.ai uses in its top-right "⋮". -->
+        <div class="topmenu-wrap">
+          <button class="icon-btn ghost" [class.on]="topMenuOpen()" aria-label="More"
+            (click)="$event.stopPropagation(); topMenuOpen.set(!topMenuOpen())">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+            @if (bgRunning().length) { <span class="topmenu-dot"></span> }
+          </button>
+          @if (topMenuOpen()) {
+            <div class="topmenu panel" role="menu" (click)="$event.stopPropagation()">
+              <button role="menuitem" (click)="topMenuOpen.set(false); artifacts.isOpen() ? artifacts.close() : null">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="7" cy="8" r="3"/><circle cx="16" cy="15" r="4"/></svg>
+                <span>Artifacts</span>
+              </button>
+              <button role="menuitem" (click)="openFiles()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
+                <span>Files</span><kbd>⇧⌘F</kbd>
+              </button>
+              <button role="menuitem" (click)="topMenuOpen.set(false); toggleBgPanel()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Background tasks</span>
+                @if (bgRunning().length) { <span class="topmenu-dot inline"></span> }
+              </button>
+              <button role="menuitem" (click)="topMenuOpen.set(false); toggleBrowser()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+                <span>Compass browser</span>
+              </button>
+              <div class="menu-sep"></div>
+              <button role="menuitem" (click)="topMenuOpen.set(false); openInVsCode()">
+                <span>Open in VS Code</span>
+              </button>
+              <div class="menu-sep"></div>
+              @if (activeCard(); as ac) {
+                <button role="menuitem" (click)="topMenuOpen.set(false); startRename(ac)">
+                  <span>Rename</span><kbd>R</kbd>
+                </button>
+                <button role="menuitem" (click)="topMenuOpen.set(false); forkConversation(ac)">
+                  <span>Fork</span><kbd>F</kbd>
+                </button>
+                <button role="menuitem" (click)="topMenuOpen.set(false); toggleArchive(ac)">
+                  <span>{{ ac.archived ? 'Unarchive' : 'Archive' }}</span><kbd>A</kbd>
+                </button>
+                <button role="menuitem" class="danger" (click)="topMenuOpen.set(false); deleteConversation(ac)">
+                  <span>Delete</span><kbd>D</kbd>
+                </button>
+              }
+            </div>
+          }
+        </div>
         <button class="icon-btn ghost"
           [attr.aria-label]="'Switch to ' + (theme.theme() === 'dark' ? 'light' : 'dark') + ' theme'"
           (click)="theme.toggle()">

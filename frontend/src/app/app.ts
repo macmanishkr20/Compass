@@ -39,6 +39,8 @@ import {
   GroupBy,
   HealthInfo,
   CustomizeInfo,
+  FileEntry,
+  FileHit,
   MemoryEntry,
   NoticeVM,
   PermissionVM,
@@ -1931,6 +1933,82 @@ export class App {
     await this.loadMemory();
   }
 
+  // -- Files browser (⇧⌘F) --------------------------------------------------
+  readonly filesOpen = signal(false);
+  readonly filesQuery = signal('');
+  readonly filesRoot = signal<FileEntry[]>([]);
+  /** Expanded folder path -> its children. */
+  readonly filesChildren = signal<Record<string, FileEntry[]>>({});
+  readonly filesExpanded = signal<Set<string>>(new Set());
+  readonly filesHits = signal<FileHit[]>([]);
+  readonly fileOpenPath = signal('');
+  readonly fileContent = signal('');
+  readonly topMenuOpen = signal(false);
+
+  async openFiles(): Promise<void> {
+    this.topMenuOpen.set(false);
+    this.filesOpen.set(true);
+    if (!this.filesRoot().length) {
+      try {
+        const r = await this.api.listFiles(this.activeWorkspaceId(), '');
+        this.filesRoot.set(r.entries);
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }
+  isFolderOpen(path: string): boolean {
+    return this.filesExpanded().has(path);
+  }
+  async toggleFolder(e: FileEntry): Promise<void> {
+    const open = new Set(this.filesExpanded());
+    if (open.has(e.path)) {
+      open.delete(e.path);
+      this.filesExpanded.set(open);
+      return;
+    }
+    open.add(e.path);
+    this.filesExpanded.set(open);
+    if (!this.filesChildren()[e.path]) {
+      try {
+        const r = await this.api.listFiles(this.activeWorkspaceId(), e.path);
+        this.filesChildren.update((m) => ({ ...m, [e.path]: r.entries }));
+      } catch {
+        /* non-fatal */
+      }
+    }
+  }
+  childrenOf(path: string): FileEntry[] {
+    return this.filesChildren()[path] ?? [];
+  }
+  async openFile(e: FileEntry): Promise<void> {
+    try {
+      const r = await this.api.readFile(this.activeWorkspaceId(), e.path);
+      this.fileOpenPath.set(e.path);
+      this.fileContent.set(r.content);
+    } catch {
+      this.fileOpenPath.set(e.path);
+      this.fileContent.set('(cannot preview this file)');
+    }
+  }
+  /** "?text" searches file contents; anything else filters by name. */
+  async runFileSearch(): Promise<void> {
+    const q = this.filesQuery().trim();
+    if (!q) {
+      this.filesHits.set([]);
+      return;
+    }
+    const content = q.startsWith('?');
+    const term = content ? q.slice(1).trim() : q;
+    if (!term) return;
+    try {
+      const r = await this.api.searchFiles(this.activeWorkspaceId(), term, content);
+      this.filesHits.set(r.hits);
+    } catch {
+      this.filesHits.set([]);
+    }
+  }
+
   /** Which preview card's "⋮" menu is open. */
   readonly previewMenuId = signal<string | null>(null);
   openExternal(url: string): void {
@@ -2431,6 +2509,7 @@ export class App {
   closeAllMenus(): void {
     this.menuOpenId.set(null);
     this.previewMenuId.set(null);
+    this.topMenuOpen.set(false);
     this.homeMenuOpenId.set(null);
     this.userMenuOpen.set(false);
     this.repoMenuOpen.set(false);
@@ -2857,6 +2936,11 @@ export class App {
   /** 1 = Deny, 2 / ⌘↵ = Allow once — mirrors Claude's approval shortcuts. */
   onGlobalKeydown(ev: KeyboardEvent): void {
     // ⌘K / Ctrl+K toggles conversation search from anywhere.
+    if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && (ev.key === 'f' || ev.key === 'F')) {
+      ev.preventDefault();
+      void this.openFiles();
+      return;
+    }
     if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'k' || ev.key === 'K')) {
       ev.preventDefault();
       this.searchOpen() ? this.closeSearch() : this.openSearch();
