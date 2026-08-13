@@ -15,6 +15,8 @@ import {
   DesignProject,
   DesignSystem,
   DesignTemplate,
+  DesignTurn,
+  DesignVersion,
   FileEntry,
   FileHit,
   MemoryEntry,
@@ -404,23 +406,85 @@ export class CompassApiService {
   }
   patchDesign(
     id: string,
-    patch: { name?: string; html?: string; starred?: boolean; design_system?: string },
+    patch: {
+      name?: string;
+      html?: string;
+      starred?: boolean;
+      design_system?: string;
+      turns?: DesignTurn[];
+    },
   ): Promise<DesignProject> {
     return firstValueFrom(this.http.patch<DesignProject>(`/v1/design/projects/${id}`, patch));
   }
   deleteDesign(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/projects/${id}`));
   }
-  designSystems(): Promise<{ systems: DesignSystem[] }> {
-    return firstValueFrom(this.http.get<{ systems: DesignSystem[] }>('/v1/design/systems'));
+  designSystems(): Promise<{ systems: DesignSystem[]; included: DesignSystem[] }> {
+    return firstValueFrom(
+      this.http.get<{ systems: DesignSystem[]; included: DesignSystem[] }>(
+        '/v1/design/systems',
+      ),
+    );
   }
   createDesignSystem(body: {
     name?: string;
     source?: string;
     text?: string;
     css?: string;
+    url?: string;
+    workspace_id?: string;
+    path?: string;
   }): Promise<DesignSystem> {
     return firstValueFrom(this.http.post<DesignSystem>('/v1/design/systems', body));
+  }
+
+  // -- a project's canvas, history, and pins
+  saveDesignHtml(id: string, html: string, label = 'Edited on canvas'): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/html`, { html, label }),
+    );
+  }
+  openDesign(id: string): Promise<DesignProject> {
+    return firstValueFrom(this.http.post<DesignProject>(`/v1/design/projects/${id}/open`, {}));
+  }
+  duplicateDesign(id: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/duplicate`, {}),
+    );
+  }
+  designVersions(
+    id: string,
+  ): Promise<{ current: { label: string; at: number }; versions: DesignVersion[] }> {
+    return firstValueFrom(
+      this.http.get<{ current: { label: string; at: number }; versions: DesignVersion[] }>(
+        `/v1/design/projects/${id}/versions`,
+      ),
+    );
+  }
+  restoreDesignVersion(id: string, versionId: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(
+        `/v1/design/projects/${id}/versions/${versionId}/restore`,
+        {},
+      ),
+    );
+  }
+  addDesignComment(
+    id: string,
+    body: { x: number; y: number; text: string },
+  ): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/comments`, body),
+    );
+  }
+  deleteDesignComment(id: string, commentId: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.delete<DesignProject>(`/v1/design/projects/${id}/comments/${commentId}`),
+    );
+  }
+  /** Cache-busted by updated_at so a re-render replaces the stale thumbnail. */
+  designThumbUrl(id: string, updatedAt: number): string {
+    return `/v1/design/projects/${id}/thumbnail?v=${Math.floor(updatedAt)}`;
   }
   deleteDesignSystem(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/systems/${id}`));
@@ -431,9 +495,9 @@ export class CompassApiService {
   }
 
   /** Generate or refine a project's design. Slow — a whole document is written. */
-  generateDesign(id: string, prompt: string): Promise<DesignProject> {
+  generateDesign(id: string, prompt: string, model = ''): Promise<DesignProject> {
     return firstValueFrom(
-      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, { prompt }),
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, { prompt, model }),
     );
   }
 

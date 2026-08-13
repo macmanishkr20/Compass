@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -585,6 +586,7 @@ class DesignPatch(BaseModel):
     prompt: str | None = None
     starred: bool | None = None
     design_system: str | None = None
+    turns: list[dict] | None = None
 
 
 @app.get("/v1/design/templates")
@@ -644,17 +646,84 @@ async def design_delete(project_id: str, user: str = Depends(require_user)) -> d
 
 class DesignSystemCreate(BaseModel):
     name: str = ""
-    source: str = "pasted"   # pasted | file | url
+    source: str = "pasted"   # pasted | upload | url | repo
     text: str = ""           # a style guide, a stylesheet, or notes
     css: str = ""            # tokens to reproduce verbatim
-    distil: bool = True      # read `text` into a system, rather than storing it raw
+    url: str = ""            # a brand or docs page to read
+    workspace_id: str = ""   # a repo already registered as a workspace
+    path: str = ""           # ...and the folder inside it to read
+    distil: bool = True      # read the source into a system, rather than storing it raw
+
+
+# What a repo import reads. Stylesheets and token files carry the system; the
+# rest of a codebase is noise that would only dilute the distillation.
+_STYLE_SUFFIXES = {".css", ".scss", ".sass", ".less", ".styl"}
+_TOKEN_NAMES = {
+    "tailwind.config.js", "tailwind.config.ts", "theme.ts", "theme.js",
+    "tokens.json", "design-tokens.json", "styleguide.md", "style-guide.md",
+}
+_REPO_READ_LIMIT = 60_000  # characters handed to the model
+
+
+def _read_repo_styles(root: Path, rel: str) -> tuple[str, list[str]]:
+    """Concatenate the stylesheets and token files under `rel`, biggest first."""
+    target = _safe_join(root, rel)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="no such path in that workspace")
+
+    files: list[Path] = []
+    if target.is_file():
+        files = [target]
+    else:
+        for p in target.rglob("*"):
+            if any(part in _SKIP_DIRS for part in p.parts) or not p.is_file():
+                continue
+            if p.suffix.lower() in _STYLE_SUFFIXES or p.name in _TOKEN_NAMES:
+                files.append(p)
+    if not files:
+        raise HTTPException(
+            status_code=404, detail="found no stylesheets or token files there"
+        )
+
+    # Biggest first, but capped per file — one enormous stylesheet would
+    # otherwise eat the whole budget and hide the rest of the system.
+    files.sort(key=lambda p: p.stat().st_size, reverse=True)
+    per_file = max(4_000, _REPO_READ_LIMIT // 8)
+    chunks, names, budget = [], [], _REPO_READ_LIMIT
+    for p in files:
+        if budget <= 0:
+            break
+        try:
+            body = p.read_text(errors="replace")[: min(per_file, budget)]
+        except OSError:
+            continue
+        budget -= len(body)
+        names.append(str(p.relative_to(root)))
+        chunks.append(f"/* {p.relative_to(root)} */\n{body}")
+    return "\n\n".join(chunks), names
+
+
+async def _fetch_page(url: str) -> str:
+    """Read a page's own markup for distillation. The user names the URL — it is
+    never taken from generated content."""
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="only http(s) URLs can be read")
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            r = await client.get(url, headers={"user-agent": "Compass Design"})
+            r.raise_for_status()
+            return r.text[:_REPO_READ_LIMIT]
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"could not read {url}: {err}")
 
 
 @app.get("/v1/design/systems")
 async def design_systems(user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_system_store
+    from compass.services.design import BUILTIN_SYSTEMS, get_system_store
 
-    return {"systems": await get_system_store().list()}
+    return {"systems": await get_system_store().list(), "included": BUILTIN_SYSTEMS}
 
 
 @app.post("/v1/design/systems")
@@ -664,13 +733,23 @@ async def design_system_create(
     """Import a design system. With `distil`, the pasted source is read into a
     short system first — a whole stylesheet in the prompt would crowd out the
     actual design request."""
-    from compass.services.design import EXTRACT_PROMPT, get_system_store
+    from compass.services.design import EXTRACT_PROMPT, get_system_store, parse_extract
 
-    text = body.text.strip()
+    text, origin = body.text.strip(), ""
+    if body.url.strip():
+        text = await _fetch_page(body.url.strip())
+        origin = body.url.strip()
+    elif body.workspace_id:
+        from compass.services.workspaces import get_workspace_registry
+
+        root = await get_workspace_registry().resolve_root(body.workspace_id)
+        text, names = _read_repo_styles(root, body.path)
+        origin = f"{body.workspace_id}/{body.path}".rstrip("/") + f" ({len(names)} files)"
+
     if not text and not body.css.strip():
         raise HTTPException(status_code=400, detail="nothing to import")
 
-    name, notes = body.name.strip(), text
+    name, notes, fonts, swatches = body.name.strip(), text, "", []
     if text and body.distil:
         from compass.gateway.azure_client import get_model_client
 
@@ -682,14 +761,17 @@ async def design_system_create(
             ).strip() or text
         except Exception as err:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"could not read that: {err}")
-        if not name:
-            for line in notes.splitlines():
-                if line.lower().startswith("name:"):
-                    name = line.split(":", 1)[1].strip()
-                    break
+        read_name, fonts, swatches = parse_extract(notes)
+        name = name or read_name
 
     return await get_system_store().create(
-        name=name, source=body.source, notes=notes, css=body.css
+        name=name,
+        source=body.source,
+        notes=notes,
+        css=body.css,
+        fonts=fonts,
+        swatches=swatches,
+        origin=origin,
     )
 
 
@@ -698,6 +780,165 @@ async def design_system_delete(system_id: str, user: str = Depends(require_user)
     from compass.services.design import get_system_store
 
     return {"deleted": await get_system_store().delete(system_id)}
+
+
+class DesignHtml(BaseModel):
+    html: str
+    label: str = "Edited on canvas"
+
+
+@app.post("/v1/design/projects/{project_id}/html")
+async def design_save_html(
+    project_id: str, body: DesignHtml, user: str = Depends(require_user)
+) -> dict:
+    """Store a design edited directly on the canvas, keeping the old one as a
+    version. Separate from PATCH so canvas edits always enter history."""
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().save_html(project_id, body.html, label=body.label)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.post("/v1/design/projects/{project_id}/open")
+async def design_open(project_id: str, user: str = Depends(require_user)) -> dict:
+    """Mark the project as viewed — backs the table's Last viewed column."""
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().touch(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.post("/v1/design/projects/{project_id}/duplicate")
+async def design_duplicate(project_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().duplicate(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.get("/v1/design/projects/{project_id}/versions")
+async def design_versions(project_id: str, user: str = Depends(require_user)) -> dict:
+    """The history list — html omitted, since a version can be tens of kilobytes."""
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return {
+        "current": {"label": p.get("version_label") or "Current", "at": p.get("updated_at")},
+        "versions": [
+            {k: v for k, v in ver.items() if k != "html"} for ver in (p.get("versions") or [])
+        ],
+    }
+
+
+@app.post("/v1/design/projects/{project_id}/versions/{version_id}/restore")
+async def design_restore(
+    project_id: str, version_id: str, user: str = Depends(require_user)
+) -> dict:
+    """Restore a past version. The design being replaced becomes a version of
+    its own, so restoring is itself undoable."""
+    from compass.services.design import get_design_store
+
+    store = get_design_store()
+    p = await store.get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    version = next((v for v in (p.get("versions") or []) if v.get("id") == version_id), None)
+    if version is None:
+        raise HTTPException(status_code=404, detail="no such version")
+    return await store.save_html(project_id, version["html"], label="Restored") or p
+
+
+class DesignComment(BaseModel):
+    x: float = 0        # position as a fraction of the design's width
+    y: float = 0        # ...and of its height, so pins survive a resize
+    text: str = ""
+    resolved: bool | None = None
+
+
+@app.post("/v1/design/projects/{project_id}/comments")
+async def design_comment_add(
+    project_id: str, body: DesignComment, user: str = Depends(require_user)
+) -> dict:
+    import uuid as _uuid
+
+    from compass.services.design import get_design_store
+
+    store = get_design_store()
+    p = await store.get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    comments = list(p.get("comments") or [])
+    comments.append(
+        {
+            "id": _uuid.uuid4().hex[:12],
+            "x": body.x,
+            "y": body.y,
+            "text": body.text,
+            "author": user,
+            "resolved": False,
+            "at": time.time(),
+        }
+    )
+    return await store.update(project_id, comments=comments) or p
+
+
+@app.delete("/v1/design/projects/{project_id}/comments/{comment_id}")
+async def design_comment_delete(
+    project_id: str, comment_id: str, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.design import get_design_store
+
+    store = get_design_store()
+    p = await store.get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    kept = [c for c in (p.get("comments") or []) if c.get("id") != comment_id]
+    return await store.update(project_id, comments=kept) or p
+
+
+@app.get("/v1/design/projects/{project_id}/thumbnail")
+async def design_thumbnail(project_id: str, user: str = Depends(require_user)) -> Response:
+    """A small render of the design, cached on disk until the design changes."""
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    html = p.get("html") or ""
+    if not html:
+        raise HTTPException(status_code=404, detail="no design yet")
+
+    settings = get_settings()
+    cache_dir = settings.workspace_root / settings.data_dir / "design_thumbs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / f"{project_id}-{int(p.get('updated_at', 0))}.png"
+    if not cached.is_file():
+        from compass.services import design_export as ex
+
+        try:
+            png = await ex.to_thumbnail(html)
+        except RuntimeError as err:
+            raise HTTPException(status_code=501, detail=str(err))
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"thumbnail failed: {err}")
+        cached.write_bytes(png)
+        for stale in cache_dir.glob(f"{project_id}-*.png"):
+            if stale != cached:
+                stale.unlink(missing_ok=True)
+
+    return Response(
+        content=cached.read_bytes(),
+        media_type="image/png",
+        headers={"cache-control": "private, max-age=86400"},
+    )
 
 
 @app.get("/v1/design/projects/{project_id}/export")
@@ -765,6 +1006,7 @@ class DesignGenerate(BaseModel):
     prompt: str
     template: str = ""  # "" = keep the project's own template
     design_system: str = ""
+    model: str = ""     # deployment chosen in the composer; "" = the default
 
 
 @app.post("/v1/design/projects/{project_id}/generate")
@@ -808,6 +1050,7 @@ async def design_generate(
             "\n\n".join(p for p in parts if p),
             max_tokens=32_000,
             prefer_main=True,
+            model=body.model,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"design generation failed: {err}")
@@ -826,13 +1069,19 @@ async def design_generate(
     # the transcript instead, so reopening a project replays the conversation.
     turns = list(project.get("turns") or [])
     turns.append({"role": "user", "text": body.prompt})
-    turns.append({"role": "assistant", "text": "Here it is — tell me what to change."})
-    updated = await store.update(
-        project_id,
-        html=html,
-        turns=turns,
-        prompt=project.get("prompt") or body.prompt,
+    turns.append(
+        {
+            "role": "assistant",
+            "text": "Here it is — tell me what to change.",
+            "steps": ["Reading the brief", "Refining design" if project.get("html") else "Designing"],
+            "file": f"{project.get('name', 'Design')}.html",
+        }
     )
+    await store.update(
+        project_id, turns=turns, prompt=project.get("prompt") or body.prompt
+    )
+    label = "Refined" if project.get("html") else "First version"
+    updated = await store.save_html(project_id, html, label=label)
     return updated or {"id": project_id, "html": html}
 
 

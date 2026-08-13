@@ -339,13 +339,41 @@ export interface DesignSystem {
   source: string;
   notes: string;
   css: string;
+  fonts?: string;
+  swatches?: string[];
+  origin?: string;
+  builtin?: boolean;
+  font_display?: string;
+  font_body?: string;
   created_at: number;
   updated_at: number;
+}
+
+/** One past state of a design. `html` only comes back on a restore. */
+export interface DesignVersion {
+  id: string;
+  at: number;
+  label: string;
+}
+
+/** A pin left on the canvas, positioned as a fraction of the design's box so
+ *  it stays put when the preview is scaled. */
+export interface DesignComment {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  author: string;
+  resolved: boolean;
+  at: number;
 }
 
 export interface DesignTurn {
   role: 'user' | 'assistant';
   text: string;
+  steps?: string[];   // the work the turn did, shown as collapsible rows
+  file?: string;      // the document it wrote, shown as a chip
+  vote?: 'up' | 'down';
 }
 
 export interface DesignProject {
@@ -355,8 +383,12 @@ export interface DesignProject {
   prompt: string;
   html?: string;
   turns?: DesignTurn[];
+  comments?: DesignComment[];
   design_system: string;
   starred: boolean;
+  versions?: number;      // on a list row: how many past versions exist
+  version_label?: string;
+  viewed_at?: number;
   created_at: number;
   updated_at: number;
 }

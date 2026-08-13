@@ -1,95 +1,215 @@
 @if (open(); as project) {
-  <!-- ============ workspace: chat left, canvas right ============ -->
-  <div class="dz-work">
-    <section class="dz-chat">
-      <header class="dz-chat-head">
-        <button class="dz-icon" (click)="close()" title="Back to Design">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div class="dz-chat-title">
-          <span class="dz-name">{{ project.name }}</span>
-          <span class="dz-badge">{{ templateName(project.template) }}</span>
-          @if (project.design_system) {
-            <span class="dz-badge system">{{ systemName(project.design_system) }}</span>
-          }
-        </div>
-      </header>
+  <!-- ================= workspace: chat left, canvas right ================= -->
+  <div class="dz-work" [class.solo]="!chatOpen()">
+    @if (chatOpen()) {
+      <section class="dz-chat">
+        <header class="dz-chat-head">
+          <button class="dz-icon" (click)="close()" title="Back to Design" aria-label="Back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="dz-chat-name">{{ project.name }}</span>
+        </header>
 
-      <div class="dz-turns">
-        @for (t of turns(); track $index) {
-          <div class="dz-turn" [class.user]="t.role === 'user'">
+        <div class="dz-turns">
+          @for (t of turns(); track $index) {
             @if (t.role === 'user') {
-              <div class="dz-bubble">{{ t.text }}</div>
+              <div class="dz-turn user"><div class="dz-bubble">{{ t.text }}</div></div>
             } @else {
-              <div class="dz-asst">{{ t.text }}</div>
+              <div class="dz-turn">
+                <div class="dz-asst">
+                  @for (s of t.steps ?? []; track s) {
+                    <div class="dz-step">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h7l-1 8 10-12h-7z" stroke-linejoin="round"/></svg>
+                      <span>{{ s }}</span>
+                    </div>
+                  }
+                  @if (t.file) {
+                    <button class="dz-file" (click)="openStandalone()" [title]="'Open ' + t.file">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5"/></svg>
+                      <span class="dz-file-name">{{ t.file }}</span>
+                      <svg class="dz-file-out" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  }
+                  <p class="dz-asst-text">{{ t.text }}</p>
+                  <div class="dz-feedback">
+                    <button class="dz-icon sm" [class.on]="t.vote === 'up'" (click)="vote($index, 'up')" aria-label="Good result">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10v10H4V10zM7 10l4-7a2 2 0 013 2l-1 5h5a2 2 0 012 2.4l-1.5 6A2 2 0 0116 20H7" stroke-linejoin="round"/></svg>
+                    </button>
+                    <button class="dz-icon sm" [class.on]="t.vote === 'down'" (click)="vote($index, 'down')" aria-label="Poor result">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 14V4h3v10zM17 14l-4 7a2 2 0 01-3-2l1-5H6a2 2 0 01-2-2.4l1.5-6A2 2 0 018 4h9" stroke-linejoin="round"/></svg>
+                    </button>
+                    @if (t.file) { <span class="dz-edited">Edited {{ t.file }}</span> }
+                  </div>
+                </div>
+              </div>
             }
-          </div>
-        }
-        @if (working()) {
-          <div class="dz-turn">
-            <div class="dz-asst dz-thinking">
-              <span class="dz-dot"></span><span class="dz-dot"></span><span class="dz-dot"></span>
-              Designing…
+          }
+          @if (working()) {
+            <div class="dz-turn">
+              <div class="dz-asst dz-thinking">
+                <span class="dz-dot"></span><span class="dz-dot"></span><span class="dz-dot"></span>
+                Designing…
+              </div>
             </div>
-          </div>
-        }
-        @if (error()) { <p class="dz-error">{{ error() }}</p> }
-      </div>
+          }
+          @if (error()) { <p class="dz-error">{{ error() }}</p> }
+        </div>
 
-      <div class="dz-composer">
-        <textarea rows="2" [ngModel]="refine()" (ngModelChange)="refine.set($event)"
-          (keydown)="onRefineKey($event)" [disabled]="working()"
-          placeholder="Describe a change — “make the header darker”, “add a projects section”"></textarea>
-        <button class="dz-send" (click)="sendRefine()" [disabled]="working() || !refine().trim()"
-          aria-label="Send">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-    </section>
+        <div class="dz-composer">
+          <textarea rows="2" [ngModel]="refine()" (ngModelChange)="refine.set($event)"
+            (keydown)="onRefineKey($event)" [disabled]="working()"
+            placeholder="Describe what you want to create..."></textarea>
+          <div class="dz-composer-foot">
+            <button class="dz-round" (click)="startImport()" title="Add a design system" aria-label="Add">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+            </button>
+            @if (models().length) {
+              <select class="dz-mini" [ngModel]="model()" (ngModelChange)="model.set($event)"
+                title="Model" aria-label="Model">
+                @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+              </select>
+            }
+            <button class="dz-send" (click)="sendRefine()" [disabled]="working() || !refine().trim()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
+              Send
+            </button>
+          </div>
+        </div>
+      </section>
+    }
 
     <section class="dz-canvas-wrap">
-      <header class="dz-canvas-head">
-        <div class="dz-seg" role="group" aria-label="Preview width">
-          @for (d of ['desktop', 'tablet', 'mobile']; track d) {
-            <button [class.on]="device() === d" (click)="device.set($any(d))">{{ d }}</button>
+      <!-- ---------- canvas toolbar ---------- -->
+      <header class="dz-bar">
+        <button class="dz-icon" (click)="reload()" title="Reload the stored design" aria-label="Reload">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 6.3M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="dz-icon" [class.on]="chatOpen()" (click)="chatOpen.set(!chatOpen())"
+          title="Toggle the conversation" aria-label="Toggle conversation">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>
+        </button>
+
+        <div class="dz-menu-wrap">
+          <button class="dz-title" (click)="$event.stopPropagation(); projectMenuOpen.set(!projectMenuOpen())">
+            {{ project.name }}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          @if (projectMenuOpen()) {
+            <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+              <button role="menuitem" (click)="rename(project)">Rename</button>
+              <button role="menuitem" (click)="duplicate(project)">Duplicate</button>
+              <button role="menuitem" (click)="star(project)">
+                {{ project.starred ? 'Remove from favorites' : 'Add to favorites' }}
+              </button>
+              <button role="menuitem" (click)="toggleHistory()">Version history</button>
+              <div class="dz-menu-sep"></div>
+              <button role="menuitem" class="danger" (click)="remove(project)">Delete Project</button>
+            </div>
           }
         </div>
-        <div class="dz-canvas-actions">
-          @if (systems().length) {
-            <select class="dz-btn" [ngModel]="project.design_system"
-              (ngModelChange)="setSystem($event)" title="Design system">
-              <option value="">No design system</option>
-              @for (s of systems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
-            </select>
-          }
-          <button class="dz-btn" [class.on]="codeOpen()" (click)="codeOpen.set(!codeOpen())">Code</button>
-          <button class="dz-btn" (click)="copyCode()">Copy</button>
+
+        <div class="dz-bar-right">
+          <button class="dz-zoom" (click)="cycleZoom()" title="Zoom">{{ zoomLabel() }}</button>
+
+          <div class="dz-tools" role="group" aria-label="Canvas tool">
+            <button [class.on]="tool() === 'select'" (click)="tool.set('select')" title="Select, move and resize">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z" stroke-linejoin="round"/></svg>
+            </button>
+            <button [class.on]="tool() === 'comment'" (click)="tool.set('comment')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 13a3 3 0 01-3 3H9l-4 4V6a3 3 0 013-3h9a3 3 0 013 3z" stroke-linejoin="round"/></svg>
+              Comment
+            </button>
+            <button [class.on]="tool() === 'edit'" (click)="tool.set('edit')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+              Edit
+            </button>
+          </div>
+
+          <div class="dz-menu-wrap">
+            <button class="dz-btn" (click)="$event.stopPropagation(); presentOpen.set(!presentOpen())">
+              Present
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            @if (presentOpen()) {
+              <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+                <button role="menuitem" (click)="present('window')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 4H4v5M15 20h5v-5M4 15v5h5M20 9V4h-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  In this window
+                </button>
+                <button role="menuitem" (click)="present('fullscreen')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 4l12 8-12 8z" stroke-linejoin="round"/></svg>
+                  Fullscreen
+                </button>
+                <button role="menuitem" (click)="present('new')">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18"/></svg>
+                  New window
+                </button>
+              </div>
+            }
+          </div>
+
           <div class="dz-menu-wrap">
             <button class="dz-btn" [class.on]="exportOpen()"
               (click)="$event.stopPropagation(); exportOpen.set(!exportOpen())">Export</button>
             @if (exportOpen()) {
-              <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+              <div class="dz-menu right" role="menu" (click)="$event.stopPropagation()">
                 @for (f of formats; track f.id) {
                   <button role="menuitem" (click)="exportAs(f.id)">
                     <span class="dz-menu-label">{{ f.label }}</span>
                     <span class="dz-menu-hint">{{ f.hint }}</span>
                   </button>
                 }
+                <div class="dz-menu-sep"></div>
+                <button role="menuitem" (click)="copyCode()">
+                  <span class="dz-menu-label">Copy source</span>
+                </button>
+                <button role="menuitem" (click)="codeOpen.set(!codeOpen()); exportOpen.set(false)">
+                  <span class="dz-menu-label">{{ codeOpen() ? 'Hide source' : 'View source' }}</span>
+                </button>
               </div>
             }
           </div>
-          <button class="dz-btn primary" (click)="openStandalone()">Open</button>
+
+          <button class="dz-share" (click)="share(project)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 13a4 4 0 006 0l3-3a4 4 0 00-6-6l-1 1" stroke-linecap="round"/><path d="M15 11a4 4 0 00-6 0l-3 3a4 4 0 006 6l1-1" stroke-linecap="round"/></svg>
+            Share
+          </button>
         </div>
       </header>
 
+      <!-- ---------- selection bar (Select tool) ---------- -->
+      @if (tool() === 'select' && selection()) {
+        <div class="dz-sel">
+          <span class="dz-sel-tag">{{ selection() }}</span>
+          <span class="dz-sel-hint">drag to move · handles to resize · arrows to nudge</span>
+          <div class="dz-sel-actions">
+            <button (click)="align('left')" title="Align left">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5v14M8 8h11M8 16h7" stroke-linecap="round"/></svg>
+            </button>
+            <button (click)="align('center')" title="Centre">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v16M6 8h12M8 16h8" stroke-linecap="round"/></svg>
+            </button>
+            <button (click)="align('right')" title="Align right">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 5v14M5 8h11M9 16h7" stroke-linecap="round"/></svg>
+            </button>
+            <button class="danger" (click)="deleteSelected()" title="Delete element">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+      }
+      @if (shareNote()) { <div class="dz-note">{{ shareNote() }}</div> }
+
+      <!-- ---------- the canvas ---------- -->
       @if (codeOpen()) {
         <pre class="dz-code">{{ project.html }}</pre>
       } @else if (project.html) {
         <div class="dz-stage" #stage>
-          <!-- The fit box takes the scaled size, so a 1280px design can't widen
-               the pane; the iframe inside is laid out full size and scaled. -->
-          <div class="dz-fit" [style.width.px]="canvasWidth() * scale()">
-            <iframe class="dz-frame" [srcdoc]="canvas()" title="Design preview"
+          <div class="dz-fit" [style.width.px]="canvasWidth() * scale()"
+            (pointerdown)="onCanvasPointer($event, 'down')"
+            (pointermove)="onCanvasPointer($event, 'move')"
+            (pointerup)="onCanvasPointer($event, 'up')">
+            <iframe #frame class="dz-frame" [srcdoc]="canvas()" title="Design preview"
               [style.width.px]="canvasWidth()"
               [style.height.px]="frameHeight()"
               [style.transform]="'scale(' + scale() + ')'"
@@ -97,66 +217,183 @@
           </div>
         </div>
       } @else {
-        <div class="dz-stage empty">
+        <div class="dz-stage empty" #stage>
           <p>{{ working() ? 'Designing…' : 'Nothing rendered yet.' }}</p>
         </div>
+      }
+
+      <!-- ---------- comments ---------- -->
+      @if (tool() === 'comment') {
+        <aside class="dz-comments">
+          @if (!comments().length) {
+            <p class="dz-side-empty">Click anywhere on the design to leave a comment.</p>
+          }
+          @for (c of comments(); track c.id; let i = $index) {
+            <div class="dz-comment">
+              <span class="dz-comment-n">{{ i + 1 }}</span>
+              <span class="dz-comment-text">{{ c.text }}</span>
+              <button class="dz-icon sm" (click)="removeComment(c)" aria-label="Resolve">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          }
+        </aside>
+      }
+
+      <!-- ---------- version history ---------- -->
+      @if (historyOpen()) {
+        <aside class="dz-history">
+          <header>
+            <span>Version history</span>
+            <button class="dz-icon sm" (click)="historyOpen.set(false)" aria-label="Close">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+            </button>
+          </header>
+          <div class="dz-version current">
+            <span class="dz-version-label">{{ project.version_label || 'Current' }}</span>
+            <span class="dz-version-at">now</span>
+          </div>
+          @for (v of versions(); track v.id) {
+            <div class="dz-version">
+              <span class="dz-version-label">{{ v.label }}</span>
+              <span class="dz-version-at">{{ age(v.at) }}</span>
+              <button class="dz-btn sm" (click)="restore(v)">Restore</button>
+            </div>
+          }
+          @if (!versions().length) {
+            <p class="dz-side-empty">No earlier versions yet.</p>
+          }
+        </aside>
       }
     </section>
   </div>
 } @else {
-  <!-- ============ landing ============ -->
+  <!-- ============================ landing ============================ -->
   <div class="dz-landing">
-    <div class="dz-hero">
-      <h1>What should we create?</h1>
-      <p class="dz-sub">Describe it, and Compass designs it — slides, screens, documents, and more.</p>
+    <h1 class="dz-hero">What should we create?</h1>
 
+    <div class="dz-prompt-card">
       <div class="dz-prompt">
-        <textarea id="design-prompt" rows="3"
+        <textarea id="design-prompt" rows="2"
           [ngModel]="prompt()" (ngModelChange)="prompt.set($event)"
           (keydown)="onComposerKey($event)"
-          placeholder="Describe what you want to design…"></textarea>
+          placeholder="Make a pitch deck for a new product"></textarea>
         <div class="dz-prompt-foot">
-          <label class="dz-pick">
-            <span>Template</span>
-            <select [ngModel]="template()" (ngModelChange)="template.set($event)">
-              @for (t of templates(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
-            </select>
-          </label>
-          <label class="dz-pick">
+          <button class="dz-round" (click)="startImport()" title="Add a design system" aria-label="Add">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+          <label class="dz-field-pick">
             <span>Design system</span>
             <select [ngModel]="system()" (ngModelChange)="system.set($event)">
               <option value="">None</option>
-              @for (s of systems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
+              @for (s of allSystems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
             </select>
           </label>
-          <button class="dz-create" (click)="create()" [disabled]="creating() || !prompt().trim()">
-            @if (creating()) { Creating… } @else { Create }
+          <button class="dz-round" [class.on]="codeOpen()" (click)="codeOpen.set(!codeOpen())"
+            title="Start from HTML or CSS you paste" aria-label="Paste HTML">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <label class="dz-field-pick right">
+            <span>Model</span>
+            <select [ngModel]="model()" (ngModelChange)="model.set($event)">
+              @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+            </select>
+          </label>
+          <button class="dz-go" (click)="create()" [disabled]="creating() || !prompt().trim()"
+            aria-label="Create">
+            @if (creating()) {
+              <span class="dz-go-spin"></span>
+            } @else {
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            }
           </button>
         </div>
+        @if (codeOpen()) {
+          <textarea class="dz-paste" rows="4" [ngModel]="importCss()" (ngModelChange)="importCss.set($event)"
+            placeholder="Paste HTML or CSS the design should start from…"></textarea>
+        }
       </div>
-      @if (error()) { <p class="dz-error center">{{ error() }}</p> }
 
-      <div class="dz-tiles">
-        @for (t of templates(); track t.id) {
-          <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)">
-            <span class="dz-tile-name">{{ t.name }}</span>
-            <span class="dz-tile-hint">{{ t.hint }}</span>
-          </button>
+      <div class="dz-templates">
+        <button class="dz-templates-head" (click)="templatesOpen.set(!templatesOpen())"
+          [attr.aria-expanded]="templatesOpen()">
+          CHOOSE A TEMPLATE
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            [style.transform]="templatesOpen() ? null : 'rotate(180deg)'" aria-hidden="true"><path d="M18 15l-6-6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        @if (templatesOpen()) {
+          <div class="dz-tiles">
+            @for (t of templates(); track t.id) {
+              <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)"
+                [title]="t.hint">
+                <span class="dz-glyph">
+                  @switch (t.id) {
+                    @case ('blank') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 8h22l10 10v38H16z"/><path class="edge" d="M38 8v10h10"/></svg>
+                    }
+                    @case ('mobile') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="20" y="6" width="24" height="52" rx="5"/><rect class="mint" x="25" y="14" width="14" height="6" rx="3"/><rect class="mint" x="25" y="26" width="14" height="6" rx="3"/></svg>
+                    }
+                    @case ('slides') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="16" width="48" height="32" rx="4"/><rect class="edge-f" x="14" y="22" width="18" height="5" rx="2"/><rect class="edge-f" x="14" y="31" width="12" height="4" rx="2"/><rect class="dark-f" x="36" y="22" width="14" height="20" rx="3"/></svg>
+                    }
+                    @case ('document') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 26h20M22 33h20M22 40h20M22 47h12"/></g></svg>
+                    }
+                    @case ('wireframe') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><g class="edge-s"><path d="M14 20l20 14M34 20L14 34M38 22h12M38 30h12"/></g><rect class="edge-f" x="38" y="38" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('animation') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="fill" cx="32" cy="24" r="14"/><path class="dark-f" d="M28 18l10 6-10 6z"/><g class="edge-s"><path d="M12 46h40"/></g><circle class="dark-f" cx="24" cy="46" r="4"/></svg>
+                    }
+                    @case ('mockups') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="edge-f" x="10" y="12" width="34" height="26" rx="4"/><rect class="fill" x="20" y="24" width="34" height="28" rx="4"/><rect class="edge-f" x="26" y="31" width="16" height="4" rx="2"/><rect class="orange" x="26" y="40" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('resume') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><circle class="dark-f" cx="24" cy="26" r="4"/><g class="edge-s"><path d="M32 24h12M32 30h8M22 40h22M22 47h16"/></g><rect class="orange" x="22" y="51" width="12" height="5" rx="2"/></svg>
+                    }
+                    @case ('object3d') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M32 8l20 11v22L32 52 12 41V19z"/><path class="edge-f" d="M32 8l20 11-20 11-20-11z"/><g class="edge-s"><path d="M32 30v22"/></g></svg>
+                    }
+                    @case ('research') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 24h18M22 31h18M38 49l6 6"/><circle cx="32" cy="43" r="8"/></g></svg>
+                    }
+                    @case ('email') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><circle class="dark-f" cx="18" cy="24" r="3"/><g class="edge-s"><path d="M26 24h20M16 34h32M16 41h16"/></g><rect class="orange" x="38" y="38" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('colortype') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="12" width="48" height="40" rx="4"/><text class="aa" x="17" y="37">Aa</text><rect class="orange" x="17" y="42" width="8" height="6" rx="2"/><rect class="mint" x="27" y="42" width="8" height="6" rx="2"/><rect class="edge-f" x="37" y="42" width="8" height="6" rx="2"/></svg>
+                    }
+                  }
+                </span>
+                <span class="dz-tile-name">{{ t.name }}</span>
+              </button>
+            }
+          </div>
         }
       </div>
     </div>
+    @if (error()) { <p class="dz-error center">{{ error() }}</p> }
 
+    <!-- ---------------------- library ---------------------- -->
     <div class="dz-library">
       <div class="dz-tabs" role="tablist">
         <button role="tab" [class.on]="tab() === 'projects'" (click)="tab.set('projects')">Projects</button>
         <button role="tab" [class.on]="tab() === 'systems'" (click)="tab.set('systems')">Design systems</button>
         <button role="tab" [class.on]="tab() === 'templates'" (click)="tab.set('templates')">Templates</button>
         <div class="dz-tabs-right">
+          @if (tab() === 'systems') {
+            <button class="dz-btn" (click)="startImport()">Create design system</button>
+          }
           <label class="dz-search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
             <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
               placeholder="Search" aria-label="Search designs" />
           </label>
+          <button class="dz-icon" [class.on]="favouritesOnly()"
+            (click)="favouritesOnly.set(!favouritesOnly())" title="Favorites only">
+            <svg width="15" height="15" viewBox="0 0 24 24" [attr.fill]="favouritesOnly() ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
+          </button>
           <div class="dz-seg" role="group" aria-label="Layout">
             <button [class.on]="layout() === 'list'" (click)="layout.set('list')" title="List">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg>
@@ -174,29 +411,61 @@
             <p class="dz-empty">Loading…</p>
           } @else if (filtered().length === 0) {
             <p class="dz-empty">
-              {{ query() ? 'No designs match that search.' : 'No designs yet — describe one above.' }}
+              {{ query() || favouritesOnly() ? 'Nothing matches that.' : 'No designs yet — describe one above.' }}
             </p>
           } @else if (layout() === 'list') {
             <table class="dz-table">
               <thead>
-                <tr><th>Name</th><th>Template</th><th>Edited</th><th></th></tr>
+                <tr><th class="dz-th-name">Name</th><th>Last viewed</th><th>All owners</th><th>Access</th><th></th></tr>
               </thead>
               <tbody>
                 @for (p of filtered(); track p.id) {
                   <tr (click)="openProject(p)">
                     <td class="dz-cell-name">
-                      <button class="dz-star" [class.on]="p.starred" (click)="star(p, $event)"
-                        [attr.aria-label]="p.starred ? 'Unstar' : 'Star'">
-                        <svg width="14" height="14" viewBox="0 0 24 24" [attr.fill]="p.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
-                      </button>
-                      {{ p.name }}
+                      <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
+                      <span class="dz-row-name">{{ p.name }}</span>
                     </td>
-                    <td class="dz-cell-muted">{{ templateName(p.template) }}</td>
-                    <td class="dz-cell-muted">{{ age(p.updated_at) }}</td>
+                    <td class="dz-cell-muted">{{ age(p.viewed_at || p.updated_at) }}</td>
+                    <td class="dz-cell-muted"><span class="dz-owner">Y</span> You</td>
+                    <td class="dz-cell-muted dz-access">
+                      Edit
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+                    </td>
                     <td class="dz-cell-end">
-                      <button class="dz-icon danger" (click)="remove(p, $event)" aria-label="Delete">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                      </button>
+                      <div class="dz-menu-wrap">
+                        <button class="dz-icon sm" (click)="openRowMenu(p, $event)" aria-label="More">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+                        </button>
+                        @if (rowMenuId() === p.id) {
+                          <div class="dz-menu right" role="menu" (click)="$event.stopPropagation()">
+                            <button role="menuitem" (click)="openInNewWindow(p)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              Open in new window
+                            </button>
+                            <button role="menuitem" (click)="share(p)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 13a4 4 0 006 0l3-3a4 4 0 00-6-6l-1 1" stroke-linecap="round"/><path d="M15 11a4 4 0 00-6 0l-3 3a4 4 0 006 6l1-1" stroke-linecap="round"/></svg>
+                              Copy link
+                            </button>
+                            <button role="menuitem" (click)="star(p, $event)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" [attr.fill]="p.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
+                              {{ p.starred ? 'Remove from favorites' : 'Add to favorites' }}
+                            </button>
+                            <button role="menuitem" (click)="duplicate(p)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/></svg>
+                              Duplicate
+                            </button>
+                            <button role="menuitem" (click)="rename(p)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+                              Rename
+                            </button>
+                            <div class="dz-menu-sep"></div>
+                            <button role="menuitem" class="danger" (click)="remove(p, $event)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                              Delete Project
+                            </button>
+                          </div>
+                        }
+                      </div>
                     </td>
                   </tr>
                 }
@@ -206,67 +475,193 @@
             <div class="dz-cards">
               @for (p of filtered(); track p.id) {
                 <button class="dz-card" (click)="openProject(p)">
-                  <span class="dz-card-top">{{ templateName(p.template) }}</span>
+                  <img class="dz-card-thumb" [src]="thumb(p)" alt="" loading="lazy" />
                   <span class="dz-card-name">{{ p.name }}</span>
-                  <span class="dz-card-foot">{{ age(p.updated_at) }}</span>
+                  <span class="dz-card-foot">{{ age(p.viewed_at || p.updated_at) }}</span>
                 </button>
               }
             </div>
           }
         }
+
         @case ('systems') {
-          @if (importOpen()) {
-            <div class="dz-import">
-              <input class="dz-field" type="text" [ngModel]="importName()"
-                (ngModelChange)="importName.set($event)"
-                placeholder="Name (optional — one is read from the source)" />
-              <textarea class="dz-field" rows="6" [ngModel]="importText()"
-                (ngModelChange)="importText.set($event)"
-                placeholder="Paste a style guide, a brand page, or a stylesheet. It gets read into a short system designs can follow."></textarea>
-              <textarea class="dz-field mono" rows="4" [ngModel]="importCss()"
-                (ngModelChange)="importCss.set($event)"
-                placeholder="Optional: CSS custom properties to reproduce verbatim (--brand: #123456; …)"></textarea>
-              <div class="dz-import-foot">
-                <button class="dz-btn" (click)="importOpen.set(false)">Cancel</button>
-                <button class="dz-btn primary" (click)="importSystem()"
-                  [disabled]="importing() || (!importText().trim() && !importCss().trim())">
-                  @if (importing()) { Reading… } @else { Import }
-                </button>
-              </div>
-            </div>
-          } @else {
-            <div class="dz-systems-head">
-              <button class="dz-btn primary" (click)="importOpen.set(true)">Import a design system</button>
-            </div>
-          }
-          @if (!systems().length && !importOpen()) {
-            <p class="dz-empty">
-              No design systems yet. Import one and every design can be told to follow it.
-            </p>
-          }
+          <div class="dz-promo">
+            <p>Set up your design system so anyone can create consistent designs and assets.</p>
+            <button class="dz-promo-btn" (click)="startImport()">Set up design system</button>
+          </div>
+
           @for (s of systems(); track s.id) {
             <article class="dz-system">
               <header>
                 <span class="dz-system-name">{{ s.name }}</span>
-                <span class="dz-system-src">{{ s.source }} · {{ age(s.created_at) }}</span>
-                <button class="dz-icon danger" (click)="removeSystem(s, $event)" aria-label="Delete">
+                <span class="dz-system-src">{{ s.fonts || s.source }}</span>
+                @if (s.origin) { <span class="dz-system-origin">{{ s.origin }}</span> }
+                <button class="dz-icon sm danger" (click)="removeSystem(s, $event)" aria-label="Delete">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
               </header>
+              @if (ramp(s).length) {
+                <div class="dz-ramp">
+                  @for (c of ramp(s); track $index) { <span [style.background]="c"></span> }
+                </div>
+              }
               <pre class="dz-system-notes">{{ s.notes }}</pre>
             </article>
           }
+
+          <h3 class="dz-included-head">Included design systems</h3>
+          <div class="dz-specimens">
+            @for (s of included(); track s.id) {
+              <article class="dz-specimen"
+                [style.--sp-display]="s.font_display"
+                [style.--sp-body]="s.font_body">
+                <header>
+                  <span class="dz-specimen-fonts">{{ s.fonts }}</span>
+                  <button class="dz-icon sm" (click)="system.set(s.id)" [title]="'Use ' + s.name">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                </header>
+                <p class="dz-specimen-name">{{ s.name }}</p>
+                <div class="dz-ramp big">
+                  @for (c of ramp(s); track $index) { <span [style.background]="c"></span> }
+                </div>
+                <p class="dz-specimen-sample">The quick brown fox jumps over the lazy dog.</p>
+                <span class="dz-specimen-btn" [style.background]="ramp(s)[4]">Continue →</span>
+              </article>
+            }
+          </div>
         }
+
         @case ('templates') {
           <div class="dz-tiles wide">
             @for (t of filteredTemplates(); track t.id) {
-              <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)">
+              <button class="dz-tile plain" [class.on]="template() === t.id" (click)="pickTemplate(t.id)">
                 <span class="dz-tile-name">{{ t.name }}</span>
                 <span class="dz-tile-hint">{{ t.hint }}</span>
               </button>
             }
           </div>
         }
+      }
+    </div>
+  </div>
+}
+
+<!-- ===================== add a design system ===================== -->
+@if (importStep()) {
+  <div class="dz-scrim" (click)="importStep.set('')">
+    <div class="dz-modal" (click)="$event.stopPropagation()" role="dialog" aria-label="Add a design system">
+      <header class="dz-modal-head">
+        <h2>Add a design system</h2>
+        <button class="dz-icon" (click)="importStep.set('')" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+
+      @if (importStep() === 'choose') {
+        <div class="dz-modal-body">
+          <p class="dz-modal-lead">Design systems teach Compass your brand. How would you like to start?</p>
+          <button class="dz-choice" (click)="importStep.set('here')">
+            <span class="dz-choice-icon blue">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v10M8 11l4 4 4-4M5 19h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="dz-choice-text">
+              <span class="dz-choice-title">Create here</span>
+              <span class="dz-choice-sub">Point at a repository or a URL, or upload a style guide.</span>
+            </span>
+          </button>
+          <button class="dz-choice" (click)="importStep.set('code')">
+            <span class="dz-choice-icon green">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8l-3 4 3 4M12 16h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="dz-choice-text">
+              <span class="dz-choice-title">
+                Create using the Code agent <span class="dz-badge-best">BEST FIDELITY</span>
+              </span>
+              <span class="dz-choice-sub">Best fidelity if you have components in a repo.</span>
+            </span>
+          </button>
+        </div>
+      }
+
+      @if (importStep() === 'code') {
+        <div class="dz-modal-body">
+          <p class="dz-modal-lead">
+            The Code agent reads a repository directly — it can open components, follow imports, and
+            report what the system actually is rather than what a stylesheet implies.
+          </p>
+          <p class="dz-modal-lead">Ask it, on the Code tab:</p>
+          <pre class="dz-modal-code">Read the components and styles in this repo and write a design system:
+palette with hex values, typefaces and scale, spacing and radii, how
+buttons, cards, inputs and tables look, and the voice of the copy.</pre>
+          <p class="dz-modal-lead">Then paste its answer here.</p>
+          <div class="dz-modal-foot">
+            <button class="dz-btn" (click)="importStep.set('choose')">Back</button>
+            <button class="dz-btn primary" (click)="importStep.set('here'); importSource.set('paste')">
+              Paste it in
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (importStep() === 'here') {
+        <div class="dz-modal-body">
+          <div class="dz-sources" role="tablist">
+            <button role="tab" [class.on]="importSource() === 'repo'" (click)="importSource.set('repo')">Repository</button>
+            <button role="tab" [class.on]="importSource() === 'url'" (click)="importSource.set('url')">URL</button>
+            <button role="tab" [class.on]="importSource() === 'upload'" (click)="importSource.set('upload')">Upload</button>
+            <button role="tab" [class.on]="importSource() === 'paste'" (click)="importSource.set('paste')">Paste</button>
+          </div>
+
+          <input class="dz-field" type="text" [ngModel]="importName()"
+            (ngModelChange)="importName.set($event)"
+            placeholder="Name (optional — one is read from the source)" />
+
+          @switch (importSource()) {
+            @case ('repo') {
+              <input class="dz-field" type="text" [ngModel]="importWorkspace()"
+                (ngModelChange)="importWorkspace.set($event)"
+                placeholder="Workspace id (a repo you've cloned or registered)" />
+              <input class="dz-field" type="text" [ngModel]="importPath()"
+                (ngModelChange)="importPath.set($event)"
+                placeholder="Folder inside it (optional — e.g. src/styles)" />
+              <p class="dz-hint">Reads the stylesheets and token files it finds there.</p>
+            }
+            @case ('url') {
+              <input class="dz-field" type="url" [ngModel]="importUrl()"
+                (ngModelChange)="importUrl.set($event)"
+                placeholder="https://example.com/brand" />
+              <p class="dz-hint">Fetches that page and reads its styling.</p>
+            }
+            @case ('upload') {
+              <input class="dz-field" type="file" multiple
+                accept=".css,.scss,.less,.json,.md,.txt,.html,.ts,.js"
+                (change)="onImportFiles($event)" />
+              <p class="dz-hint">Stylesheets, token files, or a written style guide.</p>
+              @if (importText()) {
+                <p class="dz-hint">{{ importText().length }} characters ready to read.</p>
+              }
+            }
+            @default {
+              <textarea class="dz-field" rows="6" [ngModel]="importText()"
+                (ngModelChange)="importText.set($event)"
+                placeholder="Paste a style guide, a brand page, or a stylesheet."></textarea>
+            }
+          }
+
+          <textarea class="dz-field mono" rows="3" [ngModel]="importCss()"
+            (ngModelChange)="importCss.set($event)"
+            placeholder="Optional: CSS custom properties to reproduce verbatim (--brand: #123456; …)"></textarea>
+
+          <div class="dz-modal-foot">
+            <button class="dz-btn" (click)="importStep.set('choose')">Back</button>
+            <button class="dz-btn primary" (click)="importSystem()"
+              [disabled]="importing() || !canImport()">
+              @if (importing()) { Reading… } @else { Create design system }
+            </button>
+          </div>
+          @if (error()) { <p class="dz-error">{{ error() }}</p> }
+        </div>
       }
     </div>
   </div>

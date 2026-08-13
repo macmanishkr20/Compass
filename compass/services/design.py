@@ -56,6 +56,14 @@ TEMPLATE_PROMPTS = {
 }
 
 
+# How many past versions a project keeps. Deep enough to undo a session's
+# worth of edits, shallow enough that the store stays a readable file.
+MAX_VERSIONS = 25
+
+# Fields the projects table never needs — a design and its history are large.
+_HEAVY = ("html", "turns", "versions", "comments")
+
+
 @dataclass
 class DesignProject:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -64,8 +72,11 @@ class DesignProject:
     prompt: str = ""
     html: str = ""              # the generated design (standalone HTML)
     turns: list[dict] = field(default_factory=list)  # the design conversation
+    versions: list[dict] = field(default_factory=list)  # past html, newest first
+    comments: list[dict] = field(default_factory=list)  # pins left on the canvas
     design_system: str = ""     # design-system id, "" = None
     starred: bool = False
+    viewed_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -75,8 +86,8 @@ class DesignProject:
     def card(self) -> dict:
         """Row shape for the projects table (no html — it can be large)."""
         d = self.to_dict()
-        d.pop("html", None)
-        d.pop("turns", None)
+        for k in _HEAVY:
+            d.pop(k, None)
         return d
 
 
@@ -100,11 +111,70 @@ class DesignStore:
 
     async def list(self) -> list[dict]:
         rows = self._read()
-        rows.sort(key=lambda r: r.get("updated_at", 0), reverse=True)
-        return [{k: v for k, v in r.items() if k not in ("html", "turns")} for r in rows]
+        rows.sort(key=lambda r: r.get("viewed_at") or r.get("updated_at", 0), reverse=True)
+        return [
+            {k: v for k, v in r.items() if k not in _HEAVY}
+            | {"versions": len(r.get("versions") or [])}
+            for r in rows
+        ]
 
     async def get(self, project_id: str) -> dict | None:
         return next((r for r in self._read() if r.get("id") == project_id), None)
+
+    async def touch(self, project_id: str) -> dict | None:
+        """Record that the project was opened — the table sorts on this, the way
+        claude.ai's "Last viewed" column does."""
+        rows = self._read()
+        for r in rows:
+            if r.get("id") == project_id:
+                r["viewed_at"] = time.time()
+                self._write(rows)
+                return r
+        return None
+
+    async def save_html(
+        self, project_id: str, html: str, *, label: str = "Edited"
+    ) -> dict | None:
+        """Write a new design, keeping the outgoing one as a version. Every path
+        that changes the html goes through here, so history is never partial."""
+        rows = self._read()
+        for r in rows:
+            if r.get("id") != project_id:
+                continue
+            previous = r.get("html") or ""
+            if previous and previous != html:
+                versions = list(r.get("versions") or [])
+                versions.insert(
+                    0,
+                    {
+                        "id": uuid.uuid4().hex[:12],
+                        "at": r.get("updated_at", time.time()),
+                        "label": r.get("version_label") or "Previous version",
+                        "html": previous,
+                    },
+                )
+                r["versions"] = versions[:MAX_VERSIONS]
+            r["html"] = html
+            r["version_label"] = label
+            r["updated_at"] = time.time()
+            self._write(rows)
+            return r
+        return None
+
+    async def duplicate(self, project_id: str) -> dict | None:
+        rows = self._read()
+        source = next((r for r in rows if r.get("id") == project_id), None)
+        if source is None:
+            return None
+        copy = dict(source)
+        copy["id"] = uuid.uuid4().hex[:12]
+        copy["name"] = f"{source.get('name', 'Untitled')} copy"
+        copy["versions"] = []  # a copy starts its own history
+        copy["starred"] = False
+        copy["created_at"] = copy["updated_at"] = copy["viewed_at"] = time.time()
+        rows.append(copy)
+        self._write(rows)
+        return copy
 
     async def create(
         self, *, name: str, template: str, prompt: str, design_system: str = ""
@@ -149,14 +219,143 @@ class DesignSystem:
 
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     name: str = "Untitled system"
-    source: str = "pasted"  # pasted | file | url
+    source: str = "pasted"  # pasted | upload | url | repo | included
     notes: str = ""         # the distilled system, in prose
     css: str = ""           # verbatim tokens, when the source had them
+    fonts: str = ""         # the typefaces, for the card
+    swatches: list[str] = field(default_factory=list)  # the ramp, for the card
+    origin: str = ""        # where it came from — a URL, a repo path, a filename
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# The systems that ship with Design. They are real, usable systems — a design
+# told to follow one comes back in that voice — and they double as the examples
+# on the Design systems tab, which is why each carries its fonts and ramp.
+BUILTIN_SYSTEMS: list[dict] = [
+    {
+        "id": "builtin-modernist",
+        "name": "Modernist",
+        "source": "included",
+        "builtin": True,
+        "fonts": "Archivo",
+        "font_display": "Archivo",
+        "font_body": "Archivo",
+        "swatches": [
+            "#FDECE7", "#FBD5CB", "#F7AE9B", "#F2775B", "#E8482A",
+            "#C7331A", "#9C2814", "#701C0E", "#451108",
+        ],
+        "notes": (
+            "Name: Modernist\n\n"
+            "Palette: a single warm red ramp — #FDECE7 tints for surfaces, "
+            "#E8482A as the one accent, #451108 for ink. Greys are the red "
+            "desaturated, never neutral grey.\n"
+            "Type: Archivo throughout, 700 for headings and 400 for body. "
+            "Headings are tight (-0.02em) and large; the scale is 13/15/18/24/34/48.\n"
+            "Spacing & shape: an 8px rhythm, 2px radii, 1px rules, no shadows. "
+            "Layouts are grids with visible structure.\n"
+            "Components: buttons are square and solid accent; cards are outlined, "
+            "not filled; tables have ruled rows and no zebra striping.\n"
+            "Voice: declarative and unadorned. Short sentences. No exclamation marks."
+        ),
+        "css": (
+            ":root{--surface:#FDECE7;--accent:#E8482A;--ink:#451108;\n"
+            "  --radius:2px;--rule:1px solid #F2775B;--font:'Archivo',sans-serif}"
+        ),
+    },
+    {
+        "id": "builtin-classical",
+        "name": "Classical",
+        "source": "included",
+        "builtin": True,
+        "fonts": "Cormorant Garamond / Lora",
+        "font_display": "Cormorant Garamond",
+        "font_body": "Lora",
+        "swatches": [
+            "#FBF3E0", "#F4E4BF", "#E8CE92", "#D9B364", "#C2963F",
+            "#9E772C", "#78591F", "#523C14", "#2E210B",
+        ],
+        "notes": (
+            "Name: Classical\n\n"
+            "Palette: warm parchment #FBF3E0 pages, aged gold #C2963F for accents "
+            "and rules, #2E210B ink. Colour is used sparingly — the page is mostly "
+            "paper and text.\n"
+            "Type: Cormorant Garamond for display at generous sizes, Lora for body "
+            "at 17px/1.7. Small caps and letterspacing for eyebrows; the scale is "
+            "14/17/21/28/40/56.\n"
+            "Spacing & shape: wide margins, long measure (65-75 characters), hairline "
+            "rules, no radii, no shadows.\n"
+            "Components: buttons are text with a rule beneath; cards are separated by "
+            "rules rather than boxes; tables are ruled top and bottom only.\n"
+            "Voice: considered and formal, full sentences, the occasional em dash."
+        ),
+        "css": (
+            ":root{--page:#FBF3E0;--accent:#C2963F;--ink:#2E210B;\n"
+            "  --radius:0;--display:'Cormorant Garamond',serif;--body:'Lora',serif}"
+        ),
+    },
+    {
+        "id": "builtin-nocturne",
+        "name": "Nocturne",
+        "source": "included",
+        "builtin": True,
+        "fonts": "Inter",
+        "font_display": "Inter",
+        "font_body": "Inter",
+        "swatches": [
+            "#EEEAFB", "#D6CCF6", "#B7A6EF", "#957FE6", "#7458DA",
+            "#5B3FC0", "#452F96", "#2F206B", "#1A1140",
+        ],
+        "notes": (
+            "Name: Nocturne\n\n"
+            "Palette: dark by default — #12101C ground, #1A1140 raised surfaces, "
+            "#957FE6 accent, #EEEAFB text. Light-on-dark is the design, not a mode.\n"
+            "Type: Inter throughout, 600 headings and 400 body at 15px/1.6, "
+            "tabular numerals for data. The scale is 12/14/15/18/24/32.\n"
+            "Spacing & shape: a 4px rhythm, 10px radii, 1px borders at 10% white, "
+            "soft glows instead of drop shadows.\n"
+            "Components: buttons are filled accent with a subtle glow; cards are "
+            "raised surfaces with a hairline border; inputs sit darker than the card.\n"
+            "Voice: precise and technical, sentence case, no marketing adjectives."
+        ),
+        "css": (
+            ":root{--ground:#12101C;--surface:#1A1140;--accent:#957FE6;\n"
+            "  --ink:#EEEAFB;--radius:10px;--font:'Inter',sans-serif}"
+        ),
+    },
+    {
+        "id": "builtin-organic",
+        "name": "Organic",
+        "source": "included",
+        "builtin": True,
+        "fonts": "Caprasimo / Figtree",
+        "font_display": "Caprasimo",
+        "font_body": "Figtree",
+        "swatches": [
+            "#FEF1E6", "#FBDCC4", "#F5BE95", "#EC9A63", "#DE7638",
+            "#BC5A23", "#93441A", "#6A3013", "#3F1C0B",
+        ],
+        "notes": (
+            "Name: Organic\n\n"
+            "Palette: sunbaked terracotta — #FEF1E6 surfaces, #DE7638 accent, "
+            "#3F1C0B ink, with #6A3013 for depth. Warmth in every neutral.\n"
+            "Type: Caprasimo for display (big, round, playful), Figtree for body at "
+            "16px/1.65. The scale is 14/16/20/26/36/52.\n"
+            "Spacing & shape: generous padding, 18px radii, soft edges everywhere, "
+            "shadows are warm and low.\n"
+            "Components: buttons are pill-shaped solid accent with white text; cards "
+            "are filled and rounded; imagery is masked into organic shapes.\n"
+            "Voice: friendly and human, contractions welcome, never corporate."
+        ),
+        "css": (
+            ":root{--surface:#FEF1E6;--accent:#DE7638;--ink:#3F1C0B;\n"
+            "  --radius:18px;--display:'Caprasimo',cursive;--body:'Figtree',sans-serif}"
+        ),
+    },
+]
 
 
 class DesignSystemStore:
@@ -178,17 +377,38 @@ class DesignSystemStore:
         self._path().write_text(json.dumps(rows, indent=2))
 
     async def list(self) -> list[dict]:
+        """The user's systems, newest first. The included ones are returned
+        separately so the tab can show them as examples under their own heading."""
         rows = self._read()
         rows.sort(key=lambda r: r.get("updated_at", 0), reverse=True)
         return rows
 
     async def get(self, system_id: str) -> dict | None:
+        builtin = next((s for s in BUILTIN_SYSTEMS if s["id"] == system_id), None)
+        if builtin is not None:
+            return builtin
         return next((r for r in self._read() if r.get("id") == system_id), None)
 
-    async def create(self, *, name: str, source: str, notes: str, css: str = "") -> dict:
+    async def create(
+        self,
+        *,
+        name: str,
+        source: str,
+        notes: str,
+        css: str = "",
+        fonts: str = "",
+        swatches: list[str] | None = None,
+        origin: str = "",
+    ) -> dict:
         rows = self._read()
         s = DesignSystem(
-            name=name or "Untitled system", source=source, notes=notes, css=css
+            name=name or "Untitled system",
+            source=source,
+            notes=notes,
+            css=css,
+            fonts=fonts,
+            swatches=swatches or [],
+            origin=origin,
         ).to_dict()
         rows.append(s)
         self._write(rows)
@@ -224,17 +444,41 @@ def get_system_store() -> DesignSystemStore:
 # Distilling a pasted style guide / stylesheet into a system the model can
 # follow. Kept short on purpose — a long system crowds out the actual request.
 EXTRACT_PROMPT = (
-    "You are reading a style guide, stylesheet, or brand page. Distil it into a "
-    "design system another designer could follow.\n\n"
+    "You are reading a style guide, stylesheet, brand page, or the source of a "
+    "component library. Distil it into a design system another designer could "
+    "follow.\n\n"
     "Reply as plain text, no preamble, in this shape:\n"
     "Name: <a short name for the system>\n"
+    "Fonts: <the display typeface / the body typeface>\n"
+    "Swatches: <exactly 9 hex values, lightest to darkest, comma separated>\n"
     "Palette: <the colours, with hex values and what each is for>\n"
     "Type: <typefaces, weights, and the size scale>\n"
     "Spacing & shape: <spacing rhythm, radii, borders, shadows>\n"
     "Components: <how buttons, cards, inputs, and tables look>\n"
     "Voice: <the tone the writing takes>\n\n"
-    "Only state what the source actually shows. Say nothing about what is absent."
+    "Only state what the source actually shows. Say nothing about what is absent. "
+    "For Swatches, build the ramp from the colours the source actually uses."
 )
+
+
+def parse_extract(notes: str) -> tuple[str, str, list[str]]:
+    """Pull the name, fonts, and colour ramp back out of a distilled system so
+    the card can show them without re-reading the prose."""
+    import re
+
+    name = fonts = ""
+    swatches: list[str] = []
+    for line in notes.splitlines():
+        low = line.lower()
+        if low.startswith("name:") and not name:
+            name = line.split(":", 1)[1].strip()
+        elif low.startswith("fonts:") and not fonts:
+            fonts = line.split(":", 1)[1].strip()
+        elif low.startswith("swatches:") and not swatches:
+            swatches = re.findall(r"#[0-9a-fA-F]{6}", line)
+    if len(swatches) < 3:  # no usable ramp on its own line — take the prose's
+        swatches = list(dict.fromkeys(re.findall(r"#[0-9a-fA-F]{6}", notes)))[:9]
+    return name, fonts, swatches[:9]
 
 
 def system_prompt_block(system: dict | None) -> str:

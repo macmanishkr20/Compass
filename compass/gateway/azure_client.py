@@ -75,7 +75,13 @@ class ModelClient(Protocol):
     ) -> AsyncIterator[StreamItem]: ...
 
     async def complete_utility(
-        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+        self,
+        prompt: str,
+        text: str,
+        *,
+        max_tokens: int = 2_000,
+        prefer_main: bool = False,
+        model: str = "",
     ) -> str: ...
 
 
@@ -282,7 +288,13 @@ class AzureModelClient:
         )
 
     async def complete_utility(
-        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+        self,
+        prompt: str,
+        text: str,
+        *,
+        max_tokens: int = 2_000,
+        prefer_main: bool = False,
+        model: str = "",
     ) -> str:
         """Non-streaming call for side tasks (compaction summaries, suggestions,
         design generation). `max_tokens` must be generous for reasoning models:
@@ -306,7 +318,9 @@ class AzureModelClient:
             if prefer_main
             else (settings.azure.utility_deployment, settings.azure.deployment)
         )
-        candidates = [d for d in order if d]
+        # A chosen deployment leads; the usual order still follows it, so an
+        # unavailable choice degrades instead of failing the request.
+        candidates = [d for d in ((model,) + order) if d]
         last: Exception | None = None
         for deployment in dict.fromkeys(candidates):  # de-duped, order kept
             base = {"model": deployment, "messages": messages}
@@ -528,7 +542,13 @@ class MockModelClient:
         )
 
     async def complete_utility(
-        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+        self,
+        prompt: str,
+        text: str,
+        *,
+        max_tokens: int = 2_000,
+        prefer_main: bool = False,
+        model: str = "",
     ) -> str:
         return "Mock summary of the session so far."
 

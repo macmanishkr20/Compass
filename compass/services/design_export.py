@@ -109,6 +109,32 @@ async def to_png(html: str, *, width: int = 1280) -> bytes:
         await close()
 
 
+async def to_thumbnail(html: str) -> bytes:
+    """A small PNG of the top of the design, for the projects table.
+
+    Rendered at full width and scaled down by the device pixel ratio rather
+    than resized afterwards — that keeps it sharp without needing an imaging
+    library on the host.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as err:  # pragma: no cover - host without Playwright
+        raise RuntimeError(_NO_PLAYWRIGHT) from err
+
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(args=["--no-sandbox"])
+    try:
+        page = await browser.new_page(
+            viewport={"width": 1280, "height": 1600}, device_scale_factor=0.25
+        )
+        await page.set_content(html, wait_until="load")
+        await page.wait_for_timeout(500)
+        return await page.screenshot(type="png")
+    finally:
+        await browser.close()
+        await pw.stop()
+
+
 def to_zip(*, name: str, html: str, prompt: str, system_notes: str = "") -> bytes:
     readme = [
         f"# {name}",
