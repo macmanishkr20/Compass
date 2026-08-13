@@ -81,6 +81,17 @@ type RenderBlock =
  *  the few pixels one token adds, far smaller than a deliberate scroll. */
 const FOLLOW_SLACK = 120;
 
+/** Is there anything below the fold to jump down to? A pane that isn't
+ *  scrollable — an empty thread, or one shorter than the viewport — has
+ *  nothing to jump to, and during first layout clientHeight is briefly 0,
+ *  which would otherwise read as "miles from the bottom" and flash the
+ *  chevron on a thread the user never scrolled. */
+function scrolledUp(el: HTMLElement): boolean {
+  if (el.clientHeight === 0) return false;
+  return el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK;
+}
+
+
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -961,8 +972,7 @@ export class App {
         // Decide from LIVE geometry, never a cached flag: this microtask runs
         // before the browser dispatches the `scroll` event, so a flag updated
         // by that handler is still stale here and would yank the user back.
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (dist <= FOLLOW_SLACK) {
+        if (!scrolledUp(el)) {
           el.scrollTop = el.scrollHeight; // stay pinned to the newest content
           this.showJumpToBottom.set(false);
         } else {
@@ -1201,8 +1211,7 @@ export class App {
   onLogScroll(): void {
     const log = this.logEl()?.nativeElement;
     if (!log) return;
-    const dist = log.scrollHeight - log.scrollTop - log.clientHeight;
-    this.showJumpToBottom.set(dist > FOLLOW_SLACK);
+    this.showJumpToBottom.set(scrolledUp(log));
     const marker = log.getBoundingClientRect().top + 120;
     let current: string | null = null;
     for (const p of this.promptNav()) {

@@ -40,6 +40,16 @@ interface ChatMsg {
 
 const FOLLOW_SLACK = 120; // px from the bottom that still counts as following
 
+/** Is there anything below the fold to jump down to? A pane that isn't
+ *  scrollable — an empty thread, or one shorter than the viewport — has
+ *  nothing to jump to, and during first layout clientHeight is briefly 0,
+ *  which would otherwise read as "miles from the bottom" and flash the
+ *  chevron on a thread the user never scrolled. */
+function scrolledUp(el: HTMLElement): boolean {
+  if (el.clientHeight === 0) return false;
+  return el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK;
+}
+
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
 /**
@@ -198,8 +208,7 @@ export class HomeChat {
   onScroll(): void {
     const el = this.logEl()?.nativeElement;
     if (!el) return;
-    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    this.showJumpToBottom.set(dist > FOLLOW_SLACK);
+    this.showJumpToBottom.set(scrolledUp(el));
   }
 
   constructor() {
@@ -215,8 +224,7 @@ export class HomeChat {
         if (!el) return;
         // Live geometry, not a cached flag — see App: this microtask beats the
         // browser's `scroll` event, so a flag set there would still be stale.
-        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-        if (dist <= FOLLOW_SLACK) {
+        if (!scrolledUp(el)) {
           el.scrollTop = el.scrollHeight;
           this.showJumpToBottom.set(false);
         } else {

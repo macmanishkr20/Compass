@@ -1,14 +1,17 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   computed,
+  effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { CompassApiService } from '../compass-api.service';
-import { DesignProject, DesignTemplate, DesignTurn } from '../models';
+import { DesignProject, DesignSystem, DesignTemplate, DesignTurn } from '../models';
 
 type Tab = 'projects' | 'systems' | 'templates';
 type Layout = 'list' | 'grid';
@@ -29,6 +32,9 @@ type Layout = 'list' | 'grid';
   imports: [FormsModule],
   templateUrl: './design.html',
   styleUrl: './design.css',
+  // Any click that isn't inside the Export menu dismisses it (the menu itself
+  // stops propagation), matching every other menu in the app.
+  host: { '(document:click)': 'exportOpen.set(false)' },
 })
 export class Design {
   private readonly api = inject(CompassApiService);
@@ -36,6 +42,7 @@ export class Design {
 
   readonly templates = signal<DesignTemplate[]>([]);
   readonly projects = signal<DesignProject[]>([]);
+  readonly systems = signal<DesignSystem[]>([]);
   readonly tab = signal<Tab>('projects');
   readonly layout = signal<Layout>('list');
   readonly query = signal('');
@@ -44,6 +51,7 @@ export class Design {
   // -- landing composer
   readonly prompt = signal('');
   readonly template = signal('blank');
+  readonly system = signal(''); // design-system id, '' = none
   readonly creating = signal(false);
   readonly error = signal('');
 
@@ -54,6 +62,23 @@ export class Design {
   readonly working = signal(false);
   readonly device = signal<'desktop' | 'tablet' | 'mobile'>('desktop');
   readonly codeOpen = signal(false);
+  readonly exportOpen = signal(false);
+
+  // -- design-system import
+  readonly importOpen = signal(false);
+  readonly importName = signal('');
+  readonly importText = signal('');
+  readonly importCss = signal('');
+  readonly importing = signal(false);
+
+  /** Export formats, in the order the menu lists them. */
+  readonly formats = [
+    { id: 'html', label: 'HTML', hint: 'the document itself' },
+    { id: 'pdf', label: 'PDF', hint: 'printed at full height' },
+    { id: 'png', label: 'PNG', hint: 'a full-page image' },
+    { id: 'zip', label: 'ZIP', hint: 'with a README' },
+    { id: 'pptx', label: 'PowerPoint', hint: 'each slide, rendered' },
+  ];
 
   /** srcdoc for the canvas iframe. Bypassing here is safe in the same sense the
    *  artifact panel is: the document is model-authored and sandboxed. */
@@ -61,9 +86,30 @@ export class Design {
     this.sanitizer.bypassSecurityTrustHtml(this.open()?.html ?? ''),
   );
 
+  /** The width the design is laid out at, regardless of how wide the pane is —
+   *  a design built for 1280px must be previewed at 1280px or it reflows into
+   *  something the export won't match. The stage scales it to fit instead. */
   readonly canvasWidth = computed(() =>
-    this.device() === 'mobile' ? 390 : this.device() === 'tablet' ? 834 : 0,
+    this.device() === 'mobile' ? 390 : this.device() === 'tablet' ? 834 : 1280,
   );
+
+  private readonly stage = viewChild<ElementRef<HTMLElement>>('stage');
+  private readonly stageBox = signal({ w: 0, h: 0 });
+
+  /** Scale that fits the laid-out width into the stage. Never above 1 — a
+   *  design is shown at most life-size, the way a canvas zooms to fit. */
+  readonly scale = computed(() => {
+    const box = this.stageBox();
+    if (!box.w) return 1;
+    return Math.min(1, box.w / this.canvasWidth());
+  });
+
+  /** The iframe is scaled, so it needs to be taller than the stage by exactly
+   *  the scale factor for the visible area to still fill it. */
+  readonly frameHeight = computed(() => {
+    const box = this.stageBox();
+    return box.h ? box.h / this.scale() : 0;
+  });
 
   readonly filtered = computed(() => {
     const q = this.query().trim().toLowerCase();
@@ -88,14 +134,30 @@ export class Design {
 
   constructor() {
     void this.load();
+    // Track the stage so the fit recomputes when the pane or window resizes.
+    effect((onCleanup) => {
+      const host = this.stage()?.nativeElement;
+      if (!host) return;
+      const ro = new ResizeObserver(([entry]) => {
+        const r = entry.contentRect;
+        this.stageBox.set({ w: r.width, h: r.height });
+      });
+      ro.observe(host);
+      onCleanup(() => ro.disconnect());
+    });
   }
 
   private async load(): Promise<void> {
     this.loading.set(true);
     try {
-      const [t, p] = await Promise.all([this.api.designTemplates(), this.api.designProjects()]);
+      const [t, p, sys] = await Promise.all([
+        this.api.designTemplates(),
+        this.api.designProjects(),
+        this.api.designSystems(),
+      ]);
       this.templates.set(t.templates);
       this.projects.set(p.projects);
+      this.systems.set(sys.systems);
     } catch {
       this.error.set('Could not reach the design service.');
     } finally {
@@ -105,6 +167,10 @@ export class Design {
 
   templateName(id: string): string {
     return this.templates().find((t) => t.id === id)?.name ?? id;
+  }
+
+  systemName(id: string): string {
+    return this.systems().find((s) => s.id === id)?.name ?? '';
   }
 
   /** Relative age, matching the rest of the app ("2h ago"). */
@@ -145,6 +211,7 @@ export class Design {
         name: this.titleFrom(prompt),
         template: this.template(),
         prompt,
+        design_system: this.system(),
       });
       this.projects.update((rows) => [project, ...rows]);
       this.prompt.set('');
@@ -246,17 +313,57 @@ export class Design {
     await this.api.deleteDesign(project.id);
   }
 
-  /** Download the design as a standalone .html file. */
-  download(): void {
+  /** Export in one of `formats`. The server renders it, so the file matches
+   *  what the canvas shows; the browser fetches it directly so it downloads. */
+  exportAs(format: string): void {
     const project = this.open();
+    this.exportOpen.set(false);
     if (!project?.html) return;
-    const blob = new Blob([project.html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project.name.replace(/[^\w\- ]+/g, '').trim() || 'design'}.html`;
+    a.href = this.api.designExportUrl(project.id, format);
+    a.rel = 'noopener';
     a.click();
-    URL.revokeObjectURL(url);
+  }
+
+  /** Attach (or clear) a design system on the open project. It applies from the
+   *  next refinement — the current design isn't rewritten behind the user. */
+  async setSystem(systemId: string): Promise<void> {
+    const project = this.open();
+    if (!project) return;
+    this.open.set({ ...project, design_system: systemId });
+    await this.api.patchDesign(project.id, { design_system: systemId });
+  }
+
+  async importSystem(): Promise<void> {
+    const text = this.importText().trim();
+    const css = this.importCss().trim();
+    if ((!text && !css) || this.importing()) return;
+    this.importing.set(true);
+    this.error.set('');
+    try {
+      const created = await this.api.createDesignSystem({
+        name: this.importName().trim(),
+        source: 'pasted',
+        text,
+        css,
+      });
+      this.systems.update((rows) => [created, ...rows]);
+      this.importOpen.set(false);
+      this.importName.set('');
+      this.importText.set('');
+      this.importCss.set('');
+    } catch {
+      this.error.set('Could not read that into a design system.');
+    } finally {
+      this.importing.set(false);
+    }
+  }
+
+  async removeSystem(system: DesignSystem, event: Event): Promise<void> {
+    event.stopPropagation();
+    this.systems.update((rows) => rows.filter((r) => r.id !== system.id));
+    if (this.system() === system.id) this.system.set('');
+    await this.api.deleteDesignSystem(system.id);
   }
 
   /** Open the design on its own, so it can be printed to PDF from the browser. */

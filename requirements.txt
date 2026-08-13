@@ -13,6 +13,9 @@ mcp>=1.2
 pypdf>=4.0                # PDF text extraction
 python-docx>=1.1          # .docx text extraction
 
+# Design exports — optional; a missing one answers 501 rather than failing late
+python-pptx>=1.0          # slide decks (PDF/PNG come from Playwright)
+
 # Azure integrations — imported lazily, active only when configured in .env
 azure-cosmos>=4.7            # transcript persistence (COMPASS_STORAGE_BACKEND=cosmos)
 azure-storage-blob>=12.20    # large tool-result artifacts

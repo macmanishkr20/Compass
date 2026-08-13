@@ -332,6 +332,17 @@ export interface DesignTemplate {
 
 /** One piece of design work. `html` is only present on a single-project fetch —
  *  the list endpoint omits it because a design can be tens of kilobytes. */
+/** A house style designs can be told to follow. */
+export interface DesignSystem {
+  id: string;
+  name: string;
+  source: string;
+  notes: string;
+  css: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface DesignTurn {
   role: 'user' | 'assistant';
   text: string;

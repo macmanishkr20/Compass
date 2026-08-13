@@ -9,6 +9,9 @@
         <div class="dz-chat-title">
           <span class="dz-name">{{ project.name }}</span>
           <span class="dz-badge">{{ templateName(project.template) }}</span>
+          @if (project.design_system) {
+            <span class="dz-badge system">{{ systemName(project.design_system) }}</span>
+          }
         </div>
       </header>
 
@@ -52,9 +55,29 @@
           }
         </div>
         <div class="dz-canvas-actions">
+          @if (systems().length) {
+            <select class="dz-btn" [ngModel]="project.design_system"
+              (ngModelChange)="setSystem($event)" title="Design system">
+              <option value="">No design system</option>
+              @for (s of systems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
+            </select>
+          }
           <button class="dz-btn" [class.on]="codeOpen()" (click)="codeOpen.set(!codeOpen())">Code</button>
           <button class="dz-btn" (click)="copyCode()">Copy</button>
-          <button class="dz-btn" (click)="download()">Download</button>
+          <div class="dz-menu-wrap">
+            <button class="dz-btn" [class.on]="exportOpen()"
+              (click)="$event.stopPropagation(); exportOpen.set(!exportOpen())">Export</button>
+            @if (exportOpen()) {
+              <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+                @for (f of formats; track f.id) {
+                  <button role="menuitem" (click)="exportAs(f.id)">
+                    <span class="dz-menu-label">{{ f.label }}</span>
+                    <span class="dz-menu-hint">{{ f.hint }}</span>
+                  </button>
+                }
+              </div>
+            }
+          </div>
           <button class="dz-btn primary" (click)="openStandalone()">Open</button>
         </div>
       </header>
@@ -62,11 +85,16 @@
       @if (codeOpen()) {
         <pre class="dz-code">{{ project.html }}</pre>
       } @else if (project.html) {
-        <div class="dz-stage">
-          <iframe class="dz-frame" [srcdoc]="canvas()" title="Design preview"
-            [style.width.px]="canvasWidth() || null"
-            [style.max-width]="canvasWidth() ? null : '100%'"
-            sandbox="allow-scripts allow-popups"></iframe>
+        <div class="dz-stage" #stage>
+          <!-- The fit box takes the scaled size, so a 1280px design can't widen
+               the pane; the iframe inside is laid out full size and scaled. -->
+          <div class="dz-fit" [style.width.px]="canvasWidth() * scale()">
+            <iframe class="dz-frame" [srcdoc]="canvas()" title="Design preview"
+              [style.width.px]="canvasWidth()"
+              [style.height.px]="frameHeight()"
+              [style.transform]="'scale(' + scale() + ')'"
+              sandbox="allow-scripts allow-popups"></iframe>
+          </div>
         </div>
       } @else {
         <div class="dz-stage empty">
@@ -96,8 +124,9 @@
           </label>
           <label class="dz-pick">
             <span>Design system</span>
-            <select disabled title="Design systems are coming with import">
-              <option>None</option>
+            <select [ngModel]="system()" (ngModelChange)="system.set($event)">
+              <option value="">None</option>
+              @for (s of systems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
             </select>
           </label>
           <button class="dz-create" (click)="create()" [disabled]="creating() || !prompt().trim()">
@@ -186,9 +215,47 @@
           }
         }
         @case ('systems') {
-          <p class="dz-empty">
-            No design systems yet. Importing one from a repository or a style guide is next up.
-          </p>
+          @if (importOpen()) {
+            <div class="dz-import">
+              <input class="dz-field" type="text" [ngModel]="importName()"
+                (ngModelChange)="importName.set($event)"
+                placeholder="Name (optional — one is read from the source)" />
+              <textarea class="dz-field" rows="6" [ngModel]="importText()"
+                (ngModelChange)="importText.set($event)"
+                placeholder="Paste a style guide, a brand page, or a stylesheet. It gets read into a short system designs can follow."></textarea>
+              <textarea class="dz-field mono" rows="4" [ngModel]="importCss()"
+                (ngModelChange)="importCss.set($event)"
+                placeholder="Optional: CSS custom properties to reproduce verbatim (--brand: #123456; …)"></textarea>
+              <div class="dz-import-foot">
+                <button class="dz-btn" (click)="importOpen.set(false)">Cancel</button>
+                <button class="dz-btn primary" (click)="importSystem()"
+                  [disabled]="importing() || (!importText().trim() && !importCss().trim())">
+                  @if (importing()) { Reading… } @else { Import }
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="dz-systems-head">
+              <button class="dz-btn primary" (click)="importOpen.set(true)">Import a design system</button>
+            </div>
+          }
+          @if (!systems().length && !importOpen()) {
+            <p class="dz-empty">
+              No design systems yet. Import one and every design can be told to follow it.
+            </p>
+          }
+          @for (s of systems(); track s.id) {
+            <article class="dz-system">
+              <header>
+                <span class="dz-system-name">{{ s.name }}</span>
+                <span class="dz-system-src">{{ s.source }} · {{ age(s.created_at) }}</span>
+                <button class="dz-icon danger" (click)="removeSystem(s, $event)" aria-label="Delete">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </header>
+              <pre class="dz-system-notes">{{ s.notes }}</pre>
+            </article>
+          }
         }
         @case ('templates') {
           <div class="dz-tiles wide">

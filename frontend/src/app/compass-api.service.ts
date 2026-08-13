@@ -13,6 +13,7 @@ import {
   HealthInfo,
   CustomizeInfo,
   DesignProject,
+  DesignSystem,
   DesignTemplate,
   FileEntry,
   FileHit,
@@ -410,6 +411,25 @@ export class CompassApiService {
   deleteDesign(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/projects/${id}`));
   }
+  designSystems(): Promise<{ systems: DesignSystem[] }> {
+    return firstValueFrom(this.http.get<{ systems: DesignSystem[] }>('/v1/design/systems'));
+  }
+  createDesignSystem(body: {
+    name?: string;
+    source?: string;
+    text?: string;
+    css?: string;
+  }): Promise<DesignSystem> {
+    return firstValueFrom(this.http.post<DesignSystem>('/v1/design/systems', body));
+  }
+  deleteDesignSystem(id: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/systems/${id}`));
+  }
+  /** The export URL — the browser fetches it directly so it lands as a file. */
+  designExportUrl(id: string, format: string): string {
+    return `/v1/design/projects/${id}/export?format=${format}`;
+  }
+
   /** Generate or refine a project's design. Slow — a whole document is written. */
   generateDesign(id: string, prompt: string): Promise<DesignProject> {
     return firstValueFrom(

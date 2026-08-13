@@ -642,6 +642,125 @@ async def design_delete(project_id: str, user: str = Depends(require_user)) -> d
     return {"deleted": await get_design_store().delete(project_id)}
 
 
+class DesignSystemCreate(BaseModel):
+    name: str = ""
+    source: str = "pasted"   # pasted | file | url
+    text: str = ""           # a style guide, a stylesheet, or notes
+    css: str = ""            # tokens to reproduce verbatim
+    distil: bool = True      # read `text` into a system, rather than storing it raw
+
+
+@app.get("/v1/design/systems")
+async def design_systems(user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_system_store
+
+    return {"systems": await get_system_store().list()}
+
+
+@app.post("/v1/design/systems")
+async def design_system_create(
+    body: DesignSystemCreate, user: str = Depends(require_user)
+) -> dict:
+    """Import a design system. With `distil`, the pasted source is read into a
+    short system first — a whole stylesheet in the prompt would crowd out the
+    actual design request."""
+    from compass.services.design import EXTRACT_PROMPT, get_system_store
+
+    text = body.text.strip()
+    if not text and not body.css.strip():
+        raise HTTPException(status_code=400, detail="nothing to import")
+
+    name, notes = body.name.strip(), text
+    if text and body.distil:
+        from compass.gateway.azure_client import get_model_client
+
+        try:
+            notes = (
+                await get_model_client().complete_utility(
+                    EXTRACT_PROMPT, text[:40_000], max_tokens=8_000, prefer_main=True
+                )
+            ).strip() or text
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail=f"could not read that: {err}")
+        if not name:
+            for line in notes.splitlines():
+                if line.lower().startswith("name:"):
+                    name = line.split(":", 1)[1].strip()
+                    break
+
+    return await get_system_store().create(
+        name=name, source=body.source, notes=notes, css=body.css
+    )
+
+
+@app.delete("/v1/design/systems/{system_id}")
+async def design_system_delete(system_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_system_store
+
+    return {"deleted": await get_system_store().delete(system_id)}
+
+
+@app.get("/v1/design/projects/{project_id}/export")
+async def design_export(
+    project_id: str, format: str = "html", user: str = Depends(require_user)
+) -> Response:
+    """Export the design as html | pdf | png | zip | pptx."""
+    from compass.services.design import get_design_store, get_system_store
+
+    project = await get_design_store().get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    html = project.get("html") or ""
+    if not html:
+        raise HTTPException(status_code=409, detail="this project has no design yet")
+
+    stem = "".join(c for c in project.get("name", "design") if c.isalnum() or c in " -_").strip()
+    stem = stem or "design"
+
+    def send(body: bytes, media: str, ext: str) -> Response:
+        return Response(
+            content=body,
+            media_type=media,
+            headers={"content-disposition": f'attachment; filename="{stem}.{ext}"'},
+        )
+
+    if format == "html":
+        return send(html.encode(), "text/html", "html")
+
+    from compass.services import design_export as ex
+
+    if format == "zip":
+        system = await get_system_store().get(project.get("design_system") or "")
+        return send(
+            ex.to_zip(
+                name=project.get("name", "Design"),
+                html=html,
+                prompt=project.get("prompt", ""),
+                system_notes=(system or {}).get("notes", ""),
+            ),
+            "application/zip",
+            "zip",
+        )
+
+    try:
+        if format == "pdf":
+            return send(await ex.to_pdf(html), "application/pdf", "pdf")
+        if format == "png":
+            return send(await ex.to_png(html), "image/png", "png")
+        if format == "pptx":
+            return send(
+                await ex.to_pptx(html),
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "pptx",
+            )
+    except RuntimeError as err:  # an optional library is missing on this host
+        raise HTTPException(status_code=501, detail=str(err))
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"export failed: {err}")
+
+    raise HTTPException(status_code=400, detail=f"unknown format: {format}")
+
+
 class DesignGenerate(BaseModel):
     prompt: str
     template: str = ""  # "" = keep the project's own template
@@ -657,6 +776,8 @@ async def design_generate(
         DESIGN_SYSTEM_PROMPT,
         TEMPLATE_PROMPTS,
         get_design_store,
+        get_system_store,
+        system_prompt_block,
     )
 
     store = get_design_store()
@@ -666,6 +787,10 @@ async def design_generate(
 
     template = body.template or project.get("template") or "blank"
     parts = [TEMPLATE_PROMPTS.get(template, "")]
+
+    system_id = body.design_system or project.get("design_system") or ""
+    if system_id:
+        parts.append(system_prompt_block(await get_system_store().get(system_id)))
     if project.get("html"):
         parts.append(
             "Refine the EXISTING design below; keep everything not mentioned "
