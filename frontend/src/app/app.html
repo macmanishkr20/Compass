@@ -65,70 +65,6 @@
   </div>
 }
 
-@if (filesOpen()) {
-  <div class="search-overlay" (click)="filesOpen.set(false)">
-    <div class="files-modal" (click)="$event.stopPropagation()">
-      <div class="files-head">
-        <span class="files-title">Files</span>
-        <button class="search-x" (click)="filesOpen.set(false)" aria-label="Close">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="files-search">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
-        <input class="files-input" placeholder="Filter files… (?text to search contents)"
-          [value]="filesQuery()" (input)="filesQuery.set($any($event.target).value)"
-          (keydown.enter)="runFileSearch()" />
-      </div>
-      <div class="files-body">
-        <div class="files-tree">
-          @if (filesHits().length) {
-            @for (h of filesHits(); track h.path + h.line) {
-              <button class="file-row hit" (click)="openFile({name: h.path, path: h.path, dir: false, size: 0})">
-                <span class="file-ico">&lt;/&gt;</span>
-                <span class="file-name">{{ h.path }}</span>
-                @if (h.line) { <span class="file-hitline">:{{ h.line }}</span> }
-              </button>
-            }
-          } @else {
-            @for (e of filesRoot(); track e.path) {
-              <ng-container [ngTemplateOutlet]="fileNode"
-                [ngTemplateOutletContext]="{ $implicit: e, depth: 0 }" />
-            }
-          }
-        </div>
-        @if (fileOpenPath()) {
-          <div class="files-view">
-            <div class="files-viewhead">{{ fileOpenPath() }}</div>
-            <pre class="files-code">{{ fileContent() }}</pre>
-          </div>
-        }
-      </div>
-    </div>
-  </div>
-
-  <ng-template #fileNode let-e let-depth="depth">
-    @if (e.dir) {
-      <button class="file-row" [style.padding-left.px]="10 + depth * 14" (click)="toggleFolder(e)">
-        <svg class="file-caret" [class.open]="isFolderOpen(e.path)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span class="file-name">{{ e.name }}</span>
-      </button>
-      @if (isFolderOpen(e.path)) {
-        @for (c of childrenOf(e.path); track c.path) {
-          <ng-container [ngTemplateOutlet]="fileNode"
-            [ngTemplateOutletContext]="{ $implicit: c, depth: depth + 1 }" />
-        }
-      }
-    } @else {
-      <button class="file-row" [class.active]="fileOpenPath() === e.path"
-        [style.padding-left.px]="10 + depth * 14 + 16" (click)="openFile(e)">
-        <span class="file-ico">&lt;/&gt;</span>
-        <span class="file-name">{{ e.name }}</span>
-      </button>
-    }
-  </ng-template>
-}
-
 @if (customizeOpen()) {
   <div class="search-overlay" (click)="customizeOpen.set(false)">
     <div class="mem-modal" (click)="$event.stopPropagation()">
@@ -354,7 +290,7 @@
 }
 
 <div class="shell" [class.sidebar-collapsed]="!sidebarOpen()"
-  [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen()"
+  [class.right-open]="artifacts.isOpen() || browserOpen() || bgOpen() || filesOpen()"
   [class.dock-expanded]="(bgOpen() && bgExpanded()) || (browserOpen() && browserExpanded())">
   <!-- ===================== Conversation history ===================== -->
   <aside class="sidebar panel">
@@ -705,11 +641,6 @@
           </button>
         }
         @if (section() === 'code') {
-          <button class="icon-btn ghost bg-toggle" [class.on]="bgOpen()" aria-label="Background tasks"
-            title="Background tasks" (click)="toggleBgPanel()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            @if (bgRunning().length) { <span class="bg-badge">{{ bgRunning().length }}</span> }
-          </button>
           <button class="icon-btn ghost" [class.on]="browserOpen()" aria-label="Compass browser"
             title="Compass browser" (click)="toggleBrowser()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
@@ -725,7 +656,8 @@
           </button>
           @if (topMenuOpen()) {
             <div class="topmenu panel" role="menu" (click)="$event.stopPropagation()">
-              <button role="menuitem" (click)="topMenuOpen.set(false); artifacts.isOpen() ? artifacts.close() : null">
+              <button role="menuitem" [disabled]="!artifacts.last() && !artifacts.isOpen()"
+                (click)="topMenuOpen.set(false); artifacts.toggle()">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="7" cy="8" r="3"/><circle cx="16" cy="15" r="4"/></svg>
                 <span>Artifacts</span>
               </button>
@@ -788,7 +720,7 @@
       (threadChanged)="loadHomeSessions()" />
 
     @if (section() === 'code' && view() === 'chat') {
-    <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">
+    <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()" (wheel)="onLogWheel($event)" (touchmove)="onLogTouch()">
       @if (timeline().length === 0) {
         <section class="hero">
           <div class="hero-mark">
@@ -1606,7 +1538,7 @@
     }
   </div>
 
-  @if (artifacts.isOpen() || browserOpen() || bgOpen()) {
+  @if (artifacts.isOpen() || browserOpen() || bgOpen() || filesOpen()) {
     <aside class="right-dock">
       @if (browserOpen()) {
       <div class="cb-window panel">
@@ -1733,6 +1665,46 @@
       }
       @if (artifacts.isOpen()) {
         <div class="artifact-dock"><app-artifact-panel /></div>
+      }
+      @if (filesOpen()) {
+        <div class="files-window panel">
+          <div class="files-head">
+            <span class="files-title">Files</span>
+            <button class="bg-x" title="Close" (click)="filesOpen.set(false)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="files-search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+            <input class="files-input" placeholder="Filter files… (?text to search contents)"
+              [value]="filesQuery()" (input)="filesQuery.set($any($event.target).value)"
+              (keydown.enter)="runFileSearch()" />
+          </div>
+          <div class="files-body">
+            <div class="files-tree">
+              @if (filesHits().length) {
+                @for (h of filesHits(); track h.path + h.line) {
+                  <button class="file-row hit" (click)="openFile({name: h.path, path: h.path, dir: false, size: 0})">
+                    <span class="file-ico">&lt;/&gt;</span>
+                    <span class="file-name">{{ h.path }}</span>
+                    @if (h.line) { <span class="file-hitline">:{{ h.line }}</span> }
+                  </button>
+                }
+              } @else {
+                @for (e of filesRoot(); track e.path) {
+                  <ng-container [ngTemplateOutlet]="fileNode"
+                    [ngTemplateOutletContext]="{ $implicit: e, depth: 0 }" />
+                }
+              }
+            </div>
+            @if (fileOpenPath()) {
+              <div class="files-view">
+                <div class="files-viewhead">{{ fileOpenPath() }}</div>
+                <pre class="files-code">{{ fileContent() }}</pre>
+              </div>
+            }
+          </div>
+        </div>
       }
       @if (bgOpen()) {
         <div class="bg-window panel">
@@ -1912,3 +1884,25 @@
 </div>
 
 }
+
+<ng-template #fileNode let-e let-depth="depth">
+    @if (e.dir) {
+      <button class="file-row" [style.padding-left.px]="10 + depth * 14" (click)="toggleFolder(e)">
+        <svg class="file-caret" [class.open]="isFolderOpen(e.path)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="file-name">{{ e.name }}</span>
+      </button>
+      @if (isFolderOpen(e.path)) {
+        @for (c of childrenOf(e.path); track c.path) {
+          <ng-container [ngTemplateOutlet]="fileNode"
+            [ngTemplateOutletContext]="{ $implicit: c, depth: depth + 1 }" />
+        }
+      }
+    } @else {
+      <button class="file-row" [class.active]="fileOpenPath() === e.path"
+        [style.padding-left.px]="10 + depth * 14 + 16" (click)="openFile(e)">
+        <span class="file-ico">&lt;/&gt;</span>
+        <span class="file-name">{{ e.name }}</span>
+      </button>
+    }
+  </ng-template>
+

@@ -175,7 +175,16 @@ export class HomeChat {
   private stickBottom = true;
   onScroll(): void {
     const el = this.logEl()?.nativeElement;
-    if (el) this.stickBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    // Re-attach only at the very bottom; detaching is driven by wheel/touch.
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 24) this.stickBottom = true;
+  }
+  /** Any upward wheel/touch intent detaches auto-follow at once — a distance
+   *  threshold cannot win a race against streaming tokens. */
+  onWheel(ev: WheelEvent): void {
+    if (ev.deltaY < 0) this.stickBottom = false;
+  }
+  onTouch(): void {
+    this.stickBottom = false;
   }
 
   constructor() {

@@ -2771,11 +2771,12 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .topmenu-dot.inline { position: static; }
 
 /* Files browser. */
-.files-modal {
-  width: min(1000px, 94vw); height: min(76vh, 760px);
+.files-window {
   display: flex; flex-direction: column;
-  border: 1px solid var(--border-strong); border-radius: 16px;
-  background: var(--surface-2); box-shadow: var(--shadow-lg); overflow: hidden;
+  height: 100%; min-height: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-1, var(--surface-2));
+  overflow: hidden;
 }
 .files-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -2793,10 +2794,10 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   font: inherit; font-size: 0.88rem;
 }
 .files-input:focus { outline: none; }
-.files-body { flex: 1; min-height: 0; display: flex; gap: 0; }
+.files-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0; }
 .files-tree {
-  width: 320px; flex-shrink: 0; overflow: auto;
-  padding: 4px 8px 14px; border-right: 1px solid var(--border);
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  padding: 4px 8px 12px;
 }
 .file-row {
   display: flex; align-items: center; gap: 8px; width: 100%;
@@ -2811,7 +2812,10 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .file-ico { flex-shrink: 0; font-family: var(--mono); font-size: 0.7rem; color: var(--faint); }
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-hitline { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); }
-.files-view { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.files-view {
+  flex: 1 1 55%; min-height: 0; display: flex; flex-direction: column;
+  border-top: 1px solid var(--border);
+}
 .files-viewhead {
   padding: 9px 14px; border-bottom: 1px solid var(--border);
   font-family: var(--mono); font-size: 0.76rem; color: var(--muted);

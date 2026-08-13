@@ -25,8 +25,19 @@ export class ArtifactService {
     this.editRequest.set({ selection, instruction });
   }
 
+  /** The most recent artifact, kept so the Artifacts menu entry can reopen it
+   *  after the panel has been closed. */
+  readonly last = signal<Artifact | null>(null);
+
   open(a: Artifact): void {
     this.active.set(a);
+    this.last.set(a);
+  }
+
+  /** Menu action: show the panel again, or hide it if it is already up. */
+  toggle(): void {
+    if (this.active()) this.active.set(null);
+    else if (this.last()) this.active.set(this.last());
   }
 
   close(): void {

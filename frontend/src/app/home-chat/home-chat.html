@@ -1,5 +1,5 @@
 <section class="home">
-  <div class="home-scroll" #chatlog (scroll)="onScroll()">
+  <div class="home-scroll" #chatlog (scroll)="onScroll()" (wheel)="onWheel($event)" (touchmove)="onTouch()">
     @if (messages().length === 0) {
       <div class="home-hero">
         <div class="home-hero-mark">

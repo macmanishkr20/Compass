@@ -1143,10 +1143,21 @@ export class App {
   // behaviour); scrolling back to the bottom re-arms the follow.
   private stickBottom = true;
 
+  /** Any upward wheel/touch intent detaches auto-follow immediately — waiting
+   *  for a distance threshold is useless while streaming, because new tokens
+   *  keep moving the bottom away faster than a small scroll can escape it. */
+  onLogWheel(ev: WheelEvent): void {
+    if (ev.deltaY < 0) this.stickBottom = false;
+  }
+  onLogTouch(): void {
+    this.stickBottom = false;
+  }
+
   onLogScroll(): void {
     const log = this.logEl()?.nativeElement;
     if (!log) return;
-    this.stickBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 120;
+    // Re-attach only when the user comes back to the very bottom.
+    if (log.scrollHeight - log.scrollTop - log.clientHeight < 24) this.stickBottom = true;
     const marker = log.getBoundingClientRect().top + 120;
     let current: string | null = null;
     for (const p of this.promptNav()) {
