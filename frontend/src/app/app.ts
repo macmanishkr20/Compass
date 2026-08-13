@@ -22,6 +22,7 @@ import { Markdown } from './markdown/markdown';
 import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
+import { Design } from './design/design';
 import { Lightbox } from './lightbox/lightbox';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
@@ -94,6 +95,7 @@ const FOLLOW_SLACK = 120;
     Markdown,
     ArtifactPanel,
     HomeChat,
+    Design,
     Lightbox,
   ],
   templateUrl: './app.html',
@@ -155,10 +157,11 @@ export class App {
   private readonly cbImg =
     viewChild<ElementRef<HTMLImageElement>>('cbImg');
 
-  // -- top-level section: Home (Chat) vs Code (the Agent Console). Home is a
-  // separate, tool-free surface (HomeChat) and shares no state with the
-  // console; the two are switched via the top-bar Home/Code control.
-  readonly section = signal<'home' | 'code'>('home');
+  // -- top-level section: Home (Chat), Code (the Agent Console), or Design.
+  // Home is a separate, tool-free surface (HomeChat) and Design its own
+  // canvas surface; neither shares state with the console. All three are
+  // switched via the top-bar control.
+  readonly section = signal<'home' | 'code' | 'design'>('home');
   enterHome(): void {
     this.section.set('home');
     // Background tasks & the browser are Code-only surfaces — close them so
@@ -171,6 +174,16 @@ export class App {
   }
   enterCode(): void {
     this.section.set('code');
+  }
+  /** Design is created on first visit and then kept mounted (see app.html). */
+  readonly designSeen = signal(false);
+  enterDesign(): void {
+    this.section.set('design');
+    this.designSeen.set(true);
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
   }
 
   // -- Work IQ (Home-only): toggle grounding the chat in Azure AI Search.

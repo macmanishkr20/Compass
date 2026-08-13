@@ -322,3 +322,30 @@ export interface SessionGroup {
   label: string;
   cards: SessionCard[];
 }
+
+/** A Design template card on the Design landing screen. */
+export interface DesignTemplate {
+  id: string;
+  name: string;
+  hint: string;
+}
+
+/** One piece of design work. `html` is only present on a single-project fetch —
+ *  the list endpoint omits it because a design can be tens of kilobytes. */
+export interface DesignTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface DesignProject {
+  id: string;
+  name: string;
+  template: string;
+  prompt: string;
+  html?: string;
+  turns?: DesignTurn[];
+  design_system: string;
+  starred: boolean;
+  created_at: number;
+  updated_at: number;
+}

@@ -1,0 +1,206 @@
+@if (open(); as project) {
+  <!-- ============ workspace: chat left, canvas right ============ -->
+  <div class="dz-work">
+    <section class="dz-chat">
+      <header class="dz-chat-head">
+        <button class="dz-icon" (click)="close()" title="Back to Design">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="dz-chat-title">
+          <span class="dz-name">{{ project.name }}</span>
+          <span class="dz-badge">{{ templateName(project.template) }}</span>
+        </div>
+      </header>
+
+      <div class="dz-turns">
+        @for (t of turns(); track $index) {
+          <div class="dz-turn" [class.user]="t.role === 'user'">
+            @if (t.role === 'user') {
+              <div class="dz-bubble">{{ t.text }}</div>
+            } @else {
+              <div class="dz-asst">{{ t.text }}</div>
+            }
+          </div>
+        }
+        @if (working()) {
+          <div class="dz-turn">
+            <div class="dz-asst dz-thinking">
+              <span class="dz-dot"></span><span class="dz-dot"></span><span class="dz-dot"></span>
+              Designing…
+            </div>
+          </div>
+        }
+        @if (error()) { <p class="dz-error">{{ error() }}</p> }
+      </div>
+
+      <div class="dz-composer">
+        <textarea rows="2" [ngModel]="refine()" (ngModelChange)="refine.set($event)"
+          (keydown)="onRefineKey($event)" [disabled]="working()"
+          placeholder="Describe a change — “make the header darker”, “add a projects section”"></textarea>
+        <button class="dz-send" (click)="sendRefine()" [disabled]="working() || !refine().trim()"
+          aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <section class="dz-canvas-wrap">
+      <header class="dz-canvas-head">
+        <div class="dz-seg" role="group" aria-label="Preview width">
+          @for (d of ['desktop', 'tablet', 'mobile']; track d) {
+            <button [class.on]="device() === d" (click)="device.set($any(d))">{{ d }}</button>
+          }
+        </div>
+        <div class="dz-canvas-actions">
+          <button class="dz-btn" [class.on]="codeOpen()" (click)="codeOpen.set(!codeOpen())">Code</button>
+          <button class="dz-btn" (click)="copyCode()">Copy</button>
+          <button class="dz-btn" (click)="download()">Download</button>
+          <button class="dz-btn primary" (click)="openStandalone()">Open</button>
+        </div>
+      </header>
+
+      @if (codeOpen()) {
+        <pre class="dz-code">{{ project.html }}</pre>
+      } @else if (project.html) {
+        <div class="dz-stage">
+          <iframe class="dz-frame" [srcdoc]="canvas()" title="Design preview"
+            [style.width.px]="canvasWidth() || null"
+            [style.max-width]="canvasWidth() ? null : '100%'"
+            sandbox="allow-scripts allow-popups"></iframe>
+        </div>
+      } @else {
+        <div class="dz-stage empty">
+          <p>{{ working() ? 'Designing…' : 'Nothing rendered yet.' }}</p>
+        </div>
+      }
+    </section>
+  </div>
+} @else {
+  <!-- ============ landing ============ -->
+  <div class="dz-landing">
+    <div class="dz-hero">
+      <h1>What should we create?</h1>
+      <p class="dz-sub">Describe it, and Compass designs it — slides, screens, documents, and more.</p>
+
+      <div class="dz-prompt">
+        <textarea id="design-prompt" rows="3"
+          [ngModel]="prompt()" (ngModelChange)="prompt.set($event)"
+          (keydown)="onComposerKey($event)"
+          placeholder="Describe what you want to design…"></textarea>
+        <div class="dz-prompt-foot">
+          <label class="dz-pick">
+            <span>Template</span>
+            <select [ngModel]="template()" (ngModelChange)="template.set($event)">
+              @for (t of templates(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+            </select>
+          </label>
+          <label class="dz-pick">
+            <span>Design system</span>
+            <select disabled title="Design systems are coming with import">
+              <option>None</option>
+            </select>
+          </label>
+          <button class="dz-create" (click)="create()" [disabled]="creating() || !prompt().trim()">
+            @if (creating()) { Creating… } @else { Create }
+          </button>
+        </div>
+      </div>
+      @if (error()) { <p class="dz-error center">{{ error() }}</p> }
+
+      <div class="dz-tiles">
+        @for (t of templates(); track t.id) {
+          <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)">
+            <span class="dz-tile-name">{{ t.name }}</span>
+            <span class="dz-tile-hint">{{ t.hint }}</span>
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="dz-library">
+      <div class="dz-tabs" role="tablist">
+        <button role="tab" [class.on]="tab() === 'projects'" (click)="tab.set('projects')">Projects</button>
+        <button role="tab" [class.on]="tab() === 'systems'" (click)="tab.set('systems')">Design systems</button>
+        <button role="tab" [class.on]="tab() === 'templates'" (click)="tab.set('templates')">Templates</button>
+        <div class="dz-tabs-right">
+          <label class="dz-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+            <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
+              placeholder="Search" aria-label="Search designs" />
+          </label>
+          <div class="dz-seg" role="group" aria-label="Layout">
+            <button [class.on]="layout() === 'list'" (click)="layout.set('list')" title="List">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"/></svg>
+            </button>
+            <button [class.on]="layout() === 'grid'" (click)="layout.set('grid')" title="Grid">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      @switch (tab()) {
+        @case ('projects') {
+          @if (loading()) {
+            <p class="dz-empty">Loading…</p>
+          } @else if (filtered().length === 0) {
+            <p class="dz-empty">
+              {{ query() ? 'No designs match that search.' : 'No designs yet — describe one above.' }}
+            </p>
+          } @else if (layout() === 'list') {
+            <table class="dz-table">
+              <thead>
+                <tr><th>Name</th><th>Template</th><th>Edited</th><th></th></tr>
+              </thead>
+              <tbody>
+                @for (p of filtered(); track p.id) {
+                  <tr (click)="openProject(p)">
+                    <td class="dz-cell-name">
+                      <button class="dz-star" [class.on]="p.starred" (click)="star(p, $event)"
+                        [attr.aria-label]="p.starred ? 'Unstar' : 'Star'">
+                        <svg width="14" height="14" viewBox="0 0 24 24" [attr.fill]="p.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
+                      </button>
+                      {{ p.name }}
+                    </td>
+                    <td class="dz-cell-muted">{{ templateName(p.template) }}</td>
+                    <td class="dz-cell-muted">{{ age(p.updated_at) }}</td>
+                    <td class="dz-cell-end">
+                      <button class="dz-icon danger" (click)="remove(p, $event)" aria-label="Delete">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <div class="dz-cards">
+              @for (p of filtered(); track p.id) {
+                <button class="dz-card" (click)="openProject(p)">
+                  <span class="dz-card-top">{{ templateName(p.template) }}</span>
+                  <span class="dz-card-name">{{ p.name }}</span>
+                  <span class="dz-card-foot">{{ age(p.updated_at) }}</span>
+                </button>
+              }
+            </div>
+          }
+        }
+        @case ('systems') {
+          <p class="dz-empty">
+            No design systems yet. Importing one from a repository or a style guide is next up.
+          </p>
+        }
+        @case ('templates') {
+          <div class="dz-tiles wide">
+            @for (t of filteredTemplates(); track t.id) {
+              <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)">
+                <span class="dz-tile-name">{{ t.name }}</span>
+                <span class="dz-tile-hint">{{ t.hint }}</span>
+              </button>
+            }
+          </div>
+        }
+      }
+    </div>
+  </div>
+}

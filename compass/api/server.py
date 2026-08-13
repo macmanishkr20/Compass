@@ -572,6 +572,145 @@ async def suggest_next(session_id: str, user: str = Depends(require_user)) -> di
     return {"suggestion": out}
 
 
+class DesignCreate(BaseModel):
+    name: str = ""
+    template: str = "blank"
+    prompt: str = ""
+    design_system: str = ""
+
+
+class DesignPatch(BaseModel):
+    name: str | None = None
+    html: str | None = None
+    prompt: str | None = None
+    starred: bool | None = None
+    design_system: str | None = None
+
+
+@app.get("/v1/design/templates")
+async def design_templates(user: str = Depends(require_user)) -> dict:
+    from compass.services.design import TEMPLATES
+
+    return {"templates": TEMPLATES}
+
+
+@app.get("/v1/design/projects")
+async def design_projects(user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    return {"projects": await get_design_store().list()}
+
+
+@app.post("/v1/design/projects")
+async def design_create(body: DesignCreate, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    return await get_design_store().create(
+        name=body.name or (body.prompt[:60] if body.prompt else "Untitled"),
+        template=body.template,
+        prompt=body.prompt,
+        design_system=body.design_system,
+    )
+
+
+@app.get("/v1/design/projects/{project_id}")
+async def design_get(project_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().get(project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.patch("/v1/design/projects/{project_id}")
+async def design_patch(
+    project_id: str, body: DesignPatch, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().update(project_id, **body.model_dump())
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.delete("/v1/design/projects/{project_id}")
+async def design_delete(project_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    return {"deleted": await get_design_store().delete(project_id)}
+
+
+class DesignGenerate(BaseModel):
+    prompt: str
+    template: str = ""  # "" = keep the project's own template
+    design_system: str = ""
+
+
+@app.post("/v1/design/projects/{project_id}/generate")
+async def design_generate(
+    project_id: str, body: DesignGenerate, user: str = Depends(require_user)
+) -> dict:
+    """Generate (or refine) the project's design and store the HTML."""
+    from compass.services.design import (
+        DESIGN_SYSTEM_PROMPT,
+        TEMPLATE_PROMPTS,
+        get_design_store,
+    )
+
+    store = get_design_store()
+    project = await store.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+
+    template = body.template or project.get("template") or "blank"
+    parts = [TEMPLATE_PROMPTS.get(template, "")]
+    if project.get("html"):
+        parts.append(
+            "Refine the EXISTING design below; keep everything not mentioned "
+            "unchanged.\n\n```html\n" + project["html"][:60_000] + "\n```"
+        )
+    parts.append("Request: " + body.prompt)
+
+    try:
+        from compass.gateway.azure_client import get_model_client
+
+        # A full design needs a large budget: on reasoning models the thinking
+        # is billed against the same cap, so a small one returns nothing.
+        out = await get_model_client().complete_utility(
+            DESIGN_SYSTEM_PROMPT,
+            "\n\n".join(p for p in parts if p),
+            max_tokens=32_000,
+            prefer_main=True,
+        )
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"design generation failed: {err}")
+
+    html = out.strip()
+    if "```" in html:  # pull the html out of the fenced block
+        import re
+
+        m = re.search(r"```(?:html)?\s*\n(.*?)```", html, re.S)
+        if m:
+            html = m.group(1).strip()
+    if not html:
+        raise HTTPException(status_code=502, detail="the model returned no design")
+
+    # The seed prompt is the project's identity — refinements are appended to
+    # the transcript instead, so reopening a project replays the conversation.
+    turns = list(project.get("turns") or [])
+    turns.append({"role": "user", "text": body.prompt})
+    turns.append({"role": "assistant", "text": "Here it is — tell me what to change."})
+    updated = await store.update(
+        project_id,
+        html=html,
+        turns=turns,
+        prompt=project.get("prompt") or body.prompt,
+    )
+    return updated or {"id": project_id, "html": html}
+
+
 @app.get("/v1/customize")
 async def get_customize(user: str = Depends(require_user)) -> dict:
     """One place listing what Compass can do and what it's connected to —

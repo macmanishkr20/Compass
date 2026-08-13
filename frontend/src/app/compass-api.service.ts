@@ -12,6 +12,8 @@ import {
   GithubRepo,
   HealthInfo,
   CustomizeInfo,
+  DesignProject,
+  DesignTemplate,
   FileEntry,
   FileHit,
   MemoryEntry,
@@ -374,6 +376,44 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.get<{ hits: FileHit[] }>(
         `/v1/workspaces/${ws}/files/search?q=${encodeURIComponent(q)}&content=${content}`),
+    );
+  }
+
+  // -- Design ---------------------------------------------------------------
+  designTemplates(): Promise<{ templates: DesignTemplate[] }> {
+    return firstValueFrom(
+      this.http.get<{ templates: DesignTemplate[] }>('/v1/design/templates'),
+    );
+  }
+  designProjects(): Promise<{ projects: DesignProject[] }> {
+    return firstValueFrom(
+      this.http.get<{ projects: DesignProject[] }>('/v1/design/projects'),
+    );
+  }
+  designProject(id: string): Promise<DesignProject> {
+    return firstValueFrom(this.http.get<DesignProject>(`/v1/design/projects/${id}`));
+  }
+  createDesign(body: {
+    name?: string;
+    template?: string;
+    prompt?: string;
+    design_system?: string;
+  }): Promise<DesignProject> {
+    return firstValueFrom(this.http.post<DesignProject>('/v1/design/projects', body));
+  }
+  patchDesign(
+    id: string,
+    patch: { name?: string; html?: string; starred?: boolean; design_system?: string },
+  ): Promise<DesignProject> {
+    return firstValueFrom(this.http.patch<DesignProject>(`/v1/design/projects/${id}`, patch));
+  }
+  deleteDesign(id: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/projects/${id}`));
+  }
+  /** Generate or refine a project's design. Slow — a whole document is written. */
+  generateDesign(id: string, prompt: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, { prompt }),
     );
   }
 

@@ -74,7 +74,9 @@ class ModelClient(Protocol):
         effort: str | None = None,
     ) -> AsyncIterator[StreamItem]: ...
 
-    async def complete_utility(self, prompt: str, text: str) -> str: ...
+    async def complete_utility(
+        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+    ) -> str: ...
 
 
 class AzureModelClient:
@@ -279,8 +281,14 @@ class AzureModelClient:
             model=deployment,
         )
 
-    async def complete_utility(self, prompt: str, text: str) -> str:
-        """Small non-streaming call for compaction summaries (queryHaiku analog).
+    async def complete_utility(
+        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+    ) -> str:
+        """Non-streaming call for side tasks (compaction summaries, suggestions,
+        design generation). `max_tokens` must be generous for reasoning models:
+        thinking is billed against the same budget, so a small cap can consume
+        it entirely and return an empty string. `prefer_main` puts the primary
+        deployment first when output quality matters more than cost.
 
         Falls back to the main deployment when the configured utility deployment
         does not exist on the resource — otherwise a stale
@@ -293,22 +301,23 @@ class AzureModelClient:
             {"role": "system", "content": prompt},
             {"role": "user", "content": text},
         ]
-        candidates = [
-            d
-            for d in (settings.azure.utility_deployment, settings.azure.deployment)
-            if d
-        ]
+        order = (
+            (settings.azure.deployment, settings.azure.utility_deployment)
+            if prefer_main
+            else (settings.azure.utility_deployment, settings.azure.deployment)
+        )
+        candidates = [d for d in order if d]
         last: Exception | None = None
         for deployment in dict.fromkeys(candidates):  # de-duped, order kept
             base = {"model": deployment, "messages": messages}
             try:
                 try:
                     response = await self._get_client().chat.completions.create(
-                        **base, max_completion_tokens=2_000
+                        **base, max_completion_tokens=max_tokens
                     )
                 except BadRequestError:
                     response = await self._get_client().chat.completions.create(
-                        **base, max_tokens=2_000
+                        **base, max_tokens=max_tokens
                     )
                 return response.choices[0].message.content or ""
             except NotFoundError as err:  # deployment missing — try the next one
@@ -518,7 +527,9 @@ class MockModelClient:
             model="mock",
         )
 
-    async def complete_utility(self, prompt: str, text: str) -> str:
+    async def complete_utility(
+        self, prompt: str, text: str, *, max_tokens: int = 2_000, prefer_main: bool = False
+    ) -> str:
         return "Mock summary of the session so far."
 
 
