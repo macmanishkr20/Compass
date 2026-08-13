@@ -64,7 +64,8 @@
 @media (max-width: 1100px) {
   /* On narrower screens the dock takes over the main area. */
   .shell.right-open { grid-template-columns: 272px 0 1fr; }
-  .shell.right-open .main { display: none; }
+  .shell.right-open .main {
+  position: relative; /* anchors the jump-to-latest chevron */ display: none; }
   .shell.right-open.sidebar-collapsed { grid-template-columns: 0 0 1fr; }
 }
 
@@ -2825,6 +2826,22 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   font-family: var(--mono); font-size: 0.76rem; line-height: 1.55;
   color: var(--ink); white-space: pre; background: var(--bg);
 }
+
+/* Jump-to-latest chevron, shown while auto-follow is detached. */
+.jump-bottom {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 132px; z-index: 30;
+  display: grid; place-items: center;
+  width: 38px; height: 38px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--ink);
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+.jump-bottom:hover { background: var(--surface); }
+
+/* The log must not fight us: browser scroll anchoring can tug the position
+   while streaming content grows. */
+.log { overflow-anchor: none; }
 
 /* Inline "N running tasks" line above the composer. */
 .run-indicator {

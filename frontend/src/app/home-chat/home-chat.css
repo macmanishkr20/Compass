@@ -5,6 +5,7 @@
 }
 
 .home {
+  position: relative; /* anchors the jump-to-latest chevron */
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -441,3 +442,17 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   max-height: 30vh; overflow-y: auto;
 }
 .voice-hint { font-size: 0.8rem; color: var(--faint); }
+
+
+/* Jump-to-latest chevron while auto-follow is detached. */
+.jump-bottom {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 150px; z-index: 30;
+  display: grid; place-items: center;
+  width: 38px; height: 38px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--ink);
+  box-shadow: 0 6px 18px rgba(0,0,0,.22);
+}
+.jump-bottom:hover { background: var(--surface); }
+.home-scroll { overflow-anchor: none; }

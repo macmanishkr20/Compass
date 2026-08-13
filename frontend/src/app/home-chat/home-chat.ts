@@ -38,6 +38,8 @@ interface ChatMsg {
   sources?: WorkIqSource[];
 }
 
+const FOLLOW_SLACK = 120; // px from the bottom that still counts as following
+
 const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
 /**
@@ -173,18 +175,31 @@ export class HomeChat {
   private readonly logEl = viewChild<ElementRef<HTMLElement>>('chatlog');
   // Auto-follow streaming only while the user is parked near the bottom.
   private stickBottom = true;
+  /** Auto-follow driven by scroll DIRECTION (see App.onLogScroll): a distance
+   *  threshold loses the race against streaming tokens, and a wheel-only
+   *  listener misses scrollbar drags, keyboard paging and momentum scrolling. */
+  private lastScrollTop = 0;
+  private programmaticScroll = false;
+  readonly showJumpToBottom = signal(false);
+
+  private scrollToBottom(el: HTMLElement, smooth = false): void {
+    this.programmaticScroll = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    setTimeout(() => (this.programmaticScroll = false), smooth ? 400 : 60);
+  }
+
+  jumpToBottom(): void {
+    const el = this.logEl()?.nativeElement;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    this.showJumpToBottom.set(false);
+  }
+
   onScroll(): void {
     const el = this.logEl()?.nativeElement;
-    // Re-attach only at the very bottom; detaching is driven by wheel/touch.
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 24) this.stickBottom = true;
-  }
-  /** Any upward wheel/touch intent detaches auto-follow at once — a distance
-   *  threshold cannot win a race against streaming tokens. */
-  onWheel(ev: WheelEvent): void {
-    if (ev.deltaY < 0) this.stickBottom = false;
-  }
-  onTouch(): void {
-    this.stickBottom = false;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    this.showJumpToBottom.set(dist > FOLLOW_SLACK);
   }
 
   constructor() {
@@ -197,7 +212,16 @@ export class HomeChat {
         // a competing 'smooth' scroll animation would stutter — 'auto' tracks it.
         // Only while the user is parked at the bottom; if they scrolled up to
         // read, don't yank them back down (claude.ai behaviour).
-        if (el && this.stickBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+        if (!el) return;
+        // Live geometry, not a cached flag — see App: this microtask beats the
+        // browser's `scroll` event, so a flag set there would still be stale.
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist <= FOLLOW_SLACK) {
+          el.scrollTop = el.scrollHeight;
+          this.showJumpToBottom.set(false);
+        } else {
+          this.showJumpToBottom.set(true);
+        }
       });
     });
     // React to the sidebar selecting a conversation (or "new" = null). Ignore

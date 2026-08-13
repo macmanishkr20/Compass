@@ -76,6 +76,10 @@ type RenderBlock =
       count: number;
     };
 
+/** How close to the bottom still counts as following the stream. Larger than
+ *  the few pixels one token adds, far smaller than a deliberate scroll. */
+const FOLLOW_SLACK = 120;
+
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -940,7 +944,17 @@ export class App {
         // Instant follow so rAF-paced streaming text doesn't fight a smooth
         // scroll animation (which stutters when content grows every frame) —
         // but only while the user is still parked at the bottom.
-        if (el && this.stickBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'auto' });
+        if (!el) return;
+        // Decide from LIVE geometry, never a cached flag: this microtask runs
+        // before the browser dispatches the `scroll` event, so a flag updated
+        // by that handler is still stale here and would yank the user back.
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+        if (dist <= FOLLOW_SLACK) {
+          el.scrollTop = el.scrollHeight; // stay pinned to the newest content
+          this.showJumpToBottom.set(false);
+        } else {
+          this.showJumpToBottom.set(true); // user is reading further up
+        }
       });
     });
     // Rotate the status message for the whole turn (Claude keeps its verbs
@@ -1143,21 +1157,39 @@ export class App {
   // behaviour); scrolling back to the bottom re-arms the follow.
   private stickBottom = true;
 
-  /** Any upward wheel/touch intent detaches auto-follow immediately — waiting
-   *  for a distance threshold is useless while streaming, because new tokens
-   *  keep moving the bottom away faster than a small scroll can escape it. */
-  onLogWheel(ev: WheelEvent): void {
-    if (ev.deltaY < 0) this.stickBottom = false;
+  /** Auto-follow state. Detaching is driven by scroll DIRECTION rather than a
+   *  distance threshold or a single input event: while tokens stream the bottom
+   *  runs away faster than a short scroll can escape, and listening only for
+   *  `wheel` misses scrollbar drags, keyboard paging and momentum scrolling.
+   *  Any upward movement the app did not cause detaches follow; returning to
+   *  the bottom re-attaches it. */
+  private lastScrollTop = 0;
+  private programmaticScroll = false;
+  /** Shown when follow is detached, to jump back to the newest message. */
+  readonly showJumpToBottom = signal(false);
+
+  /** Scroll the log to the bottom without it counting as user intent. */
+  private scrollLogToBottom(el: HTMLElement, smooth = false): void {
+    this.programmaticScroll = true;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    // Clear after the resulting scroll events have been dispatched.
+    setTimeout(() => (this.programmaticScroll = false), smooth ? 400 : 60);
   }
-  onLogTouch(): void {
-    this.stickBottom = false;
+
+  jumpToBottom(): void {
+    const el = this.logEl()?.nativeElement;
+    if (!el) return;
+    // Direct assignment: a smooth animation over a long transcript can still be
+    // running when the next token arrives, leaving the view short of the end.
+    el.scrollTop = el.scrollHeight;
+    this.showJumpToBottom.set(false);
   }
 
   onLogScroll(): void {
     const log = this.logEl()?.nativeElement;
     if (!log) return;
-    // Re-attach only when the user comes back to the very bottom.
-    if (log.scrollHeight - log.scrollTop - log.clientHeight < 24) this.stickBottom = true;
+    const dist = log.scrollHeight - log.scrollTop - log.clientHeight;
+    this.showJumpToBottom.set(dist > FOLLOW_SLACK);
     const marker = log.getBoundingClientRect().top + 120;
     let current: string | null = null;
     for (const p of this.promptNav()) {
