@@ -402,6 +402,14 @@ export class CompassApiService {
     return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/memory/${id}`));
   }
 
+  forkChatSession(sessionId: string, index?: number): Promise<{ session_id: string }> {
+    return firstValueFrom(
+      this.http.post<{ session_id: string }>(`/v1/chat/sessions/${sessionId}/fork`, {
+        index: index ?? null,
+      }),
+    );
+  }
+
   patchChatSession(
     sessionId: string,
     patch: { title?: string; pinned?: boolean },

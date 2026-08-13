@@ -98,6 +98,10 @@
   color: var(--muted); cursor: pointer;
 }
 .cmsg-act:hover { background: var(--surface-2); color: var(--ink); }
+.cmsg-time {
+  margin-left: 4px; align-self: center;
+  font-size: 0.74rem; color: var(--faint); white-space: nowrap;
+}
 
 /* inline edit box for a user message */
 .cedit { display: flex; flex-direction: column; gap: 8px; min-width: 260px; }

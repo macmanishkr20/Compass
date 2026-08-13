@@ -916,6 +916,9 @@
                         <button class="msg-act" title="Edit &amp; resend" (click)="startEdit(b)">
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
+                        <button class="msg-act" title="Branch from here" (click)="forkFromMessage(b)">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-2.5 4.5-6 4.5"/></svg>
+                        </button>
                       }
                     }
                     @if (b.role === 'assistant' && !b.streaming) {

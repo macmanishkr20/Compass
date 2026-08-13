@@ -2581,6 +2581,17 @@ export class App {
     await this.resumeSession(session_id);
   }
 
+  /** Branch the conversation at this message — everything up to and including
+   *  it is copied into a new thread, so you can explore a different direction
+   *  without losing the original (Claude's per-message branch action). */
+  async forkFromMessage(b: ChatBubble): Promise<void> {
+    const sid = this.sessionId();
+    if (!sid || this.streaming()) return;
+    const { session_id } = await this.api.forkSession(sid, b.msgUuid || undefined);
+    await this.refreshSessions();
+    await this.resumeSession(session_id);
+  }
+
   async deleteConversation(card: SessionCard): Promise<void> {
     this.closeMenu();
     await this.api.deleteSession(card.id);

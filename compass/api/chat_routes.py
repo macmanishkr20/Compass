@@ -232,6 +232,20 @@ async def list_chat_sessions(user: str = Depends(require_user)) -> dict:
     return {"sessions": await chat_engine.store.list_cards()}
 
 
+class ChatForkRequest(BaseModel):
+    index: int | None = None
+
+
+@router.post("/sessions/{session_id}/fork")
+async def fork_chat(
+    session_id: str, body: ChatForkRequest, user: str = Depends(require_user)
+) -> dict:
+    """Branch a Home thread at a message into a new conversation."""
+    if not await chat_engine.store.exists(session_id):
+        raise HTTPException(status_code=404, detail="unknown chat session")
+    return {"session_id": await chat_engine.fork(session_id, body.index)}
+
+
 class ChatPatchRequest(BaseModel):
     title: str | None = None
     pinned: bool | None = None

@@ -355,5 +355,22 @@ class ChatEngine:
         finally:
             await self.store.flush()
 
+    async def fork(self, session_id: str, index: int | None = None) -> str:
+        """Branch a Home thread: copy it up to and including `index` into a new
+        thread, so a different direction can be explored without losing the
+        original. `index` is the message's position (Home alternates strictly)."""
+        messages = await self.store.load(session_id)
+        if index is not None:
+            messages = messages[: index + 1]
+        new_id = str(uuid.uuid4())
+        await self.store.rewrite(new_id, messages)
+        meta = self.store._read_meta().get(session_id, {}) if hasattr(
+            self.store, "_read_meta"
+        ) else {}
+        title = meta.get("title")
+        if title:
+            await self.store.set_meta(new_id, title=title)
+        return new_id
+
     def abort(self, session: ChatSession) -> None:
         session.abort_event.set()

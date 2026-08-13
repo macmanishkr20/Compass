@@ -33,6 +33,7 @@ interface ChatMsg {
   role: 'user' | 'assistant';
   text: string;
   streaming: boolean;
+  at?: number; // epoch ms — shown as a relative age under the message
   atts?: UiAttachment[];
   sources?: WorkIqSource[];
 }
@@ -135,6 +136,35 @@ export class HomeChat {
   ];
   readonly workingMsg = signal(this.workingLines[0]);
 
+  /** Relative age under a message ("just now", "7 hours ago"). */
+  readonly nowTick = signal(Date.now());
+  formatAge(ms: number | undefined): string {
+    if (!ms) return '';
+    const secs = Math.max(0, Math.round((this.nowTick() - ms) / 1000));
+    if (secs < 45) return 'just now';
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.round(hours / 24);
+    if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+    return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  /** Branch the thread at this message into a new conversation. */
+  async forkFromMessage(m: ChatMsg): Promise<void> {
+    if (!this.sessionId || this.streaming()) return;
+    const idx = this.messages().findIndex((x) => x.id === m.id);
+    if (idx < 0) return;
+    try {
+      const r = await this.api.forkChatSession(this.sessionId, idx);
+      this.threadChanged.emit();
+      this.sessionCreated.emit(r.session_id);
+    } catch {
+      /* ignore */
+    }
+  }
+
   formatElapsed(ms: number): string {
     const s = Math.floor(ms / 1000);
     return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -149,6 +179,7 @@ export class HomeChat {
   }
 
   constructor() {
+    setInterval(() => this.nowTick.set(Date.now()), 30_000);
     effect(() => {
       this.messages();
       queueMicrotask(() => {
@@ -315,6 +346,7 @@ export class HomeChat {
       role: 'user',
       text: content,
       streaming: false,
+      at: Date.now(),
       atts: atts.length ? atts : undefined,
     });
 
