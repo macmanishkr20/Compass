@@ -1641,3 +1641,28 @@
   border: 1px solid var(--border-strong);
   display: inline-block;
 }
+
+
+/* -- the landing shows a handful; the rest live in their own window */
+.dz-more {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  font-weight: 500;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+
+.dz-more:hover { text-decoration: underline; }
+.dz-more-count { color: var(--faint); font-size: 0.76rem; font-weight: 400; }
+
+.dz-modal.wide { width: min(880px, 100%); }
+.dz-modal-head .dz-search { margin-left: auto; }
+.dz-modal-head .dz-icon { margin-left: 10px; }
+.dz-modal-body.scroll { max-height: 62vh; overflow-y: auto; padding-top: 8px; }

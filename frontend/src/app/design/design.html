@@ -676,7 +676,7 @@
                 </tr>
               </thead>
               <tbody>
-                @for (p of filtered(); track p.id) {
+                @for (p of recent(); track p.id) {
                   <tr (click)="openProject(p)">
                     <td class="dz-cell-name">
                       <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
@@ -741,7 +741,7 @@
             </table>
           } @else {
             <div class="dz-cards">
-              @for (p of filtered(); track p.id) {
+              @for (p of recent(); track p.id) {
                 <button class="dz-card" (click)="openProject(p)">
                   <img class="dz-card-thumb" [src]="thumb(p)" alt="" loading="lazy" />
                   <span class="dz-card-name">{{ p.name }}</span>
@@ -749,6 +749,11 @@
                 </button>
               }
             </div>
+          }
+          @if (hiddenCount()) {
+            <button class="dz-more" (click)="historyOpenAll.set(true)">
+              More… <span class="dz-more-count">{{ hiddenCount() }} older</span>
+            </button>
           }
         }
 
@@ -812,6 +817,69 @@
           </div>
         }
       }
+    </div>
+  </div>
+}
+
+<!-- ===================== all designs ===================== -->
+@if (historyOpenAll()) {
+  <div class="dz-scrim" (click)="closeAllHistory()">
+    <div class="dz-modal wide" (click)="$event.stopPropagation()" role="dialog" aria-label="All designs">
+      <header class="dz-modal-head">
+        <h2>All designs</h2>
+        <label class="dz-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+          <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
+            placeholder="Search all designs" aria-label="Search all designs" />
+        </label>
+        <button class="dz-icon" (click)="closeAllHistory()" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="dz-modal-body scroll">
+        @if (filtered().length === 0) {
+          <p class="dz-empty">Nothing matches that.</p>
+        } @else {
+          <table class="dz-table">
+            <thead>
+              <tr>
+                <th class="dz-th-name">Name</th>
+                <th class="dz-th-seen">Last viewed</th>
+                <th class="dz-th-access">Access</th>
+                <th class="dz-th-end" colspan="2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of filtered(); track p.id) {
+                <tr (click)="closeAllHistory(); openProject(p)">
+                  <td class="dz-cell-name">
+                    <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
+                    <span class="dz-row-name">{{ p.name }}</span>
+                  </td>
+                  <td class="dz-cell-muted dz-th-seen">{{ age(p.viewed_at || p.updated_at) }}</td>
+                  <td class="dz-th-access">
+                    <span class="dz-access">
+                      Edit
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+                    </span>
+                  </td>
+                  <td class="dz-cell-end">
+                    <button class="dz-icon sm danger" (click)="remove(p, $event)" aria-label="Delete">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  </td>
+                  <td class="dz-cell-star">
+                    <button class="dz-star" [class.on]="p.starred" (click)="star(p, $event)"
+                      [attr.aria-label]="p.starred ? 'Remove from favorites' : 'Add to favorites'">
+                      <svg width="15" height="15" viewBox="0 0 24 24" [attr.fill]="p.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
     </div>
   </div>
 }
