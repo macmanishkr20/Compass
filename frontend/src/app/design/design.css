@@ -2063,7 +2063,6 @@
   transform-origin: bottom center;
   transform: rotateX(0deg);
   transition: transform 0.75s cubic-bezier(0.5, 0, 0.2, 1);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
 /* Closed: the lid folds down onto the base. */
@@ -2121,7 +2120,9 @@
   background: linear-gradient(180deg, #d8d9dd, #b3b5bc);
   border-radius: 0 0 9px 9px;
   position: relative;
-  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.10);
+  /* The whole shadow lives under the base: a shadow on the lid escapes past
+     the ends of the base and reads as two dark wedges. */
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.16);
 }
 
 .dz-laptop-notch {
@@ -2136,6 +2137,8 @@
 }
 
 /* While it thinks, the canvas holds the tip claude.ai shows there. */
+.dz-title.idle { font-style: normal; color: var(--muted); }
+
 .dz-tip { text-align: center; }
 
 .dz-tip-kicker {
@@ -2755,16 +2758,18 @@
 
 .dz-ask-box.on { background: var(--ink); border-color: var(--ink); }
 
+/* The actions close the form — they scroll with it rather than hovering over
+   the questions. */
 .dz-ask-foot {
-  position: sticky;
-  bottom: 0;
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 16px 30px 22px;
-  background: var(--surface);
+  align-items: center;
+  gap: 10px;
+  padding: 18px 30px 26px;
   border-top: 1px solid var(--border);
+  background: var(--surface);
 }
+
+.dz-ask-foot .dz-ask-plain { margin-right: auto; }
 
 
 .dz-ask-system {

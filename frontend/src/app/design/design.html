@@ -319,10 +319,12 @@
     <section class="dz-canvas-wrap">
       <!-- ---------- canvas toolbar ---------- -->
       <header class="dz-bar">
-        <button class="dz-icon" (click)="reload()" title="Reload the stored design" aria-label="Reload">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 6.3M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        @if (tweaks().length) {
+        @if (hasDesign()) {
+          <button class="dz-icon" (click)="reload()" title="Reload the stored design" aria-label="Reload">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 6.3M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        }
+        @if (hasDesign() && tweaks().length) {
           <button class="dz-icon" [class.on]="tweaksOpen()"
             (click)="$event.stopPropagation(); tweaksOpen.set(!tweaksOpen())"
             title="Tweaks" aria-label="Tweaks">
@@ -337,9 +339,10 @@
         }
 
         <div class="dz-menu-wrap">
-          <button class="dz-title" [title]="project.name"
+          <button class="dz-title" [class.idle]="!hasDesign()"
+            [title]="hasDesign() ? project.name : 'No file open'"
             (click)="$event.stopPropagation(); projectMenuOpen.set(!projectMenuOpen())">
-            <span class="dz-title-text">{{ project.name }}</span>
+            <span class="dz-title-text">{{ hasDesign() ? project.name : 'No file open' }}</span>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           @if (projectMenuOpen()) {
@@ -384,6 +387,7 @@
         </div>
 
         <div class="dz-bar-right">
+          @if (hasDesign()) {
           <button class="dz-zoom" (click)="cycleZoom()" title="Zoom">{{ zoomLabel() }}</button>
 
           <div class="dz-tools" role="group" aria-label="Canvas tool">
@@ -456,6 +460,7 @@
               </div>
             }
           </div>
+          }
 
           <button class="dz-share" (click)="share(project)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 13a4 4 0 006 0l3-3a4 4 0 00-6-6l-1 1" stroke-linecap="round"/><path d="M15 11a4 4 0 00-6 0l-3 3a4 4 0 006 6l1-1" stroke-linecap="round"/></svg>

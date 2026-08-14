@@ -596,6 +596,11 @@ export class Design {
     this.systemPickerOpen.set(false);
   }
 
+  /** Is there a design to act on? Until there is, the canvas bar carries
+   *  nothing but the file name and Share — zooming, inspecting and exporting
+   *  a form that is not a design would be theatre. */
+  readonly hasDesign = computed(() => !!this.open()?.html?.trim());
+
   /** What the laptop shows while it works: the design as it stands, the way
    *  claude.ai keeps the current version on the screen. Nothing yet, nothing
    *  to show — the skeleton stands in. */
