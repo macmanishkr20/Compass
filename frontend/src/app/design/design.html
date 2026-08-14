@@ -823,6 +823,39 @@
   </div>
 }
 
+<!-- ===================== export ===================== -->
+@if (exportAsk(); as ask) {
+  <div class="dz-scrim" (click)="exportAsk.set(null)">
+    <div class="dz-modal" (click)="$event.stopPropagation()" role="dialog" aria-label="Export">
+      <header class="dz-modal-head">
+        <h2>Export as {{ ask.label }}</h2>
+        <button class="dz-icon" (click)="exportAsk.set(null)" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="dz-modal-body">
+        <label class="dz-label" for="dz-export-name">File name</label>
+        <input id="dz-export-name" class="dz-field" type="text" [ngModel]="ask.name"
+          (ngModelChange)="exportAsk.set({ ...ask, name: $event })"
+          (keydown.enter)="confirmExport()" autofocus />
+        <p class="dz-hint">
+          @if (canChooseFolder()) {
+            You'll choose where to save it next.
+          } @else {
+            This browser saves to its downloads folder — Chrome and Edge let you pick a folder.
+          }
+        </p>
+        <div class="dz-modal-foot">
+          <button class="dz-btn" (click)="exportAsk.set(null)">Cancel</button>
+          <button class="dz-btn primary" (click)="confirmExport()" [disabled]="!ask.name.trim()">
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 <!-- ===================== all designs ===================== -->
 @if (historyOpenAll()) {
   <div class="dz-scrim" (click)="closeAllHistory()">

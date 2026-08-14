@@ -54,7 +54,7 @@ _UNFOLD_SLIDES = """
 """
 
 
-async def _render(html: str, width: int, height: int):
+async def _render(html: str, width: int, height: int, *, scale: float = 1):
     """Open the document in Chromium. Caller drives the page, then closes it."""
     try:
         from playwright.async_api import async_playwright
@@ -63,7 +63,9 @@ async def _render(html: str, width: int, height: int):
 
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(args=["--no-sandbox"])
-    page = await browser.new_page(viewport={"width": width, "height": height})
+    page = await browser.new_page(
+        viewport={"width": width, "height": height}, device_scale_factor=scale
+    )
     # set_content rather than a data: URL — @import'd fonts need a real origin
     # to resolve against, and about:blank gives them one.
     await page.set_content(html, wait_until="load")
@@ -151,7 +153,9 @@ async def to_pdf(html: str, *, width: int = 1280) -> bytes:
 
 
 async def to_png(html: str, *, width: int = 1280) -> bytes:
-    page, close = await _render(html, width, 900)
+    # Twice the device scale: the export is a picture of the design, and a
+    # 1x screenshot of a page is soft the moment anyone zooms it.
+    page, close = await _render(html, width, 900, scale=2)
     try:
         await _unfold(page)
         return await page.screenshot(full_page=True, type="png")
@@ -211,46 +215,128 @@ def to_zip(*, name: str, html: str, prompt: str, system_notes: str = "") -> byte
     return buf.getvalue()
 
 
-async def to_pptx(html: str, *, width: int = 1600, height: int = 900) -> bytes:
-    """Render each slide to a full-bleed image on a 16:9 deck.
+async def to_pptx(html: str, *, width: int = 1600) -> bytes:
+    """Render each slide to an image and lay them out as a deck.
 
-    HTML and PowerPoint have no shared layout model, so a faithful export means
-    rendering, not translating: the deck is what the browser drew.
+    HTML and PowerPoint share no layout model, so a faithful export means
+    rendering rather than translating. Two things decide whether the result
+    looks like the design or like a photocopy of it:
+
+    * the deck's page is sized to the slides' own aspect, so nothing is
+      stretched to fit a 16:9 box it was never drawn in; and
+    * the render happens at twice the device scale, because a slide laid out
+      at 700-odd CSS pixels stretched across thirteen inches is about 50 DPI
+      — which is exactly what "pixelated" looks like.
+
+    A slide that doesn't share the deck's aspect is fitted inside it and
+    centred on the design's own background rather than distorted.
     """
     try:
         from pptx import Presentation
+        from pptx.dml.color import RGBColor
         from pptx.util import Emu
     except ImportError as err:  # pragma: no cover - host without python-pptx
         raise RuntimeError(_NO_PPTX) from err
 
-    page, close = await _render(html, width, height)
     try:
+        from playwright.async_api import async_playwright
+    except ImportError as err:  # pragma: no cover - host without Playwright
+        raise RuntimeError(_NO_PLAYWRIGHT) from err
+
+    pw = await async_playwright().start()
+    browser = await pw.chromium.launch(args=["--no-sandbox"])
+    try:
+        page = await browser.new_page(
+            viewport={"width": width, "height": 900}, device_scale_factor=2
+        )
+        await page.set_content(html, wait_until="load")
+        await page.wait_for_timeout(700)
         await _unfold(page)
-        shots: list[bytes] = []
+
+        background = await page.evaluate(
+            "getComputedStyle(document.body).backgroundColor || 'rgb(255,255,255)'"
+        )
+
+        shots: list[tuple[bytes, float]] = []   # (png, aspect)
         for selector in _SLIDE_SELECTORS:
             slides = await page.query_selector_all(selector)
             if len(slides) > 1:
                 for slide in slides:
+                    box = await slide.bounding_box()
+                    if not box or box["width"] < 2 or box["height"] < 2:
+                        continue
                     try:
-                        shots.append(await slide.screenshot(type="png"))
-                    except Exception:  # noqa: BLE001 - a zero-height slide
+                        shots.append(
+                            (await slide.screenshot(type="png"), box["width"] / box["height"])
+                        )
+                    except Exception:  # noqa: BLE001 - a slide with no box
                         continue
                 break
         if not shots:  # not a deck — one slide holding the whole design
-            shots = [await page.screenshot(full_page=True, type="png")]
+            box = await page.evaluate(
+                "[document.documentElement.scrollWidth, document.documentElement.scrollHeight]"
+            )
+            shots = [
+                (
+                    await page.screenshot(full_page=True, type="png"),
+                    (box[0] / box[1]) if box[1] else 16 / 9,
+                )
+            ]
     finally:
-        await close()
+        await browser.close()
+        await pw.stop()
+
+    # A deck drawn to one shape keeps that shape. A deck whose slides are
+    # whatever height their content needs — which is most of them once
+    # unfolded — gets the standard 16:9 canvas, and each slide is fitted
+    # inside it rather than forced into it.
+    aspects = [a for _, a in shots]
+    uniform = max(aspects) - min(aspects) <= min(aspects) * 0.05
+    aspect = aspects[0] if uniform else 16 / 9
 
     deck = Presentation()
-    deck.slide_width = Emu(12192000)  # 13.333in — 16:9
-    deck.slide_height = Emu(6858000)  # 7.5in
+    deck.slide_width = Emu(12192000)                    # 13.333in, the usual canvas
+    deck.slide_height = Emu(int(12192000 / aspect))
     blank = deck.slide_layouts[6]
-    for png in shots:
+    fill = _rgb(background)
+
+    for png, aspect in shots:
         slide = deck.slides.add_slide(blank)
+        if fill:
+            slide.background.fill.solid()
+            slide.background.fill.fore_color.rgb = RGBColor(*fill)
+        # Contain, never stretch: a slide of a different shape is centred.
+        page_w, page_h = deck.slide_width, deck.slide_height
+        w = page_w
+        h = int(page_w / aspect)
+        if h > page_h:
+            h = page_h
+            w = int(page_h * aspect)
         slide.shapes.add_picture(
-            io.BytesIO(png), 0, 0, width=deck.slide_width, height=deck.slide_height
+            io.BytesIO(png), int((page_w - w) / 2), int((page_h - h) / 2), width=w, height=h
         )
 
     out = io.BytesIO()
     deck.save(out)
     return out.getvalue()
+
+
+def _rgb(css: str) -> tuple[int, int, int] | None:
+    """The r,g,b of a computed CSS colour, if it is opaque enough to matter."""
+    import re
+
+    m = re.match(r"rgba?\(([^)]+)\)", css or "")
+    if not m:
+        return None
+    parts = [p.strip() for p in m.group(1).replace("/", ",").split(",")]
+    try:
+        r, g, b = (int(float(parts[i])) for i in range(3))
+    except (ValueError, IndexError):
+        return None
+    if len(parts) > 3:
+        try:
+            if float(parts[3]) < 0.5:
+                return None
+        except ValueError:
+            pass
+    return r, g, b

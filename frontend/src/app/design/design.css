@@ -1721,3 +1721,10 @@
 
 /* An SVG node moves but has no box to pull on, so it shows no handles. */
 #dz-box.svg .dz-h { display: none; }
+
+
+.dz-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: -4px;
+}
