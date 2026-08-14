@@ -441,6 +441,23 @@
 
 .dz-card:hover { border-color: var(--border-strong); }
 
+/* Nothing rendered yet: the row still gets a tile, the way claude.ai shows a
+   page glyph rather than a broken image while a project waits on an answer. */
+.dz-thumb.blank,
+.dz-card-thumb.blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2, rgba(0, 0, 0, .03));
+  color: var(--muted);
+  box-sizing: border-box;
+}
+
+.dz-thumb.blank.waiting,
+.dz-card-thumb.blank.waiting {
+  color: var(--accent, #c96442);
+}
+
 .dz-card-thumb {
   width: 100%;
   height: 128px;

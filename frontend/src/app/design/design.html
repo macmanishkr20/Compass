@@ -262,11 +262,11 @@
               </div>
             }
           }
-          @if (working()) {
+          @if (working() || checking()) {
             <div class="dz-turn">
               <div class="dz-asst dz-thinking">
                 <span class="dz-dot"></span><span class="dz-dot"></span><span class="dz-dot"></span>
-                Designing…
+                {{ checking() ? 'Thinking…' : 'Designing…' }}
               </div>
             </div>
           }
@@ -752,9 +752,11 @@
         </div>
       } @else {
         <div class="dz-stage empty" #stage>
-          @if (working()) {
+          @if (working() || checking()) {
             <div class="dz-making">
-              <p class="dz-making-line">Checking the design for issues…</p>
+              <p class="dz-making-line">
+                {{ checking() ? 'Working out what to ask…' : 'Checking the design for issues…' }}
+              </p>
               <button class="dz-laptop" [class.closed]="!lidOpen()" (click)="toggleLid()"
                 [attr.aria-label]="lidOpen() ? 'Close the laptop' : 'Open the laptop'">
                 <span class="dz-laptop-lid">
@@ -1158,7 +1160,14 @@
                 @for (p of recent(); track p.id) {
                   <tr (click)="openProject(p)">
                     <td class="dz-cell-name">
-                      <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
+                      @if (hasThumb(p)) {
+                        <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy"
+                          (error)="thumbFailed(p)" />
+                      } @else {
+                        <span class="dz-thumb blank" [class.waiting]="p.awaiting" aria-hidden="true">
+                          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                        </span>
+                      }
                       <span class="dz-row-name">{{ p.name }}</span>
                     </td>
                     <td class="dz-cell-muted dz-th-seen">{{ age(p.viewed_at || p.updated_at) }}</td>
@@ -1222,7 +1231,14 @@
             <div class="dz-cards">
               @for (p of recent(); track p.id) {
                 <button class="dz-card" (click)="openProject(p)">
-                  <img class="dz-card-thumb" [src]="thumb(p)" alt="" loading="lazy" />
+                  @if (hasThumb(p)) {
+                    <img class="dz-card-thumb" [src]="thumb(p)" alt="" loading="lazy"
+                      (error)="thumbFailed(p)" />
+                  } @else {
+                    <span class="dz-card-thumb blank" aria-hidden="true">
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                    </span>
+                  }
                   <span class="dz-card-name">{{ p.name }}</span>
                   <span class="dz-card-foot">{{ age(p.viewed_at || p.updated_at) }}</span>
                 </button>
@@ -1482,7 +1498,14 @@
               @for (p of filtered(); track p.id) {
                 <tr (click)="closeAllHistory(); openProject(p)">
                   <td class="dz-cell-name">
-                    <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
+                    @if (hasThumb(p)) {
+                      <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy"
+                        (error)="thumbFailed(p)" />
+                    } @else {
+                      <span class="dz-thumb blank" [class.waiting]="p.awaiting" aria-hidden="true">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                      </span>
+                    }
                     <span class="dz-row-name">{{ p.name }}</span>
                   </td>
                   <td class="dz-cell-muted dz-th-seen">{{ age(p.viewed_at || p.updated_at) }}</td>

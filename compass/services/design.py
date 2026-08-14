@@ -122,7 +122,7 @@ BLANK_PAGE = """<!DOCTYPE html>
 MAX_VERSIONS = 25
 
 # Fields the projects table never needs — a design and its history are large.
-_HEAVY = ("html", "turns", "versions", "comments", "pages")
+_HEAVY = ("html", "turns", "versions", "comments", "pages", "clarify")
 
 
 @dataclass
@@ -138,7 +138,10 @@ class DesignProject:
     versions: list[dict] = field(default_factory=list)  # past html, newest first
     comments: list[dict] = field(default_factory=list)  # pins left on the canvas
     design_system: str = ""     # the first system, kept for older rows
-    design_systems: list[str] = field(default_factory=list)  # every system it follows
+    design_systems: list[str] = field(default_factory=list)
+    # The form the project is waiting on, if it is waiting on one. Kept on
+    # the project so reopening it shows the question again, not a blank canvas.
+    clarify: dict = field(default_factory=dict)  # every system it follows
     starred: bool = False
     viewed_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
@@ -178,7 +181,13 @@ class DesignStore:
         rows.sort(key=lambda r: r.get("viewed_at") or r.get("updated_at", 0), reverse=True)
         return [
             {k: v for k, v in r.items() if k not in _HEAVY}
-            | {"versions": len(r.get("versions") or [])}
+            | {
+                "versions": len(r.get("versions") or []),
+                # Enough for the table to draw the right tile: a project with
+                # nothing rendered yet gets a placeholder, not a broken image.
+                "empty": not (r.get("html") or "").strip(),
+                "awaiting": bool((r.get("clarify") or {}).get("fields")),
+            }
             for r in rows
         ]
 

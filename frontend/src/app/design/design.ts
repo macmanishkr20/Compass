@@ -600,6 +600,18 @@ export class Design {
     return this.api.designThumbUrl(p.id, p.updated_at);
   }
 
+  /** Projects whose thumbnail did not load — a design that has not rendered
+   *  yet has none, and a broken image is worse than an honest placeholder. */
+  private readonly noThumb = signal<ReadonlySet<string>>(new Set());
+
+  hasThumb(p: DesignProject): boolean {
+    return !p.empty && !p.awaiting && !this.noThumb().has(p.id);
+  }
+
+  thumbFailed(p: DesignProject): void {
+    this.noThumb.update((ids) => new Set(ids).add(p.id));
+  }
+
   // ===================== creating =====================
 
   /** Picking a template opens the sentence for you — claude.ai seeds the
@@ -630,43 +642,121 @@ export class Design {
   async create(): Promise<void> {
     const prompt = this.prompt().trim();
     if (!prompt || this.creating() || this.checking()) return;
-    this.checking.set(true);
-    try {
-      const form = await this.api.clarifyDesign(prompt, this.template());
-      if (!form.ready && form.fields?.length) {
-        await this.askOnCanvas(prompt, form);
-        return;
-      }
-    } catch {
-      /* if the check itself fails, get on with the design */
-    } finally {
-      this.checking.set(false);
+    // Whether to ask is decided here, not after a round trip: a template's own
+    // opening words with nothing added is the case worth asking about, and
+    // waiting on the landing page for that answer is the thing claude.ai
+    // does not do. Open the project, then think inside it.
+    if (this.thinBrief(prompt)) {
+      await this.askInProject(prompt);
+      return;
     }
     await this.startDesign(prompt);
   }
 
-  /** Open the project in its waiting state and put the form on the canvas. */
-  private async askOnCanvas(prompt: string, form: DesignClarify): Promise<void> {
-    this.priorAnswers.set([]);
-    this.subjectSoFar.set('');
-    this.seedAnswers(form);
-    const project = await this.api.createDesign({
-      name: form.waiting || 'Waiting on an answer',
-      template: this.template(),
-      prompt,
-      design_systems: this.chosenSystems(),
-    });
+  /** Is this brief still just the template's opening words? Mirrors the rule
+   *  the clarify endpoint applies, so the two never disagree about who asks. */
+  private thinBrief(prompt: string): boolean {
+    const stem = (this.templates().find((t) => t.id === this.template())?.stem ?? '').trim();
+    const rest = stem && prompt.startsWith(stem) ? prompt.slice(stem.length) : prompt;
+    return rest.trim().length < 25;
+  }
+
+  /** The project's name while the question is still being written. */
+  private requestName(): string {
+    const name = this.templateName(this.template());
+    return name && this.template() !== 'blank' ? `${name} request` : 'New request';
+  }
+
+  /** Open the project first and ask from inside it — the wait belongs on the
+   *  canvas, next to the brief, not on the landing page. */
+  private async askInProject(prompt: string): Promise<void> {
+    this.checking.set(true);
+    this.error.set('');
+    let project: DesignProject;
+    try {
+      project = await this.api.createDesign({
+        name: this.requestName(),
+        template: this.template(),
+        prompt,
+        design_systems: this.chosenSystems(),
+      });
+    } catch {
+      this.checking.set(false);
+      this.error.set('Could not start that design.');
+      return;
+    }
+
     this.projects.update((rows) => [project, ...rows]);
     this.askedFor.set(prompt);
     this.prompt.set('');
+    this.priorAnswers.set([]);
+    this.subjectSoFar.set('');
+    this.lidOpen.set(true);
     // Passing the prompt keeps openProject from hydrating turns off the
     // server, which would land after this and wipe the question.
     this.openProject(project, prompt);
     this.turns.set([
       { role: 'user', text: prompt, template: this.templateName(project.template) },
-      { role: 'assistant', steps: ['Ask user'], text: form.note || 'Waiting on the form.' },
     ]);
+
+    let form: DesignClarify | null = null;
+    try {
+      form = await this.api.clarifyDesign(prompt, project.template);
+    } catch {
+      /* if the check itself fails, get on with the design */
+    }
+    this.checking.set(false);
+
+    if (form && !form.ready && form.fields?.length) {
+      await this.showForm(project, form);
+      return;
+    }
+    await this.renameOpen(project, this.titleFrom(prompt));
+    await this.run(this.withContext(prompt));
+  }
+
+  /** Put the form on the canvas, and keep it on the project so that closing
+   *  the tab and coming back shows the question rather than an empty stage. */
+  private async showForm(project: DesignProject, form: DesignClarify): Promise<void> {
+    this.seedAnswers(form);
+    const turns: DesignTurn[] = [
+      {
+        role: 'user',
+        text: this.askedFor(),
+        template: this.templateName(project.template),
+      },
+      { role: 'assistant', steps: ['Ask user'], text: form.note || 'Waiting on the form.' },
+    ];
+    this.turns.set(turns);
     this.clarify.set(form);
+    await this.saveWaiting(project, form, turns, form.waiting || project.name);
+  }
+
+  /** Store the waiting state: the name, the transcript so far, and the form. */
+  private async saveWaiting(
+    project: DesignProject,
+    form: DesignClarify | Record<string, never>,
+    turns: DesignTurn[],
+    name: string,
+  ): Promise<void> {
+    try {
+      const updated = await this.api.patchDesign(project.id, { name, turns, clarify: form });
+      this.open.set(updated);
+      this.projects.update((rows) =>
+        rows.map((r) => (r.id === updated.id ? { ...r, ...updated, html: undefined } : r)),
+      );
+    } catch {
+      /* the form is on screen either way */
+    }
+  }
+
+  /** Rename the project everywhere it shows: header, table row, and store. */
+  private async renameOpen(project: DesignProject, name: string): Promise<void> {
+    await this.api.patchDesign(project.id, { name }).catch(() => undefined);
+    this.open.set({ ...project, name });
+    this.projects.update((rows) =>
+      rows.map((r) => (r.id === project.id ? { ...r, name } : r)),
+    );
   }
 
   private seedAnswers(form: DesignClarify): void {
@@ -708,12 +798,8 @@ export class Design {
     if (!project || !subject) return;
     const brief = `${this.opener()}${subject}\n\n${lines.join('\n')}`;
     this.clarify.set(null);
-    const name = this.titleFrom(subject);
-    await this.api.patchDesign(project.id, { name });
-    this.open.set({ ...project, name });
-    this.projects.update((rows) =>
-      rows.map((r) => (r.id === project.id ? { ...r, name } : r)),
-    );
+    await this.renameOpen(project, this.titleFrom(subject));
+    await this.api.patchDesign(project.id, { clarify: {} }).catch(() => undefined);
     this.turns.update((t) => [...t, { role: 'user', text: lines.join('\n') }]);
     await this.run(this.withContext(brief));
   }
@@ -728,12 +814,8 @@ export class Design {
       `${this.opener()}${subject}\n\n` +
       (lines.length ? lines.join('\n') + '\n\n' : '') +
       'Choose anything not specified yourself, and say what you chose.';
-    const name = this.titleFrom(subject || this.askedFor());
-    await this.api.patchDesign(project.id, { name });
-    this.open.set({ ...project, name });
-    this.projects.update((rows) =>
-      rows.map((r) => (r.id === project.id ? { ...r, name } : r)),
-    );
+    await this.renameOpen(project, this.titleFrom(subject || this.askedFor()));
+    await this.api.patchDesign(project.id, { clarify: {} }).catch(() => undefined);
     this.turns.update((t) => [
       ...t,
       {
@@ -772,6 +854,10 @@ export class Design {
         ...t,
         { role: 'assistant', steps: ['Ask user'], text: next.note || 'A few more questions.' },
       ]);
+      const project = this.open();
+      if (project) {
+        await this.saveWaiting(project, next, this.turns(), next.waiting || project.name);
+      }
     } catch {
       this.error.set('Could not think of follow-up questions.');
     } finally {
@@ -862,6 +948,7 @@ export class Design {
 
   openProject(project: DesignProject, firstTurn = ''): void {
     this.open.set(project);
+    this.clarify.set(null);
     this.turns.set(firstTurn ? [{ role: 'user', text: firstTurn }] : []);
     this.codeOpen.set(false);
     this.historyOpen.set(false);
@@ -1045,6 +1132,14 @@ export class Design {
       this.turns.set(
         full.turns?.length ? full.turns : full.prompt ? [{ role: 'user', text: full.prompt }] : [],
       );
+      // A project that was waiting on an answer is still waiting on it.
+      if (full.clarify?.fields?.length) {
+        this.askedFor.set(full.prompt || '');
+        this.priorAnswers.set([]);
+        this.subjectSoFar.set('');
+        this.seedAnswers(full.clarify);
+        this.clarify.set(full.clarify);
+      }
     } catch {
       this.error.set('Could not load that design.');
     }

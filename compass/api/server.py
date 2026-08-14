@@ -589,6 +589,9 @@ class DesignPatch(BaseModel):
     design_system: str | None = None
     design_systems: list[str] | None = None
     turns: list[dict] | None = None
+    # The pending question form. An empty object clears it — the project has
+    # stopped waiting because it got its answer.
+    clarify: dict | None = None
 
 
 @app.get("/v1/design/templates")

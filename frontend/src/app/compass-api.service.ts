@@ -418,6 +418,7 @@ export class CompassApiService {
       design_system?: string;
       design_systems?: string[];
       turns?: DesignTurn[];
+      clarify?: DesignClarify | Record<string, never>;
     },
   ): Promise<DesignProject> {
     return firstValueFrom(this.http.patch<DesignProject>(`/v1/design/projects/${id}`, patch));

@@ -457,6 +457,10 @@ export interface DesignProject {
   design_system: string;
   design_systems?: string[];
   starred: boolean;
+  /** The question form the project is waiting on, if it is waiting on one. */
+  clarify?: DesignClarify | null;
+  awaiting?: boolean;     // on a list row: it is waiting on a form
+  empty?: boolean;        // on a list row: nothing rendered yet, so no thumbnail
   versions?: number;      // on a list row: how many past versions exist
   version_label?: string;
   viewed_at?: number;
