@@ -608,6 +608,8 @@ async def design_projects(user: str = Depends(require_user)) -> dict:
 class DesignClarify(BaseModel):
     prompt: str
     template: str = "blank"
+    answers: str = ""      # what the first round already settled
+    followup: bool = False  # ask the next round rather than the first
 
 
 @app.post("/v1/design/clarify")
@@ -615,7 +617,13 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     """Is this brief enough to design from? If not, what should we ask?"""
     import json as _json
 
-    from compass.services.design import CLARIFY_PROMPT, TEMPLATES
+    from compass.services.design import (
+        CLARIFY_PROMPT,
+        FOLLOWUP_FALLBACK,
+        FOLLOWUP_PROMPT,
+        TEMPLATES,
+        normalize_clarify,
+    )
 
     prompt = body.prompt.strip()
     stem = next(
@@ -625,15 +633,19 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     # than that, is the case worth asking about. Anything fuller goes straight
     # through — nobody wants a form in front of a clear request.
     without_stem = prompt[len(stem):].strip() if stem and prompt.startswith(stem) else prompt
-    if len(without_stem) >= 25:
+    if not body.followup and len(without_stem) >= 25:
         return {"ready": True}
 
     from compass.gateway.azure_client import get_model_client
 
+    asked = f"Template: {body.template}\nRequest: {prompt or '(empty)'}"
+    if body.answers.strip():
+        asked += f"\n\nAlready answered:\n{body.answers.strip()}"
+
     try:
         raw = await get_model_client().complete_utility(
-            CLARIFY_PROMPT,
-            f"Template: {body.template}\nRequest: {prompt or '(empty)'}",
+            FOLLOWUP_PROMPT if body.followup else CLARIFY_PROMPT,
+            asked,
             max_tokens=4_000,
             prefer_main=True,
         )
@@ -650,12 +662,13 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     try:
         parsed = _json.loads(raw)
     except ValueError:
-        return {"ready": True}
-    if parsed.get("ready"):
-        return {"ready": True}
-    if not parsed.get("fields"):
-        return {"ready": True}
-    return parsed
+        parsed = {}
+    form = normalize_clarify(parsed) if parsed.get("fields") else {"fields": []}
+    if parsed.get("ready") or not form["fields"]:
+        # Being asked for another round is itself the answer: someone who
+        # pressed the button wants questions, not "nothing to ask".
+        return dict(FOLLOWUP_FALLBACK) if body.followup else {"ready": True}
+    return form
 
 
 @app.post("/v1/design/projects")

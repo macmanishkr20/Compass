@@ -459,9 +459,18 @@ export class CompassApiService {
     );
   }
   /** Ask whether a brief is specific enough, and what to ask if it isn't. */
-  clarifyDesign(prompt: string, template: string): Promise<DesignClarify> {
+  clarifyDesign(
+    prompt: string,
+    template: string,
+    opts: { answers?: string; followup?: boolean } = {},
+  ): Promise<DesignClarify> {
     return firstValueFrom(
-      this.http.post<DesignClarify>('/v1/design/clarify', { prompt, template }),
+      this.http.post<DesignClarify>('/v1/design/clarify', {
+        prompt,
+        template,
+        answers: opts.answers ?? '',
+        followup: opts.followup ?? false,
+      }),
     );
   }
 

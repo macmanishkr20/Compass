@@ -395,6 +395,8 @@ export interface DesignClarify {
   ready: boolean;
   title?: string;
   subtitle?: string;
+  waiting?: string;   // the project's name while it waits
+  note?: string;      // what the conversation says it is waiting on
   fields?: DesignClarifyField[];
 }
 
@@ -438,6 +440,7 @@ export interface DesignComment {
 export interface DesignTurn {
   role: 'user' | 'assistant';
   text: string;
+  template?: string;   // the template chip shown under a user turn
   steps?: string[];   // the work the turn did, shown as collapsible rows
   file?: string;      // the document it wrote, shown as a chip
   vote?: 'up' | 'down';

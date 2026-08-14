@@ -226,7 +226,12 @@
         <div class="dz-turns">
           @for (t of turns(); track $index) {
             @if (t.role === 'user') {
-              <div class="dz-turn user"><div class="dz-bubble">{{ t.text }}</div></div>
+              <div class="dz-turn user">
+                <div class="dz-bubble">
+                  {{ t.text }}
+                  @if (t.template) { <span class="dz-bubble-chip">{{ t.template }}</span> }
+                </div>
+              </div>
             } @else {
               <div class="dz-turn">
                 <div class="dz-asst">
@@ -497,7 +502,99 @@
       @if (shareNote()) { <div class="dz-note">{{ shareNote() }}</div> }
 
       <!-- ---------- the canvas ---------- -->
-      @if (filesOpen()) {
+      @if (clarify(); as form) {
+        <div class="dz-askwrap">
+          <div class="dz-ask">
+            <header class="dz-ask-head">
+              <h2>{{ form.title }}</h2>
+              <p>{{ form.subtitle }}</p>
+            </header>
+
+            <div class="dz-ask-body">
+              @for (f of form.fields ?? []; track f.id) {
+                <section class="dz-ask-field">
+                  <h3>{{ f.label }}</h3>
+                  @if (f.hint) { <p class="dz-ask-hint">{{ f.hint }}</p> }
+
+                  @switch (f.type) {
+                    @case ('textarea') {
+                      <div class="dz-ask-area">
+                        <textarea rows="3" [ngModel]="answerText(f)"
+                          (ngModelChange)="setAnswer(f, $event)"
+                          [attr.maxlength]="f.max || null"
+                          [attr.placeholder]="f.placeholder || ''"></textarea>
+                        <span class="dz-ask-count">{{ answerText(f).length }} / {{ f.max || 400 }}</span>
+                      </div>
+                    }
+                    @case ('segmented') {
+                      <div class="dz-ask-seg">
+                        @for (o of f.options ?? []; track o) {
+                          <button [class.on]="answerHas(f, o)" (click)="setAnswer(f, o)">{{ o }}</button>
+                        }
+                      </div>
+                    }
+                    @case ('radio') {
+                      @for (o of f.options ?? []; track o) {
+                        <button class="dz-ask-opt" [class.on]="answerHas(f, o)" (click)="setAnswer(f, o)">
+                          <span class="dz-ask-dot" [class.on]="answerHas(f, o)"></span>{{ o }}
+                        </button>
+                      }
+                    }
+                    @case ('checkbox') {
+                      @for (o of f.options ?? []; track o) {
+                        <button class="dz-ask-opt" [class.on]="answerHas(f, o)" (click)="toggleAnswer(f, o)">
+                          <span class="dz-ask-box" [class.on]="answerHas(f, o)">
+                            @if (answerHas(f, o)) {
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            }
+                          </span>{{ o }}
+                        </button>
+                      }
+                    }
+                    @default {
+                      <input class="dz-field" type="text" [ngModel]="answerText(f)"
+                        (ngModelChange)="setAnswer(f, $event)"
+                        [attr.placeholder]="f.placeholder || ''" />
+                    }
+                  }
+                </section>
+              }
+
+              <!-- Compass's own question: the systems are ours to list. -->
+              <section class="dz-ask-field">
+                <h3>Which design system should this use?</h3>
+                <div class="dz-ask-system">
+                  <span [class.chosen]="chosenSystems().length">
+                    {{ chosenSystems().length ? systemLabel() : 'Choose a design system…' }}
+                  </span>
+                  <button class="dz-ask-browse"
+                    (click)="$event.stopPropagation(); systemPickerOpen.set(true)">Browse</button>
+                </div>
+                @if (systemPickerOpen()) {
+                  <div class="dz-ask-systems" (click)="$event.stopPropagation()">
+                    <button class="dz-codepop-opt" [class.on]="!chosenSystems().length"
+                      (click)="clearSystems()">None</button>
+                    @for (sys of allSystems(); track sys.id) {
+                      <button class="dz-codepop-opt" [class.on]="chosenSystems().includes(sys.id)"
+                        (click)="toggleSystem(sys.id)">{{ sys.name }}</button>
+                    }
+                  </div>
+                }
+              </section>
+            </div>
+
+            <footer class="dz-ask-foot">
+              <button class="dz-ask-plain" (click)="decideForMe()">Decide for me</button>
+              <button class="dz-btn" (click)="askFollowup()" [disabled]="checking()">
+                @if (checking()) { Thinking… } @else { Ask me follow-up questions }
+              </button>
+              <button class="dz-ask-send" (click)="submitClarify()" [disabled]="!clarifyReady()">
+                Send answer
+              </button>
+            </footer>
+          </div>
+        </div>
+      } @else if (filesOpen()) {
         <div class="dz-files" (dragover)="$event.preventDefault(); dropping.set(true)"
           (dragleave)="dropping.set(false)" (drop)="onDropFiles($event)"
           [class.dropping]="dropping()">
@@ -1199,78 +1296,6 @@
           </div>
         }
       }
-    </div>
-  </div>
-}
-
-<!-- ============ what Compass asks when a brief is too thin ============ -->
-@if (clarify(); as form) {
-  <div class="dz-scrim" (click)="clarify.set(null)">
-    <div class="dz-ask" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="form.title">
-      <header class="dz-ask-head">
-        <h2>{{ form.title }}</h2>
-        <p>{{ form.subtitle }}</p>
-      </header>
-
-      <div class="dz-ask-body">
-        @for (f of form.fields ?? []; track f.id) {
-          <section class="dz-ask-field">
-            <h3>{{ f.label }}</h3>
-            @if (f.hint) { <p class="dz-ask-hint">{{ f.hint }}</p> }
-
-            @switch (f.type) {
-              @case ('textarea') {
-                <div class="dz-ask-area">
-                  <textarea rows="3" [ngModel]="answerText(f)"
-                    (ngModelChange)="setAnswer(f, $event)"
-                    [attr.maxlength]="f.max || null"
-                    [attr.placeholder]="f.placeholder || ''"></textarea>
-                  @if (f.max) {
-                    <span class="dz-ask-count">{{ answerText(f).length }} / {{ f.max }}</span>
-                  }
-                </div>
-              }
-              @case ('segmented') {
-                <div class="dz-ask-seg">
-                  @for (o of f.options ?? []; track o) {
-                    <button [class.on]="answerHas(f, o)" (click)="setAnswer(f, o)">{{ o }}</button>
-                  }
-                </div>
-              }
-              @case ('radio') {
-                @for (o of f.options ?? []; track o) {
-                  <button class="dz-ask-opt" [class.on]="answerHas(f, o)" (click)="setAnswer(f, o)">
-                    <span class="dz-ask-dot" [class.on]="answerHas(f, o)"></span>{{ o }}
-                  </button>
-                }
-              }
-              @case ('checkbox') {
-                @for (o of f.options ?? []; track o) {
-                  <button class="dz-ask-opt" [class.on]="answerHas(f, o)" (click)="toggleAnswer(f, o)">
-                    <span class="dz-ask-box" [class.on]="answerHas(f, o)">
-                      @if (answerHas(f, o)) {
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                      }
-                    </span>{{ o }}
-                  </button>
-                }
-              }
-              @default {
-                <input class="dz-field" type="text" [ngModel]="answerText(f)"
-                  (ngModelChange)="setAnswer(f, $event)"
-                  [attr.placeholder]="f.placeholder || ''" />
-              }
-            }
-          </section>
-        }
-      </div>
-
-      <footer class="dz-ask-foot">
-        <button class="dz-btn" (click)="clarify.set(null)">Cancel</button>
-        <button class="dz-btn primary" (click)="submitClarify()" [disabled]="!clarifyReady()">
-          Start designing
-        </button>
-      </footer>
     </div>
   </div>
 }

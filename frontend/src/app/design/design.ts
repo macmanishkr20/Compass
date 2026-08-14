@@ -146,7 +146,12 @@ export class Design {
 
   // -- the form Compass asks when a brief is too thin to design from
   readonly clarify = signal<DesignClarify | null>(null);
+  /** The brief the form is standing in for, kept while the project waits. */
+  readonly askedFor = signal('');
   readonly clarifyAnswers = signal<Record<string, string | string[]>>({});
+  /** Answers from earlier rounds — a follow-up replaces the form, not the brief. */
+  private readonly priorAnswers = signal<string[]>([]);
+  private readonly subjectSoFar = signal('');
   readonly checking = signal(false);
 
   // -- the composer's own menus
@@ -619,21 +624,17 @@ export class Design {
     }
   }
 
-  /** Before designing, check the brief is one. A thin brief gets a short form
-   *  rather than a guess — the guess is the thing that wastes the minute. */
+  /** Before designing, check the brief is one. A thin brief opens the project
+   *  and asks on the canvas rather than guessing — the guess is the thing that
+   *  wastes the minute. */
   async create(): Promise<void> {
     const prompt = this.prompt().trim();
     if (!prompt || this.creating() || this.checking()) return;
     this.checking.set(true);
     try {
-      const check = await this.api.clarifyDesign(prompt, this.template());
-      if (!check.ready && check.fields?.length) {
-        const seeded: Record<string, string | string[]> = {};
-        for (const f of check.fields) {
-          seeded[f.id] = f.type === 'checkbox' ? [] : f.value ?? '';
-        }
-        this.clarifyAnswers.set(seeded);
-        this.clarify.set(check);
+      const form = await this.api.clarifyDesign(prompt, this.template());
+      if (!form.ready && form.fields?.length) {
+        await this.askOnCanvas(prompt, form);
         return;
       }
     } catch {
@@ -644,27 +645,138 @@ export class Design {
     await this.startDesign(prompt);
   }
 
-  /** Fold the answers into the brief and design from that. */
-  async submitClarify(): Promise<void> {
+  /** Open the project in its waiting state and put the form on the canvas. */
+  private async askOnCanvas(prompt: string, form: DesignClarify): Promise<void> {
+    this.priorAnswers.set([]);
+    this.subjectSoFar.set('');
+    this.seedAnswers(form);
+    const project = await this.api.createDesign({
+      name: form.waiting || 'Waiting on an answer',
+      template: this.template(),
+      prompt,
+      design_systems: this.chosenSystems(),
+    });
+    this.projects.update((rows) => [project, ...rows]);
+    this.askedFor.set(prompt);
+    this.prompt.set('');
+    // Passing the prompt keeps openProject from hydrating turns off the
+    // server, which would land after this and wipe the question.
+    this.openProject(project, prompt);
+    this.turns.set([
+      { role: 'user', text: prompt, template: this.templateName(project.template) },
+      { role: 'assistant', steps: ['Ask user'], text: form.note || 'Waiting on the form.' },
+    ]);
+    this.clarify.set(form);
+  }
+
+  private seedAnswers(form: DesignClarify): void {
+    const seeded: Record<string, string | string[]> = {};
+    for (const f of form.fields ?? []) {
+      seeded[f.id] = f.type === 'checkbox' ? [] : f.value ?? '';
+    }
+    this.clarifyAnswers.set(seeded);
+  }
+
+  /** Every answer so far, as lines, and the subject on its own. Earlier rounds
+   *  come first: the form on screen is only the latest one. */
+  private answerLines(): { subject: string; lines: string[] } {
     const form = this.clarify();
-    if (!form) return;
     const answers = this.clarifyAnswers();
-    const lines: string[] = [];
-    let subject = '';
-    for (const field of form.fields ?? []) {
+    const lines: string[] = [...this.priorAnswers()];
+    let subject = this.subjectSoFar();
+    for (const field of form?.fields ?? []) {
       const value = answers[field.id];
       const text = Array.isArray(value) ? value.join(', ') : (value ?? '').toString();
       if (!text.trim()) continue;
       if (!subject) subject = text.trim();
       lines.push(`${field.label}: ${text.trim()}`);
     }
-    if (!subject) return;
+    return { subject, lines };
+  }
+
+  /** The asked-for prompt, ready for the answer to be appended to it — the
+   *  template's stem keeps its trailing space, which trimming eats. */
+  private opener(): string {
+    const stem = this.askedFor();
+    return stem && !/\s$/.test(stem) ? `${stem} ` : stem;
+  }
+
+  /** Send answer — fold the form into the brief and design from it. */
+  async submitClarify(): Promise<void> {
+    const project = this.open();
+    const { subject, lines } = this.answerLines();
+    if (!project || !subject) return;
+    const brief = `${this.opener()}${subject}\n\n${lines.join('\n')}`;
     this.clarify.set(null);
-    // The template's stem ends in a space on purpose — the answer completes
-    // the sentence, so don't trim it away and run the two words together.
-    const stem = this.prompt();
-    const opener = stem && !/\s$/.test(stem) ? `${stem} ` : stem;
-    await this.startDesign(`${opener}${subject}\n\n${lines.join('\n')}`);
+    const name = this.titleFrom(subject);
+    await this.api.patchDesign(project.id, { name });
+    this.open.set({ ...project, name });
+    this.projects.update((rows) =>
+      rows.map((r) => (r.id === project.id ? { ...r, name } : r)),
+    );
+    this.turns.update((t) => [...t, { role: 'user', text: lines.join('\n') }]);
+    await this.run(this.withContext(brief));
+  }
+
+  /** Decide for me — no more questions; the design makes the calls. */
+  async decideForMe(): Promise<void> {
+    const project = this.open();
+    if (!project) return;
+    const { subject, lines } = this.answerLines();
+    this.clarify.set(null);
+    const brief =
+      `${this.opener()}${subject}\n\n` +
+      (lines.length ? lines.join('\n') + '\n\n' : '') +
+      'Choose anything not specified yourself, and say what you chose.';
+    const name = this.titleFrom(subject || this.askedFor());
+    await this.api.patchDesign(project.id, { name });
+    this.open.set({ ...project, name });
+    this.projects.update((rows) =>
+      rows.map((r) => (r.id === project.id ? { ...r, name } : r)),
+    );
+    this.turns.update((t) => [
+      ...t,
+      {
+        role: 'user',
+        text: lines.length
+          ? `${lines.join('\n')}\n\nDecide the rest for me.`
+          : 'Decide for me.',
+      },
+    ]);
+    await this.run(this.withContext(brief));
+  }
+
+  /** Ask me follow-up questions — another round, informed by this one. */
+  async askFollowup(): Promise<void> {
+    if (this.checking()) return;
+    this.checking.set(true);
+    try {
+      const { subject, lines } = this.answerLines();
+      const next = await this.api.clarifyDesign(this.askedFor(), this.template(), {
+        answers: lines.join('\n'),
+        followup: true,
+      });
+      if (next.ready || !next.fields?.length) {
+        this.turns.update((t) => [
+          ...t,
+          { role: 'assistant', text: 'Nothing else worth asking — send when you are ready.' },
+        ]);
+        return;
+      }
+      // The next form replaces this one, so bank what it answered first.
+      this.subjectSoFar.set(subject);
+      this.priorAnswers.set(lines);
+      this.seedAnswers(next);
+      this.clarify.set(next);
+      this.turns.update((t) => [
+        ...t,
+        { role: 'assistant', steps: ['Ask user'], text: next.note || 'A few more questions.' },
+      ]);
+    } catch {
+      this.error.set('Could not think of follow-up questions.');
+    } finally {
+      this.checking.set(false);
+    }
   }
 
   setAnswer(field: DesignClarifyField, value: string): void {
@@ -696,8 +808,9 @@ export class Design {
   readonly clarifyReady = computed(() => {
     const form = this.clarify();
     if (!form?.fields?.length) return false;
-    const first = form.fields[0];
-    return this.answerText(first).trim().length > 0;
+    // A later round no longer carries the subject field — by then it is banked.
+    if (this.subjectSoFar().trim()) return true;
+    return this.answerText(form.fields[0]).trim().length > 0;
   });
 
   private async startDesign(prompt: string): Promise<void> {
@@ -947,6 +1060,7 @@ export class Design {
   }
 
   close(): void {
+    this.clarify.set(null);
     this.open.set(null);
     this.selection.set('');
     void this.load();
