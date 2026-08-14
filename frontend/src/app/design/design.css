@@ -444,6 +444,7 @@
 /* Nothing rendered yet: the row still gets a tile, the way claude.ai shows a
    page glyph rather than a broken image while a project waits on an answer. */
 .dz-thumb.blank,
+.dz-page-thumb.blank,
 .dz-card-thumb.blank {
   display: flex;
   align-items: center;

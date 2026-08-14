@@ -78,6 +78,18 @@ TEMPLATES = [
         "hint": "A palette and typefaces",
         "stem": "A colour and type pairing for ",
     },
+    {
+        "id": "diagram",
+        "name": "Diagram",
+        "hint": "Boxes, arrows, a system",
+        "stem": "Draw a diagram of ",
+    },
+    {
+        "id": "flier",
+        "name": "Flier",
+        "hint": "A poster or handout",
+        "stem": "Design a flier for ",
+    }
 ]
 
 # Per-template guidance appended to the generation prompt.
@@ -99,6 +111,17 @@ TEMPLATE_PROMPTS = {
     "object3d": "Render a 3D-looking object using CSS 3D transforms.",
     "research": "Design a research write-up: findings, evidence, and a conclusion.",
     "email": "Design an HTML email using table layout and inline styles for client support.",
+    "diagram": (
+        "Draw a diagram: nodes, edges and labels laid out on a grid, built from "
+        "HTML boxes and inline SVG for the connectors. Every node is a real "
+        "element that can be moved and retyped — no single background image, "
+        "and no text baked into a picture."
+    ),
+    "flier": (
+        "Design a flier: one portrait page at A4 proportions, a headline that "
+        "carries across a room, the details someone needs, and a clear call to "
+        "action. Print colours, no scrollbars."
+    ),
     "colortype": "Design a colour palette and type-pairing specimen sheet with swatches and samples.",
 }
 

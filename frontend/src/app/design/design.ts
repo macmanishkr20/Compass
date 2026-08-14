@@ -613,7 +613,9 @@ export class Design {
   private readonly noThumb = signal<ReadonlySet<string>>(new Set());
 
   hasThumb(p: DesignProject): boolean {
-    return !p.empty && !p.awaiting && !this.noThumb().has(p.id);
+    if (this.noThumb().has(p.id) || p.empty || p.awaiting) return false;
+    // A full record carries the design itself; a table row carries the flags.
+    return p.html === undefined || !!p.html.trim();
   }
 
   thumbFailed(p: DesignProject): void {
@@ -663,8 +665,8 @@ export class Design {
 
   /** Is this brief still just the template's opening words? Mirrors the rule
    *  the clarify endpoint applies, so the two never disagree about who asks. */
-  private thinBrief(prompt: string): boolean {
-    const stem = (this.templates().find((t) => t.id === this.template())?.stem ?? '').trim();
+  private thinBrief(prompt: string, template = this.template()): boolean {
+    const stem = (this.templates().find((t) => t.id === template)?.stem ?? '').trim();
     const rest = stem && prompt.startsWith(stem) ? prompt.slice(stem.length) : prompt;
     return rest.trim().length < 25;
   }
@@ -1157,10 +1159,38 @@ export class Design {
         this.subjectSoFar.set('');
         this.seedAnswers(full.clarify);
         this.clarify.set(full.clarify);
+      } else if (
+        // Nothing designed, nothing said past the opening line, and a brief
+        // too thin to design from: the question was never asked, or predates
+        // the store keeping it. Ask it now rather than showing a blank stage.
+        !full.html?.trim() &&
+        (full.turns?.length ?? 0) < 2 &&
+        this.thinBrief(full.prompt || '', full.template)
+      ) {
+        await this.askAgain(full);
       }
     } catch {
       this.error.set('Could not load that design.');
     }
+  }
+
+  /** Put the question back on a project that has none — the same form the
+   *  brief would have got when it was written. */
+  private async askAgain(project: DesignProject): Promise<void> {
+    this.askedFor.set(project.prompt || '');
+    this.priorAnswers.set([]);
+    this.subjectSoFar.set('');
+    this.checking.set(true);
+    this.lidOpen.set(true);
+    let form: DesignClarify | null = null;
+    try {
+      form = await this.api.clarifyDesign(project.prompt || '', project.template);
+    } catch {
+      /* an unanswerable project is still openable */
+    }
+    this.checking.set(false);
+    if (this.open()?.id !== project.id) return;   // they moved on while we asked
+    if (form && !form.ready && form.fields?.length) await this.showForm(project, form);
   }
 
   /** Leave this design and start another — the composer, cleared and focused. */
