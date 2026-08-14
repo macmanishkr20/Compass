@@ -596,6 +596,14 @@ export class Design {
     this.systemPickerOpen.set(false);
   }
 
+  /** What the laptop shows while it works: the design as it stands, the way
+   *  claude.ai keeps the current version on the screen. Nothing yet, nothing
+   *  to show — the skeleton stands in. */
+  lastShot(): string {
+    const project = this.open();
+    return project && project.html ? this.thumb(project) : '';
+  }
+
   thumb(p: DesignProject): string {
     return this.api.designThumbUrl(p.id, p.updated_at);
   }
@@ -773,12 +781,16 @@ export class Design {
     const form = this.clarify();
     const answers = this.clarifyAnswers();
     const lines: string[] = [...this.priorAnswers()];
+    // The subject is the first field's answer and nothing else. Segmented and
+    // radio fields carry defaults, so "first answer that happens to be filled"
+    // would name a project after its page count.
+    const first = form?.fields?.[0];
     let subject = this.subjectSoFar();
     for (const field of form?.fields ?? []) {
       const value = answers[field.id];
       const text = Array.isArray(value) ? value.join(', ') : (value ?? '').toString();
       if (!text.trim()) continue;
-      if (!subject) subject = text.trim();
+      if (!subject && field.id === first?.id) subject = text.trim();
       lines.push(`${field.label}: ${text.trim()}`);
     }
     return { subject, lines };
@@ -814,7 +826,13 @@ export class Design {
       `${this.opener()}${subject}\n\n` +
       (lines.length ? lines.join('\n') + '\n\n' : '') +
       'Choose anything not specified yourself, and say what you chose.';
-    await this.renameOpen(project, this.titleFrom(subject || this.askedFor()));
+    // No subject given: the template's own name beats a bare opening line.
+    await this.renameOpen(
+      project,
+      subject
+        ? this.titleFrom(subject)
+        : this.templateName(project.template) || this.titleFrom(this.askedFor()),
+    );
     await this.api.patchDesign(project.id, { clarify: {} }).catch(() => undefined);
     this.turns.update((t) => [
       ...t,

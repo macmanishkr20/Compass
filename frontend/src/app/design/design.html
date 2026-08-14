@@ -264,9 +264,29 @@
           }
           @if (working() || checking()) {
             <div class="dz-turn">
-              <div class="dz-asst dz-thinking">
-                <span class="dz-dot"></span><span class="dz-dot"></span><span class="dz-dot"></span>
-                {{ checking() ? 'Thinking…' : 'Designing…' }}
+              <div class="dz-asst dz-making">
+                <p class="dz-making-line">
+                  {{ checking() ? 'Working out what to ask…' : 'Checking the design for issues…' }}
+                </p>
+                <div class="dz-lapcard">
+                  <span class="dz-lapcard-pick" aria-hidden="true"></span>
+                  <button class="dz-laptop" [class.closed]="!lidOpen()" (click)="toggleLid()"
+                    [attr.aria-label]="lidOpen() ? 'Close the laptop' : 'Open the laptop'">
+                    <span class="dz-laptop-lid">
+                      <span class="dz-laptop-screen">
+                        @if (lastShot(); as shot) {
+                          <img class="dz-laptop-shot" [src]="shot" alt="" />
+                        } @else {
+                          <span class="dz-laptop-skeleton">
+                            <i class="w60"></i><i class="w80"></i><i class="w40"></i>
+                            <i class="block"></i><i class="w70"></i><i class="w50"></i>
+                          </span>
+                        }
+                      </span>
+                    </span>
+                    <span class="dz-laptop-base"><span class="dz-laptop-notch"></span></span>
+                  </button>
+                </div>
               </div>
             </div>
           }
@@ -753,22 +773,10 @@
       } @else {
         <div class="dz-stage empty" #stage>
           @if (working() || checking()) {
-            <div class="dz-making">
-              <p class="dz-making-line">
-                {{ checking() ? 'Working out what to ask…' : 'Checking the design for issues…' }}
-              </p>
-              <button class="dz-laptop" [class.closed]="!lidOpen()" (click)="toggleLid()"
-                [attr.aria-label]="lidOpen() ? 'Close the laptop' : 'Open the laptop'">
-                <span class="dz-laptop-lid">
-                  <span class="dz-laptop-screen">
-                    <span class="dz-laptop-skeleton">
-                      <i class="w60"></i><i class="w80"></i><i class="w40"></i>
-                      <i class="block"></i><i class="w70"></i><i class="w50"></i>
-                    </span>
-                  </span>
-                </span>
-                <span class="dz-laptop-base"><span class="dz-laptop-notch"></span></span>
-              </button>
+            <div class="dz-tip">
+              <p class="dz-tip-kicker">TIP</p>
+              <p class="dz-tip-line">If you're unsure what something should look like,</p>
+              <p class="dz-tip-line">ask for a few options.</p>
             </div>
           } @else {
             <p>Nothing rendered yet.</p>

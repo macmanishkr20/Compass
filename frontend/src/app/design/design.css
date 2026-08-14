@@ -2004,14 +2004,42 @@
 }
 
 /* ===================== the laptop, while it works ===================== */
+/* The laptop card, as Claude Design draws it: the line above, then a panel
+   holding a dark-bezelled laptop with the design itself on the screen. */
 .dz-making {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 22px;
+  align-items: stretch;
+  gap: 14px;
 }
 
-.dz-making-line { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.dz-making-line {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+
+.dz-lapcard {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-2);
+  padding: 26px 22px 22px;
+  overflow: hidden;
+}
+
+/* The card's own select box, top right — claude.ai puts one on every card. */
+.dz-lapcard-pick {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 14px;
+  height: 14px;
+  border: 1.2px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+}
 
 .dz-laptop {
   border: 0;
@@ -2020,19 +2048,21 @@
   padding: 0;
   perspective: 1400px;
   display: block;
+  width: 100%;
+  max-width: 300px;
 }
 
 .dz-laptop-lid {
   display: block;
-  width: 300px;
-  height: 190px;
-  background: linear-gradient(160deg, #d9dade, #b9bcc2);
-  border-radius: 12px 12px 3px 3px;
-  padding: 9px;
+  width: 100%;
+  aspect-ratio: 300 / 190;
+  background: linear-gradient(168deg, #3a3a3d, #232326);
+  border-radius: 11px 11px 4px 4px;
+  padding: 7px 7px 8px;
   transform-origin: bottom center;
   transform: rotateX(0deg);
   transition: transform 0.75s cubic-bezier(0.5, 0, 0.2, 1);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
 /* Closed: the lid folds down onto the base. */
@@ -2042,10 +2072,21 @@
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--surface);
-  border-radius: 5px;
+  background: #fff;
+  border-radius: 4px;
   overflow: hidden;
-  padding: 12px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+/* The design itself, from the top — the same shot the table's tiles use. */
+.dz-laptop-shot {
+  display: block;
+  width: calc(100% + 20px);
+  height: calc(100% + 20px);
+  margin: -10px;
+  object-fit: cover;
+  object-position: top center;
 }
 
 .dz-laptop-skeleton { display: flex; flex-direction: column; gap: 8px; }
@@ -2054,7 +2095,7 @@
   display: block;
   height: 9px;
   border-radius: 3px;
-  background: var(--bg-2);
+  background: #ecedef;
   animation: dz-shimmer 1.6s ease-in-out infinite;
 }
 
@@ -2070,14 +2111,16 @@
   50% { opacity: 1; }
 }
 
+/* The base sits a little wider than the lid, the way a laptop's does. */
 .dz-laptop-base {
   display: block;
-  width: 340px;
-  height: 12px;
-  margin: 2px auto 0;
-  background: linear-gradient(180deg, #cfd1d6, #a9acb3);
-  border-radius: 0 0 10px 10px;
+  width: 107%;
+  height: 10px;
+  margin: 0 auto 0 -3.5%;
+  background: linear-gradient(180deg, #d8d9dd, #b3b5bc);
+  border-radius: 0 0 9px 9px;
   position: relative;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.10);
 }
 
 .dz-laptop-notch {
@@ -2085,10 +2128,28 @@
   left: 50%;
   top: 0;
   transform: translateX(-50%);
-  width: 64px;
+  width: 20%;
   height: 4px;
   border-radius: 0 0 4px 4px;
-  background: rgba(0, 0, 0, 0.16);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+/* While it thinks, the canvas holds the tip claude.ai shows there. */
+.dz-tip { text-align: center; }
+
+.dz-tip-kicker {
+  margin: 0 0 10px;
+  color: var(--accent, #c96442);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+}
+
+.dz-tip-line {
+  margin: 0;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 1.22rem;
+  line-height: 1.5;
+  color: var(--text);
 }
 
 /* ===================== the set-up form ===================== */
