@@ -825,6 +825,51 @@ def parse_extract(notes: str) -> tuple[str, str, list[str]]:
     return name, fonts, swatches[:9]
 
 
+# When a brief is too thin to design from, Compass asks rather than guesses —
+# and asks in the shape of a short form, because a wall of questions in prose
+# is worse than four fields.
+CLARIFY_PROMPT = (
+    "You are Compass Design deciding whether a request is specific enough to "
+    "design from.\n\n"
+    "If it is — there is a subject and enough intent to make something real — "
+    'reply exactly: {"ready": true}\n\n'
+    "If it is not — the subject is missing, or the sentence trails off — reply "
+    "with a short form that would settle it, as JSON:\n"
+    '{"ready": false, "title": "What should I model?", '
+    '"subtitle": "Your message cut off before the object — tell me what to '
+    'build and I\'ll start.", "fields": [\n'
+    '  {"id":"object","label":"The object","hint":"Be as specific as you like '
+    '— brand-free, but details help","type":"textarea","max":400,'
+    '"placeholder":"e.g. a 1960s desk fan, a moka pot, a hand plane"},\n'
+    '  {"id":"detail","label":"How detailed?","hint":"Detail costs nothing to '
+    'view, but simpler reads cleaner","type":"segmented",'
+    '"options":["Clean and simple","Balanced","Highly detailed"],'
+    '"value":"Balanced"},\n'
+    '  {"id":"style","label":"Modeling style","type":"radio",'
+    '"options":["Photoreal proportions","Stylized / toy-like",'
+    '"Technical / product-shot neutral","Low-poly faceted"]},\n'
+    '  {"id":"use","label":"What\'s it for?","hint":"Shapes how I trade off '
+    'polish vs. export cleanliness","type":"checkbox",'
+    '"options":["Just to look at / spin around","Import into Blender or a 3D '
+    'tool","Game or AR asset"]}\n]}\n\n'
+    "Rules: three to five fields, never more. The first is always the missing "
+    "subject. Write the questions for THIS request — a deck asks about "
+    "audience and length, a résumé about the role, a landing page about the "
+    "product. Reply with JSON and nothing else."
+)
+
+
+def clarify_answers_block(answers: dict) -> str:
+    """Fold a filled-in form back into the brief."""
+    lines = []
+    for label, value in answers.items():
+        if isinstance(value, list):
+            value = ", ".join(str(v) for v in value)
+        if str(value).strip():
+            lines.append(f"- {label}: {value}")
+    return "\n".join(lines)
+
+
 def system_prompt_block(*systems: dict | None) -> str:
     """The instruction appended to a generation when systems are attached.
 

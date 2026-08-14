@@ -12,6 +12,7 @@ import {
   GithubRepo,
   HealthInfo,
   CustomizeInfo,
+  DesignClarify,
   DesignFile,
   DesignPage,
   DesignProject,
@@ -457,6 +458,13 @@ export class CompassApiService {
       this.http.post<DesignProject>(`/v1/design/projects/${id}/duplicate`, {}),
     );
   }
+  /** Ask whether a brief is specific enough, and what to ask if it isn't. */
+  clarifyDesign(prompt: string, template: string): Promise<DesignClarify> {
+    return firstValueFrom(
+      this.http.post<DesignClarify>('/v1/design/clarify', { prompt, template }),
+    );
+  }
+
   // -- pages
   designPages(id: string): Promise<{ pages: DesignPage[]; active: string }> {
     return firstValueFrom(

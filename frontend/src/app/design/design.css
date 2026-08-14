@@ -2402,3 +2402,276 @@
   font-size: 1rem;
   color: var(--ink);
 }
+
+
+/* ===================== the composer's attach menu ===================== */
+.dz-attach,
+.dz-codepop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 45;
+  width: 300px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dz-attach-group,
+.dz-codepop-group {
+  margin: 8px 10px 4px;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.dz-attach-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.dz-attach-item:hover { background: var(--bg-2); }
+
+.dz-attach-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 4px;
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+
+.dz-attach-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 6px; }
+
+.dz-attach-ref {
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--muted);
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dz-attach-ref.on { background: var(--info-tint); border-color: var(--info); color: var(--info); }
+.dz-attach-none { font-size: 0.76rem; color: var(--faint); }
+
+.dz-attach-tag {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.dz-attach-note {
+  margin: 6px 16px 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* -- the codebase popover */
+.dz-codepop { width: 330px; }
+
+.dz-codepop-q {
+  margin: 6px 10px 10px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.dz-codepop-opt {
+  display: block;
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.dz-codepop-opt:hover { background: var(--bg-2); }
+.dz-codepop-opt.on { background: var(--info-tint); border-color: var(--info); }
+
+.dz-codepop-group {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 8px;
+}
+
+.dz-codepop-gh { display: flex; gap: 6px; padding: 0 10px 6px; }
+.dz-codepop-gh .dz-field { flex: 1; }
+
+.dz-codebase-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.dz-codebase-pick:hover { background: var(--bg-2); }
+
+.dz-context-count {
+  margin-left: auto;
+  font-size: 0.76rem;
+  color: var(--accent);
+}
+
+/* ===================== the clarifying form ===================== */
+.dz-ask {
+  width: min(700px, 100%);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dz-ask-head { padding: 26px 30px 18px; border-bottom: 1px solid var(--border); }
+
+.dz-ask-head h2 {
+  margin: 0 0 8px;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.dz-ask-head p { margin: 0; color: var(--muted); font-size: 0.95rem; line-height: 1.5; }
+
+.dz-ask-body { padding: 22px 30px 8px; display: flex; flex-direction: column; gap: 28px; }
+.dz-ask-field { display: flex; flex-direction: column; gap: 8px; }
+.dz-ask-field h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+.dz-ask-hint { margin: -4px 0 4px; font-size: 0.88rem; color: var(--muted); }
+
+.dz-ask-area { position: relative; }
+
+.dz-ask-area textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  padding: 14px 16px 30px;
+  resize: vertical;
+  outline: none;
+}
+
+.dz-ask-count {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--faint);
+}
+
+.dz-ask-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--bg-2);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.dz-ask-seg button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  padding: 10px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.dz-ask-seg button.on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm); }
+
+.dz-ask-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.95rem;
+  text-align: left;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.dz-ask-opt:hover { border-color: var(--accent-line); }
+.dz-ask-opt.on { border-color: var(--ink); }
+
+.dz-ask-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+
+.dz-ask-dot.on { border: 5px solid var(--ink); }
+
+.dz-ask-box {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dz-ask-box.on { background: var(--ink); border-color: var(--ink); }
+
+.dz-ask-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 30px 22px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}

@@ -605,6 +605,59 @@ async def design_projects(user: str = Depends(require_user)) -> dict:
     return {"projects": await get_design_store().list()}
 
 
+class DesignClarify(BaseModel):
+    prompt: str
+    template: str = "blank"
+
+
+@app.post("/v1/design/clarify")
+async def design_clarify(body: DesignClarify, user: str = Depends(require_user)) -> dict:
+    """Is this brief enough to design from? If not, what should we ask?"""
+    import json as _json
+
+    from compass.services.design import CLARIFY_PROMPT, TEMPLATES
+
+    prompt = body.prompt.strip()
+    stem = next(
+        (t.get("stem", "") for t in TEMPLATES if t["id"] == body.template), ""
+    ).strip()
+    # A prompt that is still just the template's opening words, or barely more
+    # than that, is the case worth asking about. Anything fuller goes straight
+    # through — nobody wants a form in front of a clear request.
+    without_stem = prompt[len(stem):].strip() if stem and prompt.startswith(stem) else prompt
+    if len(without_stem) >= 25:
+        return {"ready": True}
+
+    from compass.gateway.azure_client import get_model_client
+
+    try:
+        raw = await get_model_client().complete_utility(
+            CLARIFY_PROMPT,
+            f"Template: {body.template}\nRequest: {prompt or '(empty)'}",
+            max_tokens=4_000,
+            prefer_main=True,
+        )
+    except Exception:  # noqa: BLE001 - never block designing on this
+        return {"ready": True}
+
+    raw = raw.strip()
+    if "```" in raw:
+        import re as _re
+
+        m = _re.search(r"```(?:json)?\s*\n(.*?)```", raw, _re.S)
+        if m:
+            raw = m.group(1).strip()
+    try:
+        parsed = _json.loads(raw)
+    except ValueError:
+        return {"ready": True}
+    if parsed.get("ready"):
+        return {"ready": True}
+    if not parsed.get("fields"):
+        return {"ready": True}
+    return parsed
+
+
 @app.post("/v1/design/projects")
 async def design_create(body: DesignCreate, user: str = Depends(require_user)) -> dict:
     from compass.services.design import get_design_store

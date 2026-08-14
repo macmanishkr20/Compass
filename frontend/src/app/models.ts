@@ -379,6 +379,25 @@ export interface DesignSystemDoc {
   usage: Record<string, string>;
 }
 
+/** One question in the form Compass asks when a brief is too thin. */
+export interface DesignClarifyField {
+  id: string;
+  label: string;
+  hint?: string;
+  type: 'text' | 'textarea' | 'segmented' | 'radio' | 'checkbox' | string;
+  options?: string[];
+  placeholder?: string;
+  value?: string;
+  max?: number;
+}
+
+export interface DesignClarify {
+  ready: boolean;
+  title?: string;
+  subtitle?: string;
+  fields?: DesignClarifyField[];
+}
+
 /** One page of a design project. */
 export interface DesignPage {
   id: string;

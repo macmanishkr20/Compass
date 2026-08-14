@@ -14,6 +14,8 @@ import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-brows
 import { FormsModule } from '@angular/forms';
 import { CompassApiService } from '../compass-api.service';
 import {
+  DesignClarify,
+  DesignClarifyField,
   DesignComment,
   DesignFile,
   DesignPage,
@@ -141,6 +143,20 @@ export class Design {
   readonly importWorkspace = signal('');
   readonly importPath = signal('');
   readonly importing = signal(false);
+
+  // -- the form Compass asks when a brief is too thin to design from
+  readonly clarify = signal<DesignClarify | null>(null);
+  readonly clarifyAnswers = signal<Record<string, string | string[]>>({});
+  readonly checking = signal(false);
+
+  // -- the composer's own menus
+  readonly attachOpen = signal(false);
+  readonly codebaseOpen = signal(false);
+  readonly githubRepo = signal('');
+  readonly cloning = signal(false);
+  readonly contextFiles = signal<Array<{ name: string; text: string }>>([]);
+  readonly referenced = signal<string[]>([]);   // other designs used as reference
+  readonly attachNote = signal('');
 
   // -- pages and the project's own files
   readonly pages = signal<DesignPage[]>([]);
@@ -428,6 +444,7 @@ export class Design {
     } finally {
       this.loading.set(false);
     }
+    void this.loadWorkspaces();
     try {
       const health = await this.api.health();
       this.models.set(health.models ?? []);
@@ -441,6 +458,85 @@ export class Design {
     this.historyOpenAll.set(false);
   }
 
+  // ===================== the composer's menus =====================
+
+  /** Text files ride along as reference; images go in as vision context. */
+  async onAttach(event: Event, kind: 'file' | 'folder'): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    let added = 0;
+    for (const file of files.slice(0, 24)) {
+      if (file.type.startsWith('image/')) {
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.readAsDataURL(file);
+        });
+        this.shots.update((rows) => [...rows, dataUrl].slice(0, 4));
+        added++;
+        continue;
+      }
+      if (/\.(css|scss|less|js|ts|jsx|tsx|json|md|txt|html?|svg|csv)$/i.test(file.name)) {
+        const text = await file.text();
+        this.contextFiles.update((rows) =>
+          [...rows, { name: file.name, text }].slice(0, 24),
+        );
+        added++;
+      }
+    }
+    this.attachOpen.set(false);
+    this.attachNote.set(
+      added
+        ? `Attached ${added} ${kind === 'folder' ? 'files from that folder' : 'file(s)'}.`
+        : 'Nothing there Compass can read as context.',
+    );
+    setTimeout(() => this.attachNote.set(''), 4000);
+    input.value = '';
+  }
+
+  referenceProject(id: string): void {
+    this.referenced.update((ids) =>
+      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+    );
+  }
+
+  dropContext(index: number): void {
+    this.contextFiles.update((rows) => rows.filter((_, i) => i !== index));
+  }
+
+  /** Clone a GitHub repo and design within it. */
+  async connectGithub(): Promise<void> {
+    const repo = this.githubRepo().trim();
+    if (!repo || this.cloning()) return;
+    this.cloning.set(true);
+    this.error.set('');
+    try {
+      const full = repo
+        .replace(/^https?:\/\/github\.com\//, '')
+        .replace(/\.git$/, '')
+        .replace(/\/$/, '');
+      const ws = await this.api.githubClone(full);
+      this.workspaces.update((rows) => [ws, ...rows.filter((w) => w.id !== ws.id)]);
+      this.codebase.set(ws.id);
+      this.githubRepo.set('');
+      this.codebaseOpen.set(false);
+    } catch (err) {
+      this.error.set(`Could not connect that repository: ${(err as Error).message}`);
+    } finally {
+      this.cloning.set(false);
+    }
+  }
+
+  systemNameOfWorkspace(id: string): string {
+    return this.workspaces().find((w) => w.id === id)?.name ?? 'No codebase selected';
+  }
+
+  openCodebase(): void {
+    this.codebaseOpen.set(true);
+    this.attachOpen.set(false);
+    void this.loadWorkspaces();
+  }
+
   closeMenus(): void {
     this.exportOpen.set(false);
     this.presentOpen.set(false);
@@ -450,6 +546,8 @@ export class Design {
     this.filesMenuOpen.set(false);
     this.systemPickerOpen.set(false);
     this.tweaksOpen.set(false);
+    this.attachOpen.set(false);
+    this.codebaseOpen.set(false);
   }
 
   templateName(id: string): string {
@@ -521,9 +619,89 @@ export class Design {
     }
   }
 
+  /** Before designing, check the brief is one. A thin brief gets a short form
+   *  rather than a guess — the guess is the thing that wastes the minute. */
   async create(): Promise<void> {
     const prompt = this.prompt().trim();
-    if (!prompt || this.creating()) return;
+    if (!prompt || this.creating() || this.checking()) return;
+    this.checking.set(true);
+    try {
+      const check = await this.api.clarifyDesign(prompt, this.template());
+      if (!check.ready && check.fields?.length) {
+        const seeded: Record<string, string | string[]> = {};
+        for (const f of check.fields) {
+          seeded[f.id] = f.type === 'checkbox' ? [] : f.value ?? '';
+        }
+        this.clarifyAnswers.set(seeded);
+        this.clarify.set(check);
+        return;
+      }
+    } catch {
+      /* if the check itself fails, get on with the design */
+    } finally {
+      this.checking.set(false);
+    }
+    await this.startDesign(prompt);
+  }
+
+  /** Fold the answers into the brief and design from that. */
+  async submitClarify(): Promise<void> {
+    const form = this.clarify();
+    if (!form) return;
+    const answers = this.clarifyAnswers();
+    const lines: string[] = [];
+    let subject = '';
+    for (const field of form.fields ?? []) {
+      const value = answers[field.id];
+      const text = Array.isArray(value) ? value.join(', ') : (value ?? '').toString();
+      if (!text.trim()) continue;
+      if (!subject) subject = text.trim();
+      lines.push(`${field.label}: ${text.trim()}`);
+    }
+    if (!subject) return;
+    this.clarify.set(null);
+    // The template's stem ends in a space on purpose — the answer completes
+    // the sentence, so don't trim it away and run the two words together.
+    const stem = this.prompt();
+    const opener = stem && !/\s$/.test(stem) ? `${stem} ` : stem;
+    await this.startDesign(`${opener}${subject}\n\n${lines.join('\n')}`);
+  }
+
+  setAnswer(field: DesignClarifyField, value: string): void {
+    this.clarifyAnswers.update((a) => ({ ...a, [field.id]: value }));
+  }
+
+  toggleAnswer(field: DesignClarifyField, option: string): void {
+    this.clarifyAnswers.update((a) => {
+      const current = Array.isArray(a[field.id]) ? (a[field.id] as string[]) : [];
+      return {
+        ...a,
+        [field.id]: current.includes(option)
+          ? current.filter((o) => o !== option)
+          : [...current, option],
+      };
+    });
+  }
+
+  answerHas(field: DesignClarifyField, option: string): boolean {
+    const value = this.clarifyAnswers()[field.id];
+    return Array.isArray(value) ? value.includes(option) : value === option;
+  }
+
+  answerText(field: DesignClarifyField): string {
+    const value = this.clarifyAnswers()[field.id];
+    return Array.isArray(value) ? value.join(', ') : (value ?? '').toString();
+  }
+
+  readonly clarifyReady = computed(() => {
+    const form = this.clarify();
+    if (!form?.fields?.length) return false;
+    const first = form.fields[0];
+    return this.answerText(first).trim().length > 0;
+  });
+
+  private async startDesign(prompt: string): Promise<void> {
+    if (this.creating()) return;
     this.creating.set(true);
     this.error.set('');
     try {
@@ -536,12 +714,29 @@ export class Design {
       this.projects.update((rows) => [project, ...rows]);
       this.prompt.set('');
       this.openProject(project, prompt);
-      await this.run(prompt);
+      await this.run(this.withContext(prompt));
     } catch {
       this.error.set('Could not create the project.');
     } finally {
       this.creating.set(false);
     }
+  }
+
+  /** Whatever was attached rides along with the brief. */
+  private withContext(prompt: string): string {
+    const parts = [prompt];
+    for (const file of this.contextFiles()) {
+      parts.push(`Reference — ${file.name}:\n${file.text.slice(0, 12_000)}`);
+    }
+    for (const id of this.referenced()) {
+      const other = this.projects().find((p) => p.id === id);
+      if (other) parts.push(`Match the look of an earlier design: “${other.name}”.`);
+    }
+    if (this.codebase()) {
+      const ws = this.workspaces().find((w) => w.id === this.codebase());
+      if (ws) parts.push(`Design to fit the codebase “${ws.name}”.`);
+    }
+    return parts.join('\n\n');
   }
 
   private titleFrom(prompt: string): string {
