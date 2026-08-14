@@ -214,6 +214,13 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           <span class="dz-chat-name">{{ project.name }}</span>
+          <button class="dz-icon" (click)="chatOpen.set(false)"
+            title="Collapse the panel" aria-label="Collapse the panel">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>
+          </button>
+          <button class="dz-icon" (click)="newDesign()" title="New design" aria-label="New design">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9M4 20h3l10-10a2.1 2.1 0 10-3-3L4 17z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
         </header>
 
         <div class="dz-turns">
@@ -290,10 +297,19 @@
         <button class="dz-icon" (click)="reload()" title="Reload the stored design" aria-label="Reload">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 6.3M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <button class="dz-icon" [class.on]="chatOpen()" (click)="chatOpen.set(!chatOpen())"
-          title="Toggle the conversation" aria-label="Toggle conversation">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>
-        </button>
+        @if (tweaks().length) {
+          <button class="dz-icon" [class.on]="tweaksOpen()"
+            (click)="$event.stopPropagation(); tweaksOpen.set(!tweaksOpen())"
+            title="Tweaks" aria-label="Tweaks">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M8 4v7M16 13v7" stroke-linecap="round"/></svg>
+          </button>
+        }
+        @if (!chatOpen()) {
+          <button class="dz-icon" (click)="chatOpen.set(true)"
+            title="Show the conversation" aria-label="Show the conversation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>
+          </button>
+        }
 
         <div class="dz-menu-wrap">
           <button class="dz-title" [title]="project.name"
@@ -340,13 +356,6 @@
             </button>
           </div>
 
-          @if (tweaks().length) {
-            <button class="dz-icon" [class.on]="tweaksOpen()"
-              (click)="$event.stopPropagation(); tweaksOpen.set(!tweaksOpen())"
-              title="Tweaks" aria-label="Tweaks">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M8 4v7M16 13v7" stroke-linecap="round"/></svg>
-            </button>
-          }
           <div class="dz-menu-wrap">
             <button class="dz-btn" (click)="$event.stopPropagation(); presentOpen.set(!presentOpen())">
               Present

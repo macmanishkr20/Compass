@@ -576,6 +576,15 @@ export class Design {
     }
   }
 
+  /** Leave this design and start another — the composer, cleared and focused. */
+  newDesign(): void {
+    this.open.set(null);
+    this.prompt.set('');
+    this.template.set('blank');
+    void this.load();
+    setTimeout(() => document.getElementById('design-prompt')?.focus(), 60);
+  }
+
   close(): void {
     this.open.set(null);
     this.selection.set('');
