@@ -340,6 +340,13 @@
             </button>
           </div>
 
+          @if (tweaks().length) {
+            <button class="dz-icon" [class.on]="tweaksOpen()"
+              (click)="$event.stopPropagation(); tweaksOpen.set(!tweaksOpen())"
+              title="Tweaks" aria-label="Tweaks">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M8 4v7M16 13v7" stroke-linecap="round"/></svg>
+            </button>
+          }
           <div class="dz-menu-wrap">
             <button class="dz-btn" (click)="$event.stopPropagation(); presentOpen.set(!presentOpen())">
               Present
@@ -397,6 +404,41 @@
       </header>
 
       <!-- ---------- selection bar (Select tool) ---------- -->
+
+      @if (tweaksOpen() && tweaks().length) {
+        <div class="dz-tweaks" (click)="$event.stopPropagation()">
+          @for (t of tweaks(); track t.name) {
+            <div class="dz-tweak">
+              <span class="dz-tweak-name">{{ t.name }}</span>
+              @if (t.type === 'color') {
+                @if (t.options?.length) {
+                  <span class="dz-tweak-swatches">
+                    @for (c of t.options ?? []; track c) {
+                      <button class="dz-tweak-swatch" [class.on]="t.value === c"
+                        [style.background]="c" [title]="c" (click)="setTweak(t, c)">
+                        @if (t.value === c) {
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        }
+                      </button>
+                    }
+                  </span>
+                } @else {
+                  <input class="dz-tweak-color" type="color" [value]="t.value"
+                    (input)="setTweak(t, $any($event.target).value)" [title]="t.value" />
+                }
+              } @else if (t.options?.length) {
+                <select class="dz-tweak-select" [ngModel]="t.value"
+                  (ngModelChange)="setTweak(t, $event)">
+                  @for (o of t.options ?? []; track o) { <option [value]="o">{{ o }}</option> }
+                </select>
+              } @else {
+                <input class="dz-tweak-text" type="text" [ngModel]="t.value"
+                  (ngModelChange)="setTweak(t, $event)" />
+              }
+            </div>
+          }
+        </div>
+      }
 
       @if (tool() === 'inspect') {
         @if (details(); as d) {
@@ -471,7 +513,25 @@
         </div>
       } @else {
         <div class="dz-stage empty" #stage>
-          <p>{{ working() ? 'Designing…' : 'Nothing rendered yet.' }}</p>
+          @if (working()) {
+            <div class="dz-making">
+              <p class="dz-making-line">Checking the design for issues…</p>
+              <button class="dz-laptop" [class.closed]="!lidOpen()" (click)="toggleLid()"
+                [attr.aria-label]="lidOpen() ? 'Close the laptop' : 'Open the laptop'">
+                <span class="dz-laptop-lid">
+                  <span class="dz-laptop-screen">
+                    <span class="dz-laptop-skeleton">
+                      <i class="w60"></i><i class="w80"></i><i class="w40"></i>
+                      <i class="block"></i><i class="w70"></i><i class="w50"></i>
+                    </span>
+                  </span>
+                </span>
+                <span class="dz-laptop-base"><span class="dz-laptop-notch"></span></span>
+              </button>
+            </div>
+          } @else {
+            <p>Nothing rendered yet.</p>
+          }
         </div>
       }
 
@@ -535,13 +595,79 @@
           <button class="dz-round" (click)="startImport()" title="Add a design system" aria-label="Add">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
           </button>
-          <label class="dz-field-pick">
-            <span>Design system</span>
-            <select [ngModel]="system()" (ngModelChange)="system.set($event)">
-              <option value="">None</option>
-              @for (s of allSystems(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
-            </select>
-          </label>
+          <div class="dz-menu-wrap">
+            <button class="dz-field-pick as-button"
+              (click)="$event.stopPropagation(); systemPickerOpen.set(!systemPickerOpen())">
+              <span>Design system</span>
+              <span class="dz-field-value">
+                {{ systemLabel() }}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"
+                  [style.transform]="systemPickerOpen() ? 'rotate(180deg)' : null"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </button>
+            @if (systemPickerOpen()) {
+              <div class="dz-picker" (click)="$event.stopPropagation()">
+                <div class="dz-picker-head">
+                  <label class="dz-search grow">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+                    <input type="search" [ngModel]="systemQuery()" (ngModelChange)="systemQuery.set($event)"
+                      placeholder="Search design systems" aria-label="Search design systems" />
+                  </label>
+                  <button class="dz-multi" [class.on]="systemPickerMulti()"
+                    (click)="systemPickerMulti.set(!systemPickerMulti())"
+                    [attr.aria-pressed]="systemPickerMulti()" title="Choose more than one">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7l3 3 5-5M3 17l3 3 5-5M14 8h7M14 18h7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Multi
+                  </button>
+                  <button class="dz-icon" (click)="openSetup()" title="Create a design system" aria-label="Create a design system">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+
+                <p class="dz-picker-lead">
+                  Set up a design system so every project starts from your colors, type, and components.
+                </p>
+                <button class="dz-picker-cta" (click)="openSetup()">Set up your design system</button>
+
+                @if (chosenSystems().length) {
+                  <button class="dz-picker-clear" (click)="clearSystems()">Use no design system</button>
+                }
+
+                <div class="dz-picker-grid">
+                  @for (s of pickerSystems(); track s.id) {
+                    <button class="dz-picker-card" [class.on]="chosenSystems().includes(s.id)"
+                      (click)="toggleSystem(s.id)">
+                      <span class="dz-mini-specimen" [style.--sp-display]="s.font_display"
+                        [style.--sp-body]="s.font_body"
+                        [style.background]="ramp(s)[0]" [style.color]="ramp(s)[8]">
+                        <span class="dz-mini-fonts" [style.color]="ramp(s)[5]">{{ s.fonts }}</span>
+                        <span class="dz-mini-name">{{ s.name }}</span>
+                        <span class="dz-mini-ramp">
+                          @for (c of ramp(s); track $index) { <i [style.background]="c"></i> }
+                        </span>
+                        <span class="dz-mini-sample" [style.background]="ramp(s)[1]">
+                          The quick brown fox
+                          <i class="dz-mini-btn" [style.background]="ramp(s)[4]">Continue →</i>
+                        </span>
+                      </span>
+                      <span class="dz-picker-name">
+                        {{ s.name }}
+                        @if (s.builtin && s.id === 'builtin-modernist') {
+                          <span class="dz-picker-badge">Org default</span>
+                        }
+                        @if (chosenSystems().includes(s.id)) {
+                          <svg class="dz-picker-tick" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        }
+                      </span>
+                    </button>
+                  }
+                  @if (!pickerSystems().length) {
+                    <p class="dz-empty">No design systems match that.</p>
+                  }
+                </div>
+              </div>
+            }
+          </div>
           <button class="dz-round" [class.on]="codeOpen()" (click)="codeOpen.set(!codeOpen())"
             title="Start from HTML or CSS you paste" aria-label="Paste HTML">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -565,6 +691,17 @@
           <textarea class="dz-paste" rows="4" [ngModel]="importCss()" (ngModelChange)="importCss.set($event)"
             placeholder="Paste HTML or CSS the design should start from…"></textarea>
         }
+      </div>
+
+      <div class="dz-codebase">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <select [ngModel]="codebase()" (ngModelChange)="codebase.set($event)" aria-label="Codebase">
+          <option value="">No codebase selected</option>
+          @for (w of workspaces(); track w.id) { <option [value]="w.id">{{ w.name }}</option> }
+        </select>
+        <span class="dz-codebase-hint">
+          @if (codebase()) { Compass will design within it } @else { Connect a codebase to design within }
+        </span>
       </div>
 
       <div class="dz-templates">
@@ -792,7 +929,7 @@
                 [style.--sp-body]="s.font_body">
                 <header>
                   <span class="dz-specimen-fonts">{{ s.fonts }}</span>
-                  <button class="dz-icon sm" (click)="$event.stopPropagation(); system.set(s.id)"
+                  <button class="dz-icon sm" (click)="$event.stopPropagation(); chosenSystems.set([s.id])"
                     [title]="'Design with ' + s.name">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   </button>
@@ -819,6 +956,123 @@
           </div>
         }
       }
+    </div>
+  </div>
+}
+
+<!-- ===================== set up your design system ===================== -->
+@if (setupOpen()) {
+  <div class="dz-scrim" (click)="setupOpen.set(false)">
+    <div class="dz-modal setup" (click)="$event.stopPropagation()" role="dialog"
+      aria-label="Set up your design system">
+      <header class="dz-setup-head">
+        <h2>Set up your design system</h2>
+        <p>Tell us about your company and attach any design resources you have.</p>
+        <button class="dz-icon dz-setup-close" (click)="setupOpen.set(false)" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+
+      <div class="dz-setup-body">
+        <label class="dz-setup-label" for="dz-setup-blurb">
+          Company name and blurb <span>(or name of design system)</span>
+        </label>
+        <textarea id="dz-setup-blurb" class="dz-field big" rows="3"
+          [ngModel]="setupBlurb()" (ngModelChange)="setupBlurb.set($event)"
+          placeholder="e.g. Mission Impastabowl: fast-casual pasta restaurant with in-store touchscreen kiosk, mobile app and website"></textarea>
+
+        <h3 class="dz-setup-h3">
+          Provide examples of your design system and products <span>(all optional)</span>
+        </h3>
+        <p class="dz-setup-sub">What works best: code and designs for your design system and your code products.</p>
+
+        <div class="dz-setup-rows">
+          <div class="dz-setup-row">
+            <span class="dz-setup-key">Link code from GitHub</span>
+            <input class="dz-field" type="url" [ngModel]="setupGithub()"
+              (ngModelChange)="setupGithub.set($event)" placeholder="https://github.com/owner/repo" />
+          </div>
+
+          <div class="dz-setup-row">
+            <span class="dz-setup-key">Link code you've cloned</span>
+            <select class="dz-field" [ngModel]="setupWorkspace()" (ngModelChange)="setupWorkspace.set($event)">
+              <option value="">No workspace</option>
+              @for (w of workspaces(); track w.id) { <option [value]="w.id">{{ w.name }}</option> }
+            </select>
+          </div>
+          <p class="dz-setup-note">
+            Compass reads the stylesheets and token files it finds — not the whole codebase.
+            For a large repo, name a frontend subfolder.
+          </p>
+          @if (setupWorkspace()) {
+            <div class="dz-setup-row">
+              <span class="dz-setup-key">Folder inside it</span>
+              <input class="dz-field" type="text" [ngModel]="setupPath()"
+                (ngModelChange)="setupPath.set($event)" placeholder="e.g. src/styles" />
+            </div>
+          }
+
+          <div class="dz-setup-row">
+            <span class="dz-setup-key">Link code from your computer</span>
+            <label class="dz-drop">
+              Choose a folder or <u>browse</u>
+              <input type="file" webkitdirectory multiple hidden (change)="onSetupFiles($event)" />
+            </label>
+          </div>
+          @if (setupFiles().length) {
+            <p class="dz-setup-note">{{ setupFiles().length }} readable files attached.</p>
+          }
+
+          <div class="dz-setup-row">
+            <span class="dz-setup-key">Upload a .fig file</span>
+            <label class="dz-drop muted">
+              Drop .fig here or <u>browse</u>
+              <input type="file" accept=".fig" hidden (change)="onSetupFig($event)" />
+            </label>
+          </div>
+          <p class="dz-setup-note">
+            @if (setupFig()) {
+              <strong>{{ setupFig() }}</strong> — Compass can't read Figma's binary format.
+              Export the tokens as JSON or CSS, or point at the repo instead.
+            } @else {
+              Compass can't read Figma's binary format yet; exported tokens or a repo work.
+            }
+          </p>
+
+          <div class="dz-setup-row">
+            <span class="dz-setup-key">Add fonts, logos and assets</span>
+            <label class="dz-drop">
+              Drop images here or <u>browse</u>
+              <input type="file" accept="image/*" multiple hidden (change)="onSetupImages($event)" />
+            </label>
+          </div>
+          @if (setupImages().length) {
+            <div class="ds-shots">
+              @for (src of setupImages(); track $index) {
+                <span class="ds-shot"><img [src]="src" alt="" /></span>
+              }
+            </div>
+          }
+        </div>
+
+        <label class="dz-setup-label" for="dz-setup-notes">Any other notes?</label>
+        <textarea id="dz-setup-notes" class="dz-field big" rows="3"
+          [ngModel]="setupNotes()" (ngModelChange)="setupNotes.set($event)"
+          placeholder="e.g. We use a warm, earthy color palette with rounded corners. Our brand voice is playful but professional…"></textarea>
+
+        <textarea class="dz-field mono" rows="2" [ngModel]="setupCss()"
+          (ngModelChange)="setupCss.set($event)"
+          placeholder="Optional: CSS custom properties to reproduce verbatim (--brand: #123456; …)"></textarea>
+
+        @if (error()) { <p class="dz-error">{{ error() }}</p> }
+
+        <div class="dz-modal-foot">
+          <button class="dz-btn" (click)="setupOpen.set(false)">Cancel</button>
+          <button class="dz-btn primary" (click)="runSetup()" [disabled]="setupBusy() || !canSetup()">
+            @if (setupBusy()) { Reading everything… } @else { Create design system }
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 }

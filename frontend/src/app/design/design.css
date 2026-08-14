@@ -1,7 +1,7 @@
 /* The four included systems are shown in their own typefaces — a specimen in
    the wrong face is not a specimen. Swap-loaded, so the cards render straight
    away and simply keep the fallback if the fonts can't be fetched. */
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;700&family=Caprasimo&family=Cormorant+Garamond:wght@400;600&family=Figtree:wght@400;600&family=Inter:wght@400;600&family=Lora:wght@400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;700&family=Caprasimo&family=Cormorant+Garamond:wght@400;600&family=Figtree:wght@400;600&family=Barlow:wght@400;600&family=Barlow+Condensed:wght@500;700&family=Inter:wght@400;600&family=Source+Serif+4:wght@400;600&family=Lora:wght@400&display=swap');
 
 :host {
   display: block;
@@ -1727,4 +1727,429 @@
   font-size: 0.78rem;
   color: var(--muted);
   margin-bottom: -4px;
+}
+
+
+/* ===================== the design-system picker ===================== */
+.dz-field-pick.as-button {
+  align-items: flex-start;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--sans);
+  text-align: left;
+}
+
+.dz-field-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.dz-picker {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: min(560px, 78vw);
+  max-height: 68vh;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dz-picker-head { display: flex; align-items: center; gap: 8px; }
+.dz-search.grow { flex: 1; }
+.dz-search.grow input { width: 100%; }
+
+.dz-multi {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 6px 11px;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dz-multi.on { background: var(--info-tint); border-color: var(--info); color: var(--info); }
+
+.dz-picker-lead {
+  margin: 14px 0 10px;
+  text-align: center;
+  font-size: 0.86rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.dz-picker-cta {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 11px;
+  cursor: pointer;
+}
+
+.dz-picker-clear {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.dz-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dz-picker-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+}
+
+.dz-picker-card:hover { border-color: var(--border-strong); }
+.dz-picker-card.on { border-color: var(--info); box-shadow: 0 0 0 1px var(--info); }
+
+/* A specimen small enough for a menu but still recognisably the system. */
+.dz-mini-specimen {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dz-mini-fonts { font-size: 0.62rem; }
+.dz-mini-name {
+  font-family: var(--sp-display, var(--sans));
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.dz-mini-ramp { display: flex; gap: 2px; }
+.dz-mini-ramp i { flex: 1; height: 10px; border-radius: 2px; }
+
+.dz-mini-sample {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-family: var(--sp-body, var(--sans));
+  font-size: 0.66rem;
+}
+
+.dz-mini-btn {
+  font-style: normal;
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #fff;
+  border-radius: 4px;
+  padding: 3px 7px;
+  white-space: nowrap;
+}
+
+.dz-picker-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dz-picker-badge {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--bg-2);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.dz-picker-tick { margin-left: auto; color: var(--info); }
+
+/* -- the codebase row under the composer */
+.dz-codebase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.dz-codebase select {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  font-weight: 600;
+  outline: none;
+  max-width: 220px;
+}
+
+.dz-codebase-hint { color: var(--faint); }
+
+/* ===================== tweaks ===================== */
+.dz-tweaks {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.dz-tweak { display: inline-flex; align-items: center; gap: 8px; }
+.dz-tweak-name { font-size: 0.76rem; color: var(--muted); }
+.dz-tweak-swatches { display: inline-flex; gap: 5px; }
+
+.dz-tweak-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.dz-tweak-swatch.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink); }
+
+.dz-tweak-color {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.dz-tweak-select,
+.dz-tweak-text {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  padding: 5px 9px;
+  min-width: 116px;
+}
+
+/* ===================== the laptop, while it works ===================== */
+.dz-making {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.dz-making-line { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+.dz-laptop {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  perspective: 1400px;
+  display: block;
+}
+
+.dz-laptop-lid {
+  display: block;
+  width: 300px;
+  height: 190px;
+  background: linear-gradient(160deg, #d9dade, #b9bcc2);
+  border-radius: 12px 12px 3px 3px;
+  padding: 9px;
+  transform-origin: bottom center;
+  transform: rotateX(0deg);
+  transition: transform 0.75s cubic-bezier(0.5, 0, 0.2, 1);
+  box-shadow: var(--shadow-md);
+}
+
+/* Closed: the lid folds down onto the base. */
+.dz-laptop.closed .dz-laptop-lid { transform: rotateX(-88deg); }
+
+.dz-laptop-screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--surface);
+  border-radius: 5px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.dz-laptop-skeleton { display: flex; flex-direction: column; gap: 8px; }
+
+.dz-laptop-skeleton i {
+  display: block;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--bg-2);
+  animation: dz-shimmer 1.6s ease-in-out infinite;
+}
+
+.dz-laptop-skeleton i.w80 { width: 80%; animation-delay: 0.1s; }
+.dz-laptop-skeleton i.w70 { width: 70%; animation-delay: 0.4s; }
+.dz-laptop-skeleton i.w60 { width: 60%; animation-delay: 0.2s; }
+.dz-laptop-skeleton i.w50 { width: 50%; animation-delay: 0.5s; }
+.dz-laptop-skeleton i.w40 { width: 40%; animation-delay: 0.3s; }
+.dz-laptop-skeleton i.block { height: 46px; animation-delay: 0.25s; }
+
+@keyframes dz-shimmer {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.dz-laptop-base {
+  display: block;
+  width: 340px;
+  height: 12px;
+  margin: 2px auto 0;
+  background: linear-gradient(180deg, #cfd1d6, #a9acb3);
+  border-radius: 0 0 10px 10px;
+  position: relative;
+}
+
+.dz-laptop-notch {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 64px;
+  height: 4px;
+  border-radius: 0 0 4px 4px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+/* ===================== the set-up form ===================== */
+.dz-modal.setup { width: min(760px, 100%); }
+
+.dz-setup-head {
+  position: relative;
+  padding: 26px 26px 6px;
+  text-align: center;
+}
+
+.dz-setup-head h2 {
+  margin: 0 0 6px;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 1.7rem;
+  font-weight: 400;
+}
+
+.dz-setup-head p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+.dz-setup-close { position: absolute; right: 14px; top: 14px; }
+
+.dz-setup-body {
+  padding: 18px 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dz-setup-label { font-size: 0.88rem; font-weight: 600; }
+.dz-setup-label span { font-weight: 400; color: var(--muted); }
+.dz-field.big { font-size: 0.92rem; padding: 12px 14px; }
+
+.dz-setup-h3 {
+  margin: 18px 0 2px;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+
+.dz-setup-h3 span { color: var(--muted); }
+.dz-setup-sub { margin: 0 0 8px; font-size: 0.84rem; color: var(--muted); }
+
+.dz-setup-rows {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.dz-setup-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dz-setup-rows > *:last-child { border-bottom: 0; }
+.dz-setup-key { font-size: 0.88rem; font-weight: 600; }
+
+.dz-setup-note {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.dz-drop {
+  display: block;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.dz-drop:hover { border-color: var(--accent-line); color: var(--ink); }
+.dz-drop.muted { opacity: 0.85; }
+
+@media (max-width: 720px) {
+  .dz-setup-row { grid-template-columns: 1fr; gap: 8px; }
+  .dz-picker-grid { grid-template-columns: 1fr; }
 }

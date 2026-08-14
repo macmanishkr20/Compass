@@ -150,7 +150,7 @@ _FALLBACK_RAMP = [
 _GOOGLE_FONTS = (
     "https://fonts.googleapis.com/css2?family=Archivo:wght@400;700"
     "&family=Caprasimo&family=Cormorant+Garamond:wght@400;600&family=Figtree:wght@400;600"
-    "&family=Inter:wght@400;600&family=Lora:wght@400&display=swap"
+    "&family=Barlow:wght@400;600&family=Barlow+Condensed:wght@500;700&family=Inter:wght@400;600&family=Source+Serif+4:wght@400;600&family=Lora:wght@400&display=swap"
 )
 
 

@@ -402,6 +402,7 @@ export class CompassApiService {
     template?: string;
     prompt?: string;
     design_system?: string;
+    design_systems?: string[];
   }): Promise<DesignProject> {
     return firstValueFrom(this.http.post<DesignProject>('/v1/design/projects', body));
   }
@@ -412,6 +413,7 @@ export class CompassApiService {
       html?: string;
       starred?: boolean;
       design_system?: string;
+      design_systems?: string[];
       turns?: DesignTurn[];
     },
   ): Promise<DesignProject> {
@@ -507,6 +509,20 @@ export class CompassApiService {
   }
   designSystemFileUrl(id: string, path: string): string {
     return `/v1/design/systems/${id}/file?path=${encodeURIComponent(path)}`;
+  }
+  /** Build a system from the set-up form. */
+  setUpDesignSystem(body: {
+    name?: string;
+    blurb?: string;
+    github?: string;
+    workspace_id?: string;
+    path?: string;
+    files?: Array<{ name: string; text: string }>;
+    images?: string[];
+    notes?: string;
+    css?: string;
+  }): Promise<DesignSystem> {
+    return firstValueFrom(this.http.post<DesignSystem>('/v1/design/systems/setup', body));
   }
   duplicateDesignSystem(id: string): Promise<DesignSystem> {
     return firstValueFrom(

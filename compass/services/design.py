@@ -21,18 +21,63 @@ from compass.config import get_settings
 
 # The templates Claude Design offers on its landing screen.
 TEMPLATES = [
-    {"id": "blank", "name": "Blank", "hint": "Start from nothing"},
-    {"id": "mobile", "name": "Mobile app design", "hint": "Screens for a phone app"},
-    {"id": "slides", "name": "Slides", "hint": "A deck to present"},
-    {"id": "document", "name": "Document", "hint": "A formatted written page"},
-    {"id": "wireframe", "name": "Wireframe", "hint": "Low-fidelity structure"},
-    {"id": "animation", "name": "Animation", "hint": "Something that moves"},
-    {"id": "mockups", "name": "UI mockups", "hint": "High-fidelity screens"},
-    {"id": "resume", "name": "Résumé", "hint": "A one-page CV"},
-    {"id": "object3d", "name": "3D object", "hint": "A rendered object"},
-    {"id": "research", "name": "Research", "hint": "Findings, written up"},
-    {"id": "email", "name": "HTML email", "hint": "An email that renders"},
-    {"id": "colortype", "name": "Color + type pairing", "hint": "A palette and typefaces"},
+    {"id": "blank", "name": "Blank", "hint": "Start from nothing", "stem": ""},
+    {
+        "id": "mobile",
+        "name": "Mobile app design",
+        "hint": "Screens for a phone app",
+        "stem": "Design a mobile app for ",
+    },
+    {"id": "slides", "name": "Slides", "hint": "A deck to present", "stem": "Make a deck about "},
+    {
+        "id": "document",
+        "name": "Document",
+        "hint": "A formatted written page",
+        "stem": "Write and lay out a document on ",
+    },
+    {
+        "id": "wireframe",
+        "name": "Wireframe",
+        "hint": "Low-fidelity structure",
+        "stem": "Wireframe the flow for ",
+    },
+    {
+        "id": "animation",
+        "name": "Animation",
+        "hint": "Something that moves",
+        "stem": "Animate ",
+    },
+    {
+        "id": "mockups",
+        "name": "UI mockups",
+        "hint": "High-fidelity screens",
+        "stem": "Mock up the screens for ",
+    },
+    {"id": "resume", "name": "Résumé", "hint": "A one-page CV", "stem": "A résumé for "},
+    {
+        "id": "object3d",
+        "name": "3D object",
+        "hint": "A rendered object",
+        "stem": "Model a 3D object: ",
+    },
+    {
+        "id": "research",
+        "name": "Research",
+        "hint": "Findings, written up",
+        "stem": "Write up research on ",
+    },
+    {
+        "id": "email",
+        "name": "HTML email",
+        "hint": "An email that renders",
+        "stem": "An HTML email announcing ",
+    },
+    {
+        "id": "colortype",
+        "name": "Color + type pairing",
+        "hint": "A palette and typefaces",
+        "stem": "A colour and type pairing for ",
+    },
 ]
 
 # Per-template guidance appended to the generation prompt.
@@ -76,7 +121,8 @@ class DesignProject:
     turns: list[dict] = field(default_factory=list)  # the design conversation
     versions: list[dict] = field(default_factory=list)  # past html, newest first
     comments: list[dict] = field(default_factory=list)  # pins left on the canvas
-    design_system: str = ""     # design-system id, "" = None
+    design_system: str = ""     # the first system, kept for older rows
+    design_systems: list[str] = field(default_factory=list)  # every system it follows
     starred: bool = False
     viewed_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
@@ -179,14 +225,22 @@ class DesignStore:
         return copy
 
     async def create(
-        self, *, name: str, template: str, prompt: str, design_system: str = ""
+        self,
+        *,
+        name: str,
+        template: str,
+        prompt: str,
+        design_system: str = "",
+        design_systems: list[str] | None = None,
     ) -> dict:
         rows = self._read()
+        systems = list(design_systems or ([design_system] if design_system else []))
         p = DesignProject(
             name=name or "Untitled",
             template=template if template in TEMPLATE_PROMPTS else "blank",
             prompt=prompt,
-            design_system=design_system,
+            design_system=systems[0] if systems else "",
+            design_systems=systems,
         ).to_dict()
         rows.append(p)
         self._write(rows)
@@ -426,8 +480,99 @@ BUILTIN_SYSTEMS: list[dict] = [
             "  --radius:18px;--display:'Caprasimo',cursive;--body:'Figtree',sans-serif}"
         ),
     },
+    {
+        "id": "builtin-broadsheet",
+        "tagline": (
+        "Newspaper typography: Source Serif at reading sizes, a cyan spot colour, "
+        "ruled columns and figures that sit inside the grid."
+        ),
+        "name": "Broadsheet",
+        "params": {
+            "ground": "light (scheme: cool, hue 200°, saturation 0.75)",
+            "fonts": "Source Serif 4 / Source Serif 4",
+            "density": "1.05×",
+            "radius": "2px",
+            "layout": "columns",
+            "dividers": "ruled",
+            "buttons": "solid, square",
+            "color_use": "spot",
+            "frame": "none",
+            "image_treatment": "duotone",
+            "icons": "geometric",
+        },
+        "source": "included",
+        "builtin": True,
+        "fonts": "Source Serif 4",
+        "font_display": "Source Serif 4",
+        "font_body": "Source Serif 4",
+        "swatches": [
+            "#E8F6FD", "#C7EAFA", "#94D8F5", "#54BFEA", "#22A2D6",
+            "#1183B4", "#0C6389", "#08455F", "#052A3A",
+        ],
+        "notes": (
+            "Name: Broadsheet\n\n"
+            "Palette: a cool cyan ramp — #E8F6FD tints, #22A2D6 as the single spot "
+            "colour, #052A3A ink. Colour marks a link or a lead, never a mood.\n"
+            "Type: Source Serif 4 for both display and body, 600 headings and 400 "
+            "text at 17px/1.65. The scale is 13/15/17/22/30/44.\n"
+            "Spacing & shape: a measured column grid, 2px radii, ruled dividers "
+            "above every section, no shadows.\n"
+            "Components: buttons are square and solid; cards are ruled rather than "
+            "boxed; tables have a heavy rule under the header.\n"
+            "Voice: reported and specific. Facts first, adjectives last."
+        ),
+        "css": (
+            ":root{--surface:#FFFFFF;--accent:#22A2D6;--ink:#052A3A;\n"
+            "  --radius:2px;--font:'Source Serif 4',Georgia,serif}"
+        ),
+    },
+    {
+        "id": "builtin-industry",
+        "tagline": (
+        "Engineering drawing: Barlow Condensed over Barlow, steel blues, tick "
+        "marks at the corners and photographs printed in duotone."
+        ),
+        "name": "Industry",
+        "params": {
+            "ground": "light (scheme: cool, hue 215°, saturation 0.35)",
+            "fonts": "Barlow Condensed / Barlow",
+            "density": "0.95×",
+            "radius": "0px",
+            "layout": "grid",
+            "dividers": "tick marks",
+            "buttons": "solid, square",
+            "color_use": "fill",
+            "frame": "outline",
+            "image_treatment": "duotone",
+            "icons": "geometric",
+        },
+        "source": "included",
+        "builtin": True,
+        "fonts": "Barlow Condensed / Barlow",
+        "font_display": "Barlow Condensed",
+        "font_body": "Barlow",
+        "swatches": [
+            "#EDF2F8", "#D3E0EE", "#AFC5DC", "#89A6C4", "#6788AC",
+            "#4C6A8C", "#374F6B", "#25364A", "#161F2B",
+        ],
+        "notes": (
+            "Name: Industry\n\n"
+            "Palette: steel blues — #EDF2F8 surfaces, #6788AC accent, #161F2B ink. "
+            "Everything reads like a drawing sheet.\n"
+            "Type: Barlow Condensed for headings (uppercase, tight), Barlow for body "
+            "at 15px/1.55. The scale is 12/14/15/20/28/40.\n"
+            "Spacing & shape: a strict grid, 0 radii, tick marks at panel corners "
+            "instead of borders, no shadows.\n"
+            "Components: buttons are square and solid; cards are outlined panels; "
+            "tables are dense with ruled rows.\n"
+            "Voice: technical and terse. Specifications, not sentences."
+        ),
+        "css": (
+            ":root{--surface:#EDF2F8;--accent:#6788AC;--ink:#161F2B;\n"
+            "  --radius:0;--display:'Barlow Condensed',sans-serif;--body:'Barlow',sans-serif}"
+        ),
+    },
 ]
-
 
 class DesignSystemStore:
     def _path(self) -> Path:
@@ -566,17 +711,28 @@ def parse_extract(notes: str) -> tuple[str, str, list[str]]:
     return name, fonts, swatches[:9]
 
 
-def system_prompt_block(system: dict | None) -> str:
-    """The instruction appended to a generation when a system is attached."""
-    if not system:
+def system_prompt_block(*systems: dict | None) -> str:
+    """The instruction appended to a generation when systems are attached.
+
+    More than one is allowed — a team's brand plus a product system, say — in
+    which case the first leads and the rest are named as compatible."""
+    kept = [s for s in systems if s]
+    if not kept:
         return ""
-    parts = [
-        "Follow this design system exactly — it outranks your own taste:",
-        system.get("notes", "").strip(),
-    ]
-    css = (system.get("css") or "").strip()
+
+    parts: list[str] = []
+    lead = kept[0]
+    parts.append("Follow this design system exactly — it outranks your own taste:")
+    parts.append(lead.get("notes", "").strip())
+    css = (lead.get("css") or "").strip()
     if css:
         parts.append("Use these tokens verbatim:\n\n```css\n" + css[:6_000] + "\n```")
+
+    for extra in kept[1:]:
+        parts.append(
+            "Also stay compatible with " + (extra.get("name") or "this system") + ":\n\n"
+            + extra.get("notes", "").strip()
+        )
     return "\n\n".join(p for p in parts if p)
 
 
@@ -592,5 +748,19 @@ DESIGN_SYSTEM_PROMPT = (
     "- Use system fonts or Google Fonts via @import; never reference local files.\n"
     "- Embed any imagery as inline SVG or a data: URI — never hotlink.\n"
     "- Lay out with flexbox/grid; never absolute-position a whole page.\n"
-    "- It must render correctly standalone in a browser at 1280px wide."
+    "- It must render correctly standalone in a browser at 1280px wide.\n"
+    "- Drive every colour, face and spacing from CSS custom properties on "
+    ":root, so one change retunes the whole document.\n\n"
+    "End the document with a tweak sheet — the knobs a person should be able to "
+    "turn afterwards — as:\n"
+    '<script type="application/json" id="tweaks">[{"name":"accent",'
+    '"type":"color","var":"--accent","value":"#1A7F5A",'
+    '"options":["#1A7F5A","#1E3A8A","#8B2C2C","#333333"]},'
+    '{"name":"sectionStyle","type":"select","var":"--section-style",'
+    '"value":"Hairline","options":["Hairline","Ruled","None"]},'
+    '{"name":"density","type":"select","var":"--density",'
+    '"value":"Standard","options":["Compact","Standard","Roomy"]}]</script>\n'
+    "Name the knobs after what they change in this design, give each the "
+    "custom property it sets, and make sure the document actually responds to "
+    "every value offered."
 )

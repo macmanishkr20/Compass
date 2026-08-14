@@ -328,6 +328,17 @@ export interface DesignTemplate {
   id: string;
   name: string;
   hint: string;
+  /** The opening words the composer is seeded with when this is picked. */
+  stem?: string;
+}
+
+/** One knob a design declares as tweakable. */
+export interface DesignTweak {
+  name: string;
+  type: 'color' | 'select' | string;
+  var: string;
+  value: string;
+  options?: string[];
 }
 
 /** One piece of design work. `html` is only present on a single-project fetch —
@@ -404,6 +415,7 @@ export interface DesignProject {
   turns?: DesignTurn[];
   comments?: DesignComment[];
   design_system: string;
+  design_systems?: string[];
   starred: boolean;
   versions?: number;      // on a list row: how many past versions exist
   version_label?: string;

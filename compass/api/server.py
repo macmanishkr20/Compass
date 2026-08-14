@@ -578,6 +578,7 @@ class DesignCreate(BaseModel):
     template: str = "blank"
     prompt: str = ""
     design_system: str = ""
+    design_systems: list[str] = []
 
 
 class DesignPatch(BaseModel):
@@ -586,6 +587,7 @@ class DesignPatch(BaseModel):
     prompt: str | None = None
     starred: bool | None = None
     design_system: str | None = None
+    design_systems: list[str] | None = None
     turns: list[dict] | None = None
 
 
@@ -612,6 +614,7 @@ async def design_create(body: DesignCreate, user: str = Depends(require_user)) -
         template=body.template,
         prompt=body.prompt,
         design_system=body.design_system,
+        design_systems=body.design_systems,
     )
 
 
@@ -772,6 +775,110 @@ async def design_system_create(
         fonts=fonts,
         swatches=swatches,
         origin=origin,
+    )
+
+
+class SystemSetup(BaseModel):
+    """The set-up form: who you are, and whatever design material you can hand
+    over. Everything but the blurb is optional — the point is to take what a
+    team already has rather than make them write a specification."""
+
+    name: str = ""
+    blurb: str = ""            # company and what it makes, or the system's name
+    github: str = ""           # https://github.com/owner/repo
+    workspace_id: str = ""     # a repo already registered here
+    path: str = ""             # ...and a folder inside it
+    files: list[dict] = []     # {name, text} read in the browser
+    images: list[str] = []     # data: URLs — logos, screenshots, brand pages
+    notes: str = ""            # anything else worth knowing
+    css: str = ""              # tokens to reproduce verbatim
+
+
+@app.post("/v1/design/systems/setup")
+async def design_system_setup(
+    body: SystemSetup, user: str = Depends(require_user)
+) -> dict:
+    """Build a design system from everything the form collected."""
+    from compass.services.design import EXTRACT_PROMPT, get_system_store, parse_extract
+
+    sources: list[str] = []
+    origin_bits: list[str] = []
+
+    if body.blurb.strip():
+        sources.append("The company, in their words:\n" + body.blurb.strip())
+
+    repo_workspace, repo_path = body.workspace_id.strip(), body.path.strip()
+    if body.github.strip() and not repo_workspace:
+        # Clone it, then read it the same way a registered repo is read.
+        full_name = (
+            body.github.strip()
+            .replace("https://github.com/", "")
+            .replace("http://github.com/", "")
+            .rstrip("/")
+            .removesuffix(".git")
+        )
+        try:
+            from compass.services.github import clone_repo
+
+            ws = await clone_repo(full_name)
+            repo_workspace = ws.to_dict()["id"]
+        except Exception as err:  # noqa: BLE001
+            raise HTTPException(
+                status_code=502,
+                detail=f"could not clone {full_name}: {err}. Clone it under Code, "
+                "then point at the workspace instead.",
+            )
+        origin_bits.append(full_name)
+
+    if repo_workspace:
+        from compass.services.workspaces import get_workspace_registry
+
+        root = await get_workspace_registry().resolve_root(repo_workspace)
+        text, names = _read_repo_styles(root, repo_path)
+        sources.append("Stylesheets and tokens from the codebase:\n" + text)
+        origin_bits.append(f"{repo_workspace}/{repo_path}".rstrip("/") + f" ({len(names)} files)")
+
+    for f in body.files[:40]:
+        name = str(f.get("name", "file"))
+        text = str(f.get("text", ""))[:20_000]
+        if text.strip():
+            sources.append(f"/* {name} */\n{text}")
+    if body.files:
+        origin_bits.append(f"{len(body.files)} uploaded files")
+
+    if body.notes.strip():
+        sources.append("Notes from the team:\n" + body.notes.strip())
+
+    if not sources and not body.images:
+        raise HTTPException(status_code=400, detail="nothing to build a system from")
+
+    from compass.gateway.azure_client import get_model_client
+
+    try:
+        notes = (
+            await get_model_client().complete_utility(
+                EXTRACT_PROMPT,
+                "\n\n".join(sources)[:60_000] or "Read the attached images.",
+                max_tokens=8_000,
+                prefer_main=True,
+                images=body.images[:6],
+            )
+        ).strip()
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"could not read that: {err}")
+
+    read_name, fonts, swatches = parse_extract(notes)
+    if body.images:
+        origin_bits.append(f"{len(body.images)} images")
+
+    return await get_system_store().create(
+        name=body.name.strip() or read_name,
+        source="set up",
+        notes=notes,
+        css=body.css,
+        fonts=fonts,
+        swatches=swatches,
+        origin=" · ".join(origin_bits),
     )
 
 
@@ -1152,9 +1259,14 @@ async def design_generate(
     template = body.template or project.get("template") or "blank"
     parts = [TEMPLATE_PROMPTS.get(template, "")]
 
-    system_id = body.design_system or project.get("design_system") or ""
-    if system_id:
-        parts.append(system_prompt_block(await get_system_store().get(system_id)))
+    ids = (
+        [body.design_system] if body.design_system
+        else project.get("design_systems") or
+        ([project["design_system"]] if project.get("design_system") else [])
+    )
+    if ids:
+        store_s = get_system_store()
+        parts.append(system_prompt_block(*[await store_s.get(i) for i in ids]))
     if project.get("html"):
         parts.append(
             "Refine the EXISTING design below; keep everything not mentioned "

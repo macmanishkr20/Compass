@@ -14,7 +14,10 @@
 
 /** Parent → frame. */
 export interface EditorCommand {
-  dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer';
+  dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer' | 'tweak';
+  /** The custom property a tweak sets, and what to set it to. */
+  tweakVar?: string;
+  tweakValue?: string;
   mode?: 'view' | 'inspect' | 'comment' | 'edit';
   align?: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
   pins?: Array<{ id: string; x: number; y: number; text: string }>;
@@ -49,8 +52,18 @@ export interface EditorRect {
 }
 
 /** Frame → parent. */
+/** A knob the design declares as tweakable. */
+export interface EditorTweak {
+  name: string;
+  type: string;
+  var: string;
+  value: string;
+  options?: string[];
+}
+
 export interface EditorEvent {
-  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed';
+  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed' | 'tweaks';
+  tweaks?: EditorTweak[];
   label?: string;                     // e.g. "section.hero"
   rect?: EditorRect;                  // where to put the floating toolbar
   details?: EditorDetails;            // populated in inspect and edit modes
@@ -515,8 +528,57 @@ export const EDITOR_SCRIPT = String.raw`
     else if (m.dz === 'deselect') { select(null); }
     else if (m.dz === 'flush') { flush(); }
     else if (m.dz === 'pointer') { forwarded(m); }
+    else if (m.dz === 'tweak') { applyTweak(m.tweakVar, m.tweakValue); }
   });
 
+  // -- tweaks ---------------------------------------------------------------
+  // A design can declare the knobs worth turning. Anything it doesn't declare
+  // is inferred from its own :root custom properties, so even a document that
+  // never heard of this panel is still tunable.
+  function readTweaks() {
+    var declared = document.getElementById('tweaks');
+    if (declared) {
+      try {
+        var list = JSON.parse(declared.textContent || '[]');
+        if (list && list.length) return list;
+      } catch (err) { /* fall through to inference */ }
+    }
+    var named = [];
+    var rest = [];
+    var seen = {};
+    // A variable with a role in its name is a knob worth offering; a numbered
+    // ramp step is scaffolding. Show the roles, and only fall back to the ramp
+    // when a design has nothing else.
+    var roles = /(accent|brand|primary|secondary|highlight|ink|text|surface|background|bg|paper|ground|border|rule|link)/i;
+    for (var i = 0; i < document.styleSheets.length; i++) {
+      var sheet = document.styleSheets[i];
+      var rules;
+      try { rules = sheet.cssRules; } catch (err) { continue; }
+      for (var j = 0; rules && j < rules.length; j++) {
+        var rule = rules[j];
+        if (!rule.selectorText || rule.selectorText.indexOf(':root') === -1) continue;
+        for (var k = 0; k < rule.style.length; k++) {
+          var name = rule.style[k];
+          if (name.indexOf('--') !== 0 || seen[name]) continue;
+          var value = rule.style.getPropertyValue(name).trim();
+          if (!/^(#|rgb|hsl)/i.test(value)) continue;   // colours are the useful knobs
+          seen[name] = 1;
+          var knob = { name: name.replace(/^--/, ''), type: 'color', var: name, value: value };
+          if (roles.test(name) && !/\d/.test(name)) named.push(knob);
+          else rest.push(knob);
+        }
+      }
+    }
+    return (named.length ? named : rest).slice(0, 8);
+  }
+
+  function applyTweak(name, value) {
+    if (!name) return;
+    document.documentElement.style.setProperty(name, value);
+    flush();
+  }
+
   post({ dz: 'ready' });
+  post({ dz: 'tweaks', tweaks: readTweaks() });
 })();
 `;
