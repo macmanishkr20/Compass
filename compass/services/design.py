@@ -40,9 +40,11 @@ TEMPLATE_PROMPTS = {
     "blank": "Design whatever the request describes.",
     "mobile": "Design mobile app screens at 390x844, shown side by side in a row.",
     "slides": (
-        "Design a slide deck: each slide a 16:9 section with class=\"slide\", "
-        "stacked vertically. The class is what the PowerPoint and PDF exports "
-        "cut on, so every slide needs it."
+        "Design a slide deck: each slide a 16:9 section with class=\"slide\". "
+        "The class is what the PowerPoint and PDF exports cut on, so every "
+        "slide needs it. If the deck presents one slide at a time, put the "
+        "navigation chrome in an element with data-export-hide so it stays out "
+        "of the exported file."
     ),
     "document": "Design a formatted document page with clear typographic hierarchy.",
     "wireframe": "Design a low-fidelity greyscale wireframe: boxes, placeholder text, no colour.",

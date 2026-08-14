@@ -534,9 +534,25 @@ export class CompassApiService {
     );
   }
 
-  /** The export URL — the browser fetches it directly so it lands as a file. */
   designExportUrl(id: string, format: string): string {
     return `/v1/design/projects/${id}/export?format=${format}`;
+  }
+
+  /** Fetch an export as a blob. Going through the API rather than pointing an
+   *  anchor at the URL means a 501 or a 502 surfaces as an error the panel can
+   *  show, instead of a download that silently never starts. */
+  async downloadBlob(url: string): Promise<Blob> {
+    const response = await fetch(url, { credentials: 'same-origin' });
+    if (!response.ok) {
+      let detail = `${response.status}`;
+      try {
+        detail = (await response.json()).detail ?? detail;
+      } catch {
+        /* not JSON — keep the status */
+      }
+      throw new Error(detail);
+    }
+    return response.blob();
   }
 
   /** Generate or refine a project's design. Slow — a whole document is written. */

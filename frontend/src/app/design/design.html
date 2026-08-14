@@ -318,14 +318,22 @@
           <button class="dz-zoom" (click)="cycleZoom()" title="Zoom">{{ zoomLabel() }}</button>
 
           <div class="dz-tools" role="group" aria-label="Canvas tool">
-            <button [class.on]="tool() === 'select'" (click)="tool.set('select')" title="Select, move and resize">
+            <button [class.on]="tool() === 'view'" (click)="tool.set('view')"
+              title="View — the design behaves like a page" aria-label="View">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z" stroke-linejoin="round"/></svg>
             </button>
-            <button [class.on]="tool() === 'comment'" (click)="tool.set('comment')">
+            <button [class.on]="tool() === 'inspect'" (click)="tool.set('inspect')"
+              title="Inspect — click an element to see how it is built">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+              Inspect
+            </button>
+            <button [class.on]="tool() === 'comment'" (click)="tool.set('comment')"
+              title="Comment — leave a pin on the design">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 13a3 3 0 01-3 3H9l-4 4V6a3 3 0 013-3h9a3 3 0 013 3z" stroke-linejoin="round"/></svg>
               Comment
             </button>
-            <button [class.on]="tool() === 'edit'" (click)="tool.set('edit')">
+            <button [class.on]="tool() === 'edit'" (click)="tool.set('edit')"
+              title="Edit — move, resize, retype and delete">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
               Edit
             </button>
@@ -355,8 +363,12 @@
           </div>
 
           <div class="dz-menu-wrap">
-            <button class="dz-btn" [class.on]="exportOpen()"
-              (click)="$event.stopPropagation(); exportOpen.set(!exportOpen())">Export</button>
+            <button class="dz-btn" [class.on]="exportOpen()" [disabled]="!!exporting()"
+              (click)="$event.stopPropagation(); exportOpen.set(!exportOpen())">
+              @if (exporting()) {
+                <span class="dz-go-spin dark"></span> Exporting {{ exporting().toUpperCase() }}…
+              } @else { Export }
+            </button>
             @if (exportOpen()) {
               <div class="dz-menu right" role="menu" (click)="$event.stopPropagation()">
                 @for (f of formats; track f.id) {
@@ -384,10 +396,16 @@
       </header>
 
       <!-- ---------- selection bar (Select tool) ---------- -->
-      @if (tool() === 'select' && selection()) {
+      @if (tool() === 'edit' && selection()) {
         <div class="dz-sel">
           <span class="dz-sel-tag">{{ selection() }}</span>
-          <span class="dz-sel-hint">drag to move · handles to resize · arrows to nudge</span>
+          <span class="dz-sel-hint">
+            @if (typing()) {
+              typing — click away to keep it
+            } @else {
+              drag to move · handles to resize · arrows to nudge · double-click to retype
+            }
+          </span>
           <div class="dz-sel-actions">
             <button (click)="align('left')" title="Align left">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5v14M8 8h11M8 16h7" stroke-linecap="round"/></svg>
@@ -404,6 +422,31 @@
           </div>
         </div>
       }
+      @if (tool() === 'inspect') {
+        @if (details(); as d) {
+          <div class="dz-inspect">
+            <div class="dz-inspect-head">
+              <span class="dz-sel-tag">{{ selection() }}</span>
+              @if (d.classes) { <span class="dz-inspect-cls">.{{ d.classes.split(' ').join(' .') }}</span> }
+              <span class="dz-inspect-size">{{ d.size }}</span>
+            </div>
+            <dl class="dz-inspect-grid">
+              <dt>Type</dt><dd>{{ d.font }}</dd>
+              <dt>Colour</dt>
+              <dd>
+                <span class="dz-swatch" [style.background]="d.color"></span>{{ d.color }}
+                <span class="dz-swatch" [style.background]="d.background"></span>{{ d.background }}
+              </dd>
+              <dt>Box</dt><dd>{{ d.spacing }}</dd>
+              @if (d.text) { <dt>Text</dt><dd class="dz-inspect-text">{{ d.text }}</dd> }
+            </dl>
+          </div>
+        } @else {
+          <div class="dz-sel">
+            <span class="dz-sel-hint">Click anything on the design to inspect it.</span>
+          </div>
+        }
+      }
       @if (shareNote()) { <div class="dz-note">{{ shareNote() }}</div> }
 
       <!-- ---------- the canvas ---------- -->
@@ -414,8 +457,10 @@
           <div class="dz-fit" [style.width.px]="canvasWidth() * scale()"
             (pointerdown)="onCanvasPointer($event, 'down')"
             (pointermove)="onCanvasPointer($event, 'move')"
-            (pointerup)="onCanvasPointer($event, 'up')">
+            (pointerup)="onCanvasPointer($event, 'up')"
+            (dblclick)="onCanvasDblClick($event)">
             <iframe #frame class="dz-frame" [srcdoc]="canvas()" title="Design preview"
+              (load)="measureStage()"
               [style.width.px]="canvasWidth()"
               [style.height.px]="frameHeight()"
               [style.transform]="'scale(' + scale() + ')'"
@@ -622,7 +667,13 @@
           } @else if (layout() === 'list') {
             <table class="dz-table">
               <thead>
-                <tr><th class="dz-th-name">Name</th><th>Last viewed</th><th>All owners</th><th>Access</th><th></th></tr>
+                <tr>
+                  <th class="dz-th-name">Name</th>
+                  <th class="dz-th-seen">Last viewed</th>
+                  <th class="dz-th-owner">All owners</th>
+                  <th class="dz-th-access">Access</th>
+                  <th class="dz-th-end" colspan="2"></th>
+                </tr>
               </thead>
               <tbody>
                 @for (p of filtered(); track p.id) {
@@ -631,11 +682,15 @@
                       <img class="dz-thumb" [src]="thumb(p)" alt="" loading="lazy" />
                       <span class="dz-row-name">{{ p.name }}</span>
                     </td>
-                    <td class="dz-cell-muted">{{ age(p.viewed_at || p.updated_at) }}</td>
-                    <td class="dz-cell-muted"><span class="dz-owner">Y</span> You</td>
-                    <td class="dz-cell-muted dz-access">
-                      Edit
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+                    <td class="dz-cell-muted dz-th-seen">{{ age(p.viewed_at || p.updated_at) }}</td>
+                    <td class="dz-cell-muted dz-th-owner">
+                      <span class="dz-owner">Y</span> You
+                    </td>
+                    <td class="dz-th-access">
+                      <span class="dz-access">
+                        Edit
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+                      </span>
                     </td>
                     <td class="dz-cell-end">
                       <div class="dz-menu-wrap">
@@ -672,6 +727,13 @@
                           </div>
                         }
                       </div>
+                    </td>
+                    <td class="dz-cell-star">
+                      <button class="dz-star" [class.on]="p.starred" (click)="star(p, $event)"
+                        [attr.aria-label]="p.starred ? 'Remove from favorites' : 'Add to favorites'"
+                        [title]="p.starred ? 'Remove from favorites' : 'Add to favorites'">
+                        <svg width="15" height="15" viewBox="0 0 24 24" [attr.fill]="p.starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.6l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" stroke-linejoin="round"/></svg>
+                      </button>
                     </td>
                   </tr>
                 }

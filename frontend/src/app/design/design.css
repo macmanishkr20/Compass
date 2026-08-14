@@ -128,6 +128,13 @@
 
 .dz-go:disabled { opacity: 0.45; cursor: default; }
 
+.dz-go-spin.dark {
+  border-color: var(--border-strong);
+  border-top-color: var(--accent);
+  width: 12px;
+  height: 12px;
+}
+
 .dz-go-spin {
   width: 15px;
   height: 15px;
@@ -318,10 +325,16 @@
 /* -- projects table */
 .dz-table {
   width: 100%;
+  table-layout: fixed;   /* the columns line up row to row, header included */
   border-collapse: separate;
   border-spacing: 0 2px;
   font-size: 0.86rem;
 }
+
+.dz-th-seen { width: 140px; }
+.dz-th-owner { width: 130px; }
+.dz-th-access { width: 96px; }
+.dz-th-end { width: 76px; }
 
 .dz-table th {
   text-align: left;
@@ -356,16 +369,40 @@
   background: #fff;
 }
 
-.dz-row-name { font-weight: 500; }
+.dz-row-name {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dz-cell-muted { color: var(--muted); }
-.dz-cell-end { text-align: right; width: 48px; position: relative; }
+.dz-star {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 7px;
+  display: inline-flex;
+}
 
+.dz-star:hover { background: var(--surface); color: var(--ink); }
+.dz-star.on { color: var(--accent); }
+
+.dz-cell-end { width: 38px; position: relative; padding-right: 0 !important; }
+.dz-cell-star { width: 38px; padding-left: 0 !important; }
+
+/* The access chip is a span inside its cell, so the column edge stays put
+   whether or not the row is hovered. */
 .dz-access {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--faint);
 }
+
+.dz-cell-name { min-width: 0; }
 
 .dz-owner {
   display: inline-flex;
@@ -963,7 +1000,7 @@
   overflow: hidden; /* the iframe scrolls its own document */
   display: flex;
   justify-content: center;
-  padding: 18px;
+  padding: 18px;   /* measureStage() subtracts this */
 }
 
 .dz-stage.empty { align-items: center; color: var(--faint); font-size: 0.86rem; }
@@ -1564,4 +1601,43 @@
   .ds-body { grid-template-columns: 1fr; }
   .ds-rail { border-right: 0; border-bottom: 1px solid var(--border); }
   .ds-doc { grid-template-columns: 200px 1fr; }
+}
+
+
+/* -- the inspector readout (Inspect tool) */
+.dz-inspect {
+  border-bottom: 1px solid var(--border);
+  background: var(--info-tint);
+  padding: 8px 14px 10px;
+}
+
+.dz-inspect-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.dz-inspect-cls { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.dz-inspect-size { margin-left: auto; font-size: 0.74rem; color: var(--muted); }
+
+.dz-inspect-grid {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+.dz-inspect-grid dt { color: var(--faint); }
+.dz-inspect-grid dd { margin: 0; color: var(--ink); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.dz-inspect-text { color: var(--muted); font-style: italic; }
+
+.dz-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
+  display: inline-block;
 }

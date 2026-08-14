@@ -15,21 +15,35 @@
 /** Parent → frame. */
 export interface EditorCommand {
   dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer';
-  mode?: 'select' | 'comment' | 'edit';
+  mode?: 'view' | 'inspect' | 'comment' | 'edit';
   align?: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
   pins?: Array<{ id: string; x: number; y: number; text: string }>;
   /** Forwarded pointer input, in the frame's own client coordinates. Used when
    *  the embedding delivers the event to the iframe element rather than into
    *  the frame — see the note on the parent's forwarding. */
-  kind?: 'down' | 'move' | 'up' | 'click';
+  kind?: 'down' | 'move' | 'up' | 'click' | 'dblclick';
   x?: number;
   y?: number;
 }
 
+/** What the inspector reports about the selected element. */
+export interface EditorDetails {
+  tag: string;
+  id: string;
+  classes: string;
+  size: string;
+  font: string;
+  color: string;
+  background: string;
+  spacing: string;
+  text: string;
+}
+
 /** Frame → parent. */
 export interface EditorEvent {
-  dz: 'selected' | 'html' | 'comment' | 'ready';
+  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed';
   label?: string;                     // e.g. "section.hero"
+  details?: EditorDetails;            // populated in inspect and edit modes
   html?: string;                      // the document, editor artifacts removed
   x?: number;                         // comment position, as a 0..1 fraction
   y?: number;
@@ -37,7 +51,9 @@ export interface EditorEvent {
 
 export const EDITOR_SCRIPT = String.raw`
 (function () {
-  var mode = 'select';
+  // 'view' is the default: the design behaves like a page. Nothing here
+  // touches the document until a tool is picked.
+  var mode = 'view';
   var sel = null;      // the selected element
   var box = null;      // the overlay drawn around it
   var pinLayer = null;
@@ -64,6 +80,9 @@ export const EDITOR_SCRIPT = String.raw`
     '#dz-box .dz-h.sw{left:-5px;bottom:-5px;cursor:nesw-resize}' +
     '#dz-box .dz-h.w{left:-5px;top:calc(50% - 5px);cursor:ew-resize}' +
     '#dz-box .dz-move{position:absolute;inset:0;cursor:move;pointer-events:auto}' +
+    '#dz-box.inspect{border-color:#0071E3;border-style:dashed}' +
+    '#dz-box.inspect .dz-h{display:none}' +
+    '#dz-box.inspect .dz-move{cursor:default}' +
     '#dz-pins{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2147482000;pointer-events:none}' +
     '.dz-pin{position:absolute;transform:translate(-50%,-100%);background:#0071E3;color:#fff;' +
       'font:600 11px/1 -apple-system,system-ui,sans-serif;padding:5px 7px;border-radius:9px 9px 9px 2px;' +
@@ -113,6 +132,24 @@ export const EDITOR_SCRIPT = String.raw`
     box.style.height = r.height + 'px';
   }
 
+  function details(el) {
+    var s = getComputedStyle(el);
+    var r = el.getBoundingClientRect();
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || '',
+      classes: (el.getAttribute('class') || '').trim(),
+      size: Math.round(r.width) + ' × ' + Math.round(r.height),
+      font: s.fontFamily.split(',')[0].replace(/["']/g, '') + ' ' +
+            s.fontSize + ' / ' + s.fontWeight,
+      color: s.color,
+      background: s.backgroundColor,
+      spacing: 'padding ' + s.padding + ' · margin ' + s.margin +
+               ' · radius ' + s.borderRadius,
+      text: (el.textContent || '').trim().slice(0, 120)
+    };
+  }
+
   function select(el) {
     sel = el;
     if (!el) {
@@ -121,13 +158,15 @@ export const EDITOR_SCRIPT = String.raw`
       return;
     }
     ensureBox().style.display = 'block';
+    // Handles only make sense where they do something.
+    box.classList.toggle('inspect', mode === 'inspect');
     place();
-    post({ dz: 'selected', label: label(el) });
+    post({ dz: 'selected', label: label(el), details: details(el) });
   }
 
   // -- drag & resize --------------------------------------------------------
   function beginDrag(target, x, y) {
-    if (!sel || mode !== 'select') return;
+    if (!sel || mode !== 'edit') return;
     var handle = target && target.dataset ? target.dataset.dzHandle : null;
     var r = sel.getBoundingClientRect();
     var s = getComputedStyle(sel);
@@ -146,7 +185,7 @@ export const EDITOR_SCRIPT = String.raw`
   }
 
   function onGrab(e) {
-    if (!sel || mode !== 'select') return;
+    if (!sel || mode !== 'edit') return;
     e.preventDefault();
     e.stopPropagation();
     beginDrag(e.target, e.clientX, e.clientY);
@@ -188,7 +227,7 @@ export const EDITOR_SCRIPT = String.raw`
 
   // -- pointer routing ------------------------------------------------------
   document.addEventListener('mouseover', function (e) {
-    if (mode !== 'select' || drag) return;
+    if ((mode !== 'inspect' && mode !== 'edit') || drag) return;
     var el = e.target;
     if (!editable(el)) return;
     el.setAttribute('data-dz-hover', '1');
@@ -199,6 +238,7 @@ export const EDITOR_SCRIPT = String.raw`
   }, true);
 
   function handleClick(el, pageX, pageY) {
+    if (mode === 'view') return;   // the design is just a page
     if (mode === 'comment') {
       var w = document.documentElement.scrollWidth;
       var h = document.documentElement.scrollHeight;
@@ -206,21 +246,34 @@ export const EDITOR_SCRIPT = String.raw`
       return;
     }
     if (!editable(el)) { select(null); return; }
-    if (mode === 'edit') {
-      el.setAttribute('contenteditable', 'true');
-      el.focus();
-      el.addEventListener('blur', function once() {
-        el.removeAttribute('contenteditable');
-        el.removeEventListener('blur', once);
-        flush();
-      });
-      select(el);
-      return;
-    }
+    // In edit mode a click selects — which is what makes it draggable and
+    // resizable. Text is a double-click, the way every design tool does it.
     select(el);
   }
 
+  function startTyping(el) {
+    if (!editable(el) || mode !== 'edit') return;
+    select(el);
+    el.setAttribute('contenteditable', 'true');
+    el.focus();
+    post({ dz: 'typing' });
+    el.addEventListener('blur', function once() {
+      el.removeAttribute('contenteditable');
+      el.removeEventListener('blur', once);
+      post({ dz: 'typed' });
+      flush();
+    });
+  }
+
+  document.addEventListener('dblclick', function (e) {
+    if (mode !== 'edit') return;
+    e.preventDefault();
+    e.stopPropagation();
+    startTyping(e.target);
+  }, true);
+
   document.addEventListener('click', function (e) {
+    if (mode === 'view') return;   // links, buttons and scripts behave normally
     if (mode === 'comment' || editable(e.target)) {
       e.preventDefault();
       e.stopPropagation();
@@ -229,7 +282,8 @@ export const EDITOR_SCRIPT = String.raw`
   }, true);
 
   document.addEventListener('keydown', function (e) {
-    if (!sel || mode !== 'select') return;
+    if (mode === 'inspect' && e.key === 'Escape') { select(null); return; }
+    if (!sel || mode !== 'edit') return;
     if (document.querySelector('[contenteditable="true"]')) return;
     var step = e.shiftKey ? 10 : 1;
     var map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
@@ -256,7 +310,7 @@ export const EDITOR_SCRIPT = String.raw`
 
   // -- alignment ------------------------------------------------------------
   function align(how) {
-    if (!sel) return;
+    if (!sel || mode !== 'edit') return;
     if (how === 'left') { sel.style.marginLeft = '0'; sel.style.marginRight = 'auto'; }
     if (how === 'center') { sel.style.marginLeft = 'auto'; sel.style.marginRight = 'auto'; }
     if (how === 'right') { sel.style.marginLeft = 'auto'; sel.style.marginRight = '0'; }
@@ -293,15 +347,20 @@ export const EDITOR_SCRIPT = String.raw`
   function flush() {
     clearTimeout(pending);
     pending = setTimeout(function () {
-      var clone = document.documentElement.cloneNode(true);
-      clone.querySelectorAll('[data-dz]').forEach(function (n) { n.remove(); });
-      clone.querySelectorAll('[data-dz-hover]').forEach(function (n) {
-        n.removeAttribute('data-dz-hover');
-      });
-      clone.querySelectorAll('[contenteditable]').forEach(function (n) {
-        n.removeAttribute('contenteditable');
-      });
-      post({ dz: 'html', html: '<!DOCTYPE html>\n' + clone.outerHTML });
+      try {
+        var clone = document.documentElement.cloneNode(true);
+        clone.querySelectorAll('[data-dz]').forEach(function (n) { n.remove(); });
+        clone.querySelectorAll('[data-dz-hover]').forEach(function (n) {
+          n.removeAttribute('data-dz-hover');
+        });
+        clone.querySelectorAll('[contenteditable]').forEach(function (n) {
+          n.removeAttribute('contenteditable');
+        });
+        post({ dz: 'html', html: '<!DOCTYPE html>\n' + clone.outerHTML });
+      } catch {
+        // A design that mangles its own DOM shouldn't take the panel down with
+        // it; the next edit will try again.
+      }
     }, 220);
   }
 
@@ -312,10 +371,13 @@ export const EDITOR_SCRIPT = String.raw`
     var el = document.elementFromPoint(m.x, m.y);
     if (m.kind === 'click') {
       handleClick(el, m.x + scrollX, m.y + scrollY);
+    } else if (m.kind === 'dblclick') {
+      startTyping(el);
     } else if (m.kind === 'down') {
+      if (mode !== 'edit') return;
       if (el && el.closest && el.closest('#dz-box')) {
         beginDrag(el, m.x, m.y);          // a handle or the move surface
-      } else if (mode === 'select' && editable(el)) {
+      } else if (editable(el)) {
         select(el);
         beginDrag(null, m.x, m.y);        // press-and-drag in one gesture
       }
@@ -329,11 +391,14 @@ export const EDITOR_SCRIPT = String.raw`
   addEventListener('message', function (e) {
     var m = e.data || {};
     if (m.dz === 'mode') {
-      mode = m.mode || 'select';
+      mode = m.mode || 'view';
       document.body.classList.toggle('dz-comment', mode === 'comment');
-      if (mode !== 'select') select(null);
+      // A selection made under one tool means nothing under the next.
+      select(null);
     } else if (m.dz === 'align') { align(m.align); }
-    else if (m.dz === 'delete') { if (sel) { var g = sel; select(null); g.remove(); flush(); } }
+    else if (m.dz === 'delete') {
+      if (sel && mode === 'edit') { var g = sel; select(null); g.remove(); flush(); }
+    }
     else if (m.dz === 'pins') { drawPins(m.pins); }
     else if (m.dz === 'deselect') { select(null); }
     else if (m.dz === 'flush') { flush(); }

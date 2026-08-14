@@ -32,6 +32,28 @@ _NO_PPTX = "python-pptx is not installed on the server host (pip install python-
 _SLIDE_SELECTORS = ("[data-slide]", ".slide")
 
 
+# A deck that presents itself shows one slide at a time — the others are
+# hidden, stacked or translated off-screen by its own script. Exporting has to
+# see all of them, so the whole deck is unfolded first and any chrome the
+# author marked as presentation-only is dropped.
+_UNFOLD_SLIDES = """
+  .slide, [data-slide] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+    transform: none !important;
+    inset: auto !important;
+  }
+  [class*="deck"], [class*="slides"], [id*="deck"], [id*="slides"] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  [data-export-hide], .deck-nav, .slide-nav, .deck-controls { display: none !important; }
+"""
+
+
 async def _render(html: str, width: int, height: int):
     """Open the document in Chromium. Caller drives the page, then closes it."""
     try:
@@ -54,12 +76,38 @@ async def _render(html: str, width: int, height: int):
     return page, close
 
 
+async def _unfold(page) -> int:
+    """Show every slide at once. Returns how many the document has."""
+    count = 0
+    for selector in _SLIDE_SELECTORS:
+        found = await page.query_selector_all(selector)
+        if len(found) > 1:
+            count = len(found)
+            break
+    if count:
+        await page.add_style_tag(content=_UNFOLD_SLIDES)
+        await page.wait_for_timeout(250)  # let the relayout settle
+    return count
+
+
 async def _slide_box(page) -> dict | None:
-    """The bounding box of one slide, if this document is a deck."""
+    """The page box a deck should print at, or None if this isn't a deck.
+
+    A deck built from fixed 16:9 sections prints one slide per page at that
+    size. A deck whose slides are whatever height their content needs — which
+    is most of them once unfolded — has to print at the tallest, or the long
+    ones split across pages and the short ones leave a gap.
+    """
     for selector in _SLIDE_SELECTORS:
         slides = await page.query_selector_all(selector)
-        if len(slides) > 1:
-            return await slides[0].bounding_box()
+        if len(slides) <= 1:
+            continue
+        boxes = [b for b in [await s.bounding_box() for s in slides] if b]
+        if not boxes:
+            continue
+        widest = max(b["width"] for b in boxes)
+        tallest = max(b["height"] for b in boxes)
+        return {"width": widest, "height": tallest + 2}
     return None
 
 
@@ -68,6 +116,7 @@ async def to_pdf(html: str, *, width: int = 1280) -> bytes:
     try:
         # print_background keeps the palette; the design decides its own size,
         # so the page box follows the rendered width rather than a paper size.
+        await _unfold(page)
         box = await _slide_box(page)
         if box:
             # A deck prints one slide per page. Without the break rule Chromium
@@ -104,6 +153,7 @@ async def to_pdf(html: str, *, width: int = 1280) -> bytes:
 async def to_png(html: str, *, width: int = 1280) -> bytes:
     page, close = await _render(html, width, 900)
     try:
+        await _unfold(page)
         return await page.screenshot(full_page=True, type="png")
     finally:
         await close()
@@ -175,12 +225,16 @@ async def to_pptx(html: str, *, width: int = 1600, height: int = 900) -> bytes:
 
     page, close = await _render(html, width, height)
     try:
+        await _unfold(page)
         shots: list[bytes] = []
         for selector in _SLIDE_SELECTORS:
             slides = await page.query_selector_all(selector)
             if len(slides) > 1:
                 for slide in slides:
-                    shots.append(await slide.screenshot(type="png"))
+                    try:
+                        shots.append(await slide.screenshot(type="png"))
+                    except Exception:  # noqa: BLE001 - a zero-height slide
+                        continue
                 break
         if not shots:  # not a deck — one slide holding the whole design
             shots = [await page.screenshot(full_page=True, type="png")]
