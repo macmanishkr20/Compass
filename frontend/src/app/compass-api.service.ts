@@ -12,6 +12,8 @@ import {
   GithubRepo,
   HealthInfo,
   CustomizeInfo,
+  DesignFile,
+  DesignPage,
   DesignProject,
   DesignSystem,
   DesignSystemDoc,
@@ -455,6 +457,65 @@ export class CompassApiService {
       this.http.post<DesignProject>(`/v1/design/projects/${id}/duplicate`, {}),
     );
   }
+  // -- pages
+  designPages(id: string): Promise<{ pages: DesignPage[]; active: string }> {
+    return firstValueFrom(
+      this.http.get<{ pages: DesignPage[]; active: string }>(
+        `/v1/design/projects/${id}/pages`,
+      ),
+    );
+  }
+  addDesignPage(id: string, name = ''): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/pages`, { name }),
+    );
+  }
+  deleteDesignPage(id: string, pageId: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.delete<DesignProject>(`/v1/design/projects/${id}/pages/${pageId}`),
+    );
+  }
+  openDesignPage(id: string, pageId: string): Promise<DesignProject> {
+    return firstValueFrom(
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/pages/${pageId}/open`, {}),
+    );
+  }
+
+  // -- a project's own files
+  designFiles(
+    id: string,
+    path = '',
+  ): Promise<{ path: string; folders: DesignFile[]; files: DesignFile[] }> {
+    return firstValueFrom(
+      this.http.get<{ path: string; folders: DesignFile[]; files: DesignFile[] }>(
+        `/v1/design/projects/${id}/files?path=${encodeURIComponent(path)}`,
+      ),
+    );
+  }
+  designFileUrl(id: string, path: string): string {
+    return `/v1/design/projects/${id}/files/read?path=${encodeURIComponent(path)}`;
+  }
+  designFileText(id: string, path: string): Promise<string> {
+    return firstValueFrom(
+      this.http.get(this.designFileUrl(id, path), { responseType: 'text' }),
+    );
+  }
+  writeDesignFile(
+    id: string,
+    body: { path: string; text?: string; data_url?: string },
+  ): Promise<DesignFile> {
+    return firstValueFrom(
+      this.http.post<DesignFile>(`/v1/design/projects/${id}/files`, body),
+    );
+  }
+  deleteDesignFile(id: string, path: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ deleted: boolean }>(
+        `/v1/design/projects/${id}/files?path=${encodeURIComponent(path)}`,
+      ),
+    );
+  }
+
   designVersions(
     id: string,
   ): Promise<{ current: { label: string; at: number }; versions: DesignVersion[] }> {

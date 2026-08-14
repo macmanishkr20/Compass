@@ -642,9 +642,13 @@ async def design_patch(
 
 @app.delete("/v1/design/projects/{project_id}")
 async def design_delete(project_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services import design_files
     from compass.services.design import get_design_store
 
-    return {"deleted": await get_design_store().delete(project_id)}
+    deleted = await get_design_store().delete(project_id)
+    if deleted:
+        design_files.delete_project(project_id)
+    return {"deleted": deleted}
 
 
 class DesignSystemCreate(BaseModel):
@@ -1048,6 +1052,128 @@ async def design_duplicate(project_id: str, user: str = Depends(require_user)) -
     if p is None:
         raise HTTPException(status_code=404, detail="no such design project")
     return p
+
+
+class PageCreate(BaseModel):
+    name: str = ""
+
+
+@app.get("/v1/design/projects/{project_id}/pages")
+async def design_pages(project_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_design_store
+
+    store = get_design_store()
+    project = await store.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    pages = await store.pages(project_id)
+    return {"pages": pages, "active": project.get("active_page") or (pages[0]["id"] if pages else "")}
+
+
+@app.post("/v1/design/projects/{project_id}/pages")
+async def design_page_add(
+    project_id: str, body: PageCreate, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().add_page(project_id, body.name)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
+
+
+@app.delete("/v1/design/projects/{project_id}/pages/{page_id}")
+async def design_page_delete(
+    project_id: str, page_id: str, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().delete_page(project_id, page_id)
+    if p is None:
+        raise HTTPException(
+            status_code=400, detail="a project keeps at least one page"
+        )
+    return p
+
+
+@app.post("/v1/design/projects/{project_id}/pages/{page_id}/open")
+async def design_page_open(
+    project_id: str, page_id: str, user: str = Depends(require_user)
+) -> dict:
+    from compass.services.design import get_design_store
+
+    p = await get_design_store().open_page(project_id, page_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no such page")
+    return p
+
+
+# ---- a project's own files ------------------------------------------------
+
+
+class ProjectFile(BaseModel):
+    path: str
+    text: str = ""
+    data_url: str = ""
+
+
+@app.get("/v1/design/projects/{project_id}/files")
+async def design_files(
+    project_id: str, path: str = "", user: str = Depends(require_user)
+) -> dict:
+    from compass.services import design_files
+
+    try:
+        return design_files.listing(project_id, path)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="no such folder")
+
+
+@app.get("/v1/design/projects/{project_id}/files/read")
+async def design_file_read(
+    project_id: str, path: str, user: str = Depends(require_user)
+) -> Response:
+    from compass.services import design_files
+
+    try:
+        blob, media = design_files.read_bytes(project_id, path)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="no such file")
+    return Response(content=blob, media_type=media)
+
+
+@app.post("/v1/design/projects/{project_id}/files")
+async def design_file_write(
+    project_id: str, body: ProjectFile, user: str = Depends(require_user)
+) -> dict:
+    from compass.services import design_files
+
+    try:
+        if not body.text and not body.data_url:
+            return design_files.make_folder(project_id, body.path)
+        return design_files.write(
+            project_id, body.path, text=body.text, data_url=body.data_url
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    except IsADirectoryError:
+        raise HTTPException(status_code=400, detail="that path is a folder")
+
+
+@app.delete("/v1/design/projects/{project_id}/files")
+async def design_file_delete(
+    project_id: str, path: str, user: str = Depends(require_user)
+) -> dict:
+    from compass.services import design_files
+
+    try:
+        return {"deleted": design_files.remove(project_id, path)}
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 
 @app.get("/v1/design/projects/{project_id}/versions")

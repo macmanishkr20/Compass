@@ -379,6 +379,24 @@ export interface DesignSystemDoc {
   usage: Record<string, string>;
 }
 
+/** One page of a design project. */
+export interface DesignPage {
+  id: string;
+  name: string;
+  updated_at: number;
+  chars: number;
+}
+
+/** A file or folder inside a project's own folder. */
+export interface DesignFile {
+  name: string;
+  path: string;
+  kind: string;
+  size: number;
+  at: number;
+  text: boolean;
+}
+
 /** One past state of a design. `html` only comes back on a restore. */
 export interface DesignVersion {
   id: string;

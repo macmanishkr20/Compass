@@ -318,15 +318,35 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           @if (projectMenuOpen()) {
-            <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
-              <button role="menuitem" (click)="rename(project)">Rename</button>
-              <button role="menuitem" (click)="duplicate(project)">Duplicate</button>
-              <button role="menuitem" (click)="star(project)">
-                {{ project.starred ? 'Remove from favorites' : 'Add to favorites' }}
+            <div class="dz-pages" role="menu" (click)="$event.stopPropagation()">
+              <p class="dz-pages-head">Pages</p>
+              <button class="dz-page new" role="menuitem" (click)="newPage()">
+                <span class="dz-page-thumb new">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                </span>
+                New blank page
               </button>
-              <button role="menuitem" (click)="toggleHistory()">Version history</button>
+              @for (pg of pages(); track pg.id) {
+                <button class="dz-page" role="menuitem" [class.on]="pg.id === activePage()"
+                  (click)="openPage(pg)">
+                  <img class="dz-page-thumb" [src]="thumb(project)" alt="" />
+                  <span class="dz-page-text">
+                    <span class="dz-page-name">{{ pg.name }}</span>
+                    <span class="dz-page-when">Edited {{ age(pg.updated_at) }}</span>
+                  </span>
+                  @if (pages().length > 1) {
+                    <button class="dz-icon sm danger" (click)="deletePage(pg, $event)"
+                      aria-label="Delete page">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  }
+                </button>
+              }
               <div class="dz-menu-sep"></div>
-              <button role="menuitem" class="danger" (click)="remove(project)">Delete Project</button>
+              <button class="dz-page all" role="menuitem" (click)="openFiles('')">
+                All project files
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
             </div>
           }
         </div>
@@ -477,7 +497,120 @@
       @if (shareNote()) { <div class="dz-note">{{ shareNote() }}</div> }
 
       <!-- ---------- the canvas ---------- -->
-      @if (codeOpen()) {
+      @if (filesOpen()) {
+        <div class="dz-files" (dragover)="$event.preventDefault(); dropping.set(true)"
+          (dragleave)="dropping.set(false)" (drop)="onDropFiles($event)"
+          [class.dropping]="dropping()">
+          <header class="dz-files-bar">
+            <button class="dz-icon" (click)="filesUp()" [disabled]="!filesPath()"
+              title="Up one level" aria-label="Up one level">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="dz-icon" (click)="openFiles(filesPath())" title="Refresh" aria-label="Refresh">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 10-2.3 6.3M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <span class="dz-files-crumb">project{{ filesPath() ? ' / ' + filesPath() : '' }}</span>
+            <button class="dz-files-act" (click)="saveScrap()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16z" stroke-linejoin="round"/></svg>
+              New sketch
+            </button>
+            <label class="dz-files-act">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-2"/></svg>
+              Add files
+              <input type="file" multiple hidden (change)="onPickFiles($event)" />
+            </label>
+            <button class="dz-icon" (click)="filesOpen.set(false)" title="Close" aria-label="Close files">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+            </button>
+          </header>
+
+          <div class="dz-files-body">
+            <div class="dz-files-list">
+              @if (folders().length) {
+                <p class="dz-files-group">Folders</p>
+                @for (f of folders(); track f.path) {
+                  <button class="dz-file-row" (click)="openFolder(f)">
+                    <span class="dz-file-icon folder">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
+                    </span>
+                    <span class="dz-file-text">
+                      <span class="dz-file-name">{{ f.name }}</span>
+                      <span class="dz-file-kind">{{ f.kind }}</span>
+                    </span>
+                    <button class="dz-icon sm danger" (click)="deleteFile(f, $event)" aria-label="Empty folder">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
+                    </button>
+                  </button>
+                }
+              }
+
+              @if (pages().length && !filesPath()) {
+                <p class="dz-files-group">Pages</p>
+                @for (pg of pages(); track pg.id) {
+                  <button class="dz-file-row" (click)="openPage(pg); filesOpen.set(false)">
+                    <span class="dz-file-icon page">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5"/></svg>
+                    </span>
+                    <span class="dz-file-text">
+                      <span class="dz-file-name">{{ pg.name }}</span>
+                      <span class="dz-file-kind">HTML page</span>
+                    </span>
+                    <span class="dz-file-when">{{ age(pg.updated_at) }}</span>
+                  </button>
+                }
+              }
+
+              @if (files().length) {
+                <p class="dz-files-group">Files</p>
+                @for (f of files(); track f.path) {
+                  <button class="dz-file-row" [class.on]="previewFile()?.path === f.path"
+                    (click)="preview(f)">
+                    <span class="dz-file-icon">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5"/></svg>
+                    </span>
+                    <span class="dz-file-text">
+                      <span class="dz-file-name">{{ f.name }}</span>
+                      <span class="dz-file-kind">{{ f.kind }}</span>
+                    </span>
+                    <span class="dz-file-when">{{ age(f.at) }}</span>
+                    <button class="dz-icon sm danger" (click)="deleteFile(f, $event)" aria-label="Delete">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                  </button>
+                }
+              }
+
+              @if (!folders().length && !files().length && (filesPath() || !pages().length)) {
+                <p class="dz-empty">This folder is empty.</p>
+              }
+            </div>
+
+            <div class="dz-files-preview">
+              @if (previewFile(); as f) {
+                @if (isImage(f)) {
+                  <img [src]="fileUrl(f)" [alt]="f.name" />
+                } @else if (f.text) {
+                  <pre>{{ previewText() }}</pre>
+                } @else {
+                  <p class="dz-empty">{{ f.kind }} — {{ (f.size / 1024).toFixed(0) }} KB</p>
+                }
+              } @else {
+                <p class="dz-empty">Select a file to preview</p>
+              }
+            </div>
+          </div>
+
+          <footer class="dz-files-drop">
+            <span class="dz-files-drop-head">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Drop files here
+            </span>
+            <span class="dz-files-drop-line">
+              Images, docs, references or folders — Compass keeps them with this project.
+            </span>
+          </footer>
+        </div>
+      } @else if (codeOpen()) {
         <pre class="dz-code">{{ project.html }}</pre>
       } @else if (project.html) {
         <div class="dz-stage" #stage>

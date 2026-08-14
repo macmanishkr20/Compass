@@ -15,6 +15,8 @@ import { FormsModule } from '@angular/forms';
 import { CompassApiService } from '../compass-api.service';
 import {
   DesignComment,
+  DesignFile,
+  DesignPage,
   DesignProject,
   DesignSection,
   DesignSystem,
@@ -139,6 +141,17 @@ export class Design {
   readonly importWorkspace = signal('');
   readonly importPath = signal('');
   readonly importing = signal(false);
+
+  // -- pages and the project's own files
+  readonly pages = signal<DesignPage[]>([]);
+  readonly activePage = signal('');
+  readonly filesOpen = signal(false);
+  readonly filesPath = signal('');
+  readonly folders = signal<DesignFile[]>([]);
+  readonly files = signal<DesignFile[]>([]);
+  readonly previewFile = signal<DesignFile | null>(null);
+  readonly previewText = signal('');
+  readonly dropping = signal(false);
 
   // -- tweaks: the knobs a design declares, applied live
   readonly tweaksOpen = signal(false);
@@ -484,18 +497,6 @@ export class Design {
     return this.api.designThumbUrl(p.id, p.updated_at);
   }
 
-  age(epochSeconds: number): string {
-    const secs = Math.max(0, Date.now() / 1000 - epochSeconds);
-    if (secs < 60) return 'just now';
-    const mins = Math.round(secs / 60);
-    if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
-    const hours = Math.round(mins / 60);
-    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-    const days = Math.round(hours / 24);
-    if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-    return new Date(epochSeconds * 1000).toLocaleDateString();
-  }
-
   // ===================== creating =====================
 
   /** Picking a template opens the sentence for you — claude.ai seeds the
@@ -560,8 +561,173 @@ export class Design {
     this.tool.set('view');
     this.zoom.set('fit');
     this.watchAgent();
+    this.filesOpen.set(false);
+    void this.loadPages(project.id);
     if (!firstTurn) void this.hydrate(project.id);
     void this.api.openDesign(project.id).catch(() => undefined);
+  }
+
+  // ===================== pages =====================
+
+  private async loadPages(id: string): Promise<void> {
+    try {
+      const res = await this.api.designPages(id);
+      this.pages.set(res.pages);
+      this.activePage.set(res.active);
+    } catch {
+      this.pages.set([]);
+    }
+  }
+
+  async newPage(): Promise<void> {
+    const project = this.open();
+    this.projectMenuOpen.set(false);
+    if (!project) return;
+    const updated = await this.api.addDesignPage(project.id);
+    this.open.set(updated);
+    await this.loadPages(project.id);
+  }
+
+  async openPage(page: DesignPage): Promise<void> {
+    const project = this.open();
+    this.projectMenuOpen.set(false);
+    if (!project || page.id === this.activePage()) return;
+    const updated = await this.api.openDesignPage(project.id, page.id);
+    this.open.set(updated);
+    this.activePage.set(page.id);
+  }
+
+  async deletePage(page: DesignPage, event: Event): Promise<void> {
+    event.stopPropagation();
+    const project = this.open();
+    if (!project || this.pages().length < 2) return;
+    if (!window.confirm(`Delete ${page.name}?`)) return;
+    const updated = await this.api.deleteDesignPage(project.id, page.id);
+    this.open.set(updated);
+    await this.loadPages(project.id);
+  }
+
+  // ===================== the project's files =====================
+
+  async openFiles(path = ''): Promise<void> {
+    const project = this.open();
+    this.projectMenuOpen.set(false);
+    if (!project) return;
+    this.filesOpen.set(true);
+    await this.listFiles(path);
+  }
+
+  private async listFiles(path: string): Promise<void> {
+    const project = this.open();
+    if (!project) return;
+    try {
+      const res = await this.api.designFiles(project.id, path);
+      this.filesPath.set(res.path);
+      this.folders.set(res.folders);
+      this.files.set(res.files);
+    } catch {
+      this.error.set('Could not read the project folder.');
+    }
+  }
+
+  /** Up one level, or nowhere if already at the top. */
+  async filesUp(): Promise<void> {
+    const parts = this.filesPath().split('/').filter(Boolean);
+    parts.pop();
+    await this.listFiles(parts.join('/'));
+  }
+
+  async openFolder(folder: DesignFile): Promise<void> {
+    await this.listFiles(folder.path);
+  }
+
+  async preview(file: DesignFile): Promise<void> {
+    this.previewFile.set(file);
+    this.previewText.set('');
+    const project = this.open();
+    if (!project || !file.text) return;
+    try {
+      this.previewText.set(await this.api.designFileText(project.id, file.path));
+    } catch {
+      this.previewText.set('Could not read that file.');
+    }
+  }
+
+  fileUrl(file: DesignFile): string {
+    const project = this.open();
+    return project ? this.api.designFileUrl(project.id, file.path) : '';
+  }
+
+  isImage(file: DesignFile | null): boolean {
+    return !!file && /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name);
+  }
+
+  async deleteFile(file: DesignFile, event: Event): Promise<void> {
+    event.stopPropagation();
+    const project = this.open();
+    if (!project) return;
+    if (!window.confirm(`Delete ${file.name}?`)) return;
+    await this.api.deleteDesignFile(project.id, file.path);
+    if (this.previewFile()?.path === file.path) this.previewFile.set(null);
+    await this.listFiles(this.filesPath());
+  }
+
+  /** Files dropped onto the browser land in the folder being shown. */
+  async onDropFiles(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    this.dropping.set(false);
+    const project = this.open();
+    if (!project) return;
+    const dropped = Array.from(event.dataTransfer?.files ?? []);
+    for (const file of dropped.slice(0, 20)) {
+      const path = [this.filesPath(), file.name].filter(Boolean).join('/');
+      try {
+        if (/\.(css|js|ts|json|md|txt|html?|svg|csv)$/i.test(file.name)) {
+          await this.api.writeDesignFile(project.id, { path, text: await file.text() });
+          continue;
+        }
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.readAsDataURL(file);
+        });
+        await this.api.writeDesignFile(project.id, { path, data_url: dataUrl });
+      } catch (err) {
+        this.error.set(`Could not store ${file.name}: ${(err as Error).message}`);
+      }
+    }
+    await this.listFiles(this.filesPath());
+  }
+
+  async onPickFiles(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const dt = { files: input.files } as DataTransfer;
+    await this.onDropFiles({ preventDefault() {}, dataTransfer: dt } as unknown as DragEvent);
+    input.value = '';
+  }
+
+  /** Keep the design being shown in the project's scraps. */
+  async saveScrap(): Promise<void> {
+    const project = this.open();
+    if (!project?.html) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    await this.api.writeDesignFile(project.id, {
+      path: `scraps/sketch-${stamp}.html`,
+      text: project.html,
+    });
+    await this.listFiles(this.filesPath());
+  }
+
+  age(epochSeconds: number): string {
+    const secs = Math.max(0, Date.now() / 1000 - epochSeconds);
+    if (secs < 60) return 'just now';
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(epochSeconds * 1000).toLocaleDateString();
   }
 
   private async hydrate(id: string): Promise<void> {

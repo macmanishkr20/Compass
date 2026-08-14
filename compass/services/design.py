@@ -103,12 +103,26 @@ TEMPLATE_PROMPTS = {
 }
 
 
+# What a new blank page starts as — enough to render and be edited, nothing
+# that pretends to be a design.
+BLANK_PAGE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Blank page</title>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; color: #1D1D1F;
+         background: #fff; padding: 64px; }
+  h1 { font-size: 2rem; font-weight: 600; margin: 0 0 12px; }
+  p { color: #6b6b70; max-width: 60ch; }
+</style></head>
+<body><h1>Blank page</h1><p>Describe what this page should be, or edit it here.</p></body>
+</html>
+"""
+
 # How many past versions a project keeps. Deep enough to undo a session's
 # worth of edits, shallow enough that the store stays a readable file.
 MAX_VERSIONS = 25
 
 # Fields the projects table never needs — a design and its history are large.
-_HEAVY = ("html", "turns", "versions", "comments")
+_HEAVY = ("html", "turns", "versions", "comments", "pages")
 
 
 @dataclass
@@ -117,7 +131,9 @@ class DesignProject:
     name: str = "Untitled"
     template: str = "blank"
     prompt: str = ""
-    html: str = ""              # the generated design (standalone HTML)
+    html: str = ""              # the active page's document
+    pages: list[dict] = field(default_factory=list)  # {id, name, html, updated_at}
+    active_page: str = ""
     turns: list[dict] = field(default_factory=list)  # the design conversation
     versions: list[dict] = field(default_factory=list)  # past html, newest first
     comments: list[dict] = field(default_factory=list)  # pins left on the canvas
@@ -180,6 +196,96 @@ class DesignStore:
                 return r
         return None
 
+    @staticmethod
+    def _pages(row: dict) -> list[dict]:
+        """A project's pages, inventing the first from the design it already
+        has — every project had exactly one page before this existed."""
+        pages = list(row.get("pages") or [])
+        if not pages:
+            pages = [
+                {
+                    "id": "p1",
+                    "name": f"{row.get('name', 'Design')}.html",
+                    "html": row.get("html", ""),
+                    "updated_at": row.get("updated_at", time.time()),
+                }
+            ]
+        return pages
+
+    async def pages(self, project_id: str) -> list[dict]:
+        row = await self.get(project_id)
+        if row is None:
+            return []
+        return [
+            {k: v for k, v in p.items() if k != "html"} | {"chars": len(p.get("html") or "")}
+            for p in self._pages(row)
+        ]
+
+    async def add_page(self, project_id: str, name: str = "") -> dict | None:
+        """A new blank page, and the project switches to it."""
+        rows = self._read()
+        for r in rows:
+            if r.get("id") != project_id:
+                continue
+            pages = self._pages(r)
+            page = {
+                "id": uuid.uuid4().hex[:8],
+                "name": name or f"Page {len(pages) + 1}.html",
+                "html": BLANK_PAGE,
+                "updated_at": time.time(),
+            }
+            pages.append(page)
+            r["pages"] = pages
+            r["active_page"] = page["id"]
+            r["html"] = page["html"]
+            r["updated_at"] = time.time()
+            self._write(rows)
+            return r
+        return None
+
+    async def open_page(self, project_id: str, page_id: str) -> dict | None:
+        """Switch pages: the outgoing one keeps what is on the canvas."""
+        rows = self._read()
+        for r in rows:
+            if r.get("id") != project_id:
+                continue
+            pages = self._pages(r)
+            current = r.get("active_page") or pages[0]["id"]
+            for p in pages:
+                if p["id"] == current:
+                    p["html"] = r.get("html", "")
+            target = next((p for p in pages if p["id"] == page_id), None)
+            if target is None:
+                return None
+            r["pages"] = pages
+            r["active_page"] = page_id
+            r["html"] = target.get("html", "")
+            self._write(rows)
+            return r
+        return None
+
+    async def delete_page(self, project_id: str, page_id: str) -> dict | None:
+        """Drop a page. The last one stays — a project without a page has
+        nothing to show."""
+        rows = self._read()
+        for r in rows:
+            if r.get("id") != project_id:
+                continue
+            pages = self._pages(r)
+            if len(pages) < 2:
+                return None
+            kept = [p for p in pages if p["id"] != page_id]
+            if len(kept) == len(pages):
+                return None
+            r["pages"] = kept
+            if (r.get("active_page") or pages[0]["id"]) == page_id:
+                r["active_page"] = kept[0]["id"]
+                r["html"] = kept[0].get("html", "")
+            r["updated_at"] = time.time()
+            self._write(rows)
+            return r
+        return None
+
     async def save_html(
         self, project_id: str, html: str, *, label: str = "Edited"
     ) -> dict | None:
@@ -205,6 +311,14 @@ class DesignStore:
             r["html"] = html
             r["version_label"] = label
             r["updated_at"] = time.time()
+            pages = self._pages(r)
+            active = r.get("active_page") or pages[0]["id"]
+            for p in pages:
+                if p["id"] == active:
+                    p["html"] = html
+                    p["updated_at"] = r["updated_at"]
+            r["pages"] = pages
+            r["active_page"] = active
             self._write(rows)
             return r
         return None
