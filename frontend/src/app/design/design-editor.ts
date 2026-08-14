@@ -39,10 +39,20 @@ export interface EditorDetails {
   text: string;
 }
 
+/** Where the selection sits, in the frame's own coordinates. */
+export interface EditorRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  svg: boolean;   // an SVG node: it moves, but it has no box to resize
+}
+
 /** Frame → parent. */
 export interface EditorEvent {
   dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed';
   label?: string;                     // e.g. "section.hero"
+  rect?: EditorRect;                  // where to put the floating toolbar
   details?: EditorDetails;            // populated in inspect and edit modes
   html?: string;                      // the document, editor artifacts removed
   x?: number;                         // comment position, as a 0..1 fraction
@@ -92,9 +102,31 @@ export const EDITOR_SCRIPT = String.raw`
 
   function post(msg) { parent.postMessage(msg, '*'); }
 
+  // SVG has no CSS box: left/top and width/height do nothing there, so a node
+  // inside a chart or an icon has to be moved with a transform instead.
+  function isSvg(el) {
+    return !!el && typeof SVGElement !== 'undefined' && el instanceof SVGElement &&
+      el.tagName.toLowerCase() !== 'svg';
+  }
+
   function editable(el) {
     return el && el.nodeType === 1 && el !== document.body &&
       el !== document.documentElement && !el.closest('[data-dz]');
+  }
+
+  // The selection overlay sits on top of what it frames, so a second click —
+  // or a double-click to retype — lands on the overlay rather than the
+  // element. Look past anything this editor drew.
+  function beneath(x, y) {
+    var list = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
+    for (var i = 0; i < list.length; i++) {
+      if (!list[i].closest('[data-dz]')) return list[i];
+    }
+    return null;
+  }
+
+  function target(el, x, y) {
+    return el && el.closest && el.closest('[data-dz]') ? beneath(x, y) : el;
   }
 
   function label(el) {
@@ -158,28 +190,50 @@ export const EDITOR_SCRIPT = String.raw`
       return;
     }
     ensureBox().style.display = 'block';
-    // Handles only make sense where they do something.
+    // Handles only make sense where they do something: not while inspecting,
+    // and not on an SVG node, which has no box to pull on.
     box.classList.toggle('inspect', mode === 'inspect');
+    box.classList.toggle('svg', isSvg(el));
     place();
-    post({ dz: 'selected', label: label(el), details: details(el) });
+    var r = el.getBoundingClientRect();
+    post({
+      dz: 'selected',
+      label: label(el),
+      rect: { x: r.left, y: r.top, w: r.width, h: r.height, svg: isSvg(el) },
+      details: details(el)
+    });
   }
 
   // -- drag & resize --------------------------------------------------------
+  /** The translate this editor previously appended, split from the rest. */
+  function splitTransform(el) {
+    var tf = (el.getAttribute('transform') || '').trim();
+    var m = tf.match(/^(.*?)\s*translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)\s*\)$/);
+    if (m) return { base: m[1], x: parseFloat(m[2]), y: parseFloat(m[3]) };
+    return { base: tf, x: 0, y: 0 };
+  }
+
   function beginDrag(target, x, y) {
     if (!sel || mode !== 'edit') return;
     var handle = target && target.dataset ? target.dataset.dzHandle : null;
     var r = sel.getBoundingClientRect();
-    var s = getComputedStyle(sel);
-    if (s.position === 'static') sel.style.position = 'relative';
-    drag = {
-      kind: handle || 'move',
-      startX: x,
-      startY: y,
-      left: parseFloat(sel.style.left || '0') || 0,
-      top: parseFloat(sel.style.top || '0') || 0,
-      w: r.width,
-      h: r.height
-    };
+    if (isSvg(sel)) {
+      var tf = splitTransform(sel);
+      drag = {
+        kind: 'move', svg: true, base: tf.base,
+        startX: x, startY: y, left: tf.x, top: tf.y, w: r.width, h: r.height
+      };
+    } else {
+      var s = getComputedStyle(sel);
+      if (s.position === 'static') sel.style.position = 'relative';
+      drag = {
+        kind: handle || 'move', svg: false,
+        startX: x, startY: y,
+        left: parseFloat(sel.style.left || '0') || 0,
+        top: parseFloat(sel.style.top || '0') || 0,
+        w: r.width, h: r.height
+      };
+    }
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onDrop);
   }
@@ -195,6 +249,16 @@ export const EDITOR_SCRIPT = String.raw`
     if (!drag || !sel) return;
     var dx = x - drag.startX;
     var dy = y - drag.startY;
+    if (drag.svg) {
+      var tx = drag.left + dx;
+      var ty = drag.top + dy;
+      sel.setAttribute(
+        'transform',
+        (drag.base ? drag.base + ' ' : '') + 'translate(' + tx + ' ' + ty + ')'
+      );
+      place();
+      return;
+    }
     if (drag.kind === 'move') {
       sel.style.left = (drag.left + dx) + 'px';
       sel.style.top = (drag.top + dy) + 'px';
@@ -246,6 +310,7 @@ export const EDITOR_SCRIPT = String.raw`
       return;
     }
     if (!editable(el)) { select(null); return; }
+    if (el === sel) return;   // clicking the selection keeps it
     // In edit mode a click selects — which is what makes it draggable and
     // resizable. Text is a double-click, the way every design tool does it.
     select(el);
@@ -254,6 +319,9 @@ export const EDITOR_SCRIPT = String.raw`
   function startTyping(el) {
     if (!editable(el) || mode !== 'edit') return;
     select(el);
+    // SVG text can't be contenteditable, so it gets a real input laid over it
+    // and its textContent written back. Same gesture, either way.
+    if (isSvg(el)) return typeOverSvg(el);
     el.setAttribute('contenteditable', 'true');
     el.focus();
     post({ dz: 'typing' });
@@ -265,20 +333,52 @@ export const EDITOR_SCRIPT = String.raw`
     });
   }
 
+  function typeOverSvg(el) {
+    var r = el.getBoundingClientRect();
+    var s = getComputedStyle(el);
+    var input = mark(document.createElement('input'));
+    input.className = 'dz-svg-input';
+    input.value = el.textContent || '';
+    input.style.cssText =
+      'position:absolute;z-index:2147483001;left:' + (r.left + scrollX - 4) +
+      'px;top:' + (r.top + scrollY - 3) + 'px;min-width:' + Math.max(60, r.width + 16) +
+      'px;height:' + (r.height + 6) + 'px;font:' + s.font + ';color:' + s.fill +
+      ';background:#fff;border:1px solid #0071E3;border-radius:3px;padding:0 4px';
+    document.body.appendChild(input);
+    input.focus();
+    input.select();
+    post({ dz: 'typing' });
+
+    function finish(keep) {
+      if (keep) el.textContent = input.value;
+      input.remove();
+      post({ dz: 'typed' });
+      place();
+      if (keep) flush();
+    }
+    input.addEventListener('keydown', function (e) {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', function () { finish(true); });
+  }
+
   document.addEventListener('dblclick', function (e) {
     if (mode !== 'edit') return;
     e.preventDefault();
     e.stopPropagation();
-    startTyping(e.target);
+    startTyping(target(e.target, e.clientX, e.clientY));
   }, true);
 
   document.addEventListener('click', function (e) {
     if (mode === 'view') return;   // links, buttons and scripts behave normally
-    if (mode === 'comment' || editable(e.target)) {
+    var el = target(e.target, e.clientX, e.clientY);
+    if (mode === 'comment' || editable(el)) {
       e.preventDefault();
       e.stopPropagation();
     }
-    handleClick(e.target, e.pageX, e.pageY);
+    handleClick(el, e.pageX, e.pageY);
   }, true);
 
   document.addEventListener('keydown', function (e) {
@@ -289,9 +389,18 @@ export const EDITOR_SCRIPT = String.raw`
     var map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (map[e.key]) {
       e.preventDefault();
-      if (getComputedStyle(sel).position === 'static') sel.style.position = 'relative';
-      sel.style.left = ((parseFloat(sel.style.left || '0') || 0) + map[e.key][0]) + 'px';
-      sel.style.top = ((parseFloat(sel.style.top || '0') || 0) + map[e.key][1]) + 'px';
+      if (isSvg(sel)) {
+        var tf = splitTransform(sel);
+        sel.setAttribute(
+          'transform',
+          (tf.base ? tf.base + ' ' : '') +
+            'translate(' + (tf.x + map[e.key][0]) + ' ' + (tf.y + map[e.key][1]) + ')'
+        );
+      } else {
+        if (getComputedStyle(sel).position === 'static') sel.style.position = 'relative';
+        sel.style.left = ((parseFloat(sel.style.left || '0') || 0) + map[e.key][0]) + 'px';
+        sel.style.top = ((parseFloat(sel.style.top || '0') || 0) + map[e.key][1]) + 'px';
+      }
       place();
       flush();
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -353,6 +462,9 @@ export const EDITOR_SCRIPT = String.raw`
         clone.querySelectorAll('[data-dz-hover]').forEach(function (n) {
           n.removeAttribute('data-dz-hover');
         });
+        clone.querySelectorAll('[data-dz-handle]').forEach(function (n) {
+          n.removeAttribute('data-dz-handle');
+        });
         clone.querySelectorAll('[contenteditable]').forEach(function (n) {
           n.removeAttribute('contenteditable');
         });
@@ -370,9 +482,9 @@ export const EDITOR_SCRIPT = String.raw`
   function forwarded(m) {
     var el = document.elementFromPoint(m.x, m.y);
     if (m.kind === 'click') {
-      handleClick(el, m.x + scrollX, m.y + scrollY);
+      handleClick(target(el, m.x, m.y), m.x + scrollX, m.y + scrollY);
     } else if (m.kind === 'dblclick') {
-      startTyping(el);
+      startTyping(target(el, m.x, m.y));
     } else if (m.kind === 'down') {
       if (mode !== 'edit') return;
       if (el && el.closest && el.closest('#dz-box')) {

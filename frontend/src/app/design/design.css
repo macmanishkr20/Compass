@@ -807,17 +807,29 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 320px;
   border: 0;
   background: transparent;
   color: var(--ink);
   font-family: var(--sans);
   font-size: 0.87rem;
+  font-style: italic;
   font-weight: 500;
   padding: 5px 9px;
   border-radius: 8px;
   cursor: pointer;
-  max-width: 260px;
 }
+
+/* One line, cut with an ellipsis — a wrapped title pushes the toolbar around. */
+.dz-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dz-title svg { flex: none; }
 
 .dz-title:hover { background: var(--bg-2); }
 
@@ -1666,3 +1678,46 @@
 .dz-modal-head .dz-search { margin-left: auto; }
 .dz-modal-head .dz-icon { margin-left: 10px; }
 .dz-modal-body.scroll { max-height: 62vh; overflow-y: auto; padding-top: 8px; }
+
+
+/* -- the edit toolbar, floating over the selection */
+.dz-float {
+  position: absolute;
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-lg);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.dz-float-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--info); font-weight: 600; }
+.dz-float-hint { color: var(--muted); }
+
+.dz-float-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.dz-float button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px;
+  cursor: pointer;
+  display: inline-flex;
+}
+
+.dz-float button:hover { background: var(--bg-2); color: var(--ink); }
+.dz-float button.danger:hover { color: var(--danger); background: var(--danger-tint); }
+
+/* An SVG node moves but has no box to pull on, so it shows no handles. */
+#dz-box.svg .dz-h { display: none; }

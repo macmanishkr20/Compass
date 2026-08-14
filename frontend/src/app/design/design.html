@@ -296,8 +296,9 @@
         </button>
 
         <div class="dz-menu-wrap">
-          <button class="dz-title" (click)="$event.stopPropagation(); projectMenuOpen.set(!projectMenuOpen())">
-            {{ project.name }}
+          <button class="dz-title" [title]="project.name"
+            (click)="$event.stopPropagation(); projectMenuOpen.set(!projectMenuOpen())">
+            <span class="dz-title-text">{{ project.name }}</span>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
           @if (projectMenuOpen()) {
@@ -396,32 +397,7 @@
       </header>
 
       <!-- ---------- selection bar (Select tool) ---------- -->
-      @if (tool() === 'edit' && selection()) {
-        <div class="dz-sel">
-          <span class="dz-sel-tag">{{ selection() }}</span>
-          <span class="dz-sel-hint">
-            @if (typing()) {
-              typing — click away to keep it
-            } @else {
-              drag to move · handles to resize · arrows to nudge · double-click to retype
-            }
-          </span>
-          <div class="dz-sel-actions">
-            <button (click)="align('left')" title="Align left">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5v14M8 8h11M8 16h7" stroke-linecap="round"/></svg>
-            </button>
-            <button (click)="align('center')" title="Centre">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v16M6 8h12M8 16h8" stroke-linecap="round"/></svg>
-            </button>
-            <button (click)="align('right')" title="Align right">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 5v14M5 8h11M9 16h7" stroke-linecap="round"/></svg>
-            </button>
-            <button class="danger" (click)="deleteSelected()" title="Delete element">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-          </div>
-        </div>
-      }
+
       @if (tool() === 'inspect') {
         @if (details(); as d) {
           <div class="dz-inspect">
@@ -454,6 +430,32 @@
         <pre class="dz-code">{{ project.html }}</pre>
       } @else if (project.html) {
         <div class="dz-stage" #stage>
+          @if (tool() === 'edit' && selection() && toolbarAt(); as at) {
+            <div class="dz-float" [style.left.px]="at.left" [style.top.px]="at.top"
+              (pointerdown)="$event.stopPropagation()">
+              <span class="dz-float-tag">{{ selection() }}</span>
+              @if (typing()) {
+                <span class="dz-float-hint">typing — click away to keep it</span>
+              } @else {
+                <span class="dz-float-sep"></span>
+                @if (!at.svg) {
+                  <button (click)="align('left')" title="Align left">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5v14M8 8h11M8 16h7" stroke-linecap="round"/></svg>
+                  </button>
+                  <button (click)="align('center')" title="Centre">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v16M6 8h12M8 16h8" stroke-linecap="round"/></svg>
+                  </button>
+                  <button (click)="align('right')" title="Align right">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 5v14M5 8h11M9 16h7" stroke-linecap="round"/></svg>
+                  </button>
+                  <span class="dz-float-sep"></span>
+                }
+                <button class="danger" (click)="deleteSelected()" title="Delete element">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              }
+            </div>
+          }
           <div class="dz-fit" [style.width.px]="canvasWidth() * scale()"
             (pointerdown)="onCanvasPointer($event, 'down')"
             (pointermove)="onCanvasPointer($event, 'move')"
