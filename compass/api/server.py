@@ -775,6 +775,127 @@ async def design_system_create(
     )
 
 
+@app.post("/v1/design/systems/{system_id}/duplicate")
+async def design_system_duplicate(system_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.services.design import get_system_store
+
+    store = get_system_store()
+    system = await store.get(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="no such design system")
+    return await store.duplicate(system)
+
+
+@app.get("/v1/design/systems/{system_id}/doc")
+async def design_system_doc(system_id: str, user: str = Depends(require_user)) -> dict:
+    """The system as a browsable project: its pages, its parameters, and the
+    files a developer would receive."""
+    from compass.services import design_docs
+    from compass.services.design import get_system_store
+
+    system = await get_system_store().get(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="no such design system")
+    return {
+        "system": {k: v for k, v in system.items() if k != "notes"},
+        "name": system.get("name"),
+        "notes": system.get("notes", ""),
+        "sections": design_docs.tree(system),
+        "params": design_docs.theme(system),
+        "swatches": design_docs._ramp(system),
+        "usage": system.get("usage") or {},
+    }
+
+
+@app.get("/v1/design/systems/{system_id}/page/{section_id}")
+async def design_system_page(
+    system_id: str, section_id: str, user: str = Depends(require_user)
+) -> Response:
+    """One section, as a standalone document — what the preview frames render."""
+    from compass.services import design_docs
+    from compass.services.design import get_system_store
+
+    system = await get_system_store().get(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="no such design system")
+    try:
+        html = design_docs.page_html(system, section_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="no such page")
+    return Response(content=html, media_type="text/html")
+
+
+@app.get("/v1/design/systems/{system_id}/file")
+async def design_system_file(
+    system_id: str, path: str = "styles.css", user: str = Depends(require_user)
+) -> Response:
+    """A raw file from the system — the token sheet, the guide, the record."""
+    from compass.services import design_docs
+    from compass.services.design import get_system_store
+
+    system = await get_system_store().get(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="no such design system")
+    files = {
+        "styles.css": (design_docs.styles_css, "text/css"),
+        "readme.md": (design_docs.readme_md, "text/markdown"),
+        "theme.json": (design_docs.theme_json, "application/json"),
+    }
+    if path not in files:
+        raise HTTPException(status_code=404, detail="no such file")
+    build, media = files[path]
+    return Response(content=build(system), media_type=media)
+
+
+@app.get("/v1/design/systems/{system_id}/export")
+async def design_system_export(system_id: str, user: str = Depends(require_user)) -> Response:
+    from compass.services import design_docs
+    from compass.services.design import get_system_store
+
+    system = await get_system_store().get(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail="no such design system")
+    stem = "".join(
+        c for c in system.get("name", "design-system") if c.isalnum() or c in " -_"
+    ).strip() or "design-system"
+    return Response(
+        content=design_docs.system_zip(system),
+        media_type="application/zip",
+        headers={"content-disposition": f'attachment; filename="{stem}.zip"'},
+    )
+
+
+class SystemUsage(BaseModel):
+    section: str
+    note: str
+
+
+@app.post("/v1/design/systems/{system_id}/usage")
+async def design_system_usage(
+    system_id: str, body: SystemUsage, user: str = Depends(require_user)
+) -> dict:
+    """Usage notes a team adds to a section. Only a system of the user's own can
+    carry them — the included ones are read-only by design."""
+    from compass.services.design import get_system_store
+
+    store = get_system_store()
+    rows = store._read()
+    for r in rows:
+        if r.get("id") == system_id:
+            usage = dict(r.get("usage") or {})
+            if body.note.strip():
+                usage[body.section] = body.note.strip()
+            else:
+                usage.pop(body.section, None)
+            r["usage"] = usage
+            r["updated_at"] = time.time()
+            store._write(rows)
+            return {"usage": usage}
+    raise HTTPException(
+        status_code=404, detail="usage notes can only be added to your own systems"
+    )
+
+
 @app.delete("/v1/design/systems/{system_id}")
 async def design_system_delete(system_id: str, user: str = Depends(require_user)) -> dict:
     from compass.services.design import get_system_store
@@ -1007,6 +1128,7 @@ class DesignGenerate(BaseModel):
     template: str = ""  # "" = keep the project's own template
     design_system: str = ""
     model: str = ""     # deployment chosen in the composer; "" = the default
+    images: list[str] = []  # data: URLs to design from
 
 
 @app.post("/v1/design/projects/{project_id}/generate")
@@ -1051,6 +1173,7 @@ async def design_generate(
             max_tokens=32_000,
             prefer_main=True,
             model=body.model,
+            images=body.images,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"design generation failed: {err}")

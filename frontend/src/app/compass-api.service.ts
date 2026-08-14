@@ -14,6 +14,7 @@ import {
   CustomizeInfo,
   DesignProject,
   DesignSystem,
+  DesignSystemDoc,
   DesignTemplate,
   DesignTurn,
   DesignVersion,
@@ -489,15 +490,68 @@ export class CompassApiService {
   deleteDesignSystem(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(this.http.delete<{ deleted: boolean }>(`/v1/design/systems/${id}`));
   }
+  // -- a design system as a project
+  designSystemDoc(id: string): Promise<DesignSystemDoc> {
+    return firstValueFrom(
+      this.http.get<DesignSystemDoc>(`/v1/design/systems/${id}/doc`),
+    );
+  }
+  /** A section's page, loaded straight into a preview frame. */
+  designSystemPageUrl(id: string, sectionId: string): string {
+    return `/v1/design/systems/${id}/page/${sectionId}`;
+  }
+  designSystemPage(id: string, sectionId: string): Promise<string> {
+    return firstValueFrom(
+      this.http.get(this.designSystemPageUrl(id, sectionId), { responseType: 'text' }),
+    );
+  }
+  designSystemFileUrl(id: string, path: string): string {
+    return `/v1/design/systems/${id}/file?path=${encodeURIComponent(path)}`;
+  }
+  duplicateDesignSystem(id: string): Promise<DesignSystem> {
+    return firstValueFrom(
+      this.http.post<DesignSystem>(`/v1/design/systems/${id}/duplicate`, {}),
+    );
+  }
+  designSystemExportUrl(id: string): string {
+    return `/v1/design/systems/${id}/export`;
+  }
+  designSystemFile(id: string, path: string): Promise<string> {
+    return firstValueFrom(
+      this.http.get(this.designSystemFileUrl(id, path), { responseType: 'text' }),
+    );
+  }
+  saveSystemUsage(
+    id: string,
+    section: string,
+    note: string,
+  ): Promise<{ usage: Record<string, string> }> {
+    return firstValueFrom(
+      this.http.post<{ usage: Record<string, string> }>(
+        `/v1/design/systems/${id}/usage`,
+        { section, note },
+      ),
+    );
+  }
+
   /** The export URL — the browser fetches it directly so it lands as a file. */
   designExportUrl(id: string, format: string): string {
     return `/v1/design/projects/${id}/export?format=${format}`;
   }
 
   /** Generate or refine a project's design. Slow — a whole document is written. */
-  generateDesign(id: string, prompt: string, model = ''): Promise<DesignProject> {
+  generateDesign(
+    id: string,
+    prompt: string,
+    model = '',
+    images: string[] = [],
+  ): Promise<DesignProject> {
     return firstValueFrom(
-      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, { prompt, model }),
+      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, {
+        prompt,
+        model,
+        images,
+      }),
     );
   }
 

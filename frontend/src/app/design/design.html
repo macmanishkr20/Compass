@@ -1,4 +1,210 @@
-@if (open(); as project) {
+@if (openSystem(); as system) {
+  <!-- ============== a design system, opened as a project ============== -->
+  <div class="ds-work">
+    <header class="ds-bar">
+      <span class="ds-mark">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3a9 9 0 000 18h1.5a2.5 2.5 0 002-4 2.5 2.5 0 012-4H19a3 3 0 003-3 8 8 0 00-10-8z" stroke-linejoin="round"/><circle cx="8.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="10.5" r="1.2" fill="currentColor"/></svg>
+      </span>
+      <div class="dz-menu-wrap">
+        <button class="dz-title" (click)="$event.stopPropagation(); systemMenuOpen.set(!systemMenuOpen())">
+          {{ system.name }}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        @if (systemMenuOpen()) {
+          <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+            <button role="menuitem" (click)="useSystem()">Design with this system</button>
+            <button role="menuitem" (click)="duplicateSystem()">Duplicate</button>
+            <button role="menuitem" (click)="exportSystem()">Export the project (.zip)</button>
+            <div class="dz-menu-sep"></div>
+            <button role="menuitem" (click)="closeSystemDoc()">Back to Design</button>
+          </div>
+        }
+      </div>
+
+      <button class="dz-icon" [class.on]="railOpen()" (click)="railOpen.set(!railOpen())"
+        title="Toggle the context panel" aria-label="Toggle context panel">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M10 4v16"/></svg>
+      </button>
+      <button class="dz-icon" [class.on]="docSearchOpen()" (click)="docSearchOpen.set(!docSearchOpen())"
+        title="Search this system" aria-label="Search this system">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
+      </button>
+      @if (docSearchOpen()) {
+        <input class="ds-search" type="search" [ngModel]="docSearch()"
+          (ngModelChange)="docSearch.set($event)" placeholder="Search pages" aria-label="Search pages" />
+      }
+
+      <span class="ds-chip">Design System</span>
+      <div class="dz-menu-wrap">
+        <button class="ds-files" (click)="$event.stopPropagation(); filesMenuOpen.set(!filesMenuOpen())">
+          <span class="ds-files-name">{{ openFile() || 'No file open' }}</span>
+          <span class="ds-files-count">{{ docSections().length }} pages</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        @if (filesMenuOpen()) {
+          <div class="dz-menu" role="menu" (click)="$event.stopPropagation()">
+            @for (f of systemFiles; track f) {
+              <button role="menuitem" (click)="showFile(f)">
+                <span class="dz-menu-label">{{ f }}</span>
+                @if (openFile() === f) { <span class="dz-menu-hint">open</span> }
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="ds-bar-right">
+        <button class="dz-share" (click)="shareSystem()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 13a4 4 0 006 0l3-3a4 4 0 00-6-6l-1 1" stroke-linecap="round"/><path d="M15 11a4 4 0 00-6 0l-3 3a4 4 0 006 6l1-1" stroke-linecap="round"/></svg>
+          Share
+        </button>
+      </div>
+    </header>
+    @if (shareNote()) { <div class="dz-note">{{ shareNote() }}</div> }
+
+    <div class="ds-body" [class.no-rail]="!railOpen()">
+      <!-- ---------- context rail ---------- -->
+      @if (railOpen()) {
+        <aside class="ds-rail">
+          <div class="ds-rail-mid">
+            <h2>Start with context</h2>
+            <p class="ds-rail-sub">Designs grounded in real context turn out better.</p>
+            <button class="ds-ctx" (click)="useSystem()">
+              <span class="ds-ctx-icon orange">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+              </span>
+              Design system
+            </button>
+            <label class="ds-ctx">
+              <span class="ds-ctx-icon green">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6" stroke-linejoin="round"/></svg>
+              </span>
+              Screenshot
+              <input type="file" accept="image/*" multiple hidden (change)="onShots($event)" />
+            </label>
+            <button class="ds-ctx" (click)="useCodebase()">
+              <span class="ds-ctx-icon blue">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 8l-4 4 4 4M16 8l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              Codebase
+            </button>
+            <button class="ds-ctx off" disabled
+              title="Figma isn't connected — Compass has no Figma connector configured">
+              <span class="ds-ctx-icon pink">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3H10a3 3 0 000 6h4a3 3 0 000-6zM10 9a3 3 0 000 6h4M12 15v3a3 3 0 11-3-3z" stroke-linejoin="round"/></svg>
+              </span>
+              Figma
+              <span class="ds-ctx-q">?</span>
+            </button>
+            @if (shots().length) {
+              <div class="ds-shots">
+                @for (src of shots(); track $index) {
+                  <span class="ds-shot">
+                    <img [src]="src" alt="" />
+                    <button (click)="dropShot($index)" aria-label="Remove">×</button>
+                  </span>
+                }
+              </div>
+            }
+          </div>
+
+          <div class="dz-composer">
+            <textarea rows="2" [ngModel]="prompt()" (ngModelChange)="prompt.set($event)"
+              (keydown)="onComposerKey($event)"
+              placeholder="Describe what you want to create..."></textarea>
+            <div class="dz-composer-foot">
+              <label class="dz-round" title="Attach a screenshot">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+                <input type="file" accept="image/*" multiple hidden (change)="onShots($event)" />
+              </label>
+              @if (models().length) {
+                <select class="dz-mini" [ngModel]="model()" (ngModelChange)="model.set($event)"
+                  title="Model" aria-label="Model">
+                  @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
+                </select>
+              }
+              <button class="dz-send" (click)="useSystem(); create()"
+                [disabled]="creating() || !prompt().trim()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
+                Send
+              </button>
+            </div>
+          </div>
+        </aside>
+      }
+
+      <!-- ---------- the project ---------- -->
+      <section class="ds-doc">
+        @if (docLoading()) {
+          <p class="dz-empty">Opening the system…</p>
+        } @else if (doc(); as d) {
+          <nav class="ds-tree">
+            @for (g of docGroups(); track $index) {
+              @if (g.name) { <div class="ds-tree-group">{{ g.name }}</div> }
+              @for (sec of g.sections; track sec.id) {
+                <button class="ds-tree-item" [class.top]="!sec.group"
+                  [class.on]="activeSection() === sec.id" (click)="scrollToSection(sec.id)">
+                  @if (!sec.group) {
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h7v13H4zM13 6h7v13h-7z"/></svg>
+                  }
+                  {{ sec.name }}
+                </button>
+              }
+            }
+          </nav>
+
+          <div class="ds-pages" (scroll)="onDocScroll($event)">
+            @if (openFile(); as f) {
+              <article class="ds-file">
+                <header>
+                  <span class="ds-file-name">{{ f }}</span>
+                  <button class="dz-icon sm" (click)="openFile.set('')" aria-label="Close file">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+                  </button>
+                </header>
+                <pre>{{ openFileText() }}</pre>
+              </article>
+            }
+
+            @for (sec of docSections(); track sec.id; let i = $index) {
+              @if (groupStart(i); as g) { <p class="ds-group-label">{{ g }}</p> }
+              <article class="ds-section" [id]="'ds-' + sec.id">
+                <header>
+                  <div class="ds-section-head">
+                    <h3>{{ sec.name }}</h3>
+                    <p class="ds-section-blurb">{{ sec.blurb }}</p>
+                  </div>
+                  <button class="dz-btn" (click)="editSection(sec)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Edit
+                  </button>
+                </header>
+                <div class="ds-preview">
+                  <iframe [src]="pageUrl(sec.id)" [title]="sec.name" loading="lazy"
+                    sandbox="allow-same-origin"></iframe>
+                </div>
+                @if (usageFor() === sec.id) {
+                  <div class="ds-usage-edit">
+                    <textarea rows="3" [ngModel]="usageDraft()" (ngModelChange)="usageDraft.set($event)"
+                      placeholder="How your team should use this page"></textarea>
+                    <div class="ds-usage-foot">
+                      <button class="dz-btn" (click)="usageFor.set('')">Cancel</button>
+                      <button class="dz-btn primary" (click)="saveUsage()">Save note</button>
+                    </div>
+                  </div>
+                } @else if (d.usage[sec.id]) {
+                  <p class="ds-usage" (click)="startUsage(sec)">{{ d.usage[sec.id] }}</p>
+                } @else {
+                  <button class="ds-usage-add" (click)="startUsage(sec)">Add usage notes</button>
+                }
+              </article>
+            }
+          </div>
+        }
+      </section>
+    </div>
+  </div>
+} @else if (open(); as project) {
   <!-- ================= workspace: chat left, canvas right ================= -->
   <div class="dz-work" [class.solo]="!chatOpen()">
     @if (chatOpen()) {
@@ -491,12 +697,12 @@
           </div>
 
           @for (s of systems(); track s.id) {
-            <article class="dz-system">
+            <article class="dz-system" (click)="openSystemDoc(s)">
               <header>
                 <span class="dz-system-name">{{ s.name }}</span>
                 <span class="dz-system-src">{{ s.fonts || s.source }}</span>
                 @if (s.origin) { <span class="dz-system-origin">{{ s.origin }}</span> }
-                <button class="dz-icon sm danger" (click)="removeSystem(s, $event)" aria-label="Delete">
+                <button class="dz-icon sm danger" (click)="$event.stopPropagation(); removeSystem(s, $event)" aria-label="Delete">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
               </header>
@@ -512,12 +718,13 @@
           <h3 class="dz-included-head">Included design systems</h3>
           <div class="dz-specimens">
             @for (s of included(); track s.id) {
-              <article class="dz-specimen"
+              <article class="dz-specimen" (click)="openSystemDoc(s)"
                 [style.--sp-display]="s.font_display"
                 [style.--sp-body]="s.font_body">
                 <header>
                   <span class="dz-specimen-fonts">{{ s.fonts }}</span>
-                  <button class="dz-icon sm" (click)="system.set(s.id)" [title]="'Use ' + s.name">
+                  <button class="dz-icon sm" (click)="$event.stopPropagation(); system.set(s.id)"
+                    [title]="'Design with ' + s.name">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   </button>
                 </header>

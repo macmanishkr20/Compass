@@ -82,6 +82,7 @@ class ModelClient(Protocol):
         max_tokens: int = 2_000,
         prefer_main: bool = False,
         model: str = "",
+        images: list[str] | None = None,
     ) -> str: ...
 
 
@@ -295,6 +296,7 @@ class AzureModelClient:
         max_tokens: int = 2_000,
         prefer_main: bool = False,
         model: str = "",
+        images: list[str] | None = None,
     ) -> str:
         """Non-streaming call for side tasks (compaction summaries, suggestions,
         design generation). `max_tokens` must be generous for reasoning models:
@@ -309,9 +311,17 @@ class AzureModelClient:
         settings = get_settings()
         from openai import BadRequestError, NotFoundError
 
+        # With images the user turn becomes multimodal — the same call, with the
+        # pictures alongside the words, which is what "design from this
+        # screenshot" needs.
+        user_content: object = text
+        if images:
+            user_content = [{"type": "text", "text": text}] + [
+                {"type": "image_url", "image_url": {"url": src}} for src in images
+            ]
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": text},
+            {"role": "user", "content": user_content},
         ]
         order = (
             (settings.azure.deployment, settings.azure.utility_deployment)
@@ -549,6 +559,7 @@ class MockModelClient:
         max_tokens: int = 2_000,
         prefer_main: bool = False,
         model: str = "",
+        images: list[str] | None = None,
     ) -> str:
         return "Mock summary of the session so far."
 

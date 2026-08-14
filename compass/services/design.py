@@ -238,6 +238,23 @@ class DesignSystem:
 BUILTIN_SYSTEMS: list[dict] = [
     {
         "id": "builtin-modernist",
+        "tagline": (
+        "Swiss-school modernism: a strict grid, Archivo everywhere, square corners, "
+        "strong rules and one red accent on a near-white ground."
+        ),
+        "params": {
+            "ground": "light (scheme: mono, hue 8°, saturation 0.85)",
+            "fonts": "Archivo / Archivo",
+            "density": "1.00×",
+            "radius": "0px",
+            "layout": "grid",
+            "dividers": "strong",
+            "buttons": "solid, flush-left labels",
+            "color_use": "fill",
+            "frame": "none",
+            "image_treatment": "grayscale",
+            "icons": "geometric",
+        },
         "name": "Modernist",
         "source": "included",
         "builtin": True,
@@ -268,6 +285,23 @@ BUILTIN_SYSTEMS: list[dict] = [
     },
     {
         "id": "builtin-classical",
+        "tagline": (
+        "Book typography: parchment and aged gold, Cormorant for display and Lora "
+        "for reading, wide margins, hairline rules and no radii."
+        ),
+        "params": {
+            "ground": "light (scheme: warm, hue 40°, saturation 0.50)",
+            "fonts": "Cormorant Garamond / Lora",
+            "density": "1.15×",
+            "radius": "0px",
+            "layout": "single column",
+            "dividers": "hairline",
+            "buttons": "text with a rule",
+            "color_use": "accent only",
+            "frame": "none",
+            "image_treatment": "sepia",
+            "icons": "geometric",
+        },
         "name": "Classical",
         "source": "included",
         "builtin": True,
@@ -299,6 +333,24 @@ BUILTIN_SYSTEMS: list[dict] = [
     },
     {
         "id": "builtin-nocturne",
+        "tagline": (
+        "Dark by default: Inter throughout, violet accents, soft glows, and surfaces "
+        "that lift off a near-black ground."
+        ),
+        "dark": True,
+        "params": {
+            "ground": "dark (scheme: cool, hue 258°, saturation 0.60)",
+            "fonts": "Inter / Inter",
+            "density": "0.95×",
+            "radius": "10px",
+            "layout": "grid",
+            "dividers": "subtle",
+            "buttons": "solid with a glow",
+            "color_use": "fill",
+            "frame": "card",
+            "image_treatment": "none",
+            "icons": "geometric",
+        },
         "name": "Nocturne",
         "source": "included",
         "builtin": True,
@@ -328,6 +380,23 @@ BUILTIN_SYSTEMS: list[dict] = [
     },
     {
         "id": "builtin-organic",
+        "tagline": (
+        "Warm and round: Caprasimo display over Figtree text, terracotta on cream, "
+        "generous padding and soft edges everywhere."
+        ),
+        "params": {
+            "ground": "light (scheme: warm, hue 24°, saturation 0.70)",
+            "fonts": "Caprasimo / Figtree",
+            "density": "1.05×",
+            "radius": "18px",
+            "layout": "stacked",
+            "dividers": "none",
+            "buttons": "pill",
+            "color_use": "fill",
+            "frame": "rounded",
+            "image_treatment": "warm",
+            "icons": "geometric",
+        },
         "name": "Organic",
         "source": "included",
         "builtin": True,
@@ -413,6 +482,20 @@ class DesignSystemStore:
         rows.append(s)
         self._write(rows)
         return s
+
+    async def duplicate(self, system: dict) -> dict:
+        """Copy a system into the user's own, so an included one can be
+        annotated and retuned without being edited in place."""
+        rows = self._read()
+        copy = dict(system)
+        copy["id"] = uuid.uuid4().hex[:12]
+        copy["name"] = f"{system.get('name', 'Untitled system')} copy"
+        copy["source"] = "copied"
+        copy["builtin"] = False
+        copy["created_at"] = copy["updated_at"] = time.time()
+        rows.append(copy)
+        self._write(rows)
+        return copy
 
     async def delete(self, system_id: str) -> bool:
         rows = self._read()

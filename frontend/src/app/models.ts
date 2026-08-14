@@ -349,6 +349,25 @@ export interface DesignSystem {
   updated_at: number;
 }
 
+/** One page of a design system's project. */
+export interface DesignSection {
+  id: string;
+  group: string;
+  name: string;
+  file: string;
+  blurb: string;
+}
+
+/** A design system opened as a browsable project. */
+export interface DesignSystemDoc {
+  name: string;
+  notes: string;
+  sections: DesignSection[];
+  params: Record<string, string>;
+  swatches: string[];
+  usage: Record<string, string>;
+}
+
 /** One past state of a design. `html` only comes back on a restore. */
 export interface DesignVersion {
   id: string;

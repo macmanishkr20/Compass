@@ -1215,3 +1215,353 @@
   .dz-chat { border-right: 0; border-bottom: 1px solid var(--border); }
   .dz-tiles { grid-template-columns: repeat(3, 1fr); }
 }
+
+
+/* ============ a design system, opened as a project ============ */
+.ds-work {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ds-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ds-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+
+.ds-search {
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  width: 170px;
+  outline: none;
+}
+
+.ds-chip {
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 9px;
+  padding: 5px 12px;
+  font-size: 0.79rem;
+  font-weight: 600;
+}
+
+.ds-files {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 8px;
+  position: relative;
+}
+
+.ds-files:hover { background: var(--bg-2); }
+.ds-files-name { font-size: 0.82rem; font-weight: 600; }
+.ds-files-count { font-size: 0.7rem; color: var(--faint); }
+.ds-files svg { position: absolute; right: -8px; top: 10px; color: var(--faint); }
+
+.ds-bar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.ds-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+}
+
+.ds-body.no-rail { grid-template-columns: 1fr; }
+
+/* -- context rail */
+.ds-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.ds-rail-mid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 22px;
+}
+
+.ds-rail-mid h2 {
+  margin: 0;
+  text-align: center;
+  font-family: Georgia, "Iowan Old Style", serif;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.ds-rail-sub {
+  margin: 0 0 12px;
+  text-align: center;
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+
+.ds-ctx {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  padding: 8px 14px 8px 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ds-ctx:hover { border-color: var(--border-strong); }
+.ds-ctx.off { opacity: 0.75; cursor: default; }
+
+.ds-ctx-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.ds-ctx-icon.orange { background: #D8663A; }
+.ds-ctx-icon.green { background: #4E9A6A; }
+.ds-ctx-icon.blue { background: #3B7FD4; }
+.ds-ctx-icon.pink { background: #C2528E; }
+
+.ds-ctx-q {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--faint);
+  font-size: 0.68rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-shots { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+
+.ds-shot { position: relative; display: inline-block; }
+.ds-shot img {
+  width: 54px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.ds-shot button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* -- the document */
+.ds-doc {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ds-tree {
+  overflow-y: auto;
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ds-tree-group {
+  margin: 14px 10px 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ds-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  text-align: left;
+  padding: 6px 10px 6px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ds-tree-item.top { padding-left: 10px; color: var(--ink); }
+.ds-tree-item:hover { background: var(--bg-2); color: var(--ink); }
+.ds-tree-item.on { background: var(--bg-2); color: var(--ink); font-weight: 600; }
+
+.ds-pages {
+  overflow-y: auto;
+  padding: 20px 26px 80px;
+  min-width: 0;
+}
+
+.ds-group-label {
+  margin: 34px 0 10px;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.ds-section { margin-bottom: 18px; }
+
+.ds-section header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.ds-section-head { min-width: 0; }
+.ds-section h3 { margin: 0 0 3px; font-size: 1.05rem; font-weight: 600; }
+.ds-section-blurb { margin: 0; font-size: 0.84rem; color: var(--muted); max-width: 72ch; }
+.ds-section header .dz-btn { margin-left: auto; flex: none; }
+
+.ds-preview {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-2);
+  height: 560px;
+}
+
+.ds-preview iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+
+.ds-usage-add {
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.ds-usage-add:hover { color: var(--ink); }
+
+.ds-usage {
+  margin: 10px 0 0;
+  font-size: 0.84rem;
+  color: var(--muted);
+  border-left: 2px solid var(--accent-line);
+  padding-left: 10px;
+  cursor: text;
+}
+
+.ds-usage-edit { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+.ds-usage-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  padding: 9px 11px;
+  resize: vertical;
+  outline: none;
+}
+
+.ds-usage-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+.ds-file {
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  margin-bottom: 22px;
+  overflow: hidden;
+}
+
+.ds-file header {
+  display: flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ds-file-name { font-family: var(--mono); font-size: 0.8rem; font-weight: 600; }
+.ds-file header .dz-icon { margin-left: auto; }
+
+.ds-file pre {
+  margin: 0;
+  padding: 14px;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dz-specimen { cursor: pointer; }
+.dz-specimen:hover { border-color: var(--border-strong); }
+.dz-system { cursor: pointer; }
+
+@media (max-width: 1100px) {
+  .ds-body { grid-template-columns: 1fr; }
+  .ds-rail { border-right: 0; border-bottom: 1px solid var(--border); }
+  .ds-doc { grid-template-columns: 200px 1fr; }
+}
