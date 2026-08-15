@@ -175,6 +175,140 @@ export class Design {
   readonly referenced = signal<string[]>([]);   // other designs used as reference
   readonly attachNote = signal('');
 
+  // -- what the + menu's items open ---------------------------------------
+  /** 'github' asks for a repo and clones it; 'local' takes a folder. */
+  readonly codebaseModal = signal<'' | 'github' | 'local'>('');
+  readonly figHelpOpen = signal(false);
+  readonly skillsOpen = signal(false);
+  readonly connectorsOpen = signal(false);
+  readonly connectors = signal<Array<{ name: string; detail: string; connected: boolean }>>([]);
+  /** Folder picked in "Attach codebase", held until Attach is pressed. */
+  readonly stagedFolder = signal<Array<{ name: string; text: string }>>([]);
+  readonly staging = signal(false);
+
+  /** The design skills: what Compass knows how to make, and what it can do to
+   *  a design once it exists. The making ones are the templates themselves. */
+  readonly enhanceSkills = [
+    {
+      id: 'a11y',
+      name: 'Accessibility pass',
+      hint: 'Contrast, focus order, labels and hit areas',
+      directive: 'Then go over it for accessibility: colour contrast to AA, a '
+        + 'visible focus ring on everything focusable, labelled controls, and '
+        + 'hit areas of at least 44px.',
+    },
+    {
+      id: 'responsive',
+      name: 'Make it responsive',
+      hint: 'One design that holds up from phone to desktop',
+      directive: 'Make it responsive: it must hold up at 390px, 768px and '
+        + '1440px without a horizontal scrollbar.',
+    },
+    {
+      id: 'copy',
+      name: 'Tighten the copy',
+      hint: 'Shorter, plainer, no filler',
+      directive: 'Tighten every line of copy: plain words, no filler, and '
+        + 'headings that say what the thing is.',
+    },
+    {
+      id: 'print',
+      name: 'Ready it for print',
+      hint: 'Page size, margins and CMYK-safe colour',
+      directive: 'Prepare it for print: a real page size with margins, no '
+        + 'colours that only work on screen, and nothing that relies on hover.',
+    },
+  ];
+
+  openCodebaseModal(kind: 'github' | 'local'): void {
+    this.attachOpen.set(false);
+    this.stagedFolder.set([]);
+    this.error.set('');
+    this.codebaseModal.set(kind);
+    void this.loadWorkspaces();
+  }
+
+  closeCodebaseModal(): void {
+    this.codebaseModal.set('');
+    this.stagedFolder.set([]);
+  }
+
+  /** "or browse…" and the drop zone both land here. */
+  async stageFolder(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    await this.stageFiles(files);
+  }
+
+  async onDropCodebase(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    this.dropping.set(false);
+    await this.stageFiles([...(event.dataTransfer?.files ?? [])]);
+  }
+
+  private async stageFiles(files: File[]): Promise<void> {
+    if (!files.length) return;
+    this.staging.set(true);
+    try {
+      // Text the model can actually read, and only as much as is useful.
+      const useful = files
+        .filter((f) => /\.(html?|css|scss|less|jsx?|tsx?|json|md|svg|vue|svelte)$/i.test(f.name))
+        .slice(0, 40);
+      const read = await Promise.all(
+        useful.map(async (f) => ({
+          name: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+          text: (await f.text()).slice(0, 20_000),
+        })),
+      );
+      this.stagedFolder.set(read);
+      if (!read.length) {
+        this.error.set('Nothing readable in there — drop the frontend or design-system folder.');
+      }
+    } catch {
+      this.error.set('Could not read that folder.');
+    } finally {
+      this.staging.set(false);
+    }
+  }
+
+  /** Attach what was staged, so the next design is written against it. */
+  attachStaged(): void {
+    const staged = this.stagedFolder();
+    if (!staged.length) return;
+    this.contextFiles.update((rows) => [...rows, ...staged]);
+    this.attachNote.set(`${staged.length} file${staged.length === 1 ? '' : 's'} attached`);
+    this.closeCodebaseModal();
+  }
+
+  async openConnectors(): Promise<void> {
+    this.attachOpen.set(false);
+    this.connectorsOpen.set(true);
+    try {
+      const info = await this.api.customize();
+      this.connectors.set(info.connectors ?? []);
+    } catch {
+      this.connectors.set([]);
+    }
+  }
+
+  /** Apply a skill: the making ones pick the template, the rest are said in
+   *  the brief itself so the design is judged against them. */
+  useSkill(kind: 'make' | 'enhance', id: string): void {
+    this.skillsOpen.set(false);
+    if (kind === 'make') {
+      this.pickTemplate(id);
+      return;
+    }
+    const skill = this.enhanceSkills.find((s) => s.id === id);
+    if (!skill) return;
+    if (this.open()) {
+      this.refine.update((t) => (t.trim() ? `${t.trim()} ${skill.directive}` : skill.directive));
+    } else {
+      this.prompt.update((t) => (t.trim() ? `${t.trim()}\n\n${skill.directive}` : skill.directive));
+    }
+  }
+
   // -- pages and the project's own files
   readonly pages = signal<DesignPage[]>([]);
   readonly activePage = signal('');

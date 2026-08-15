@@ -2854,3 +2854,145 @@
   font-size: 0.74rem;
   color: var(--muted);
 }
+
+/* ===================== the + menu's dialogs ===================== */
+.dz-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 20, 22, 0.42);
+}
+
+.dz-modal {
+  width: min(560px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.dz-modal.wide { width: min(760px, 100%); }
+.dz-modal.narrow { width: min(460px, 100%); }
+
+.dz-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 22px 24px 12px;
+}
+
+.dz-modal-head > div { flex: 1; }
+
+.dz-modal-head h2 {
+  margin: 0;
+  font-family: var(--serif, Georgia, serif);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.dz-modal-head h2.plain {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 1.12rem;
+  font-weight: 600;
+}
+
+.dz-modal-head p { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+
+.dz-modal-body { padding: 4px 24px 12px; overflow: auto; }
+.dz-modal-body.list { padding: 4px 12px 12px; }
+.dz-modal-body.prose { font-size: 0.92rem; line-height: 1.6; }
+.dz-modal-body.prose ol { margin: 10px 0; padding-left: 20px; }
+.dz-modal-body.prose li { margin: 6px 0; }
+.dz-modal-note { color: var(--muted); font-size: 0.82rem; }
+
+.dz-modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px 20px;
+}
+
+.dz-modal-foot.end { justify-content: flex-end; }
+.dz-modal-foot.spread { justify-content: space-between; }
+
+/* The dashed area both codebase dialogs are built around. */
+.dz-drop {
+  margin: 6px 24px 4px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 14px;
+  padding: 34px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  background: var(--bg-2);
+}
+
+.dz-drop.tall { min-height: 260px; }
+.dz-drop.filled { cursor: pointer; }
+.dz-drop.dropping { border-color: var(--accent, #c96442); background: var(--bg-3, var(--bg-2)); }
+.dz-drop-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.dz-drop-line { margin: 0; color: var(--muted); font-size: 0.9rem; max-width: 42ch; }
+.dz-drop-sub { margin: 10px 0 0; color: var(--faint); font-size: 0.78rem; }
+.dz-drop-row { display: flex; gap: 8px; width: min(420px, 100%); }
+.dz-drop-row .dz-field { flex: 1; }
+.dz-drop-picks { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+
+/* Skills and connectors read as rows with an action on the right. */
+.dz-skill-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 12px 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.dz-skill,
+.dz-conn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.dz-conn { cursor: default; }
+.dz-skill:hover, .dz-skill.on { background: var(--bg-2); }
+.dz-skill-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dz-skill-name { font-size: 0.94rem; font-weight: 600; }
+.dz-skill-hint { color: var(--muted); font-size: 0.82rem; }
+
+.dz-skill-use {
+  opacity: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  background: var(--surface);
+}
+
+.dz-skill:hover .dz-skill-use, .dz-skill.on .dz-skill-use { opacity: 1; }
+.dz-conn-on { color: var(--ok, #3f7d58); font-size: 0.82rem; }
+.dz-conn-off { color: var(--faint); font-size: 0.82rem; }
+
