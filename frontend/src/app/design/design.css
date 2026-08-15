@@ -2047,8 +2047,12 @@
   background: transparent;
   cursor: pointer;
   padding: 0;
-  perspective: 1400px;
-  display: block;
+  /* No perspective: the lid folds flat rather than swinging towards the
+     camera. Under perspective the closing lid is magnified as it comes
+     forward, and its corners jut out past the ends of the base. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   width: 100%;
   max-width: 300px;
 }
@@ -2056,6 +2060,7 @@
 .dz-laptop-lid {
   display: block;
   width: 100%;
+  box-sizing: border-box;
   aspect-ratio: 300 / 190;
   background: linear-gradient(168deg, #3a3a3d, #232326);
   border-radius: 11px 11px 4px 4px;
@@ -2065,8 +2070,10 @@
   transition: transform 0.75s cubic-bezier(0.5, 0, 0.2, 1);
 }
 
-/* Closed: the lid folds down onto the base. */
+/* Closed: the lid folds down onto the base, and the screen goes with it. */
 .dz-laptop.closed .dz-laptop-lid { transform: rotateX(-88deg); }
+.dz-laptop.closed .dz-laptop-screen { opacity: 0; }
+.dz-laptop-screen { transition: opacity 0.35s ease; }
 
 .dz-laptop-screen {
   display: block;
@@ -2116,7 +2123,7 @@
   display: block;
   width: 107%;
   height: 10px;
-  margin: 0 auto 0 -3.5%;
+  margin: 0;
   background: linear-gradient(180deg, #d8d9dd, #b3b5bc);
   border-radius: 0 0 9px 9px;
   position: relative;
@@ -3042,3 +3049,18 @@
 }
 
 .dz-chip-x:hover { background: var(--bg-2); color: var(--ink); }
+
+/* What was sent with a message rides on the bubble, not in the composer. */
+.dz-bubble-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.dz-bubble-chip.file {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -174,6 +174,9 @@ export class Design {
   readonly contextFiles = signal<Array<{ name: string; text: string; kind?: string }>>([]);
   /** An attachment is being read — a PDF goes to the server for that. */
   readonly reading = signal(false);
+  /** Attachments already sent: off the composer, still in the conversation,
+   *  so a follow-up is written against them too. */
+  private readonly carriedFiles = signal<Array<{ name: string; text: string; kind?: string }>>([]);
   readonly referenced = signal<string[]>([]);   // other designs used as reference
   readonly attachNote = signal('');
 
@@ -920,7 +923,12 @@ export class Design {
     // server, which would land after this and wipe the question.
     this.openProject(project, prompt);
     this.turns.set([
-      { role: 'user', text: prompt, template: this.templateName(project.template) },
+      {
+        role: 'user',
+        text: prompt,
+        template: this.templateName(project.template),
+        files: this.takeAttachments(),
+      },
     ]);
 
     let form: DesignClarify | null = null;
@@ -948,6 +956,7 @@ export class Design {
         role: 'user',
         text: this.askedFor(),
         template: this.templateName(project.template),
+        files: this.turns()[0]?.files ?? [],
       },
       { role: 'assistant', steps: ['Ask user'], text: form.note || 'Waiting on the form.' },
     ];
@@ -1028,7 +1037,10 @@ export class Design {
     this.clarify.set(null);
     await this.renameOpen(project, this.titleFrom(subject));
     await this.api.patchDesign(project.id, { clarify: {} }).catch(() => undefined);
-    this.turns.update((t) => [...t, { role: 'user', text: lines.join('\n') }]);
+    this.turns.update((t) => [
+      ...t,
+      { role: 'user', text: lines.join('\n'), files: this.takeAttachments() },
+    ]);
     await this.run(this.withContext(brief));
   }
 
@@ -1057,6 +1069,7 @@ export class Design {
         text: lines.length
           ? `${lines.join('\n')}\n\nDecide the rest for me.`
           : 'Decide for me.',
+        files: this.takeAttachments(),
       },
     ]);
     await this.run(this.withContext(brief));
@@ -1137,6 +1150,7 @@ export class Design {
     if (this.creating()) return;
     this.creating.set(true);
     this.error.set('');
+    const files = this.takeAttachments();
     try {
       const project = await this.api.createDesign({
         name: this.titleFrom(prompt),
@@ -1147,6 +1161,9 @@ export class Design {
       this.projects.update((rows) => [project, ...rows]);
       this.prompt.set('');
       this.openProject(project, prompt);
+      this.turns.set([
+        { role: 'user', text: prompt, template: this.templateName(project.template), files },
+      ]);
       await this.run(this.withContext(prompt));
     } catch {
       this.error.set('Could not create the project.');
@@ -1155,10 +1172,18 @@ export class Design {
     }
   }
 
-  /** Whatever was attached rides along with the brief. */
+  /** The names to show on the bubble, and the move off the composer. */
+  private takeAttachments(): string[] {
+    const pending = this.contextFiles();
+    if (!pending.length) return [];
+    this.carriedFiles.update((rows) => [...rows, ...pending].slice(-24));
+    this.contextFiles.set([]);
+    return pending.map((f) => f.name);
+  }
+
   private withContext(prompt: string): string {
     const parts = [prompt];
-    for (const file of this.contextFiles()) {
+    for (const file of [...this.carriedFiles(), ...this.contextFiles()]) {
       if (!file.text.trim()) continue;   // an image: the model is shown it instead
       parts.push(`Reference — ${file.name}:\n${file.text.slice(0, 40_000)}`);
     }
@@ -1360,12 +1385,25 @@ export class Design {
     return new Date(epochSeconds * 1000).toLocaleDateString();
   }
 
+  /** A brief with attachments folded in, back to the words that were typed. */
+  private spokenPart(text: string): string {
+    const cut = text.indexOf('\n\nReference — ');
+    return (cut > 0 ? text.slice(0, cut) : text).trim();
+  }
+
   private async hydrate(id: string): Promise<void> {
     try {
       const full = await this.api.designProject(id);
       this.open.set(full);
+      const stored = (full.turns ?? []).map((t) =>
+        t.role === 'user' ? { ...t, text: this.spokenPart(t.text) } : t,
+      );
       this.turns.set(
-        full.turns?.length ? full.turns : full.prompt ? [{ role: 'user', text: full.prompt }] : [],
+        stored.length
+          ? stored
+          : full.prompt
+            ? [{ role: 'user', text: this.spokenPart(full.prompt) }]
+            : [],
       );
       // A project that was waiting on an answer is still waiting on it.
       if (full.clarify?.fields?.length) {
@@ -1419,6 +1457,7 @@ export class Design {
 
   close(): void {
     this.clarify.set(null);
+    this.carriedFiles.set([]);
     this.open.set(null);
     this.selection.set('');
     void this.load();
@@ -1428,7 +1467,7 @@ export class Design {
     const text = this.refine().trim();
     if (!text || this.working()) return;
     this.refine.set('');
-    this.turns.update((t) => [...t, { role: 'user', text }]);
+    this.turns.update((t) => [...t, { role: 'user', text, files: this.takeAttachments() }]);
     await this.run(text);
   }
 
@@ -1454,7 +1493,27 @@ export class Design {
       this.projects.update((rows) =>
         rows.map((r) => (r.id === updated.id ? { ...r, ...updated, html: undefined } : r)),
       );
-      this.turns.set(updated.turns ?? []);
+      // The server rebuilds the transcript from the prompts it was given, so
+      // it knows nothing about the template chip or what was attached. Put
+      // those back on their turns, and store the result.
+      const mine = this.turns();
+      const merged = (updated.turns ?? []).map((t, i) => {
+        const local = mine[i];
+        if (t.role !== 'user') return t;
+        // The brief that went to the model carries the attachments inlined.
+        // The bubble shows what was actually typed; the files are the chips.
+        const spoken = local?.role === 'user' ? local.text : this.spokenPart(t.text);
+        return {
+          ...t,
+          text: spoken || this.spokenPart(t.text),
+          template: t.template ?? local?.template,
+          files: t.files?.length ? t.files : local?.files,
+        };
+      });
+      this.turns.set(merged);
+      if (merged.some((t) => t.files?.length || t.template)) {
+        await this.api.patchDesign(project.id, { turns: merged }).catch(() => undefined);
+      }
     } catch {
       this.error.set('Generation failed. Try again, or reword the prompt.');
       this.turns.update((t) => [

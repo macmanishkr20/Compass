@@ -441,6 +441,7 @@ export interface DesignTurn {
   role: 'user' | 'assistant';
   text: string;
   template?: string;   // the template chip shown under a user turn
+  files?: string[];    // attachments sent with it, shown as chips on the bubble
   steps?: string[];   // the work the turn did, shown as collapsible rows
   file?: string;      // the document it wrote, shown as a chip
   vote?: 'up' | 'down';

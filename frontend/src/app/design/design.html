@@ -229,7 +229,14 @@
               <div class="dz-turn user">
                 <div class="dz-bubble">
                   {{ t.text }}
-                  @if (t.template) { <span class="dz-bubble-chip">{{ t.template }}</span> }
+                  @if (t.template || t.files?.length) {
+                    <span class="dz-bubble-chips">
+                      @if (t.template) { <span class="dz-bubble-chip">{{ t.template }}</span> }
+                      @for (f of t.files ?? []; track f) {
+                        <span class="dz-bubble-chip file" [title]="f">{{ f }}</span>
+                      }
+                    </span>
+                  }
                 </div>
               </div>
             } @else {
