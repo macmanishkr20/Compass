@@ -1881,6 +1881,18 @@ export class App {
   // -- Customize: tools, connectors and automations in one place ------------
   readonly customizeOpen = signal(false);
   readonly customize = signal<CustomizeInfo | null>(null);
+  /** Customize, opened at the part that was asked for — the Design composer's
+   *  menu points at Skills and at connectors, which both live in here. */
+  async openCustomizeAt(part: 'tools' | 'connectors'): Promise<void> {
+    await this.openCustomize();
+    setTimeout(() => {
+      const target = part === 'tools'
+        ? document.querySelector('.cz-tools')
+        : document.querySelector('.mem-body .cz-row');
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 80);
+  }
+
   async openCustomize(): Promise<void> {
     this.userMenuOpen.set(false);
     this.customizeOpen.set(true);

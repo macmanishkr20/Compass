@@ -733,7 +733,8 @@
     <!-- Design stays mounted once visited, so an open project and its chat
          survive a section switch — the same treatment Home gets. -->
     @if (designSeen()) {
-      <app-design [style.display]="section() === 'design' ? null : 'none'" />
+      <app-design [style.display]="section() === 'design' ? null : 'none'"
+        (customize)="openCustomizeAt($event)" />
     }
 
     @if (section() === 'code' && view() === 'chat') {

@@ -7,10 +7,12 @@ import {
   computed,
   effect,
   inject,
+  output,
   signal,
   viewChild,
 } from '@angular/core';
 import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CompassApiService } from '../compass-api.service';
 import {
@@ -66,7 +68,7 @@ const LANDING_ROWS = 4;
 @Component({
   selector: 'app-design',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   templateUrl: './design.html',
   styleUrl: './design.css',
   host: { '(document:click)': 'closeMenus()' },
@@ -122,6 +124,12 @@ export class Design {
    *  take the tools down with it, and silence there is indistinguishable from
    *  "nothing selected" — so say so instead. */
   readonly toolsLive = signal(false);
+  /** Did the canvas frame finish loading? A design whose own script never
+   *  settles — a redraw that retriggers itself is the usual way — leaves a
+   *  blank canvas, which looks like Compass failing rather than the design. */
+  readonly frameLoaded = signal(false);
+  /** The canvas stopped answering — its design's script is looping. */
+  readonly pegged = signal(false);
   readonly zoom = signal<'fit' | number>('fit');
 
   // -- menus and panels
@@ -156,6 +164,10 @@ export class Design {
 
   // -- the composer's own menus
   readonly attachOpen = signal(false);
+  /** The reference-a-project list, folded away until asked for. */
+  readonly refsOpen = signal(false);
+  /** Skills and connectors live in Customize; the menu points at them. */
+  readonly customize = output<'tools' | 'connectors'>();
   readonly codebaseOpen = signal(false);
   readonly githubRepo = signal('');
   readonly cloning = signal(false);
@@ -1273,8 +1285,14 @@ export class Design {
   }
 
   private onEditorEvent(event: EditorEvent): void {
+    if (event.dz === 'pong') {
+      this.pegged.set(false);
+      if (this.pingTimer) clearTimeout(this.pingTimer);
+      return;
+    }
     if (event.dz === 'ready') {
       this.toolsLive.set(true);
+      this.pingAgent();
       this.toAgent({ dz: 'mode', mode: this.tool() });
       this.toAgent({
         dz: 'pins',
@@ -1303,18 +1321,49 @@ export class Design {
   /** Give the agent a moment to boot, then admit it if it never did. */
   private watchAgent(): void {
     this.toolsLive.set(false);
+    this.frameLoaded.set(false);
+    this.pegged.set(false);
+    if (this.pingTimer) clearTimeout(this.pingTimer);
     if (this.agentTimer) clearTimeout(this.agentTimer);
     this.agentTimer = setTimeout(() => {
-      if (!this.toolsLive() && this.open()?.html) {
+      if (!this.open()?.html) return;
+      if (!this.frameLoaded()) {
+        this.error.set(
+          "This design's own script never finished — the page is stuck, so the " +
+            'canvas stayed blank. Ask for a fix, or restore an earlier version ' +
+            'from history.',
+        );
+      } else if (!this.toolsLive()) {
         this.error.set(
           'The canvas tools did not start for this design — inspect and edit are ' +
             'unavailable. Viewing, Present and Export still work.',
         );
       }
-    }, 4000);
+    }, 6000);
   }
 
   private agentTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Ask the canvas whether it is still answering. A design whose own script
+   *  loops — a redraw that retriggers itself is the usual way — pegs the frame
+   *  after it has loaded, so it renders nothing and answers nothing. That looks
+   *  like Compass failing, so say whose script it is. */
+  private pingAgent(): void {
+    if (this.pingTimer) clearTimeout(this.pingTimer);
+    setTimeout(() => {
+      if (!this.open()?.html) return;
+      this.toAgent({ dz: 'ping' } as EditorCommand);
+      this.pingTimer = setTimeout(() => {
+        this.pegged.set(true);
+        this.error.set(
+          "This design's own script is stuck in a loop — it pegged the canvas, " +
+            'so nothing rendered. Ask for a fix, or restore an earlier version ' +
+            'from history. Export and Present read the stored file and still work.',
+        );
+      }, 2500);
+    }, 1200);
+  }
 
   private queueSave(html: string): void {
     const project = this.open();

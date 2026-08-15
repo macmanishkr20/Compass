@@ -298,9 +298,16 @@
             (keydown)="onRefineKey($event)" [disabled]="working()"
             placeholder="Describe what you want to create..."></textarea>
           <div class="dz-composer-foot">
-            <button class="dz-round" (click)="startImport()" title="Add a design system" aria-label="Add">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-            </button>
+            <div class="dz-menu-wrap up">
+              <button class="dz-round" [class.on]="attachOpen()"
+                (click)="$event.stopPropagation(); attachOpen.set(!attachOpen()); codebaseOpen.set(false)"
+                title="Attach context" aria-label="Attach context">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+              </button>
+              @if (attachOpen()) {
+                <ng-container [ngTemplateOutlet]="attachMenu" />
+              }
+            </div>
             @if (models().length) {
               <select class="dz-mini" [ngModel]="model()" (ngModelChange)="model.set($event)"
                 title="Model" aria-label="Model">
@@ -775,7 +782,7 @@
             (pointerup)="onCanvasPointer($event, 'up')"
             (dblclick)="onCanvasDblClick($event)">
             <iframe #frame class="dz-frame" [srcdoc]="canvas()" title="Design preview"
-              (load)="measureStage()"
+              (load)="frameLoaded.set(true); measureStage()"
               [style.width.px]="canvasWidth()"
               [style.height.px]="frameHeight()"
               [style.transform]="'scale(' + scale() + ')'"
@@ -860,60 +867,7 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
             </button>
             @if (attachOpen()) {
-              <div class="dz-attach" role="menu" (click)="$event.stopPropagation()">
-                <p class="dz-attach-group">Files</p>
-                <label class="dz-attach-item">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 12l-9 9a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Attach file
-                  <input type="file" multiple hidden (change)="onAttach($event, 'file')" />
-                </label>
-                <label class="dz-attach-item">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
-                  Attach folder
-                  <input type="file" webkitdirectory multiple hidden (change)="onAttach($event, 'folder')" />
-                </label>
-                <div class="dz-attach-sub">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16v12a2 2 0 01-2 2H6a2 2 0 01-2-2zM3 4h18v3H3z" stroke-linejoin="round"/></svg>
-                  Reference another project
-                </div>
-                <div class="dz-attach-refs">
-                  @for (p of projects().slice(0, 5); track p.id) {
-                    <button class="dz-attach-ref" [class.on]="referenced().includes(p.id)"
-                      (click)="referenceProject(p.id)">{{ p.name }}</button>
-                  }
-                  @if (!projects().length) {
-                    <span class="dz-attach-none">No other designs yet.</span>
-                  }
-                </div>
-
-                <p class="dz-attach-group">Code</p>
-                <button class="dz-attach-item" (click)="openCodebase()">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M6 8.5v7M8.4 7.4A6 6 0 0117 9v0a6 6 0 01-8.6 5.4" stroke-linecap="round"/></svg>
-                  Connect GitHub
-                </button>
-                <button class="dz-attach-item" (click)="openCodebase()">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
-                  Link local code…
-                </button>
-
-                <p class="dz-attach-group">Designs</p>
-                <label class="dz-attach-item">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                  Upload .fig file
-                  <span class="dz-attach-tag" title="Compass can't read Figma's binary format — export tokens as JSON or CSS, or point at the repo">Learn how</span>
-                  <input type="file" accept=".fig" hidden (change)="onSetupFig($event)" />
-                </label>
-
-                <div class="dz-menu-sep"></div>
-                <button class="dz-attach-item" (click)="attachOpen.set(false); systemPickerOpen.set(true)">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
-                  Design system
-                </button>
-                <button class="dz-attach-item" (click)="attachOpen.set(false); openSetup()">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 6l4 4-8 8H6v-4z" stroke-linejoin="round"/><path d="M16 4l4 4" stroke-linecap="round"/></svg>
-                  Set up a design system
-                </button>
-              </div>
+              <ng-container [ngTemplateOutlet]="attachMenu" />
             }
           </div>
           <div class="dz-menu-wrap">
@@ -1681,3 +1635,64 @@ buttons, cards, inputs and tables look, and the voice of the copy.</pre>
     </div>
   </div>
 }
+
+<!-- The + menu, shared by the landing composer and the workspace one. -->
+<ng-template #attachMenu>
+    <div class="dz-attach" role="menu" (click)="$event.stopPropagation()">
+      <p class="dz-attach-group">Files</p>
+      <label class="dz-attach-item">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 12l-9 9a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8-8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Attach file
+        <input type="file" multiple hidden (change)="onAttach($event, 'file')" />
+      </label>
+      <button class="dz-attach-item" (click)="refsOpen.set(!refsOpen())">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16v12a2 2 0 01-2 2H6a2 2 0 01-2-2zM3 4h18v3H3z" stroke-linejoin="round"/></svg>
+        Reference another project
+      </button>
+      @if (refsOpen()) {
+        <div class="dz-attach-refs">
+          @for (p of projects().slice(0, 5); track p.id) {
+            <button class="dz-attach-ref" [class.on]="referenced().includes(p.id)"
+              (click)="referenceProject(p.id)">{{ p.name }}</button>
+          }
+          @if (!projects().length) {
+            <span class="dz-attach-none">No other designs yet.</span>
+          }
+        </div>
+      }
+
+      <div class="dz-menu-sep"></div>
+      <p class="dz-attach-group">Code</p>
+      <button class="dz-attach-item" (click)="openCodebase()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M6 8.5v7M8.4 7.4A6 6 0 0117 9v0a6 6 0 01-8.6 5.4" stroke-linecap="round"/></svg>
+        Connect GitHub
+      </button>
+      <button class="dz-attach-item" (click)="openCodebase()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
+        Link local code…
+      </button>
+
+      <div class="dz-menu-sep"></div>
+      <p class="dz-attach-group">Designs</p>
+      <label class="dz-attach-item">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Upload .fig file
+        <span class="dz-attach-tag" title="Compass can't read Figma's binary format — export tokens as JSON or CSS, or point at the repo">Learn how</span>
+        <input type="file" accept=".fig" hidden (change)="onSetupFig($event)" />
+      </label>
+
+      <div class="dz-menu-sep"></div>
+      <button class="dz-attach-item" (click)="attachOpen.set(false); systemPickerOpen.set(true)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
+        Design system
+      </button>
+      <button class="dz-attach-item" (click)="attachOpen.set(false); customize.emit('tools')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14.5 3.5a4.5 4.5 0 00-6 6l-5 5a2 2 0 103 3l5-5a4.5 4.5 0 006-6l-2.6 2.6-2.4-.6-.6-2.4z" stroke-linejoin="round"/></svg>
+        Skills
+      </button>
+      <button class="dz-attach-item" (click)="attachOpen.set(false); customize.emit('connectors')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7" stroke-linecap="round"/></svg>
+        Manage connectors
+      </button>
+    </div>
+</ng-template>

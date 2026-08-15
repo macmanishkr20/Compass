@@ -2487,6 +2487,14 @@
 
 
 /* ===================== the composer's attach menu ===================== */
+/* In the workspace the composer sits at the bottom, so its menu opens up. */
+.dz-menu-wrap.up { position: relative; }
+
+.dz-menu-wrap.up .dz-attach {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .dz-attach,
 .dz-codepop {
   position: absolute;

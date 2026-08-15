@@ -14,7 +14,7 @@
 
 /** Parent → frame. */
 export interface EditorCommand {
-  dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer' | 'tweak';
+  dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer' | 'tweak' | 'ping';
   /** The custom property a tweak sets, and what to set it to. */
   tweakVar?: string;
   tweakValue?: string;
@@ -62,7 +62,7 @@ export interface EditorTweak {
 }
 
 export interface EditorEvent {
-  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed' | 'tweaks';
+  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed' | 'tweaks' | 'pong';
   tweaks?: EditorTweak[];
   label?: string;                     // e.g. "section.hero"
   rect?: EditorRect;                  // where to put the floating toolbar
@@ -577,6 +577,10 @@ export const EDITOR_SCRIPT = String.raw`
     document.documentElement.style.setProperty(name, value);
     flush();
   }
+
+  window.addEventListener('message', function (e) {
+    if (e && e.data && e.data.dz === 'ping') post({ dz: 'pong' });
+  });
 
   post({ dz: 'ready' });
   post({ dz: 'tweaks', tweaks: readTweaks() });
