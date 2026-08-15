@@ -314,6 +314,22 @@
                 @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
               </select>
             }
+
+          @for (f of contextFiles(); track $index) {
+              <span class="dz-chip" [title]="f.name">
+                <span class="dz-chip-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                </span>
+                <span class="dz-chip-text">
+                  <span class="dz-chip-kind">{{ f.kind || kindOf(f.name) }}</span>
+                  <span class="dz-chip-name">{{ f.name }}</span>
+                </span>
+                <button class="dz-chip-x" (click)="dropContext($index)" aria-label="Remove attachment">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+                </button>
+              </span>
+            }
+            @if (reading()) { <span class="dz-chip busy"><span class="dz-go-spin dark"></span> Reading…</span> }
             <button class="dz-send" (click)="sendRefine()" [disabled]="working() || !refine().trim()">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5l11 7-11 7z"/></svg>
               Send
@@ -981,6 +997,21 @@
               </div>
             }
           </div>
+            @for (f of contextFiles(); track $index) {
+              <span class="dz-chip" [title]="f.name">
+                <span class="dz-chip-icon" aria-hidden="true">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                </span>
+                <span class="dz-chip-text">
+                  <span class="dz-chip-kind">{{ f.kind || kindOf(f.name) }}</span>
+                  <span class="dz-chip-name">{{ f.name }}</span>
+                </span>
+                <button class="dz-chip-x" (click)="dropContext($index)" aria-label="Remove attachment">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+                </button>
+              </span>
+            }
+            @if (reading()) { <span class="dz-chip busy"><span class="dz-go-spin dark"></span> Reading…</span> }
           <label class="dz-field-pick right">
             <span>Model</span>
             <select [ngModel]="model()" (ngModelChange)="model.set($event)">
@@ -1114,6 +1145,7 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></svg>
             </button>
           </div>
+
         </div>
       </div>
 

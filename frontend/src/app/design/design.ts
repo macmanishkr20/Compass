@@ -171,7 +171,9 @@ export class Design {
   readonly codebaseOpen = signal(false);
   readonly githubRepo = signal('');
   readonly cloning = signal(false);
-  readonly contextFiles = signal<Array<{ name: string; text: string }>>([]);
+  readonly contextFiles = signal<Array<{ name: string; text: string; kind?: string }>>([]);
+  /** An attachment is being read — a PDF goes to the server for that. */
+  readonly reading = signal(false);
   readonly referenced = signal<string[]>([]);   // other designs used as reference
   readonly attachNote = signal('');
 
@@ -183,7 +185,7 @@ export class Design {
   readonly connectorsOpen = signal(false);
   readonly connectors = signal<Array<{ name: string; detail: string; connected: boolean }>>([]);
   /** Folder picked in "Attach codebase", held until Attach is pressed. */
-  readonly stagedFolder = signal<Array<{ name: string; text: string }>>([]);
+  readonly stagedFolder = signal<Array<{ name: string; text: string; kind?: string }>>([]);
   readonly staging = signal(false);
 
   /** The design skills: what Compass knows how to make, and what it can do to
@@ -612,37 +614,98 @@ export class Design {
   // ===================== the composer's menus =====================
 
   /** Text files ride along as reference; images go in as vision context. */
+  /** Attach whatever was picked. Text is read here; a PDF, a Word file or a
+   *  zip goes to the same extractor Chat uses, so "attach a PDF and design
+   *  from it" works rather than being quietly dropped. Images become
+   *  something for the model to look at. */
   async onAttach(event: Event, kind: 'file' | 'folder'): Promise<void> {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
-    let added = 0;
-    for (const file of files.slice(0, 24)) {
-      if (file.type.startsWith('image/')) {
-        const dataUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.readAsDataURL(file);
-        });
-        this.shots.update((rows) => [...rows, dataUrl].slice(0, 4));
-        added++;
-        continue;
-      }
-      if (/\.(css|scss|less|js|ts|jsx|tsx|json|md|txt|html?|svg|csv)$/i.test(file.name)) {
-        const text = await file.text();
-        this.contextFiles.update((rows) =>
-          [...rows, { name: file.name, text }].slice(0, 24),
-        );
-        added++;
-      }
-    }
+    input.value = '';
     this.attachOpen.set(false);
+    await this.takeFiles(files, kind);
+  }
+
+  /** Files dropped straight onto the composer land here too. */
+  async onDropAttach(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    this.dropping.set(false);
+    await this.takeFiles([...(event.dataTransfer?.files ?? [])], 'file');
+  }
+
+  private async takeFiles(files: File[], kind: 'file' | 'folder'): Promise<void> {
+    if (!files.length) return;
+    this.reading.set(true);
+    let added = 0;
+    let failed = '';
+    try {
+      for (const file of files.slice(0, 24)) {
+        if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+          const shot = await this.dataUrl(file);
+          this.shots.update((rows) => [...rows, shot].slice(0, 4));
+          this.contextFiles.update((rows) =>
+            [...rows, { name: file.name, text: '', kind: 'Image' }].slice(0, 24),
+          );
+          added++;
+          continue;
+        }
+        // Plain text is quicker to read here; anything else the server reads.
+        if (/\.(css|scss|less|js|ts|jsx|tsx|json|md|txt|html?|svg|csv|ya?ml)$/i.test(file.name)) {
+          const text = (await file.text()).slice(0, 200_000);
+          this.contextFiles.update((rows) =>
+            [...rows, { name: file.name, text, kind: this.kindOf(file.name) }].slice(0, 24),
+          );
+          added++;
+          continue;
+        }
+        try {
+          const read = await this.api.attachForDesign({
+            name: file.name,
+            mime: file.type,
+            data_url: await this.dataUrl(file),
+          });
+          if (read.kind === 'image' && read.data_url) {
+            this.shots.update((rows) => [...rows, read.data_url as string].slice(0, 4));
+            this.contextFiles.update((rows) =>
+              [...rows, { name: file.name, text: '', kind: 'Image' }].slice(0, 24),
+            );
+          } else {
+            this.contextFiles.update((rows) =>
+              [...rows, { name: file.name, text: read.text ?? '', kind: this.kindOf(file.name) }]
+                .slice(0, 24),
+            );
+          }
+          added++;
+        } catch {
+          failed = file.name;
+        }
+      }
+    } finally {
+      this.reading.set(false);
+    }
     this.attachNote.set(
       added
-        ? `Attached ${added} ${kind === 'folder' ? 'files from that folder' : 'file(s)'}.`
-        : 'Nothing there Compass can read as context.',
+        ? `Attached ${added} ${kind === 'folder' ? 'files from that folder' : added === 1 ? 'file' : 'files'}.`
+        : `Could not read ${failed || 'that file'}.`,
     );
     setTimeout(() => this.attachNote.set(''), 4000);
-    input.value = '';
+  }
+
+  private dataUrl(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** The label on the attachment's chip — PDF, DOCX, Image, and so on. */
+  kindOf(name: string): string {
+    const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif'].includes(ext)) return 'Image';
+    if (['md', 'txt', 'rtf'].includes(ext)) return 'Text';
+    if (!ext) return 'File';
+    return ext.toUpperCase();
   }
 
   referenceProject(id: string): void {
@@ -1096,7 +1159,8 @@ export class Design {
   private withContext(prompt: string): string {
     const parts = [prompt];
     for (const file of this.contextFiles()) {
-      parts.push(`Reference — ${file.name}:\n${file.text.slice(0, 12_000)}`);
+      if (!file.text.trim()) continue;   // an image: the model is shown it instead
+      parts.push(`Reference — ${file.name}:\n${file.text.slice(0, 40_000)}`);
     }
     for (const id of this.referenced()) {
       const other = this.projects().find((p) => p.id === id);

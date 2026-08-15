@@ -459,6 +459,22 @@ export class CompassApiService {
       this.http.post<DesignProject>(`/v1/design/projects/${id}/duplicate`, {}),
     );
   }
+  /** Read an attachment server-side: PDFs, Word files and zips come back as
+   *  text, images come back as themselves. */
+  attachForDesign(file: { name: string; mime: string; data_url: string }): Promise<{
+    kind: 'text' | 'image';
+    name: string;
+    text?: string;
+    data_url?: string;
+  }> {
+    return firstValueFrom(
+      this.http.post<{ kind: 'text' | 'image'; name: string; text?: string; data_url?: string }>(
+        '/v1/design/attach',
+        file,
+      ),
+    );
+  }
+
   /** Ask whether a brief is specific enough, and what to ask if it isn't. */
   clarifyDesign(
     prompt: string,

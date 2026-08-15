@@ -615,6 +615,31 @@ class DesignClarify(BaseModel):
     followup: bool = False  # ask the next round rather than the first
 
 
+class DesignAttachment(BaseModel):
+    name: str
+    mime: str = ""
+    data_url: str = ""
+
+
+@app.post("/v1/design/attach")
+async def design_attach(
+    body: DesignAttachment, user: str = Depends(require_user)
+) -> dict:
+    """Read an attachment the way Chat does — a PDF, a Word file or a zip is
+    text once it has been through the same extractor, and the design gets to
+    use it. Images come back untouched, for the model to look at."""
+    from compass.services.attachments import process_attachment
+
+    done = process_attachment(body.model_dump())
+    if not done:
+        raise HTTPException(status_code=415, detail="that file cannot be read")
+    if done.get("kind") == "text" and not (done.get("text") or "").strip():
+        raise HTTPException(
+            status_code=422, detail="nothing readable in that file"
+        )
+    return done
+
+
 @app.post("/v1/design/clarify")
 async def design_clarify(body: DesignClarify, user: str = Depends(require_user)) -> dict:
     """Is this brief enough to design from? If not, what should we ask?"""

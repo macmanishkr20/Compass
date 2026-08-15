@@ -2996,3 +2996,49 @@
 .dz-conn-on { color: var(--ok, #3f7d58); font-size: 0.82rem; }
 .dz-conn-off { color: var(--faint); font-size: 0.82rem; }
 
+
+/* An attachment rides in the composer until it is used or removed. */
+.dz-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  padding: 4px 4px 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.dz-chip.busy { gap: 7px; padding: 6px 12px; color: var(--muted); font-size: 0.8rem; }
+
+.dz-chip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  align-self: stretch;
+  border-radius: 10px 0 0 10px;
+  background: var(--bg-2);
+  color: var(--muted);
+}
+
+.dz-chip-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.dz-chip-kind { color: var(--faint); font-size: 0.68rem; }
+
+.dz-chip-name {
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dz-chip-x {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 7px;
+}
+
+.dz-chip-x:hover { background: var(--bg-2); color: var(--ink); }
