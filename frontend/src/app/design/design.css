@@ -2066,14 +2066,24 @@
   border-radius: 11px 11px 4px 4px;
   padding: 7px 7px 8px;
   transform-origin: bottom center;
-  transform: rotateX(0deg);
-  transition: transform 0.75s cubic-bezier(0.5, 0, 0.2, 1);
+  /* The lid collapses onto the base and is gone — Claude Design closes it in
+     about a fifth of a second, and what is left is the body, not a dark slab
+     lying on top of it. */
+  transform: scaleY(1);
+  opacity: 1;
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.08s linear 0.12s;
 }
 
-/* Closed: the lid folds down onto the base, and the screen goes with it. */
-.dz-laptop.closed .dz-laptop-lid { transform: rotateX(-88deg); }
-.dz-laptop.closed .dz-laptop-screen { opacity: 0; }
-.dz-laptop-screen { transition: opacity 0.35s ease; }
+/* Closed: the lid collapses onto the base and disappears behind it. */
+.dz-laptop.closed .dz-laptop-lid {
+  transform: scaleY(0);
+  opacity: 0;
+  transition:
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.06s linear 0.14s;
+}
 
 .dz-laptop-screen {
   display: block;
@@ -2131,6 +2141,12 @@
      the ends of the base and reads as two dark wedges. */
   box-shadow: 0 7px 16px rgba(0, 0, 0, 0.16);
 }
+
+/* Closed, the body is all there is: a touch taller, so it reads as the whole
+   laptop rather than the lip of one. */
+.dz-laptop.closed .dz-laptop-base { height: 12px; }
+
+.dz-laptop-base { transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
 
 .dz-laptop-notch {
   position: absolute;
