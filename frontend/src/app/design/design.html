@@ -225,7 +225,21 @@
 
         <div class="dz-turns">
           @for (t of turns(); track $index) {
-            @if (t.role === 'user') {
+            @if (t.role === 'user' && t.answers?.length) {
+              <div class="dz-turn user">
+                <div class="dz-answered">
+                  <p class="dz-answered-head">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    You answered
+                  </p>
+                  @for (a of t.answers ?? []; track a.label) {
+                    <p class="dz-answered-row">
+                      <span class="dz-answered-label">{{ a.label }}:</span> {{ a.value }}
+                    </p>
+                  }
+                </div>
+              </div>
+            } @else if (t.role === 'user') {
               <div class="dz-turn user">
                 <div class="dz-bubble">
                   {{ t.text }}

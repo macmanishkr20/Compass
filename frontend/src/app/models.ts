@@ -442,6 +442,7 @@ export interface DesignTurn {
   text: string;
   template?: string;   // the template chip shown under a user turn
   files?: string[];    // attachments sent with it, shown as chips on the bubble
+  answers?: Array<{ label: string; value: string }>;   // a filled-in form, shown as a card
   steps?: string[];   // the work the turn did, shown as collapsible rows
   file?: string;      // the document it wrote, shown as a chip
   vote?: 'up' | 'down';

@@ -1015,6 +1015,18 @@ export class Design {
 
   /** Every answer so far, as lines, and the subject on its own. Earlier rounds
    *  come first: the form on screen is only the latest one. */
+  /** The answers as label/value pairs, for the card the chat shows back. */
+  private answerPairs(): Array<{ label: string; value: string }> {
+    const answers = this.clarifyAnswers();
+    const out: Array<{ label: string; value: string }> = [];
+    for (const field of this.clarify()?.fields ?? []) {
+      const raw = answers[field.id];
+      const text = Array.isArray(raw) ? raw.join(', ') : (raw ?? '').toString();
+      if (text.trim()) out.push({ label: field.label, value: text.trim() });
+    }
+    return out;
+  }
+
   private answerLines(): { subject: string; lines: string[] } {
     const form = this.clarify();
     const answers = this.clarifyAnswers();
@@ -1044,6 +1056,7 @@ export class Design {
   /** Send answer — fold the form into the brief and design from it. */
   async submitClarify(): Promise<void> {
     const project = this.open();
+    const pairs = this.answerPairs();
     const { subject, lines } = this.answerLines();
     if (!project || !subject) return;
     const brief = `${this.opener()}${subject}\n\n${lines.join('\n')}`;
@@ -1052,7 +1065,12 @@ export class Design {
     await this.api.patchDesign(project.id, { clarify: {} }).catch(() => undefined);
     this.turns.update((t) => [
       ...t,
-      { role: 'user', text: lines.join('\n'), files: this.takeAttachments() },
+      {
+        role: 'user',
+        text: lines.join('\n'),
+        answers: pairs,
+        files: this.takeAttachments(),
+      },
     ]);
     await this.run(this.withContext(brief));
   }

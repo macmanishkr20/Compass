@@ -1510,10 +1510,20 @@ async def design_generate(
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"design generation failed: {err}")
 
-    html = out.strip()
-    if "```" in html:  # pull the html out of the fenced block
-        import re
+    import re
 
+    raw_out = out.strip()
+    # The direction it took and the note it leaves are written around the
+    # block, so the conversation can say them instead of "here it is".
+    direction = ""
+    notes = ""
+    if m := re.search(r"^\s*DIRECTION:\s*(.+)$", raw_out, re.M):
+        direction = m.group(1).strip()
+    if m := re.search(r"^\s*NOTES:\s*(.+)$", raw_out, re.M):
+        notes = m.group(1).strip()
+
+    html = raw_out
+    if "```" in html:  # pull the html out of the fenced block
         m = re.search(r"```(?:html)?\s*\n(.*?)```", html, re.S)
         if m:
             html = m.group(1).strip()
@@ -1524,10 +1534,11 @@ async def design_generate(
     # the transcript instead, so reopening a project replays the conversation.
     turns = list(project.get("turns") or [])
     turns.append({"role": "user", "text": body.prompt})
+    said = " ".join(x for x in (direction, notes) if x)
     turns.append(
         {
             "role": "assistant",
-            "text": "Here it is — tell me what to change.",
+            "text": said or "Here it is — tell me what to change.",
             "steps": ["Reading the brief", "Refining design" if project.get("html") else "Designing"],
             "file": f"{project.get('name', 'Design')}.html",
         }

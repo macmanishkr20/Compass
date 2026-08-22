@@ -3124,3 +3124,26 @@
 }
 
 .dz-chip.shot .dz-chip-x:hover { background: rgba(20, 20, 22, 0.8); color: #fff; }
+
+/* A filled-in form comes back as a card, the way Claude Design shows one. */
+.dz-answered {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+  max-width: 100%;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.dz-answered-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dz-answered-row { margin: 0 0 3px; color: var(--ink); }
+.dz-answered-label { font-weight: 600; }
