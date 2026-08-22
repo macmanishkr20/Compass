@@ -18,6 +18,7 @@ pretending the format exists.
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 
 _NO_PLAYWRIGHT = (
@@ -189,6 +190,83 @@ async def to_thumbnail(html: str) -> bytes:
         await pw.stop()
 
 
+def split_page(html: str) -> tuple[str, str, str]:
+    """Pull a self-contained page apart into markup, stylesheet and script.
+
+    A design is written as one file so it can be dropped anywhere. An archive
+    is the other thing a person wants — the same prototype as a small project
+    they can open, read and edit — so the styles become styles.css, the
+    behaviour becomes app.js, and the markup links to both. Declared JSON (the
+    tweak sheet) stays where it is: that is data, not behaviour.
+    """
+    css_parts: list[str] = []
+    js_parts: list[str] = []
+
+    def take_style(m):
+        css_parts.append(m.group(1).strip())
+        return ""
+
+    def take_script(m):
+        attrs = m.group(1) or ""
+        if "src=" in attrs or "application/json" in attrs:
+            return m.group(0)          # a link out, or declared data: leave it
+        js_parts.append(m.group(2).strip())
+        return ""
+
+    markup = re.sub(r"<style[^>]*>(.*?)</style>", take_style, html, flags=re.S | re.I)
+    markup = re.sub(r"<script([^>]*)>(.*?)</script>", take_script, markup, flags=re.S | re.I)
+
+    css = "\n\n".join(x for x in css_parts if x)
+    js = "\n\n".join(x for x in js_parts if x)
+
+    if css:
+        link = '<link rel="stylesheet" href="styles.css">'
+        markup = (
+            re.sub(r"</head>", "  " + link + "\n</head>", markup, count=1, flags=re.I)
+            if re.search(r"</head>", markup, re.I)
+            else link + markup
+        )
+    if js:
+        tag = '<script src="app.js" defer></script>'
+        markup = (
+            re.sub(r"</body>", "  " + tag + "\n</body>", markup, count=1, flags=re.I)
+            if re.search(r"</body>", markup, re.I)
+            else markup + tag
+        )
+
+    markup = re.sub(r"\n{3,}", "\n\n", markup)
+    return markup, css, js
+
+
+SERVE_PY = (
+    '#!/usr/bin/env python3\n'
+    '"""Run this prototype:  python3 serve.py\n\n'
+    'Serves this folder and opens it in your browser. Nothing to install —\n'
+    'it uses only what comes with Python.\n'
+    '"""\n\n'
+    'import http.server\n'
+    'import socketserver\n'
+    'import webbrowser\n'
+    'from pathlib import Path\n\n'
+    'PORT = 8420\n'
+    'HERE = Path(__file__).resolve().parent\n\n\n'
+    'class Handler(http.server.SimpleHTTPRequestHandler):\n'
+    '    def __init__(self, *args, **kwargs):\n'
+    '        super().__init__(*args, directory=str(HERE), **kwargs)\n\n'
+    '    def log_message(self, fmt, *args):\n'
+    '        pass\n\n\n'
+    'if __name__ == "__main__":\n'
+    '    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:\n'
+    '        url = f"http://127.0.0.1:{PORT}/"\n'
+    '        print(f"Prototype running at {url}  (ctrl-c to stop)")\n'
+    '        webbrowser.open(url)\n'
+    '        try:\n'
+    '            httpd.serve_forever()\n'
+    '        except KeyboardInterrupt:\n'
+    '            print("Stopped.")\n'
+)
+
+
 def project_archive(
     *,
     name: str,
@@ -197,17 +275,29 @@ def project_archive(
     files: list[tuple[str, bytes]] | None = None,
     system_notes: str = "",
 ) -> bytes:
-    """Everything the project holds, zipped: every page, every file it was
-    given, and a README saying what is what. Instant — nothing is rendered
+    """The project as something you can run: each page as markup, its styles
+    and its behaviour in their own files, whatever the project was given, and
+    a serve.py that opens the lot in a browser. Instant — nothing is rendered
     and no model is asked."""
-    safe = lambda text: "".join(  # noqa: E731
-        c for c in text if c.isalnum() or c in " ._-"
-    ).strip() or "page"
+
+    def safe(text: str) -> str:
+        keep = "".join(c for c in text if c.isalnum() or c in " ._-").strip()
+        return keep or "page"
 
     readme = [
-        f"# {name}",
+        "# " + name,
         "",
-        "Designed with Compass Design.",
+        "A prototype from Compass Design.",
+        "",
+        "## Run it",
+        "",
+        "```",
+        "python3 serve.py",
+        "```",
+        "",
+        "That serves this folder and opens it. Clicking works, so do the tabs,",
+        "the selections and the notices — it is the prototype, not a picture of",
+        "it. Opening index.html directly works too.",
         "",
         "## Brief",
         "",
@@ -220,12 +310,31 @@ def project_archive(
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for i, page in enumerate(pages):
-            page_name = safe(page.get("name") or f"page-{i + 1}.html")
-            if not page_name.lower().endswith((".html", ".htm")):
-                page_name += ".html"
-            path = f"pages/{page_name}" if len(pages) > 1 else "index.html"
-            z.writestr(path, page.get("html") or "")
-            readme.append(f"- `{path}` — a page of the design, self-contained.")
+            stem = "index" if i == 0 else safe(
+                (page.get("name") or f"page-{i + 1}").rsplit(".", 1)[0]
+            ).replace(" ", "-").lower()
+            markup, css, js = split_page(page.get("html") or "")
+
+            # each page links to its own pair, so pages stay independent
+            if stem != "index":
+                markup = markup.replace('href="styles.css"', f'href="{stem}.css"')
+                markup = markup.replace('src="app.js"', f'src="{stem}.js"')
+            z.writestr(f"{stem}.html", markup)
+            readme.append(f"- `{stem}.html` — the markup for {page.get('name') or stem}.")
+            if css:
+                z.writestr(f"{stem if stem != 'index' else 'styles'}.css", css)
+                readme.append(
+                    f"- `{stem if stem != 'index' else 'styles'}.css` — its styles."
+                )
+            if js:
+                z.writestr(f"{stem if stem != 'index' else 'app'}.js", js)
+                readme.append(
+                    f"- `{stem if stem != 'index' else 'app'}.js` — what it does when "
+                    "you click: navigation, tabs, selection, notices."
+                )
+
+        z.writestr("serve.py", SERVE_PY)
+        readme.append("- `serve.py` — runs it locally; needs nothing installed.")
 
         for rel, blob in files or []:
             z.writestr(f"files/{rel}", blob)
