@@ -207,8 +207,9 @@ _AUDIT_JS = r"""() => {
   const ratio = (a,b) => { const L1=lum(a), L2=lum(b); if(L1==null||L2==null) return null;
     const [hi,lo]=L1>L2?[L1,L2]:[L2,L1]; return (hi+0.05)/(lo+0.05); };
 
-  const root = [...document.querySelectorAll('section')].find(s => s.offsetParent !== null)
-            || document.body;
+  // the whole page: the shell around the screens carries controls too, and a
+  // stretched icon or a thin-grey label in the header counts just as much
+  const root = document.body;
 
   let worst = 99, worstText = '';
   for (const el of root.querySelectorAll('p,td,li,span,h3,h4,label,button,a,div')) {
@@ -227,12 +228,18 @@ _AUDIT_JS = r"""() => {
       .map(b => ({r: b.getBoundingClientRect(), t: (b.textContent||'').trim().slice(0,20)}))
       .filter(x => x.r.width && (x.r.height < 24 || x.r.width < 24));
 
+  const bigIcons = [...root.querySelectorAll('svg')]
+      .filter(v => v.offsetParent !== null)
+      .map(v => v.getBoundingClientRect())
+      .filter(r => r.width > 64 && r.height > 64 && r.width < 400).length;
+
   const emptyTables = [...root.querySelectorAll('table')]
       .filter(t => t.querySelectorAll('tbody tr').length === 0).length;
 
   return {
     contrast: Math.round(worst*100)/100, contrastOn: worstText,
     tiny: tiny.length, tinyFirst: tiny.length ? tiny[0].t : '',
+    bigIcons,
     emptyTables,
     overflowPx: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth)
   };
@@ -264,6 +271,11 @@ async def audit(html: str) -> list[str]:
             findings.append(
                 f"{found['tiny']} hit area(s) under 24px, starting with "
                 f"\u201c{found['tinyFirst']}\u201d"
+            )
+        if found.get("bigIcons"):
+            findings.append(
+                f"{found['bigIcons']} icon(s) blown up past 64px — an svg with "
+                "no width in a flex row"
             )
         if found.get("emptyTables"):
             findings.append(f"{found['emptyTables']} table(s) with no rows")
