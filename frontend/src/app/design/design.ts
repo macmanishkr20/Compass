@@ -1610,6 +1610,14 @@ export class Design {
       if (this.pingTimer) clearTimeout(this.pingTimer);
       return;
     }
+    if (event.dz === 'pageerror') {
+      // The design's own script broke; some of it may not have drawn.
+      this.error.set(
+        "This design's own script hit an error, so part of it may not have " +
+          'drawn. Ask for a fix, or restore an earlier version.',
+      );
+      return;
+    }
     if (event.dz === 'ready') {
       this.toolsLive.set(true);
       this.pingAgent();

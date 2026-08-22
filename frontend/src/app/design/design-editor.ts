@@ -62,7 +62,10 @@ export interface EditorTweak {
 }
 
 export interface EditorEvent {
-  dz: 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed' | 'tweaks' | 'pong';
+  dz:
+    | 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed'
+    | 'tweaks' | 'pong' | 'pageerror';
+  message?: string;                   // what the design's own script threw
   tweaks?: EditorTweak[];
   label?: string;                     // e.g. "section.hero"
   rect?: EditorRect;                  // where to put the floating toolbar
@@ -580,6 +583,12 @@ export const EDITOR_SCRIPT = String.raw`
 
   window.addEventListener('message', function (e) {
     if (e && e.data && e.data.dz === 'ping') post({ dz: 'pong' });
+  });
+
+  // A design whose own script throws renders empty and looks like Compass
+  // losing the file. Say what actually happened.
+  window.addEventListener('error', function (e) {
+    post({ dz: 'pageerror', message: String((e && e.message) || 'script error') });
   });
 
   post({ dz: 'ready' });

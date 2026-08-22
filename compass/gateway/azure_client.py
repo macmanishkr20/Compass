@@ -108,6 +108,9 @@ class AzureModelClient:
                 azure_endpoint=azure.endpoint,
                 api_key=azure.api_key,
                 api_version=azure.api_version,
+                # A whole design — eight working screens of markup — takes
+                # minutes to write. The SDK's default gives up long before.
+                timeout=900.0,
             )
         return self._client
 

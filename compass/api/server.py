@@ -1498,11 +1498,12 @@ async def design_generate(
         from compass.gateway.azure_client import get_model_client
 
         # A full design needs a large budget: on reasoning models the thinking
-        # is billed against the same cap, so a small one returns nothing.
+        # is billed against the same cap, so a small one returns nothing — and
+        # a prototype of eight working screens is a lot of document.
         out = await get_model_client().complete_utility(
             DESIGN_SYSTEM_PROMPT,
             "\n\n".join(p for p in parts if p),
-            max_tokens=32_000,
+            max_tokens=64_000,
             prefer_main=True,
             model=body.model,
             images=body.images,
@@ -1528,7 +1529,13 @@ async def design_generate(
         if m:
             html = m.group(1).strip()
     if not html:
-        raise HTTPException(status_code=502, detail="the model returned no design")
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "the model ran out of room before it finished the design — "
+                "ask for fewer screens, or split it across two requests"
+            ),
+        )
 
     # The seed prompt is the project's identity — refinements are appended to
     # the transcript instead, so reopening a project replays the conversation.
