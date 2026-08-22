@@ -814,9 +814,26 @@
                   </button>
                   <span class="dz-float-sep"></span>
                 }
+                <button [class.on]="askElOpen()" (click)="toggleAskElement()"
+                  title="Ask for a change to this element">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 12a8 8 0 01-11.6 7.1L4 20l1-4.2A8 8 0 1120 12z" stroke-linejoin="round"/></svg>
+                </button>
                 <button class="danger" (click)="deleteSelected()" title="Delete element">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
+              }
+              @if (askElOpen() && !typing()) {
+                <div class="dz-float-ask" (pointerdown)="$event.stopPropagation()">
+                  <input id="dz-ask-el" [ngModel]="askElText()"
+                    (ngModelChange)="askElText.set($event)"
+                    (keydown.enter)="askElement()"
+                    [disabled]="askElBusy()"
+                    placeholder="Change this element to…" />
+                  <button class="dz-float-go" (click)="askElement()"
+                    [disabled]="askElBusy() || !askElText().trim()">
+                    @if (askElBusy()) { <span class="dz-go-spin dark"></span> } @else { Ask }
+                  </button>
+                </div>
               }
             </div>
           }

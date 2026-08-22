@@ -1485,6 +1485,85 @@ class DesignGenerate(BaseModel):
     images: list[str] = []  # data: URLs to design from
 
 
+class DesignElement(BaseModel):
+    html: str                 # the element as it stands
+    instruction: str          # what to change about it
+    label: str = ""           # what it is, e.g. "span.delta"
+    model: str = ""
+
+
+@app.post("/v1/design/projects/{project_id}/element")
+async def design_element(
+    project_id: str, body: DesignElement, user: str = Depends(require_user)
+) -> dict:
+    """Rewrite one element to order — Factory calls this design mode: point at
+    the part that needs attention, say what to change, and the change lands
+    there rather than anywhere else in the document."""
+    from compass.services.design import get_design_store
+
+    project = await get_design_store().get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="no such design project")
+    fragment = (body.html or "").strip()
+    if not fragment:
+        raise HTTPException(status_code=400, detail="nothing selected")
+    if not body.instruction.strip():
+        raise HTTPException(status_code=400, detail="say what to change")
+
+    # The element arrives without its stylesheet, so hand over the palette it
+    # can legitimately name; otherwise it invents var(--success) and gets black.
+    import re as _pre
+
+    tokens = ""
+    if root := _pre.search(r":root\s*{([^}]*)}", project.get("html") or "", _pre.S):
+        names = _pre.findall(r"(--[\w-]+)\s*:\s*([^;]+);", root.group(1))
+        if names:
+            tokens = "\n\nThe design defines these, and only these:\n" + "\n".join(
+                f"  {k}: {v.strip()}" for k, v in names[:40]
+            )
+
+    system = (
+        "You are editing ONE element of a finished design, in place.\n"
+        "Reply with that element's replacement markup and nothing else: no "
+        "commentary, no code fence, no surrounding document. Exactly one root "
+        "element, the same kind as the one you were given unless the "
+        "instruction says otherwise.\n"
+        "Keep every class and id it already has — the document's stylesheet is "
+        "written against them and you cannot see it. Style anything new with an "
+        "inline style attribute, using the custom properties the design already "
+        "defines — the list follows — rather than inventing property names or "
+        "fresh colours. If the colour you want is not among them, write the "
+        "literal value.\n"
+        "Change what was asked and leave the rest of the element alone."
+    )
+    asked = (
+        f"The element{(' — ' + body.label) if body.label else ''}:\n\n"
+        f"{fragment[:20_000]}\n\n"
+        f"Change it so that: {body.instruction.strip()}"
+        f"{tokens}"
+    )
+
+    try:
+        from compass.gateway.azure_client import get_model_client
+
+        out = await get_model_client().complete_utility(
+            system, asked, max_tokens=8_000, prefer_main=True, model=body.model
+        )
+    except Exception as err:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"that edit failed: {err}")
+
+    import re as _re
+
+    new_html = (out or "").strip()
+    if "```" in new_html:
+        m = _re.search(r"```(?:html)?\s*\n(.*?)```", new_html, _re.S)
+        if m:
+            new_html = m.group(1).strip()
+    if not new_html.startswith("<"):
+        raise HTTPException(status_code=502, detail="the edit came back unusable")
+    return {"html": new_html}
+
+
 @app.post("/v1/design/projects/{project_id}/generate")
 async def design_generate(
     project_id: str, body: DesignGenerate, user: str = Depends(require_user)

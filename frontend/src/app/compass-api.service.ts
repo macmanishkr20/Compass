@@ -459,6 +459,16 @@ export class CompassApiService {
       this.http.post<DesignProject>(`/v1/design/projects/${id}/duplicate`, {}),
     );
   }
+  /** Change one element of a design to order, leaving the rest alone. */
+  editElement(
+    id: string,
+    body: { html: string; instruction: string; label?: string; model?: string },
+  ): Promise<{ html: string }> {
+    return firstValueFrom(
+      this.http.post<{ html: string }>(`/v1/design/projects/${id}/element`, body),
+    );
+  }
+
   /** Read an attachment server-side: PDFs, Word files and zips come back as
    *  text, images come back as themselves. */
   attachForDesign(file: { name: string; mime: string; data_url: string }): Promise<{

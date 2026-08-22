@@ -14,7 +14,11 @@
 
 /** Parent → frame. */
 export interface EditorCommand {
-  dz: 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer' | 'tweak' | 'ping';
+  dz:
+    | 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer'
+    | 'tweak' | 'ping' | 'grab' | 'replace';
+  /** Markup to put in place of the selection, for an asked-for change. */
+  html?: string;
   /** The custom property a tweak sets, and what to set it to. */
   tweakVar?: string;
   tweakValue?: string;
@@ -64,7 +68,7 @@ export interface EditorTweak {
 export interface EditorEvent {
   dz:
     | 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed'
-    | 'tweaks' | 'pong' | 'pageerror';
+    | 'tweaks' | 'pong' | 'pageerror' | 'grabbed';
   message?: string;                   // what the design's own script threw
   tweaks?: EditorTweak[];
   label?: string;                     // e.g. "section.hero"
@@ -241,7 +245,12 @@ export const EDITOR_SCRIPT = String.raw`
       };
     } else {
       var s = getComputedStyle(sel);
-      if (s.position === 'static') sel.style.position = 'relative';
+      if (s.position === 'static') {
+        // ours, to hang the drag on — remembered so it can be undone in the
+        // markup we hand out and the document we serialise
+        sel.style.position = 'relative';
+        sel.setAttribute('data-dz-pos', '1');
+      }
       drag = {
         kind: handle || 'move', svg: false,
         startX: x, startY: y,
@@ -481,6 +490,11 @@ export const EDITOR_SCRIPT = String.raw`
         clone.querySelectorAll('[data-dz-handle]').forEach(function (n) {
           n.removeAttribute('data-dz-handle');
         });
+        clone.querySelectorAll('[data-dz-pos]').forEach(function (n) {
+          n.style.position = '';
+          n.removeAttribute('data-dz-pos');
+          if (!n.getAttribute('style')) n.removeAttribute('style');
+        });
         clone.querySelectorAll('[contenteditable]').forEach(function (n) {
           n.removeAttribute('contenteditable');
         });
@@ -532,6 +546,35 @@ export const EDITOR_SCRIPT = String.raw`
     else if (m.dz === 'flush') { flush(); }
     else if (m.dz === 'pointer') { forwarded(m); }
     else if (m.dz === 'tweak') { applyTweak(m.tweakVar, m.tweakValue); }
+    else if (m.dz === 'grab') {
+      // Hand back exactly what is selected, with nothing of ours in it.
+      if (!sel) { post({ dz: 'grabbed', html: '' }); return; }
+      var copy = sel.cloneNode(true);
+      copy.querySelectorAll('[data-dz]').forEach(function (n) { n.remove(); });
+      if (copy.getAttribute('data-dz-pos')) {
+        copy.style.position = '';
+        copy.removeAttribute('data-dz-pos');
+        if (!copy.getAttribute('style')) copy.removeAttribute('style');
+      }
+      copy.removeAttribute('data-dz-hover');
+      copy.removeAttribute('contenteditable');
+      copy.querySelectorAll('[data-dz-hover],[contenteditable]').forEach(function (n) {
+        n.removeAttribute('data-dz-hover'); n.removeAttribute('contenteditable');
+      });
+      post({ dz: 'grabbed', html: copy.outerHTML, label: label(sel) });
+    }
+    else if (m.dz === 'replace') {
+      if (!sel || !m.html) return;
+      var holder = document.createElement('div');
+      holder.innerHTML = m.html;
+      var fresh = holder.firstElementChild;
+      if (!fresh) return;
+      var old = sel;
+      select(null);
+      old.parentNode.replaceChild(fresh, old);
+      select(fresh);
+      flush();
+    }
   });
 
   // -- tweaks ---------------------------------------------------------------

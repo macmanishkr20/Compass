@@ -3194,3 +3194,41 @@
   background: var(--info-tint, rgba(47, 111, 159, .12));
   color: var(--info, #2f6f9f);
 }
+
+/* Design mode: say what to change about the thing you have selected. */
+.dz-float-ask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 4px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.dz-float-ask input {
+  flex: 1;
+  min-width: 190px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 9px;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.dz-float-ask input:focus { outline: 2px solid var(--accent, #c96442); outline-offset: 1px; }
+
+.dz-float-go {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 12px;
+  background: var(--accent, #c96442);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.dz-float-go:disabled { opacity: 0.5; cursor: default; }

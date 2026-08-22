@@ -120,6 +120,12 @@ export class Design {
   readonly selectionRect = signal<EditorRect | null>(null);
   readonly details = signal<EditorDetails | null>(null);
   readonly typing = signal(false);
+  /** Design mode: ask for a change to the selected element alone. */
+  readonly askElOpen = signal(false);
+  readonly askElText = signal('');
+  readonly askElBusy = signal(false);
+  /** Resolves when the agent hands back the selection's markup. */
+  private grabbed: ((html: string, label: string) => void) | null = null;
   /** Did the canvas agent start? A design whose own script breaks the page can
    *  take the tools down with it, and silence there is indistinguishable from
    *  "nothing selected" — so say so instead. */
@@ -1151,6 +1157,59 @@ export class Design {
     }
   }
 
+  /** Open (or close) the ask box on the selection's toolbar. */
+  toggleAskElement(): void {
+    this.askElOpen.update((open) => !open);
+    if (this.askElOpen()) {
+      setTimeout(() => document.getElementById('dz-ask-el')?.focus(), 40);
+    }
+  }
+
+  /** Ask for a change to the selected element, and put the answer back in its
+   *  place. Nothing else in the document is touched. */
+  async askElement(): Promise<void> {
+    const project = this.open();
+    const instruction = this.askElText().trim();
+    if (!project || !instruction || this.askElBusy()) return;
+
+    const held = await new Promise<{ html: string; label: string }>((resolve) => {
+      this.grabbed = (html, label) => resolve({ html, label });
+      this.toAgent({ dz: 'grab' });
+      setTimeout(() => {
+        if (this.grabbed) { this.grabbed = null; resolve({ html: '', label: '' }); }
+      }, 2500);
+    });
+    if (!held.html) {
+      this.error.set('Could not read that element — select it again.');
+      return;
+    }
+
+    this.askElBusy.set(true);
+    this.error.set('');
+    try {
+      const out = await this.api.editElement(project.id, {
+        html: held.html,
+        instruction,
+        label: held.label || this.selection(),
+        model: this.model(),
+      });
+      this.toAgent({ dz: 'replace', html: out.html });
+      this.askElText.set('');
+      this.askElOpen.set(false);
+      this.turns.update((t) => [
+        ...t,
+        { role: 'user', text: `${held.label || 'element'}: ${instruction}` },
+        { role: 'assistant', text: `Changed ${held.label || 'that element'} — nothing else touched.` },
+      ]);
+    } catch (err) {
+      this.error.set(
+        (err as { error?: { detail?: string } })?.error?.detail || 'That edit failed.',
+      );
+    } finally {
+      this.askElBusy.set(false);
+    }
+  }
+
   setAnswer(field: DesignClarifyField, value: string): void {
     this.clarifyAnswers.update((a) => ({ ...a, [field.id]: value }));
   }
@@ -1616,6 +1675,12 @@ export class Design {
     if (event.dz === 'pong') {
       this.pegged.set(false);
       if (this.pingTimer) clearTimeout(this.pingTimer);
+      return;
+    }
+    if (event.dz === 'grabbed') {
+      const done = this.grabbed;
+      this.grabbed = null;
+      done?.(event.html ?? '', event.label ?? '');
       return;
     }
     if (event.dz === 'pageerror') {
