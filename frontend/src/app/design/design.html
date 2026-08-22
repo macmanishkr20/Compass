@@ -276,7 +276,10 @@
                   {{ checking() ? 'Working out what to ask…' : 'Checking the design for issues…' }}
                 </p>
                 <div class="dz-lapcard">
-                  <span class="dz-lapcard-pick" aria-hidden="true"></span>
+                  <button class="dz-lapcard-pick" (click)="cancelRun()"
+                    [disabled]="cancelling() || !working()"
+                    [title]="cancelling() ? 'Stopping…' : 'Cancel'"
+                    [attr.aria-label]="cancelling() ? 'Stopping' : 'Cancel'"></button>
                   <button class="dz-laptop" [class.closed]="!lidOpen()" (click)="toggleLid()"
                     [attr.aria-label]="lidOpen() ? 'Close the laptop' : 'Open the laptop'">
                     <span class="dz-laptop-lid">
@@ -323,11 +326,15 @@
             }
 
           @for (f of contextFiles(); track $index) {
-              <span class="dz-chip" [title]="f.name">
-                <span class="dz-chip-icon" aria-hidden="true">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
-                </span>
-                <span class="dz-chip-text">
+              <span class="dz-chip" [class.shot]="f.preview" [title]="f.name">
+                @if (f.preview) {
+                  <img class="dz-chip-shot" [src]="f.preview" alt="" />
+                } @else {
+                  <span class="dz-chip-icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                  </span>
+                }
+                <span class="dz-chip-text" [class.over]="f.preview">
                   <span class="dz-chip-kind">{{ f.kind || kindOf(f.name) }}</span>
                   <span class="dz-chip-name">{{ f.name }}</span>
                 </span>
@@ -1005,11 +1012,15 @@
             }
           </div>
             @for (f of contextFiles(); track $index) {
-              <span class="dz-chip" [title]="f.name">
-                <span class="dz-chip-icon" aria-hidden="true">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
-                </span>
-                <span class="dz-chip-text">
+              <span class="dz-chip" [class.shot]="f.preview" [title]="f.name">
+                @if (f.preview) {
+                  <img class="dz-chip-shot" [src]="f.preview" alt="" />
+                } @else {
+                  <span class="dz-chip-icon" aria-hidden="true">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" stroke-linejoin="round"/><path d="M14 3v5h5" stroke-linejoin="round"/><path d="M8.5 15.5c1-1.4 2-1.4 3 0s2 1.4 3 0" stroke-linecap="round"/></svg>
+                  </span>
+                }
+                <span class="dz-chip-text" [class.over]="f.preview">
                   <span class="dz-chip-kind">{{ f.kind || kindOf(f.name) }}</span>
                   <span class="dz-chip-name">{{ f.name }}</span>
                 </span>

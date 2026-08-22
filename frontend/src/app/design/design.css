@@ -2035,12 +2035,21 @@
   position: absolute;
   right: 14px;
   top: 14px;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
+  padding: 0;
   border: 1.2px solid var(--border);
   border-radius: 3px;
   background: var(--surface);
+  cursor: pointer;
 }
+
+.dz-lapcard-pick:hover:not(:disabled) {
+  border-color: var(--muted);
+  background: var(--bg-2);
+}
+
+.dz-lapcard-pick:disabled { cursor: default; opacity: 0.55; }
 
 .dz-laptop {
   border: 0;
@@ -3080,3 +3089,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* An attached picture shows itself in the composer, the way Claude Design
+   previews one, with the name over the foot of it. */
+.dz-chip.shot {
+  position: relative;
+  width: 132px;
+  height: 92px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.dz-chip-shot { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.dz-chip-text.over {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 8px 5px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.62), transparent);
+  color: #fff;
+}
+
+.dz-chip-text.over .dz-chip-kind { color: rgba(255, 255, 255, 0.72); }
+
+.dz-chip.shot .dz-chip-x {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  background: rgba(20, 20, 22, 0.55);
+  color: #fff;
+}
+
+.dz-chip.shot .dz-chip-x:hover { background: rgba(20, 20, 22, 0.8); color: #fff; }

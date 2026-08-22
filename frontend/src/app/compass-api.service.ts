@@ -672,14 +672,19 @@ export class CompassApiService {
     prompt: string,
     model = '',
     images: string[] = [],
+    signal?: AbortSignal,
   ): Promise<DesignProject> {
-    return firstValueFrom(
-      this.http.post<DesignProject>(`/v1/design/projects/${id}/generate`, {
-        prompt,
-        model,
-        images,
-      }),
-    );
+    // fetch rather than HttpClient: a run this long needs to be abortable, and
+    // Cancel has to actually stop the request, not just look away from it.
+    return fetch(`/v1/design/projects/${id}/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt, model, images }),
+      signal,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+      return (await res.json()) as DesignProject;
+    });
   }
 
   customize(): Promise<CustomizeInfo> {

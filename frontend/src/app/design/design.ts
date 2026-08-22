@@ -128,6 +128,9 @@ export class Design {
    *  settles — a redraw that retriggers itself is the usual way — leaves a
    *  blank canvas, which looks like Compass failing rather than the design. */
   readonly frameLoaded = signal(false);
+  /** The run in flight, so the card's Cancel can actually stop it. */
+  private runAbort: AbortController | null = null;
+  readonly cancelling = signal(false);
   /** The canvas stopped answering — its design's script is looping. */
   readonly pegged = signal(false);
   readonly zoom = signal<'fit' | number>('fit');
@@ -171,7 +174,9 @@ export class Design {
   readonly codebaseOpen = signal(false);
   readonly githubRepo = signal('');
   readonly cloning = signal(false);
-  readonly contextFiles = signal<Array<{ name: string; text: string; kind?: string }>>([]);
+  readonly contextFiles = signal<
+    Array<{ name: string; text: string; kind?: string; preview?: string }>
+  >([]);
   /** An attachment is being read — a PDF goes to the server for that. */
   readonly reading = signal(false);
   /** Attachments already sent: off the composer, still in the conversation,
@@ -647,7 +652,7 @@ export class Design {
           const shot = await this.dataUrl(file);
           this.shots.update((rows) => [...rows, shot].slice(0, 4));
           this.contextFiles.update((rows) =>
-            [...rows, { name: file.name, text: '', kind: 'Image' }].slice(0, 24),
+            [...rows, { name: file.name, text: '', kind: 'Image', preview: shot }].slice(0, 24),
           );
           added++;
           continue;
@@ -670,7 +675,8 @@ export class Design {
           if (read.kind === 'image' && read.data_url) {
             this.shots.update((rows) => [...rows, read.data_url as string].slice(0, 4));
             this.contextFiles.update((rows) =>
-              [...rows, { name: file.name, text: '', kind: 'Image' }].slice(0, 24),
+              [...rows, { name: file.name, text: '', kind: 'Image', preview: read.data_url }]
+                .slice(0, 24),
             );
           } else {
             this.contextFiles.update((rows) =>
@@ -717,8 +723,15 @@ export class Design {
     );
   }
 
+  /** Remove an attachment — including the picture itself, which is carried
+   *  separately for the model to look at. Dropping the chip has to drop the
+   *  image, or a removed picture still goes with the next brief. */
   dropContext(index: number): void {
+    const going = this.contextFiles()[index];
     this.contextFiles.update((rows) => rows.filter((_, i) => i !== index));
+    if (going?.preview) {
+      this.shots.update((rows) => rows.filter((s) => s !== going.preview));
+    }
   }
 
   /** Clone a GitHub repo and design within it. */
@@ -1181,6 +1194,11 @@ export class Design {
     return pending.map((f) => f.name);
   }
 
+  /** What the model should be shown this turn, and nothing stale. */
+  private shotsToSend(): string[] {
+    return this.shots();
+  }
+
   private withContext(prompt: string): string {
     const parts = [prompt];
     for (const file of [...this.carriedFiles(), ...this.contextFiles()]) {
@@ -1478,15 +1496,26 @@ export class Design {
     }
   }
 
+  /** Cancel — the button in the corner of the card, as Claude Design has it.
+   *  It stops the request, not just the waiting. */
+  cancelRun(): void {
+    if (!this.runAbort) return;
+    this.cancelling.set(true);
+    this.runAbort.abort();
+  }
+
   private async run(prompt: string): Promise<void> {
     const project = this.open();
     if (!project) return;
     this.working.set(true);
     this.lidOpen.set(true);
     this.error.set('');
+    this.cancelling.set(false);
+    const abort = new AbortController();
+    this.runAbort = abort;
     try {
       const updated = await this.api.generateDesign(
-        project.id, prompt, this.model(), this.shots(),
+        project.id, prompt, this.model(), this.shots(), abort.signal,
       );
       this.shots.set([]);
       this.open.set(updated);
@@ -1514,14 +1543,30 @@ export class Design {
       if (merged.some((t) => t.files?.length || t.template)) {
         await this.api.patchDesign(project.id, { turns: merged }).catch(() => undefined);
       }
-    } catch {
-      this.error.set('Generation failed. Try again, or reword the prompt.');
-      this.turns.update((t) => [
-        ...t,
-        { role: 'assistant', text: 'That one failed. Try rewording the request.' },
-      ]);
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') {
+        this.turns.update((t) => [
+          ...t,
+          { role: 'assistant', text: 'Stopped. Tell me what to try instead.' },
+        ]);
+      } else {
+        // Say what came back — "unsupported image" is worth reading, and it is
+        // not the same problem as a prompt that needs rewording.
+        const said = ((err as Error)?.message || '').match(/"?message"?:\s*"([^"]+)"/)?.[1];
+        this.error.set(
+          said
+            ? `Generation failed — ${said}`
+            : 'Generation failed. Try again, or reword the prompt.',
+        );
+        this.turns.update((t) => [
+          ...t,
+          { role: 'assistant', text: 'That one failed. Try rewording the request.' },
+        ]);
+      }
     } finally {
       this.working.set(false);
+      this.cancelling.set(false);
+      this.runAbort = null;
     }
   }
 
