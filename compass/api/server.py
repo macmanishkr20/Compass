@@ -1568,7 +1568,20 @@ async def design_generate(
     # the transcript instead, so reopening a project replays the conversation.
     turns = list(project.get("turns") or [])
     turns.append({"role": "user", "text": body.prompt})
+    # "Checking the design for issues" is what the card says while this runs;
+    # this is that check, actually run — contrast, hit areas, sideways scroll,
+    # tables with no rows, a script that threw.
+    from compass.services import design_export as _ex
+
+    try:
+        issues = await _ex.audit(html)
+    except Exception:  # noqa: BLE001 - never fail a design over its review
+        issues = []
+
     said = " ".join(x for x in (direction, notes) if x)
+    if issues:
+        said = (said + " ").lstrip() + "Worth fixing: " + "; ".join(issues) + "."
+
     turns.append(
         {
             "role": "assistant",

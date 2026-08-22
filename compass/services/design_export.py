@@ -190,6 +190,103 @@ async def to_thumbnail(html: str) -> bytes:
         await pw.stop()
 
 
+# What a finished design is checked against before it is handed over. The
+# thresholds are the ones everybody agrees on: WCAG AA for contrast, the usual
+# 44px for something you have to hit with a finger.
+_AUDIT_JS = r"""() => {
+  const lum = (c) => {
+    const m = c.match(/\d+(\.\d+)?/g); if (!m) return null;
+    const [r,g,b] = m.slice(0,3).map(Number).map(v => { v/=255;
+      return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); });
+    return 0.2126*r + 0.7152*g + 0.0722*b;
+  };
+  const bgOf = (el) => { let n=el;
+    while (n) { const b=getComputedStyle(n).backgroundColor;
+      if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) return b; n=n.parentElement; }
+    return 'rgb(255,255,255)'; };
+  const ratio = (a,b) => { const L1=lum(a), L2=lum(b); if(L1==null||L2==null) return null;
+    const [hi,lo]=L1>L2?[L1,L2]:[L2,L1]; return (hi+0.05)/(lo+0.05); };
+
+  const root = [...document.querySelectorAll('section')].find(s => s.offsetParent !== null)
+            || document.body;
+
+  let worst = 99, worstText = '';
+  for (const el of root.querySelectorAll('p,td,li,span,h3,h4,label,button,a,div')) {
+    const t=(el.textContent||'').trim();
+    if (!t || el.children.length || el.offsetParent === null) continue;
+    const cs=getComputedStyle(el);
+    const big = parseFloat(cs.fontSize) >= 24
+             || (parseFloat(cs.fontSize) >= 18.66 && parseInt(cs.fontWeight,10) >= 700);
+    if (big) continue;
+    const r=ratio(cs.color, bgOf(el));
+    if (r && r < worst) { worst=r; worstText=t.slice(0,32); }
+  }
+
+  const tiny = [...root.querySelectorAll('button, a, input[type=checkbox], [role=button]')]
+      .filter(b => b.offsetParent !== null)
+      .map(b => ({r: b.getBoundingClientRect(), t: (b.textContent||'').trim().slice(0,20)}))
+      .filter(x => x.r.width && (x.r.height < 24 || x.r.width < 24));
+
+  const emptyTables = [...root.querySelectorAll('table')]
+      .filter(t => t.querySelectorAll('tbody tr').length === 0).length;
+
+  return {
+    contrast: Math.round(worst*100)/100, contrastOn: worstText,
+    tiny: tiny.length, tinyFirst: tiny.length ? tiny[0].t : '',
+    emptyTables,
+    overflowPx: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  };
+}"""
+
+
+async def audit(html: str) -> list[str]:
+    """Look at the finished design the way a reviewer would, and say what is
+    wrong with it. Never raises: a check that fails is not a design that fails."""
+    findings: list[str] = []
+    try:
+        page, close = await _render(html, 1280, 900)
+    except Exception:  # noqa: BLE001 - no browser on this host
+        return []
+    try:
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(str(e)[:120]))
+        await page.wait_for_timeout(500)
+        found = await page.evaluate(_AUDIT_JS)
+
+        if errors:
+            findings.append(f"its own script threw ({errors[0]})")
+        if found.get("contrast", 99) < 4.5:
+            findings.append(
+                f"contrast {found['contrast']}:1 on \u201c{found['contrastOn']}\u201d"
+                " \u2014 below the 4.5:1 floor"
+            )
+        if found.get("tiny"):
+            findings.append(
+                f"{found['tiny']} hit area(s) under 24px, starting with "
+                f"\u201c{found['tinyFirst']}\u201d"
+            )
+        if found.get("emptyTables"):
+            findings.append(f"{found['emptyTables']} table(s) with no rows")
+
+        for width, label in ((1024, "1024"), (640, "640")):
+            await page.set_viewport_size({"width": width, "height": 900})
+            await page.wait_for_timeout(250)
+            over = await page.evaluate(
+                "() => Math.max(0, document.documentElement.scrollWidth"
+                " - document.documentElement.clientWidth)"
+            )
+            if over > 2:
+                findings.append(f"{over}px of sideways scroll at {label}px")
+    except Exception:  # noqa: BLE001 - the check is a courtesy, not a gate
+        return []
+    finally:
+        try:
+            await close()
+        except Exception:  # noqa: BLE001
+            pass
+    return findings
+
+
 def split_page(html: str) -> tuple[str, str, str]:
     """Pull a self-contained page apart into markup, stylesheet and script.
 
