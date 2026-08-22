@@ -228,6 +228,25 @@ _AUDIT_JS = r"""() => {
       .map(b => ({r: b.getBoundingClientRect(), t: (b.textContent||'').trim().slice(0,20)}))
       .filter(x => x.r.width && (x.r.height < 24 || x.r.width < 24));
 
+  // how loud is the colour? count strongly-saturated pixels' worth of area
+  let painted = 0, total = 0;
+  const hueOf = (c) => { const m=c.match(/\d+(\.\d+)?/g); if(!m) return null;
+    let [r,g,b]=m.slice(0,3).map(Number).map(v=>v/255);
+    const mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2;
+    const sat = mx===mn ? 0 : (l>0.5 ? (mx-mn)/(2-mx-mn) : (mx-mn)/(mx+mn));
+    return {sat, l}; };
+  for (const el of root.querySelectorAll('*')) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height || el.offsetParent === null) continue;
+    const area = Math.min(r.width, 1600) * Math.min(r.height, 1200);
+    if (el.children.length === 0 || getComputedStyle(el).backgroundColor !== 'rgba(0, 0, 0, 0)') {
+      const h = hueOf(getComputedStyle(el).backgroundColor);
+      total += area;
+      if (h && h.sat > 0.30 && h.l > 0.15 && h.l < 0.75) painted += area;
+    }
+  }
+  const accentShare = total ? Math.round(painted / total * 100) : 0;
+
   const bigIcons = [...root.querySelectorAll('svg')]
       .filter(v => v.offsetParent !== null)
       .map(v => v.getBoundingClientRect())
@@ -240,6 +259,7 @@ _AUDIT_JS = r"""() => {
     contrast: Math.round(worst*100)/100, contrastOn: worstText,
     tiny: tiny.length, tinyFirst: tiny.length ? tiny[0].t : '',
     bigIcons,
+    accentShare,
     emptyTables,
     overflowPx: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth)
   };
@@ -276,6 +296,11 @@ async def audit(html: str) -> list[str]:
             findings.append(
                 f"{found['bigIcons']} icon(s) blown up past 64px — an svg with "
                 "no width in a flex row"
+            )
+        if found.get("accentShare", 0) > 22:
+            findings.append(
+                f"strong colour covers about {found['accentShare']}% of the page "
+                "— the accent is meant to be a seasoning"
             )
         if found.get("emptyTables"):
             findings.append(f"{found['emptyTables']} table(s) with no rows")
