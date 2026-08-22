@@ -492,8 +492,11 @@ export class Design {
     const scale = this.scale() || 1;
     const left = f.left - s.left + rect.x * scale;
     const top = f.top - s.top + rect.y * scale;
+    // The bar is wider with the ask box open; clamping to the narrow width
+    // pushes it off the stage, and the whole panel scrolls sideways with it.
+    const bar = this.askElOpen() ? 430 : 220;
     return {
-      left: Math.max(6, Math.min(left, s.width - 220)),
+      left: Math.max(6, Math.min(left, Math.max(6, s.width - bar))),
       // Above the selection when there's room, below it when there isn't.
       top: top > 46 ? top - 42 : top + rect.h * scale + 8,
       svg: rect.svg,

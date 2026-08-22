@@ -1711,15 +1711,20 @@
   z-index: 25;
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  /* Never wider than the stage it floats over: the ask row wraps under the
+     buttons instead of pushing the bar off the edge and scrolling the panel. */
+  max-width: min(420px, calc(100% - 16px));
   padding: 4px 6px 4px 10px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: 16px;
   box-shadow: var(--shadow-lg);
   font-size: 0.75rem;
-  white-space: nowrap;
 }
+
+.dz-float > * { white-space: nowrap; }
 
 .dz-float-tag { font-family: var(--mono); font-size: 0.72rem; color: var(--info); font-weight: 600; }
 .dz-float-hint { color: var(--muted); }
@@ -3208,7 +3213,7 @@
 
 .dz-float-ask input {
   flex: 1;
-  min-width: 190px;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 5px 9px;
