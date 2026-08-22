@@ -1970,3 +1970,38 @@ buttons, cards, inputs and tables look, and the voice of the copy.</pre>
     </div>
   </div>
 }
+
+@if (htmlAsk()) {
+  <div class="dz-overlay" (click)="htmlAsk.set(false)">
+    <div class="dz-modal narrow" (click)="$event.stopPropagation()">
+      <header class="dz-modal-head">
+        <h2 class="plain">Export HTML</h2>
+        <button class="dz-icon" (click)="htmlAsk.set(false)" aria-label="Close">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="dz-modal-body">
+        <button class="dz-pick" [class.on]="htmlKind() === 'archive'" (click)="htmlKind.set('archive')">
+          <span class="dz-pick-dot" [class.on]="htmlKind() === 'archive'"></span>
+          <span class="dz-pick-text">
+            <span class="dz-pick-name">Project archive <span class="dz-pick-tag">Instant</span></span>
+            <span class="dz-pick-hint">Every page and every file the project holds, zipped.</span>
+          </span>
+        </button>
+        <button class="dz-pick" [class.on]="htmlKind() === 'standalone'" (click)="htmlKind.set('standalone')">
+          <span class="dz-pick-dot" [class.on]="htmlKind() === 'standalone'"></span>
+          <span class="dz-pick-text">
+            <span class="dz-pick-name">Standalone HTML <span class="dz-pick-tag">Instant</span></span>
+            <span class="dz-pick-hint">
+              This page as one self-contained file that opens anywhere, even offline.
+            </span>
+          </span>
+        </button>
+      </div>
+      <footer class="dz-modal-foot">
+        <button class="dz-ask-plain" (click)="htmlAsk.set(false)">Cancel</button>
+        <button class="dz-ask-send" (click)="confirmHtmlKind()">Export</button>
+      </footer>
+    </div>
+  </div>
+}

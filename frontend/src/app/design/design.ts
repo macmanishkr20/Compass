@@ -137,6 +137,9 @@ export class Design {
 
   // -- menus and panels
   readonly exportOpen = signal(false);
+  /** Project HTML asks which shape first: the whole project, or this page. */
+  readonly htmlAsk = signal(false);
+  readonly htmlKind = signal<'archive' | 'standalone'>('archive');
   readonly presentOpen = signal(false);
   readonly projectMenuOpen = signal(false);
   readonly rowMenuId = signal('');
@@ -378,7 +381,12 @@ export class Design {
     { id: 'html', label: 'HTML', hint: 'the document itself', mime: 'text/html' },
     { id: 'pdf', label: 'PDF', hint: 'printed at full height', mime: 'application/pdf' },
     { id: 'png', label: 'PNG', hint: 'a full-page image', mime: 'image/png' },
-    { id: 'zip', label: 'ZIP', hint: 'with a README', mime: 'application/zip' },
+    {
+      id: 'projecthtml',
+      label: 'Project HTML',
+      hint: '.zip or standalone',
+      mime: 'application/zip',
+    },
     {
       id: 'pptx',
       label: 'PowerPoint',
@@ -1844,6 +1852,12 @@ export class Design {
     const project = this.open();
     this.exportOpen.set(false);
     if (!project?.html || this.exporting()) return;
+    // Project HTML comes in two shapes; ask which before naming the file.
+    if (format === 'projecthtml') {
+      this.htmlKind.set('archive');
+      this.htmlAsk.set(true);
+      return;
+    }
     const spec = this.formats.find((f) => f.id === format);
     if (!spec) return;
     this.exportAsk.set({
@@ -1852,6 +1866,21 @@ export class Design {
       mime: spec.mime,
       name: `${this.fileStem(project.name)}.${format}`,
       url: this.api.designExportUrl(project.id, format),
+    });
+  }
+
+  /** Which shape of Project HTML — the whole project, or this page alone. */
+  confirmHtmlKind(): void {
+    const project = this.open();
+    this.htmlAsk.set(false);
+    if (!project) return;
+    const archive = this.htmlKind() === 'archive';
+    this.exportAsk.set({
+      format: archive ? 'archive' : 'html',
+      label: archive ? 'Project archive' : 'Standalone HTML',
+      mime: archive ? 'application/zip' : 'text/html',
+      name: `${this.fileStem(project.name)}.${archive ? 'zip' : 'html'}`,
+      url: this.api.designExportUrl(project.id, archive ? 'archive' : 'html'),
     });
   }
 
@@ -1884,7 +1913,12 @@ export class Design {
       try {
         handle = await picker.call(window, {
           suggestedName: name,
-          types: [{ description: ask.label, accept: { [ask.mime]: ['.' + ask.format] } }],
+          types: [
+            {
+              description: ask.label,
+              accept: { [ask.mime]: ['.' + (ask.name.split('.').pop() || ask.format)] },
+            },
+          ],
         });
       } catch {
         return; // the user closed the dialog

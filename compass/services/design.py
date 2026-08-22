@@ -445,6 +445,21 @@ class DesignStore:
             for p in self._pages(row)
         ]
 
+    async def pages_with_html(self, project_id: str) -> list[dict]:
+        """Every page including its markup — for exporting the whole project.
+        The page being edited keeps its markup on the project until it is
+        switched away from, so take that one from there."""
+        row = await self.get(project_id)
+        if row is None:
+            return []
+        pages = self._pages(row)
+        active = row.get("active_page") or (pages[0]["id"] if pages else "")
+        out = []
+        for page in pages:
+            html = row.get("html", "") if page["id"] == active else page.get("html", "")
+            out.append({**page, "html": html or page.get("html", "")})
+        return out
+
     async def add_page(self, project_id: str, name: str = "") -> dict | None:
         """A new blank page, and the project switches to it."""
         rows = self._read()

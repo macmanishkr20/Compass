@@ -1418,14 +1418,41 @@ async def design_export(
 
     from compass.services import design_export as ex
 
-    if format == "zip":
+    if format in ("zip", "archive"):
         system = await get_system_store().get(project.get("design_system") or "")
+        notes = (system or {}).get("notes", "")
+        if format == "zip":
+            return send(
+                ex.to_zip(
+                    name=project.get("name", "Design"),
+                    html=html,
+                    prompt=project.get("prompt", ""),
+                    system_notes=notes,
+                ),
+                "application/zip",
+                "zip",
+            )
+
+        # The whole project: every page, and every file it was given.
+        from compass.services import design_files
+
+        pages = await get_design_store().pages_with_html(project_id)
+        carried: list[tuple[str, bytes]] = []
+        try:
+            root = design_files.project_root(project_id)
+            for path in sorted(root.rglob("*")):
+                if path.is_file() and not path.name.startswith("."):
+                    carried.append((str(path.relative_to(root)), path.read_bytes()))
+        except Exception:  # noqa: BLE001 - a missing folder is not a failure
+            carried = []
+
         return send(
-            ex.to_zip(
+            ex.project_archive(
                 name=project.get("name", "Design"),
-                html=html,
                 prompt=project.get("prompt", ""),
-                system_notes=(system or {}).get("notes", ""),
+                pages=pages,
+                files=carried,
+                system_notes=notes,
             ),
             "application/zip",
             "zip",

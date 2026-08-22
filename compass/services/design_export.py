@@ -189,6 +189,58 @@ async def to_thumbnail(html: str) -> bytes:
         await pw.stop()
 
 
+def project_archive(
+    *,
+    name: str,
+    prompt: str,
+    pages: list[dict],
+    files: list[tuple[str, bytes]] | None = None,
+    system_notes: str = "",
+) -> bytes:
+    """Everything the project holds, zipped: every page, every file it was
+    given, and a README saying what is what. Instant — nothing is rendered
+    and no model is asked."""
+    safe = lambda text: "".join(  # noqa: E731
+        c for c in text if c.isalnum() or c in " ._-"
+    ).strip() or "page"
+
+    readme = [
+        f"# {name}",
+        "",
+        "Designed with Compass Design.",
+        "",
+        "## Brief",
+        "",
+        prompt or "(no brief recorded)",
+        "",
+        "## What is in here",
+        "",
+    ]
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for i, page in enumerate(pages):
+            page_name = safe(page.get("name") or f"page-{i + 1}.html")
+            if not page_name.lower().endswith((".html", ".htm")):
+                page_name += ".html"
+            path = f"pages/{page_name}" if len(pages) > 1 else "index.html"
+            z.writestr(path, page.get("html") or "")
+            readme.append(f"- `{path}` — a page of the design, self-contained.")
+
+        for rel, blob in files or []:
+            z.writestr(f"files/{rel}", blob)
+        if files:
+            readme.append(
+                f"- `files/` — the {len(files)} file(s) attached to this project."
+            )
+        if system_notes:
+            z.writestr("design-system.md", system_notes)
+            readme.append("- `design-system.md` — the system this design follows.")
+
+        z.writestr("README.md", "\n".join(readme) + "\n")
+    return buf.getvalue()
+
+
 def to_zip(*, name: str, html: str, prompt: str, system_notes: str = "") -> bytes:
     readme = [
         f"# {name}",

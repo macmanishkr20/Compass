@@ -3147,3 +3147,50 @@
 
 .dz-answered-row { margin: 0 0 3px; color: var(--ink); }
 .dz-answered-label { font-weight: 600; }
+
+/* The two shapes of Project HTML, as a pair of radio rows. */
+.dz-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--sans);
+}
+
+.dz-pick:hover { background: var(--bg-2); }
+.dz-pick.on { border-color: var(--border-strong); background: var(--bg-2); }
+
+.dz-pick-dot {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 50%;
+}
+
+.dz-pick-dot.on {
+  border-color: var(--info, #2f6f9f);
+  box-shadow: inset 0 0 0 4px var(--info, #2f6f9f);
+}
+
+.dz-pick-text { display: flex; flex-direction: column; gap: 3px; }
+.dz-pick-name { font-size: 0.95rem; font-weight: 600; }
+.dz-pick-hint { color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
+
+.dz-pick-tag {
+  margin-left: 6px;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: var(--info-tint, rgba(47, 111, 159, .12));
+  color: var(--info, #2f6f9f);
+}
