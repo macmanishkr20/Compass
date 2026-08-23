@@ -1619,12 +1619,46 @@ REPAIR_PROMPT = (
 )
 
 
-async def _repair(html: str, issues: list[str], model: str) -> tuple[str, list[str]]:
-    """One corrective pass. Returns the document to keep and what it fixed.
+def _kinds(findings: list[str]) -> set[str]:
+    """What sort of fault each finding is, ignoring its particulars.
 
-    Kept only if the review then measures fewer faults: a repair that trades
-    one fault for another is not a repair, and the original is the safer of
-    the two documents.
+    Two contrast findings are the same kind of problem however the ratio and
+    the screens differ, and that is the comparison worth making when deciding
+    whether a repair left the design better than it found it.
+    """
+    marks = (
+        ("script", "script threw"),
+        ("nav", "does not switch screens"),
+        ("contrast", "contrast"),
+        ("hit-area", "hit area"),
+        ("icon", "icon"),
+        ("headings", "heading element"),
+        ("mono", "set in the sans"),
+        ("hue", "same colour"),
+        ("chrome", "strong colour covers"),
+        ("sidebar-foot", "short of its foot"),
+        ("empty-table", "no rows"),
+        ("thin-screen", "barely anything on it"),
+        ("scroll", "sideways scroll"),
+    )
+    out: set[str] = set()
+    for f in findings:
+        for kind, mark in marks:
+            if mark in f:
+                out.add(kind)
+                break
+        else:
+            out.add(f[:24])
+    return out
+
+
+async def _repair(
+    html: str, issues: list[str], model: str
+) -> tuple[str, list[str], list[str]]:
+    """One corrective pass: the document to keep, what it cured, what is left.
+
+    A repair that trades one fault for another is not a repair, so the
+    original is kept unless the review comes back with nothing new in it.
     """
     from compass.services import design_export as _ex
 
@@ -1640,7 +1674,7 @@ async def _repair(html: str, issues: list[str], model: str) -> tuple[str, list[s
             model=model,
         )
     except Exception:  # noqa: BLE001 - a failed repair is not a failed design
-        return html, []
+        return html, [], issues
 
     import re as _re
 
@@ -1650,19 +1684,31 @@ async def _repair(html: str, issues: list[str], model: str) -> tuple[str, list[s
             fixed = m.group(1).strip()
     # It has to still be a document, and not a stub of one.
     if not fixed.lower().startswith("<!doctype") and not fixed.lower().startswith("<html"):
-        return html, []
+        return html, [], issues
     if len(fixed) < len(html) * 0.6:
-        return html, []
+        return html, [], issues
 
     try:
         after = await _ex.audit(fixed)
     except Exception:  # noqa: BLE001
-        return html, []
-    if len(after) >= len(issues):
-        return html, []
+        return html, [], issues
 
-    cured = [i for i in issues if i not in after]
-    return fixed, cured
+    # Judging the repair by how many findings are left throws away good work:
+    # moving one colour from 4.09:1 to 4.46:1 across six screens is progress,
+    # and it leaves the count untouched. Compare what KIND of fault is left,
+    # and let a fault that merely changed shape count as movement.
+    before_kinds, after_kinds = _kinds(issues), _kinds(after)
+    if after_kinds - before_kinds:          # a fault of a new kind appeared
+        return html, [], issues
+    if len(after) > len(issues):            # or simply more of them
+        return html, [], issues
+    if after == issues:                     # or nothing moved at all
+        return html, [], issues
+
+    # Cured means the kind of fault is gone. A fault that survived in a milder
+    # form is not cured — it comes back in the remainder, in its new words.
+    cured = [i for i in issues if _kinds([i]) - after_kinds]
+    return fixed, cured, after
 
 
 @app.post("/v1/design/projects/{project_id}/generate")
@@ -1765,9 +1811,7 @@ async def design_generate(
     cured: list[str] = []
     if issues:
         steps.append("Found issues — fixing")
-        html, cured = await _repair(html, issues, body.model)
-        if cured:
-            issues = [i for i in issues if i not in cured]
+        html, cured, issues = await _repair(html, issues, body.model)
 
     said = " ".join(x for x in (direction, notes) if x)
     if cured:

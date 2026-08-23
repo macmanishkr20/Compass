@@ -410,6 +410,74 @@ _NAV_JS = r"""() => {
 }"""
 
 
+_SCREENS_JS = r"""() => {
+  // A prototype is many screens in one document, and all but one are hidden.
+  // Everything measured above was measured on that one. Show each of the
+  // others in turn and look at it properly — a table with no rows or text
+  // below the contrast floor on screen four is just as wrong as on screen one.
+  const screens = [...document.querySelectorAll('section[id], [data-screen], main > section')]
+    .filter(s => s.parentElement && s.parentElement.querySelectorAll(
+      'section[id], [data-screen], main > section').length > 1);
+  if (screens.length < 2) return [];
+
+  const lum = (c) => {
+    const m = c.match(/\d+(\.\d+)?/g); if (!m) return null;
+    const [r,g,b] = m.slice(0,3).map(Number).map(v => { v/=255;
+      return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); });
+    return 0.2126*r + 0.7152*g + 0.0722*b;
+  };
+  const bgOf = (el) => { let n=el;
+    while (n) { const b=getComputedStyle(n).backgroundColor;
+      if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) return b; n=n.parentElement; }
+    return 'rgb(255,255,255)'; };
+  const ratio = (a,b) => { const L1=lum(a), L2=lum(b); if(L1==null||L2==null) return null;
+    const [hi,lo]=L1>L2?[L1,L2]:[L2,L1]; return (hi+0.05)/(lo+0.05); };
+
+  const name = (s) => {
+    const h = s.querySelector('h1, h2');
+    return (h ? h.textContent : (s.id || s.getAttribute('data-screen') || ''))
+      .trim().replace(/\s+/g, ' ').slice(0, 24) || 'a screen';
+  };
+
+  const was = screens.map(s => s.style.display);
+  const out = [];
+  for (const target of screens) {
+    screens.forEach(s => { s.style.display = s === target ? 'block' : 'none'; });
+    void target.offsetHeight;                       // force the relayout
+
+    let worst = 99, worstText = '';
+    for (const el of target.querySelectorAll('p,td,li,span,h3,h4,label,button,a,div')) {
+      const t = (el.textContent || '').trim();
+      if (!t || el.children.length) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const cs = getComputedStyle(el);
+      const big = parseFloat(cs.fontSize) >= 24
+               || (parseFloat(cs.fontSize) >= 18.66 && parseInt(cs.fontWeight,10) >= 700);
+      if (big) continue;
+      const v = ratio(cs.color, bgOf(el));
+      if (v && v < worst) { worst = v; worstText = t.slice(0, 28); }
+    }
+
+    const empty = [...target.querySelectorAll('table')]
+        .filter(t => t.querySelectorAll('tbody tr').length === 0).length;
+    const blown = [...target.querySelectorAll('svg')]
+        .map(v => v.getBoundingClientRect())
+        .filter(r => r.width > 64 && r.height > 64 && r.width < 400).length;
+    // A screen that is a heading and a gap has not been thought about.
+    const thin = target.textContent.trim().length < 400;
+
+    out.push({
+      name: name(target),
+      contrast: Math.round(worst * 100) / 100, contrastOn: worstText,
+      empty, blown, thin,
+    });
+  }
+  screens.forEach((s, i) => { s.style.display = was[i]; });
+  return out;
+}"""
+
+
 async def audit(html: str) -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails."""
@@ -422,10 +490,19 @@ async def audit(html: str) -> list[str]:
         errors: list[str] = getattr(page, "thrown", [])
         await page.wait_for_timeout(500)
         found = await page.evaluate(_AUDIT_JS)
+        # Everything _AUDIT_JS measured, it measured on whichever screen was
+        # showing. A prototype is six or eight of them and the rest are
+        # display:none, so the checks that can be run per screen are — and
+        # where they are, they replace the single-screen answer rather than
+        # sitting beside it.
+        try:
+            screens = await page.evaluate(_SCREENS_JS)
+        except Exception:  # noqa: BLE001
+            screens = []
 
         if errors:
             findings.append(f"its own script threw ({errors[0]})")
-        if found.get("contrast", 99) < 4.5:
+        if not screens and found.get("contrast", 99) < 4.5:
             findings.append(
                 f"contrast {found['contrast']}:1 on \u201c{found['contrastOn']}\u201d"
                 " \u2014 below the 4.5:1 floor"
@@ -435,7 +512,7 @@ async def audit(html: str) -> list[str]:
                 f"{found['tiny']} hit area(s) under 24px, starting with "
                 f"\u201c{found['tinyFirst']}\u201d"
             )
-        if found.get("bigIcons"):
+        if not screens and found.get("bigIcons"):
             findings.append(
                 f"{found['bigIcons']} icon(s) blown up past 64px — an svg with "
                 "no width in a flex row"
@@ -467,7 +544,7 @@ async def audit(html: str) -> list[str]:
                 f"the sidebar's last block stops {gap}px short of its foot — the "
                 "signed-in person belongs at the bottom of it"
             )
-        if found.get("emptyTables"):
+        if not screens and found.get("emptyTables"):
             findings.append(f"{found['emptyTables']} table(s) with no rows")
 
         # A prototype's first claim is that you can click through it. Try the
@@ -482,6 +559,34 @@ async def audit(html: str) -> list[str]:
                 f"the sidebar navigation does not switch screens — "
                 f"“{dead}” leaves the same one showing"
             )
+
+        def _where(hits: list[dict]) -> str:
+            """Name the screens a fault landed on, without listing eight."""
+            names = [h.get("name") or "a screen" for h in hits]
+            if len(names) <= 3:
+                return " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1
+                                    else names)
+            return f"{len(names)} screens ({', '.join(names[:3])} and more)"
+
+        # One colour used on every screen is one fault, not eight. Say it once,
+        # so the repair reads it as the systemic thing it is.
+        low = [x for x in screens or [] if x.get("contrast", 99) < 4.5]
+        if low:
+            worst = min(low, key=lambda x: x["contrast"])
+            findings.append(
+                f"contrast {worst['contrast']}:1 on \u201c{worst['contrastOn']}\u201d"
+                f" — below the 4.5:1 floor, on {_where(low)}"
+                + (" — the same colour throughout" if len(low) > 2 else "")
+            )
+        for key, say in (
+            ("empty", "a table with no rows"),
+            ("blown", "an icon blown up past 64px"),
+            ("thin", "barely anything on it — a screen is a working page, not a "
+                     "header and a gap"),
+        ):
+            hits = [x for x in screens or [] if x.get(key)]
+            if hits:
+                findings.append(f"{say}, on {_where(hits)}")
 
         for width, label in ((1024, "1024"), (640, "640")):
             await page.set_viewport_size({"width": width, "height": 900})
