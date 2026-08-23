@@ -134,6 +134,10 @@ export class Design {
    *  settles — a redraw that retriggers itself is the usual way — leaves a
    *  blank canvas, which looks like Compass failing rather than the design. */
   readonly frameLoaded = signal(false);
+  /** The document as last saved. Kept apart from open().html on purpose: that
+   *  string feeds the canvas, and changing it reloads the frame under the
+   *  person's hands. Anything that needs the current markup reads this. */
+  readonly liveHtml = signal('');
   /** The run in flight, so the card's Cancel can actually stop it. */
   private runAbort: AbortController | null = null;
   readonly cancelling = signal(false);
@@ -586,10 +590,17 @@ export class Design {
       onCleanup(() => window.removeEventListener('message', onMessage));
     });
 
-    // Keep the agent's mode and pins in step with the panel.
+    // Keep the agent's mode in step with the panel. Only when it actually
+    // changes, or when a different project's frame arrives: the agent drops the
+    // selection whenever it is told the mode, and saving a canvas edit updates
+    // open(), so watching the whole project deselected the element a moment
+    // after it was picked — which took the toolbar with it.
     effect(() => {
       const mode = this.tool();
-      this.open();
+      const id = this.open()?.id ?? '';
+      if (mode === this.sentMode && id === this.sentModeFor) return;
+      this.sentMode = mode;
+      this.sentModeFor = id;
       queueMicrotask(() => this.toAgent({ dz: 'mode', mode }));
     });
     effect(() => {
@@ -1202,6 +1213,7 @@ export class Design {
         path: held.path,
         model: this.model(),
       });
+      this.saveAtOnce = true;              // the flush this triggers goes straight to disk
       this.toAgent({ dz: 'replace', html: out.html });
       this.askElText.set('');
       this.askElOpen.set(false);
@@ -1212,7 +1224,8 @@ export class Design {
           role: 'assistant',
           text:
             `Changed ${held.label || 'that element'} — nothing else touched.` +
-            (out.saw ? ' Looked at it first.' : ''),
+            (out.saw ? ' Looked at it first.' : '') +
+            ' Saved.',
         },
       ]);
     } catch (err) {
@@ -1512,6 +1525,7 @@ export class Design {
     try {
       const full = await this.api.designProject(id);
       this.open.set(full);
+      this.liveHtml.set(full.html ?? '');
       const stored = (full.turns ?? []).map((t) =>
         t.role === 'user' ? { ...t, text: this.spokenPart(t.text) } : t,
       );
@@ -1718,7 +1732,12 @@ export class Design {
       this.selectionRect.set(event.rect ?? null);
       this.details.set(event.details ?? null);
     } else if (event.dz === 'html' && event.html) {
-      this.queueSave(event.html);
+      if (this.saveAtOnce) {
+        this.saveAtOnce = false;
+        void this.saveHtml(event.html);
+      } else {
+        this.queueSave(event.html);
+      }
     } else if (event.dz === 'comment') {
       void this.addComment(event.x ?? 0, event.y ?? 0);
     } else if (event.dz === 'typing') {
@@ -1780,6 +1799,29 @@ export class Design {
     }, 1200);
   }
 
+  /** Set for the next flush when the edit must not wait on a debounce. */
+  private saveAtOnce = false;
+  /** The mode the agent was last told, and which project's frame was told it. */
+  private sentMode: Tool | '' = '';
+  private sentModeFor = '';
+
+  /** Store the document now, and remember it as what is on disk. */
+  private async saveHtml(html: string): Promise<void> {
+    const project = this.open();
+    if (!project) return;
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    try {
+      const saved = await this.api.saveDesignHtml(project.id, html);
+      this.liveHtml.set(html);
+      const current = this.open();
+      if (current?.id === saved.id) {
+        this.open.set({ ...current, updated_at: saved.updated_at });
+      }
+    } catch {
+      this.error.set('Could not save that edit.');
+    }
+  }
+
   private queueSave(html: string): void {
     const project = this.open();
     if (!project) return;
@@ -1787,6 +1829,7 @@ export class Design {
     this.saveTimer = setTimeout(async () => {
       try {
         const saved = await this.api.saveDesignHtml(project.id, html);
+        this.liveHtml.set(html);
         const current = this.open();
         if (current?.id === saved.id) {
           this.open.set({ ...current, updated_at: saved.updated_at });
