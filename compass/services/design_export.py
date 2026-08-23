@@ -67,6 +67,13 @@ async def _render(html: str, width: int, height: int, *, scale: float = 1):
     page = await browser.new_page(
         viewport={"width": width, "height": height}, device_scale_factor=scale
     )
+    # Listen before the document runs. A syntax error in the design's own
+    # script throws while the page is parsing, so a listener attached after
+    # set_content never hears the one failure that matters most: it takes the
+    # whole prototype's behaviour down with it.
+    thrown: list[str] = []
+    page.on("pageerror", lambda e: thrown.append(str(e)[:120]))
+    page.thrown = thrown  # the caller reads this rather than re-attaching
     # set_content rather than a data: URL — @import'd fonts need a real origin
     # to resolve against, and about:blank gives them one.
     await page.set_content(html, wait_until="load")
@@ -376,6 +383,33 @@ async def element_shot(html: str, path: str, *, pad: int = 24) -> str:
             pass
 
 
+_NAV_JS = r"""() => {
+  // What is on screen right now, as a fingerprint we can compare against.
+  const showing = () => {
+    const s = [...document.querySelectorAll('section[id], [data-screen], main > section')]
+      .find(e => e.getBoundingClientRect().width > 0);
+    return s ? (s.id || s.getAttribute('data-screen') || '') + ':' +
+               Math.round(s.getBoundingClientRect().height) : '';
+  };
+  const nav = [...document.querySelectorAll(
+    'nav a, nav button, aside a, aside button, [data-screen]'
+  )].filter(e => e.getBoundingClientRect().width > 0);
+  if (nav.length < 3) return null;            // not a shell with a nav
+
+  const first = showing();
+  if (!first) return null;
+  for (const item of nav) {
+    const was = showing();
+    item.click();
+    if (showing() !== was) return null;       // something moved: the nav works
+  }
+  // Nothing moved for any item. Name the second one — the first is usually
+  // the screen already showing, so clicking it legitimately changes nothing.
+  const t = (nav[1] || nav[0]).textContent.trim().replace(/\s+/g, ' ');
+  return t.slice(0, 24);
+}"""
+
+
 async def audit(html: str) -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails."""
@@ -385,8 +419,7 @@ async def audit(html: str) -> list[str]:
     except Exception:  # noqa: BLE001 - no browser on this host
         return []
     try:
-        errors: list[str] = []
-        page.on("pageerror", lambda e: errors.append(str(e)[:120]))
+        errors: list[str] = getattr(page, "thrown", [])
         await page.wait_for_timeout(500)
         found = await page.evaluate(_AUDIT_JS)
 
@@ -436,6 +469,19 @@ async def audit(html: str) -> list[str]:
             )
         if found.get("emptyTables"):
             findings.append(f"{found['emptyTables']} table(s) with no rows")
+
+        # A prototype's first claim is that you can click through it. Try the
+        # navigation and see whether the screen underneath actually changes —
+        # a dead nav looks identical to a working one in a screenshot.
+        try:
+            dead = await page.evaluate(_NAV_JS)
+        except Exception:  # noqa: BLE001
+            dead = None
+        if dead:
+            findings.append(
+                f"the sidebar navigation does not switch screens — "
+                f"“{dead}” leaves the same one showing"
+            )
 
         for width, label in ((1024, "1024"), (640, "640")):
             await page.set_viewport_size({"width": width, "height": 900})

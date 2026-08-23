@@ -1605,7 +1605,17 @@ REPAIR_PROMPT = (
     "- An icon blown up past 64px gets width and height attributes and a "
     "CSS width, and its flex parent gets flex: none.\n"
     "- Sideways scroll is cured at the element that overflows — a fixed table "
-    "layout, a min-width: 0 on a grid or flex child — never by hiding it."
+    "layout, a min-width: 0 on a grid or flex child — never by hiding it.\n"
+    "- A script that threw is rewritten until it parses. One syntax error "
+    "takes down every control in the prototype at once, so read the whole "
+    "script through, keep what it was trying to do, and write it plainly: no "
+    "clever one-liners, no template literals nested inside template literals, "
+    "and never document.write.\n"
+    "- Navigation that does not switch screens is wired properly: each nav "
+    "item names a screen, the handler hides every screen and shows that one "
+    "and marks the item current. Prove it to yourself by reading the ids in "
+    "the markup against the ids the script looks for — a handler that "
+    "queries an id nothing has is the usual cause."
 )
 
 
