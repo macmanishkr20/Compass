@@ -266,6 +266,56 @@ _AUDIT_JS = r"""() => {
 }"""
 
 
+async def element_shot(html: str, path: str, *, pad: int = 24) -> str:
+    """A picture of one element, in place, as a data: URL.
+
+    Rendered from the document it lives in and cropped to the element with a
+    little of its surroundings, so a question like "this is cramped" has
+    something to be cramped against. Returns "" if it cannot be taken —
+    a missing photograph is not worth failing an edit over.
+    """
+    if not html or not path:
+        return ""
+    try:
+        page, close = await _render(html, 1280, 900, scale=2)
+    except Exception:  # noqa: BLE001 - no browser on this host
+        return ""
+    try:
+        box = await page.evaluate(
+            """(sel) => {
+              const el = document.querySelector(sel);
+              if (!el) return null;
+              const r = el.getBoundingClientRect();
+              if (!r.width || !r.height) return null;
+              return {x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height};
+            }""",
+            path,
+        )
+        if not box:
+            return ""
+        full_w = await page.evaluate("() => document.documentElement.scrollWidth")
+        full_h = await page.evaluate(
+            "() => Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)"
+        )
+        clip = {
+            "x": max(0, box["x"] - pad),
+            "y": max(0, box["y"] - pad),
+            "width": min(box["w"] + pad * 2, full_w),
+            "height": min(box["h"] + pad * 2, full_h),
+        }
+        shot = await page.screenshot(type="png", clip=clip)
+        import base64
+
+        return "data:image/png;base64," + base64.b64encode(shot).decode()
+    except Exception:  # noqa: BLE001
+        return ""
+    finally:
+        try:
+            await close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def audit(html: str) -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails."""

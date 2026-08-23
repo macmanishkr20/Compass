@@ -70,6 +70,7 @@ export interface EditorEvent {
     | 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed'
     | 'tweaks' | 'pong' | 'pageerror' | 'grabbed';
   message?: string;                   // what the design's own script threw
+  path?: string;                      // where the grabbed element sits, for a photo
   tweaks?: EditorTweak[];
   label?: string;                     // e.g. "section.hero"
   rect?: EditorRect;                  // where to put the floating toolbar
@@ -147,6 +148,26 @@ export const EDITOR_SCRIPT = String.raw`
 
   function target(el, x, y) {
     return el && el.closest && el.closest('[data-dz]') ? beneath(x, y) : el;
+  }
+
+  // Where this element sits in the document, precisely enough to find it again
+  // in a clean render of the same markup — used to photograph the selection.
+  function pathTo(el) {
+    var parts = [];
+    while (el && el.nodeType === 1 && el !== document.documentElement) {
+      var name = el.tagName.toLowerCase();
+      var parent = el.parentNode;
+      if (parent && parent.children) {
+        var same = [], i;
+        for (i = 0; i < parent.children.length; i++) {
+          if (parent.children[i].tagName === el.tagName) same.push(parent.children[i]);
+        }
+        if (same.length > 1) name += ':nth-of-type(' + (same.indexOf(el) + 1) + ')';
+      }
+      parts.unshift(name);
+      el = parent;
+    }
+    return parts.join(' > ');
   }
 
   function label(el) {
@@ -561,7 +582,7 @@ export const EDITOR_SCRIPT = String.raw`
       copy.querySelectorAll('[data-dz-hover],[contenteditable]').forEach(function (n) {
         n.removeAttribute('data-dz-hover'); n.removeAttribute('contenteditable');
       });
-      post({ dz: 'grabbed', html: copy.outerHTML, label: label(sel) });
+      post({ dz: 'grabbed', html: copy.outerHTML, label: label(sel), path: pathTo(sel) });
     }
     else if (m.dz === 'replace') {
       if (!sel || !m.html) return;

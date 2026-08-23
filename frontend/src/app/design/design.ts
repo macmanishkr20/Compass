@@ -125,7 +125,7 @@ export class Design {
   readonly askElText = signal('');
   readonly askElBusy = signal(false);
   /** Resolves when the agent hands back the selection's markup. */
-  private grabbed: ((html: string, label: string) => void) | null = null;
+  private grabbed: ((html: string, label: string, path: string) => void) | null = null;
   /** Did the canvas agent start? A design whose own script breaks the page can
    *  take the tools down with it, and silence there is indistinguishable from
    *  "nothing selected" — so say so instead. */
@@ -1175,13 +1175,18 @@ export class Design {
     const instruction = this.askElText().trim();
     if (!project || !instruction || this.askElBusy()) return;
 
-    const held = await new Promise<{ html: string; label: string }>((resolve) => {
-      this.grabbed = (html, label) => resolve({ html, label });
-      this.toAgent({ dz: 'grab' });
-      setTimeout(() => {
-        if (this.grabbed) { this.grabbed = null; resolve({ html: '', label: '' }); }
-      }, 2500);
-    });
+    const held = await new Promise<{ html: string; label: string; path: string }>(
+      (resolve) => {
+        this.grabbed = (html, label, path) => resolve({ html, label, path });
+        this.toAgent({ dz: 'grab' });
+        setTimeout(() => {
+          if (this.grabbed) {
+            this.grabbed = null;
+            resolve({ html: '', label: '', path: '' });
+          }
+        }, 2500);
+      },
+    );
     if (!held.html) {
       this.error.set('Could not read that element — select it again.');
       return;
@@ -1194,6 +1199,7 @@ export class Design {
         html: held.html,
         instruction,
         label: held.label || this.selection(),
+        path: held.path,
         model: this.model(),
       });
       this.toAgent({ dz: 'replace', html: out.html });
@@ -1202,7 +1208,12 @@ export class Design {
       this.turns.update((t) => [
         ...t,
         { role: 'user', text: `${held.label || 'element'}: ${instruction}` },
-        { role: 'assistant', text: `Changed ${held.label || 'that element'} — nothing else touched.` },
+        {
+          role: 'assistant',
+          text:
+            `Changed ${held.label || 'that element'} — nothing else touched.` +
+            (out.saw ? ' Looked at it first.' : ''),
+        },
       ]);
     } catch (err) {
       this.error.set(
@@ -1683,7 +1694,7 @@ export class Design {
     if (event.dz === 'grabbed') {
       const done = this.grabbed;
       this.grabbed = null;
-      done?.(event.html ?? '', event.label ?? '');
+      done?.(event.html ?? '', event.label ?? '', event.path ?? '');
       return;
     }
     if (event.dz === 'pageerror') {

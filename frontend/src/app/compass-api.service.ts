@@ -462,10 +462,19 @@ export class CompassApiService {
   /** Change one element of a design to order, leaving the rest alone. */
   editElement(
     id: string,
-    body: { html: string; instruction: string; label?: string; model?: string },
-  ): Promise<{ html: string }> {
+    body: {
+      html: string;
+      instruction: string;
+      label?: string;
+      path?: string;
+      model?: string;
+    },
+  ): Promise<{ html: string; saw?: boolean }> {
     return firstValueFrom(
-      this.http.post<{ html: string }>(`/v1/design/projects/${id}/element`, body),
+      this.http.post<{ html: string; saw?: boolean }>(
+        `/v1/design/projects/${id}/element`,
+        body,
+      ),
     );
   }
 

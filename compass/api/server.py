@@ -1489,6 +1489,7 @@ class DesignElement(BaseModel):
     html: str                 # the element as it stands
     instruction: str          # what to change about it
     label: str = ""           # what it is, e.g. "span.delta"
+    path: str = ""            # where it sits, so it can be photographed
     model: str = ""
 
 
@@ -1543,11 +1544,30 @@ async def design_element(
         f"{tokens}"
     )
 
+    # A picture of the element where it lives. "This is cramped" and "the
+    # colour is wrong" are about how it looks, and the markup does not show it.
+    shot = ""
+    if body.path:
+        from compass.services import design_export as _ex
+
+        shot = await _ex.element_shot(project.get("html") or "", body.path)
+    if shot:
+        system += (
+            "\nYou are also shown a photograph of the element as it renders, "
+            "with a little of what surrounds it. Judge spacing, size, colour "
+            "and alignment from the picture, and the structure from the markup."
+        )
+
     try:
         from compass.gateway.azure_client import get_model_client
 
         out = await get_model_client().complete_utility(
-            system, asked, max_tokens=8_000, prefer_main=True, model=body.model
+            system,
+            asked,
+            max_tokens=8_000,
+            prefer_main=True,
+            model=body.model,
+            images=[shot] if shot else None,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"that edit failed: {err}")
@@ -1561,7 +1581,7 @@ async def design_element(
             new_html = m.group(1).strip()
     if not new_html.startswith("<"):
         raise HTTPException(status_code=502, detail="the edit came back unusable")
-    return {"html": new_html}
+    return {"html": new_html, "saw": bool(shot)}
 
 
 @app.post("/v1/design/projects/{project_id}/generate")
