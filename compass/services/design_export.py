@@ -255,7 +255,67 @@ _AUDIT_JS = r"""() => {
   const emptyTables = [...root.querySelectorAll('table')]
       .filter(t => t.querySelectorAll('tbody tr').length === 0).length;
 
+  // A title that is a span is a title only to the eye.
+  const headings = root.querySelectorAll('h1,h2,h3').length;
+
+  // Numbers belong in the mono. A column of them in the sans will not line up.
+  const isMono = (f) => /mono|menlo|consolas|courier/i.test(f);
+  const sansNumbers = [...root.querySelectorAll('td,th,span,div,p,strong,b,dd')]
+      .filter(e => e.children.length === 0 && e.offsetParent !== null)
+      .filter(e => {
+        const t = (e.textContent || '').trim();
+        return t.length > 1 && /^[$€£¥+\-–\s]*\d[\d.,\s]*[%kKMmh€$]*$/.test(t);
+      })
+      .filter(e => !isMono(getComputedStyle(e).fontFamily));
+
+  // How many measures were given a colour of their own? One hue across a page
+  // of charts is the dull failure; it is the one to name out loud.
+  const fams = new Set();
+  for (const el of root.querySelectorAll('*')) {
+    const r = el.getBoundingClientRect();
+    if (r.width * r.height < 120 || el.offsetParent === null) continue;
+    const cs = getComputedStyle(el);
+    for (const v of [cs.backgroundColor, cs.fill]) {
+      const m = v && v.match(/\d+(\.\d+)?/g);
+      if (!m || m.length < 3) continue;
+      if (m.length > 3 && Number(m[3]) < 0.4) continue;
+      const [cr, cg, cb] = m.slice(0, 3).map(Number);
+      const mx = Math.max(cr, cg, cb), mn = Math.min(cr, cg, cb), d = mx - mn;
+      if (d < 45) continue;                       // neutral, not a hue
+      let h = mx === cr ? 60 * (((cg - cb) / d) % 6)
+            : mx === cg ? 60 * (((cb - cr) / d) + 2)
+                        : 60 * (((cr - cg) / d) + 4);
+      fams.add(Math.round(((h + 360) % 360) / 40));
+    }
+  }
+
+  // Anything whose job is to carry a value. Counted on the screen in front of
+  // us only: the colours above were measured there, and a prototype's other
+  // screens are display:none, so counting theirs would compare two pages.
+  const dataBits = [...root.querySelectorAll(
+    'svg rect, [class*=bar], [class*=meter], [class*=chart], [class*=heat], progress'
+  )].filter(e => e.getBoundingClientRect().width > 0).length;
+
+  // The signed-in person belongs at the foot of the sidebar, inside it.
+  let sidebarFootGap = null;
+  const cols = [...root.querySelectorAll('aside, nav, [class*=sidebar], [class*=sidenav]')]
+      .filter(e => { const r = e.getBoundingClientRect();
+                     return r.height > innerHeight * 0.7 && r.width > 120 && r.width < 340; });
+  if (cols.length) {
+    const sr = cols[0].getBoundingClientRect();
+    const kids = [...cols[0].children].filter(k => k.getBoundingClientRect().height > 8);
+    if (kids.length) {
+      sidebarFootGap = Math.round(sr.bottom - kids[kids.length - 1].getBoundingClientRect().bottom);
+    }
+  }
+
   return {
+    headings,
+    sansNumbers: sansNumbers.length,
+    sansNumberFirst: sansNumbers.length ? sansNumbers[0].textContent.trim().slice(0, 18) : '',
+    hues: fams.size,
+    dataBits,
+    sidebarFootGap,
     contrast: Math.round(worst*100)/100, contrastOn: worstText,
     tiny: tiny.length, tinyFirst: tiny.length ? tiny[0].t : '',
     bigIcons,
@@ -347,10 +407,32 @@ async def audit(html: str) -> list[str]:
                 f"{found['bigIcons']} icon(s) blown up past 64px — an svg with "
                 "no width in a flex row"
             )
-        if found.get("accentShare", 0) > 22:
+        if found.get("accentShare", 0) > 32:
             findings.append(
                 f"strong colour covers about {found['accentShare']}% of the page "
-                "— the accent is meant to be a seasoning"
+                "— colour belongs on the data and the status, not on the chrome"
+            )
+        if not found.get("headings"):
+            findings.append(
+                "no heading element anywhere — the titles are spans and divs, so "
+                "only their type size says they are titles"
+            )
+        if found.get("sansNumbers", 0) > 6:
+            findings.append(
+                f"{found['sansNumbers']} numbers set in the sans rather than the "
+                f"mono, starting with \u201c{found['sansNumberFirst']}\u201d — a "
+                "column of them will not line up"
+            )
+        if found.get("dataBits", 0) >= 6 and found.get("hues", 0) <= 1:
+            findings.append(
+                "every measure on the page is drawn in the same colour — a second "
+                "measure earns a second hue"
+            )
+        gap = found.get("sidebarFootGap")
+        if gap is not None and gap > 24:
+            findings.append(
+                f"the sidebar's last block stops {gap}px short of its foot — the "
+                "signed-in person belongs at the bottom of it"
             )
         if found.get("emptyTables"):
             findings.append(f"{found['emptyTables']} table(s) with no rows")

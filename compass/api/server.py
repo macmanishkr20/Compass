@@ -1584,6 +1584,77 @@ async def design_element(
     return {"html": new_html, "saw": bool(shot)}
 
 
+REPAIR_PROMPT = (
+    "You are correcting faults found in a finished design by an automated "
+    "review. The review measured the rendered page, so each finding is a "
+    "fact about it, not an opinion.\n"
+    "Return the WHOLE corrected document in one ```html block and nothing "
+    "else — no commentary, no explanation.\n"
+    "Fix every finding. Change nothing else: same content, same words, same "
+    "structure, same palette, same behaviour. A fix that redesigns the page "
+    "is a worse outcome than the fault it cures.\n"
+    "How these are fixed:\n"
+    "- A title that is not a heading becomes one — h1 for the screen's title, "
+    "h2 for a panel's — keeping its classes and its type size.\n"
+    "- Numbers set in the sans move to the mono face with tabular figures.\n"
+    "- A page drawn in one hue keeps its first measure's colour and gives the "
+    "others theirs, by meaning, from the palette already declared on :root.\n"
+    "- Contrast below the floor is fixed by darkening the text, never by "
+    "lightening the ground under it.\n"
+    "- A hit area under 24px grows to at least 24, by padding.\n"
+    "- An icon blown up past 64px gets width and height attributes and a "
+    "CSS width, and its flex parent gets flex: none.\n"
+    "- Sideways scroll is cured at the element that overflows — a fixed table "
+    "layout, a min-width: 0 on a grid or flex child — never by hiding it."
+)
+
+
+async def _repair(html: str, issues: list[str], model: str) -> tuple[str, list[str]]:
+    """One corrective pass. Returns the document to keep and what it fixed.
+
+    Kept only if the review then measures fewer faults: a repair that trades
+    one fault for another is not a repair, and the original is the safer of
+    the two documents.
+    """
+    from compass.services import design_export as _ex
+
+    try:
+        from compass.gateway.azure_client import get_model_client
+
+        out = await get_model_client().complete_utility(
+            REPAIR_PROMPT,
+            "The review found:\n- " + "\n- ".join(issues)
+            + "\n\nThe document:\n\n```html\n" + html + "\n```",
+            max_tokens=64_000,
+            prefer_main=True,
+            model=model,
+        )
+    except Exception:  # noqa: BLE001 - a failed repair is not a failed design
+        return html, []
+
+    import re as _re
+
+    fixed = (out or "").strip()
+    if "```" in fixed:
+        if m := _re.search(r"```(?:html)?\s*\n(.*?)```", fixed, _re.S):
+            fixed = m.group(1).strip()
+    # It has to still be a document, and not a stub of one.
+    if not fixed.lower().startswith("<!doctype") and not fixed.lower().startswith("<html"):
+        return html, []
+    if len(fixed) < len(html) * 0.6:
+        return html, []
+
+    try:
+        after = await _ex.audit(fixed)
+    except Exception:  # noqa: BLE001
+        return html, []
+    if len(after) >= len(issues):
+        return html, []
+
+    cured = [i for i in issues if i not in after]
+    return fixed, cured
+
+
 @app.post("/v1/design/projects/{project_id}/generate")
 async def design_generate(
     project_id: str, body: DesignGenerate, user: str = Depends(require_user)
@@ -1677,15 +1748,28 @@ async def design_generate(
     except Exception:  # noqa: BLE001 - never fail a design over its review
         issues = []
 
-    said = " ".join(x for x in (direction, notes) if x)
+    steps = ["Reading the brief", "Refining design" if project.get("html") else "Designing"]
+
+    # Finding a fault and reporting it leaves the fault in the design. Correct
+    # what was found, once, and say what was corrected.
+    cured: list[str] = []
     if issues:
-        said = (said + " ").lstrip() + "Worth fixing: " + "; ".join(issues) + "."
+        steps.append("Found issues — fixing")
+        html, cured = await _repair(html, issues, body.model)
+        if cured:
+            issues = [i for i in issues if i not in cured]
+
+    said = " ".join(x for x in (direction, notes) if x)
+    if cured:
+        said = (said + " ").lstrip() + "Found and fixed: " + "; ".join(cured) + "."
+    if issues:
+        said = (said + " ").lstrip() + "Still worth fixing: " + "; ".join(issues) + "."
 
     turns.append(
         {
             "role": "assistant",
             "text": said or "Here it is — tell me what to change.",
-            "steps": ["Reading the brief", "Refining design" if project.get("html") else "Designing"],
+            "steps": steps,
             "file": f"{project.get('name', 'Design')}.html",
         }
     )

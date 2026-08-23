@@ -466,12 +466,68 @@ export const EDITOR_SCRIPT = String.raw`
   // -- alignment ------------------------------------------------------------
   function align(how) {
     if (!sel || mode !== 'edit') return;
-    if (how === 'left') { sel.style.marginLeft = '0'; sel.style.marginRight = 'auto'; }
-    if (how === 'center') { sel.style.marginLeft = 'auto'; sel.style.marginRight = 'auto'; }
-    if (how === 'right') { sel.style.marginLeft = 'auto'; sel.style.marginRight = '0'; }
-    if (how === 'top') { sel.style.alignSelf = 'flex-start'; }
-    if (how === 'middle') { sel.style.alignSelf = 'center'; }
-    if (how === 'bottom') { sel.style.alignSelf = 'flex-end'; }
+    var across = (how === 'left' || how === 'center' || how === 'right');
+    var parent = sel.parentElement;
+    var ps = parent ? getComputedStyle(parent) : null;
+    var own = getComputedStyle(sel);
+    var box = ps ? ps.display : '';
+    var column = ps ? (ps.flexDirection || 'row').indexOf('column') === 0 : false;
+    var pick = function (a, b, c) {
+      return how === 'left' || how === 'top' ? a
+        : (how === 'center' || how === 'middle' ? b : c);
+    };
+
+    // What "align" means depends on what the element is and what it sits in.
+    // Setting two margins and hoping only works where the container has free
+    // space to give: a button in a content-sized flex row has none, and every
+    // click on the toolbar moved nothing at all.
+    if (across) {
+      if (box === 'grid' || box === 'inline-grid') {
+        sel.style.justifySelf = pick('start', 'center', 'end');
+      } else if (box === 'flex' || box === 'inline-flex') {
+        if (column) {
+          sel.style.alignSelf = pick('flex-start', 'center', 'flex-end');
+        } else {
+          // Along a flex row auto margins eat the free space — so long as the
+          // item is not itself growing to take all of it.
+          if (own.flexGrow !== '0') sel.style.flexGrow = '0';
+          sel.style.marginLeft = how === 'left' ? '0px' : 'auto';
+          sel.style.marginRight = how === 'right' ? '0px' : 'auto';
+        }
+      } else if (own.display.indexOf('inline') === 0) {
+        // A run of text sits in a line, and the line is the parent's to set.
+        if (parent) parent.style.textAlign = pick('left', 'center', 'right');
+      } else if (!sel.children.length && sel.textContent.trim()) {
+        // A heading or paragraph across the full width: move the words, not
+        // the box. Shrinking it to its text would reflow everything below.
+        sel.style.textAlign = pick('left', 'center', 'right');
+      } else {
+        // A block fills its parent, so there is nothing to move until it is
+        // asked to be only as wide as it needs. Measure against the parent's
+        // content box — its border box counts padding the child never had.
+        var room = parent
+          ? parent.clientWidth - parseFloat(ps.paddingLeft || 0) - parseFloat(ps.paddingRight || 0)
+          : 0;
+        if (parent && sel.getBoundingClientRect().width >= room - 1 && !sel.style.width) {
+          sel.style.width = 'fit-content';
+        }
+        sel.style.marginLeft = how === 'left' ? '0px' : 'auto';
+        sel.style.marginRight = how === 'right' ? '0px' : 'auto';
+      }
+    } else {
+      if (box === 'flex' || box === 'inline-flex') {
+        if (column) {
+          sel.style.marginTop = how === 'top' ? '0px' : 'auto';
+          sel.style.marginBottom = how === 'bottom' ? '0px' : 'auto';
+        } else {
+          sel.style.alignSelf = pick('flex-start', 'center', 'flex-end');
+        }
+      } else if (box === 'grid' || box === 'inline-grid') {
+        sel.style.alignSelf = pick('start', 'center', 'end');
+      } else {
+        sel.style.verticalAlign = pick('top', 'middle', 'bottom');
+      }
+    }
     place();
     flush();
   }
