@@ -1699,6 +1699,13 @@ REPAIR_PROMPT = (
     "script through, keep what it was trying to do, and write it plainly: no "
     "clever one-liners, no template literals nested inside template literals, "
     "and never document.write.\n"
+    "- A sheet that runs past its page is cut, not scaled: take out the "
+    "weakest block, shorten the copy, tighten the spacing. Never shrink the "
+    "headline to make room — the headline is the reason the sheet works.\n"
+    "- A printed piece built out of bordered cards is regrouped with space "
+    "and a hairline rule, keeping the words and dropping the boxes.\n"
+    "- Prose, a date or a time set in a monospace moves to the sans; the mono "
+    "stays only on a code, an id or a URL.\n"
     "- Navigation that does not switch screens is wired properly: each nav "
     "item names a screen, the handler hides every screen and shows that one "
     "and marks the item current. Prove it to yourself by reading the ids in "
@@ -1741,7 +1748,7 @@ def _kinds(findings: list[str]) -> set[str]:
 
 
 async def _repair(
-    html: str, issues: list[str], model: str
+    html: str, issues: list[str], model: str, kind: str = ""
 ) -> tuple[str, list[str], list[str]]:
     """One corrective pass: the document to keep, what it cured, what is left.
 
@@ -1777,7 +1784,7 @@ async def _repair(
         return html, [], issues
 
     try:
-        after = await _ex.audit(fixed)
+        after = await _ex.audit(fixed, kind=kind)
     except Exception:  # noqa: BLE001
         return html, [], issues
 
@@ -1904,8 +1911,11 @@ async def design_generate(
     # tables with no rows, a script that threw.
     from compass.services import design_export as _ex
 
+    # The review's criteria depend on what was asked for: a flier judged by a
+    # dashboard's rules passes while looking nothing like a flier.
+    kind = body.template or project.get("template") or ""
     try:
-        issues = await _ex.audit(html)
+        issues = await _ex.audit(html, kind=kind)
     except Exception:  # noqa: BLE001 - never fail a design over its review
         issues = []
 
@@ -1916,7 +1926,7 @@ async def design_generate(
     cured: list[str] = []
     if issues:
         steps.append("Found issues — fixing")
-        html, cured, issues = await _repair(html, issues, body.model)
+        html, cured, issues = await _repair(html, issues, body.model, kind)
 
     said = " ".join(x for x in (direction, notes) if x)
     if cured:

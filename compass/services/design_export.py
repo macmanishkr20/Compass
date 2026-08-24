@@ -478,10 +478,95 @@ _SCREENS_JS = r"""() => {
 }"""
 
 
-async def audit(html: str) -> list[str]:
+# Templates that produce a printed piece rather than a screen, and the one
+# that produces a poster — where the headline has to carry the page.
+_SHEET_KINDS = {"flier", "resume", "document", "slides", "email"}
+_APP_KINDS = {"mockups", "mobile", "wireframe"}
+_POSTER_KINDS = {"flier"}
+
+_SHEET_JS = r"""() => {
+  const vis = (e) => e.getBoundingClientRect().width > 0;
+  const texts = [...document.querySelectorAll('*')].filter(
+    (e) => e.children.length === 0 && (e.textContent || '').trim().length > 1 && vis(e));
+  if (!texts.length) return null;
+  const size = (e) => parseFloat(getComputedStyle(e).fontSize);
+  const mono = (e) => /mono|menlo|courier|consolas/i.test(getComputedStyle(e).fontFamily);
+
+  // The sheet is the block the design prints on, which is the one with a
+  // fixed width — not the full-bleed wrapper around it. Taking the largest
+  // area finds the wrapper every time, and then nothing matches a page size.
+  const PAGES = [[794, 1123], [816, 1056], [1280, 720]];
+  const boxes = [...document.querySelectorAll('body, body *')]
+    .map((e) => ({ e, r: e.getBoundingClientRect() }))
+    .filter((x) => x.r.width >= 300 && x.r.width <= 1400 && x.r.height > 200);
+  let sheet = null;
+  for (const [w] of PAGES) {                    // a declared page wins outright
+    const hit = boxes.find((x) => Math.abs(x.r.width - w) < 12);
+    if (hit) { sheet = hit.e; break; }
+  }
+  if (!sheet) {                                 // else the tallest thing that
+    let tall = 0;                               // is not the full window width
+    for (const x of boxes) {
+      if (x.r.width > innerWidth - 24) continue;
+      if (x.r.height > tall) { tall = x.r.height; sheet = x.e; }
+    }
+  }
+  sheet = sheet || document.body;
+  const sr = sheet.getBoundingClientRect();
+
+  const sizes = texts.map(size).sort((a, b) => b - a);
+  const body = sizes[Math.floor(sizes.length / 2)];
+  const head = texts.reduce((a, e) => (size(e) > size(a) ? e : a), texts[0]);
+  const hr = head.getBoundingClientRect();
+
+  // A sentence, as opposed to a label or a figure.
+  const prose = texts.filter((e) => (e.textContent || '').trim().split(/\s+/).length >= 5);
+  const monoProse = prose.filter(mono);
+
+  // The dashboard's vocabulary: a grid of bordered, rounded cards.
+  const panels = [...document.querySelectorAll('div,section,article,aside')].filter((e) => {
+    const cs = getComputedStyle(e), r = e.getBoundingClientRect();
+    if (r.width < 140 || r.height < 70) return false;
+    const edged = parseFloat(cs.borderTopWidth) > 0 || cs.boxShadow !== 'none'
+               || cs.backgroundColor !== 'rgba(0, 0, 0, 0)';
+    return edged && parseFloat(cs.borderTopLeftRadius) > 2;
+  });
+
+  // The page it has declared itself to be: A4, Letter, or a 16:9 slide. If it
+  // named none of them, A4's proportions stand in — a sheet three times taller
+  // than it is wide is a scroll however it was sized.
+  let page = null;
+  for (const [w, h] of PAGES) if (Math.abs(sr.width - w) < 12) page = h;
+  const declared = page !== null;
+  if (!declared) page = Math.round(sr.width * 1.414);
+
+  return {
+    width: Math.round(sr.width), height: Math.round(sr.height), page, declared,
+    headSize: Math.round(sizes[0]), bodySize: Math.round(body),
+    headText: head.textContent.trim().slice(0, 34),
+    headTop: +((hr.top - sr.top) / Math.max(1, sr.height)).toFixed(2),
+    panels: panels.length,
+    monoProse: monoProse.length,
+    monoProseFirst: monoProse.length ? monoProse[0].textContent.trim().slice(0, 40) : '',
+    tiny: texts.filter((e) => size(e) < 11).length,
+    words: (document.body.innerText || '').trim().split(/\s+/).length,
+  };
+}"""
+
+
+async def audit(html: str, kind: str = "") -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
-    wrong with it. Never raises: a check that fails is not a design that fails."""
+    wrong with it. Never raises: a check that fails is not a design that fails.
+
+    `kind` is the template, because the criteria are not the same. A flier is
+    not a worse dashboard: its dates belong in prose rather than in a
+    monospace column, its palette may be mostly one warm colour, and a sheet
+    that is 794px wide is meant not to reflow at 640.
+    """
     findings: list[str] = []
+    sheet = kind in _SHEET_KINDS
+    poster = kind in _POSTER_KINDS
+    app = not sheet                       # an unknown template is treated as a screen
     try:
         page, close = await _render(html, 1280, 900)
     except Exception:  # noqa: BLE001 - no browser on this host
@@ -496,7 +581,7 @@ async def audit(html: str) -> list[str]:
         # where they are, they replace the single-screen answer rather than
         # sitting beside it.
         try:
-            screens = await page.evaluate(_SCREENS_JS)
+            screens = await page.evaluate(_SCREENS_JS) if app else []
         except Exception:  # noqa: BLE001
             screens = []
 
@@ -512,12 +597,12 @@ async def audit(html: str) -> list[str]:
                 f"{found['tiny']} hit area(s) under 24px, starting with "
                 f"\u201c{found['tinyFirst']}\u201d"
             )
-        if not screens and found.get("bigIcons"):
+        if app and not screens and found.get("bigIcons"):
             findings.append(
                 f"{found['bigIcons']} icon(s) blown up past 64px — an svg with "
                 "no width in a flex row"
             )
-        if found.get("accentShare", 0) > 32:
+        if app and found.get("accentShare", 0) > 32:
             findings.append(
                 f"strong colour covers about {found['accentShare']}% of the page "
                 "— colour belongs on the data and the status, not on the chrome"
@@ -527,13 +612,13 @@ async def audit(html: str) -> list[str]:
                 "no heading element anywhere — the titles are spans and divs, so "
                 "only their type size says they are titles"
             )
-        if found.get("sansNumbers", 0) > 6:
+        if app and found.get("sansNumbers", 0) > 6:
             findings.append(
                 f"{found['sansNumbers']} numbers set in the sans rather than the "
                 f"mono, starting with \u201c{found['sansNumberFirst']}\u201d — a "
                 "column of them will not line up"
             )
-        if found.get("dataBits", 0) >= 6 and found.get("hues", 0) <= 1:
+        if app and found.get("dataBits", 0) >= 6 and found.get("hues", 0) <= 1:
             findings.append(
                 "every measure on the page is drawn in the same colour — a second "
                 "measure earns a second hue"
@@ -551,7 +636,7 @@ async def audit(html: str) -> list[str]:
         # navigation and see whether the screen underneath actually changes —
         # a dead nav looks identical to a working one in a screenshot.
         try:
-            dead = await page.evaluate(_NAV_JS)
+            dead = await page.evaluate(_NAV_JS) if app else None
         except Exception:  # noqa: BLE001
             dead = None
         if dead:
@@ -588,7 +673,58 @@ async def audit(html: str) -> list[str]:
             if hits:
                 findings.append(f"{say}, on {_where(hits)}")
 
-        for width, label in ((1024, "1024"), (640, "640")):
+        if sheet:
+            try:
+                paper = await page.evaluate(_SHEET_JS)
+            except Exception:  # noqa: BLE001
+                paper = None
+            if paper:
+                page_h = paper.get("page")
+                if page_h and paper["height"] > page_h * 1.08:
+                    over = paper["height"] - page_h
+                    findings.append(
+                        f"the sheet runs {paper['height']}px on a page of {page_h}"
+                        f" — {over}px past the bottom. Take a block out or tighten"
+                        " the spacing; it has to be one sheet"
+                    )
+                if paper["monoProse"]:
+                    findings.append(
+                        f"{paper['monoProse']} sentence(s) set in the monospace, "
+                        f"starting with \u201c{paper['monoProseFirst']}\u201d — the "
+                        "mono is for a code or an id, never for prose, a date or a "
+                        "time written out"
+                    )
+                if paper["tiny"]:
+                    findings.append(
+                        f"{paper['tiny']} run(s) of text under 11px — too small to "
+                        "read on paper"
+                    )
+                if poster:
+                    ratio = paper["headSize"] / max(1, paper["bodySize"])
+                    if ratio < 3:
+                        findings.append(
+                            f"the headline \u201c{paper['headText']}\u201d is only "
+                            f"{ratio:.1f}\u00d7 the body text — a poster is read from "
+                            "across a room, so it wants four times or more"
+                        )
+                    if paper["headTop"] > 0.34:
+                        findings.append(
+                            "the largest thing on the sheet starts below the top "
+                            "third — a poster leads with what it is"
+                        )
+                    if paper["panels"] > 3:
+                        findings.append(
+                            f"{paper['panels']} bordered panels — a printed piece "
+                            "groups with space and a rule, not with a grid of cards"
+                        )
+                    if paper["words"] > 220:
+                        findings.append(
+                            f"{paper['words']} words on a poster — it has to be "
+                            "read standing up, so cut it to the ones that matter"
+                        )
+
+        # A sheet is a fixed width on purpose; it is not meant to reflow.
+        for width, label in (() if sheet else ((1024, "1024"), (640, "640"))):
             await page.set_viewport_size({"width": width, "height": 900})
             await page.wait_for_timeout(250)
             over = await page.evaluate(
