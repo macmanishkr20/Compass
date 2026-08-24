@@ -33,6 +33,8 @@ import {
 } from '../models';
 import {
   EDITOR_SCRIPT,
+  type EditorProps,
+  type EditorNode,
   EditorCommand,
   EditorDetails,
   EditorEvent,
@@ -120,6 +122,16 @@ export class Design {
   readonly selectionRect = signal<EditorRect | null>(null);
   readonly details = signal<EditorDetails | null>(null);
   readonly typing = signal(false);
+  /** The edit panel: which tab, what is selected, and the document's shape. */
+  readonly editTab = signal<'simple' | 'pro' | 'code' | 'tweaks'>('simple');
+  readonly props = signal<EditorProps | null>(null);
+  readonly nodes = signal<EditorNode[]>([]);
+  readonly cssDraft = signal('');
+  readonly tweakAsk = signal('');
+  readonly editDirty = signal(false);
+  /** The document as it stood when Edit was entered — what Discard goes back to. */
+  private editBase = '';
+
   /** Design mode: ask for a change to the selected element alone. */
   readonly askElOpen = signal(false);
   readonly askElText = signal('');
@@ -602,6 +614,12 @@ export class Design {
       this.sentMode = mode;
       this.sentModeFor = id;
       queueMicrotask(() => this.toAgent({ dz: 'mode', mode }));
+      if (mode === 'edit') {
+        // The document as it stands now is what Discard goes back to.
+        this.editBase = this.liveHtml() || this.open()?.html || '';
+        this.editDirty.set(false);
+        queueMicrotask(() => this.refreshTree());
+      }
     });
     effect(() => {
       const pins = this.comments();
@@ -1171,6 +1189,169 @@ export class Design {
     }
   }
 
+  // The fixed choices the inspector offers, named once rather than in markup.
+  readonly axes = [
+    { k: 'width' as const, label: 'Width' },
+    { k: 'height' as const, label: 'Height' },
+  ];
+  readonly modes = ['hug', 'fixed', 'fill'] as const;
+  readonly boxes = [
+    { k: 'padding' as const, label: 'Padding' },
+    { k: 'margin' as const, label: 'Margin' },
+  ];
+  readonly shapes = [
+    { v: 'none' as const, t: 'None' },
+    { v: 'all' as const, t: 'All' },
+    { v: 'xy' as const, t: 'X & Y' },
+    { v: 'each' as const, t: 'Individual' },
+  ];
+  readonly sides = [
+    { i: 0, t: 'T' }, { i: 1, t: 'R' }, { i: 2, t: 'B' }, { i: 3, t: 'L' },
+  ];
+
+  /** Drop a new element into the selection. */
+  addThing(kind: 'text' | 'box'): void {
+    this.toAgent({ dz: 'insert', kind });
+    this.editDirty.set(true);
+    setTimeout(() => this.refreshTree(), 120);
+  }
+
+  /** Take back everything this element sets for itself, leaving the design's
+   *  own stylesheet to say how it looks. */
+  resetLook(): void {
+    this.toAgent({ dz: 'css', text: '' });
+    this.editDirty.set(true);
+  }
+
+  /** The line the Pro tab shows: what this element actually is. */
+  debugLine(): string {
+    const p = this.props();
+    if (!p) return '';
+    return JSON.stringify({
+      tag: p.tag,
+      id: p.id || undefined,
+      class: p.classes || undefined,
+      box: `${p.width}\u00d7${p.height}`,
+      style: p.inline || undefined,
+    });
+  }
+
+  /** Ask the model to build a tweaks panel for this design. */
+  async askForTweaks(): Promise<void> {
+    const wanted = this.tweakAsk().trim();
+    if (!wanted) return;
+    this.tweakAsk.set('');
+    const asked =
+      `Add a tweak sheet to this design so a person can adjust ${wanted} ` +
+      `without regenerating it. Keep everything else exactly as it is.`;
+    this.turns.update((t) => [...t, { role: 'user', text: asked }]);
+    await this.run(asked);
+  }
+
+  // ---------------------------------------------------------------- the panel
+
+  /** What the Code tab shows: the declarations that reach this element, and
+   *  the attributes it carries, one per line. */
+  private declarations(p: EditorProps | null): string {
+    if (!p) return '';
+    const own = p.inline
+      .split(';')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .map((d) => `${d};`);
+    const attrs = Object.entries(p.attrs)
+      .filter(([k]) => k !== 'class' && k !== 'id')
+      .map(([k, v]) => `@${k}: ${v};`);
+    // The element's own declarations win, so they are listed last.
+    return [p.css, ...own, ...attrs].filter(Boolean).join('\n');
+  }
+
+  /** Set one declaration on the selection. */
+  setStyle(prop: string, value: string | number): void {
+    this.toAgent({ dz: 'style', decls: { [prop]: String(value) } });
+    this.editDirty.set(true);
+  }
+
+  setStyles(decls: Record<string, string>): void {
+    this.toAgent({ dz: 'style', decls });
+    this.editDirty.set(true);
+  }
+
+  /** Retype a leaf element's words. */
+  setText(text: string): void {
+    this.toAgent({ dz: 'text', text });
+    this.editDirty.set(true);
+  }
+
+  /** Apply the Code tab, declarations and @attributes together. */
+  applyCss(): void {
+    this.toAgent({ dz: 'css', text: this.cssDraft() });
+    this.editDirty.set(true);
+  }
+
+  /** How a box gets its size on one axis. */
+  setSizing(axis: 'width' | 'height', mode: 'hug' | 'fixed' | 'fill'): void {
+    const p = this.props();
+    if (!p) return;
+    const now = axis === 'width' ? p.width : p.height;
+    const main = axis === 'width' ? 'flex-grow' : 'align-self';
+    if (mode === 'fixed') this.setStyles({ [axis]: `${now}px`, [main]: '' });
+    else if (mode === 'fill') {
+      this.setStyles(axis === 'width'
+        ? { width: '', 'flex-grow': p.inFlex ? '1' : '', ...(p.inFlex ? {} : { width: '100%' }) }
+        : { height: '', 'align-self': 'stretch' });
+    } else this.setStyles({ [axis]: '', [main]: axis === 'width' ? '0' : 'auto' });
+  }
+
+  /** Padding and margin, in the four shapes the panel offers. */
+  setBox(which: 'padding' | 'margin', shape: 'none' | 'all' | 'xy' | 'each'): void {
+    const p = this.props();
+    if (!p) return;
+    const [t, r, b, l] = which === 'padding' ? p.padding : p.margin;
+    if (shape === 'none') this.setStyle(which, '0');
+    else if (shape === 'all') this.setStyle(which, `${Math.max(t, r, b, l)}px`);
+    else if (shape === 'xy') this.setStyle(which, `${t}px ${r}px`);
+    else this.setStyle(which, `${t}px ${r}px ${b}px ${l}px`);
+  }
+
+  /** One side of the padding or margin. */
+  setSide(which: 'padding' | 'margin', side: number, value: string): void {
+    const p = this.props();
+    if (!p) return;
+    const v = [...(which === 'padding' ? p.padding : p.margin)];
+    v[side] = parseFloat(value) || 0;
+    this.setStyle(which, v.map((n) => `${n}px`).join(' '));
+  }
+
+  /** Ask the frame for the document's shape, for the layer tree. */
+  refreshTree(): void {
+    this.toAgent({ dz: 'tree' });
+  }
+
+  pickNode(node: EditorNode): void {
+    this.toAgent({ dz: 'pick', tid: node.tid });
+  }
+
+  /** Put the document back the way it was when Edit was entered. */
+  async discardEdits(): Promise<void> {
+    const base = this.editBase;
+    const project = this.open();
+    if (!base || !project) return;
+    await this.saveHtml(base);
+    this.open.set({ ...project, html: base });   // reloads the frame from it
+    this.selection.set('');
+    this.props.set(null);
+    this.editDirty.set(false);
+  }
+
+  /** Write the edits now rather than on the next debounce. */
+  async saveEdits(): Promise<void> {
+    const html = this.liveHtml();
+    if (html) await this.saveHtml(html);
+    this.editBase = html || this.editBase;
+    this.editDirty.set(false);
+  }
+
   /** Open (or close) the ask box on the selection's toolbar. */
   toggleAskElement(): void {
     this.askElOpen.update((open) => !open);
@@ -1731,7 +1912,14 @@ export class Design {
       this.selection.set(event.label ?? '');
       this.selectionRect.set(event.rect ?? null);
       this.details.set(event.details ?? null);
+      this.props.set(event.props ?? null);
+      this.cssDraft.set(this.declarations(event.props ?? null));
+    } else if (event.dz === 'tree') {
+      this.nodes.set(event.nodes ?? []);
     } else if (event.dz === 'html' && event.html) {
+      // What the frame holds right now, whether or not it has been written
+      // yet. Save reads this, so it must not wait on the debounce it triggers.
+      this.liveHtml.set(event.html);
       if (this.saveAtOnce) {
         this.saveAtOnce = false;
         void this.saveHtml(event.html);
@@ -1812,7 +2000,6 @@ export class Design {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     try {
       const saved = await this.api.saveDesignHtml(project.id, html);
-      this.liveHtml.set(html);
       const current = this.open();
       if (current?.id === saved.id) {
         this.open.set({ ...current, updated_at: saved.updated_at });

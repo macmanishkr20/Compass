@@ -16,7 +16,17 @@
 export interface EditorCommand {
   dz:
     | 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer'
-    | 'tweak' | 'ping' | 'grab' | 'replace';
+    | 'tweak' | 'ping' | 'grab' | 'replace'
+    | 'style' | 'text' | 'attr' | 'css' | 'tree' | 'pick' | 'insert';
+  /** Declarations to set on the selection; '' removes one. */
+  decls?: Record<string, string>;
+  /** Replacement text, for a leaf element. */
+  text?: string;
+  /** An attribute to set, and what to set it to. */
+  name?: string;
+  value?: string;
+  /** A node in the layer tree, by the id the tree reported. */
+  tid?: number;
   /** Markup to put in place of the selection, for an asked-for change. */
   html?: string;
   /** The custom property a tweak sets, and what to set it to. */
@@ -28,7 +38,7 @@ export interface EditorCommand {
   /** Forwarded pointer input, in the frame's own client coordinates. Used when
    *  the embedding delivers the event to the iframe element rather than into
    *  the frame — see the note on the parent's forwarding. */
-  kind?: 'down' | 'move' | 'up' | 'click' | 'dblclick';
+  kind?: 'down' | 'move' | 'up' | 'click' | 'dblclick' | 'text' | 'box';
   x?: number;
   y?: number;
 }
@@ -44,6 +54,38 @@ export interface EditorDetails {
   background: string;
   spacing: string;
   text: string;
+}
+
+/** Every property the inspector panel shows, resolved from the cascade. */
+export interface EditorProps {
+  tag: string; id: string; classes: string;
+  leaf: boolean; text: string;
+  font: string; fontSize: number; color: string; weight: string;
+  italic: boolean; underline: boolean; strike: boolean;
+  align: string; leading: number; tracking: string; transform: string;
+  width: number; height: number;
+  widthMode: 'hug' | 'fixed' | 'fill';
+  heightMode: 'hug' | 'fixed' | 'fill';
+  grow: number; alignSelf: string; position: string; zIndex: string;
+  padding: number[]; margin: number[];
+  display: string; direction: string; gap: string; justify: string; items: string;
+  background: string; radius: number; overflow: string; opacity: number;
+  textShadow: string; boxShadow: string;
+  borderWidth: number; borderStyle: string; borderColor: string;
+  css: string;
+  inline: string; attrs: Record<string, string>;
+  inFlex: boolean; svg: boolean;
+}
+
+/** One row of the layer tree. */
+export interface EditorNode {
+  tid: number;
+  depth: number;
+  name: string;
+  tag: string;
+  kids: number;
+  swatch: string;
+  on: boolean;
 }
 
 /** Where the selection sits, in the frame's own coordinates. */
@@ -68,7 +110,11 @@ export interface EditorTweak {
 export interface EditorEvent {
   dz:
     | 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed'
-    | 'tweaks' | 'pong' | 'pageerror' | 'grabbed';
+    | 'tweaks' | 'pong' | 'pageerror' | 'grabbed' | 'tree';
+  /** Everything the inspector shows about the selection. */
+  props?: EditorProps;
+  /** The document's shape, for the layer tree. */
+  nodes?: EditorNode[];
   message?: string;                   // what the design's own script threw
   path?: string;                      // where the grabbed element sits, for a photo
   tweaks?: EditorTweak[];
@@ -223,6 +269,228 @@ export const EDITOR_SCRIPT = String.raw`
     };
   }
 
+
+  // -- the property inspector ----------------------------------------------
+  /** A colour as #RRGGBB, or '' when there is nothing painted. */
+  function hex(c) {
+    var m = (c || '').match(/[\d.]+/g);
+    if (!m || m.length < 3) return '';
+    if (m.length > 3 && Number(m[3]) === 0) return '';
+    return '#' + m.slice(0, 3).map(function (v) {
+      return ('0' + Math.round(Number(v)).toString(16)).slice(-2);
+    }).join('').toUpperCase();
+  }
+
+  function num(v) {
+    var n = parseFloat(v);
+    return isNaN(n) ? 0 : Math.round(n * 100) / 100;
+  }
+
+  /** hug / fixed / fill — how the box gets its size on one axis. */
+  function sizing(el, cs, horizontal) {
+    if (el.style[horizontal ? 'width' : 'height']) return 'fixed';
+    var p = el.parentElement ? getComputedStyle(el.parentElement) : null;
+    var flex = p && p.display.indexOf('flex') > -1;
+    var column = flex && (p.flexDirection || 'row').indexOf('column') === 0;
+    var alongMain = flex && (horizontal ? !column : column);
+    if (alongMain && cs.flexGrow !== '0') return 'fill';
+    if (flex && !alongMain && (cs.alignSelf === 'stretch' ||
+        (cs.alignSelf === 'auto' && p.alignItems === 'stretch'))) return 'fill';
+    if (horizontal && cs.display === 'block') return 'fill';
+    return 'hug';
+  }
+
+  /** Line height as a multiple, the way a designer sets it. */
+  function leading(cs) {
+    if (cs.lineHeight === 'normal') return 0;
+    return Math.round((parseFloat(cs.lineHeight) / parseFloat(cs.fontSize)) * 100) / 100;
+  }
+
+
+  /** The declarations that actually reach this element, in cascade order.
+   *  A class-styled element has an empty style attribute, so showing only the
+   *  inline ones would show an empty panel for a fully styled thing. */
+  function matched(el) {
+    var out = [], seen = {};
+    for (var i = 0; i < document.styleSheets.length; i++) {
+      var rules;
+      try { rules = document.styleSheets[i].cssRules; } catch (e) { continue; }
+      if (!rules) continue;
+      for (var j = 0; j < rules.length; j++) {
+        var rule = rules[j];
+        if (!rule.selectorText || !rule.style) continue;
+        var parts = rule.selectorText.split(',');
+        for (var k = 0; k < parts.length; k++) {
+          var one = parts[k].trim();
+          if (!one || one.indexOf(':') > -1) continue;      // no states or pseudos
+          var hit = false;
+          try { hit = el.matches(one); } catch (e) { hit = false; }
+          if (!hit) continue;
+          for (var d = 0; d < rule.style.length; d++) {
+            var name = rule.style[d];
+            seen[name] = rule.style.getPropertyValue(name);
+          }
+          break;
+        }
+      }
+    }
+    Object.keys(seen).forEach(function (k) { out.push(k + ': ' + seen[k] + ';'); });
+    return out.slice(0, 60).join('\n');
+  }
+
+  function props(el) {
+    var cs = getComputedStyle(el);
+    var r = el.getBoundingClientRect();
+    var p = el.parentElement ? getComputedStyle(el.parentElement) : null;
+    var leaf = el.children.length === 0;
+    var attrs = {};
+    for (var i = 0; i < el.attributes.length; i++) {
+      var a = el.attributes[i];
+      if (a.name === 'style' || a.name.indexOf('data-dz') === 0) continue;
+      attrs[a.name] = a.value;
+    }
+    var side = function (which) {
+      return ['Top', 'Right', 'Bottom', 'Left'].map(function (s) {
+        return num(cs[which + s]);
+      });
+    };
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || '',
+      classes: (el.getAttribute('class') || '').trim(),
+      // text
+      leaf: leaf,
+      text: leaf ? (el.textContent || '') : '',
+      font: cs.fontFamily,
+      fontSize: num(cs.fontSize),
+      color: hex(cs.color),
+      weight: cs.fontWeight,
+      italic: cs.fontStyle === 'italic',
+      underline: (cs.textDecorationLine || '').indexOf('underline') > -1,
+      strike: (cs.textDecorationLine || '').indexOf('line-through') > -1,
+      align: cs.textAlign,
+      leading: leading(cs),
+      tracking: cs.letterSpacing === 'normal' ? '' : cs.letterSpacing,
+      transform: cs.textTransform,
+      // box
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+      widthMode: sizing(el, cs, true),
+      heightMode: sizing(el, cs, false),
+      grow: num(cs.flexGrow),
+      alignSelf: cs.alignSelf,
+      position: cs.position,
+      zIndex: cs.zIndex,
+      padding: side('padding'),
+      margin: side('margin'),
+      // how it lays its own children out
+      display: cs.display,
+      direction: cs.flexDirection,
+      gap: cs.gap === 'normal' ? '0px' : cs.gap,
+      justify: cs.justifyContent,
+      items: cs.alignItems,
+      // appearance
+      background: hex(cs.backgroundColor),
+      radius: num(cs.borderTopLeftRadius),
+      overflow: cs.overflow,
+      opacity: num(cs.opacity),
+      textShadow: cs.textShadow === 'none' ? '' : cs.textShadow,
+      boxShadow: cs.boxShadow === 'none' ? '' : cs.boxShadow,
+      borderWidth: num(cs.borderTopWidth),
+      borderStyle: cs.borderTopStyle,
+      borderColor: hex(cs.borderTopColor),
+      // What this element itself declares — minus the position this editor
+      // hung a drag on, which is ours and not the design's.
+      // what the cascade puts on it, for the Code tab
+      css: matched(el),
+      inline: (function () {
+        var css = el.getAttribute('style') || '';
+        if (!el.getAttribute('data-dz-pos')) return css;
+        return css.replace(/(^|;)\s*position\s*:[^;]*;?/, '$1').trim();
+      })(),
+      attrs: attrs,
+      inFlex: !!p && p.display.indexOf('flex') > -1,
+      svg: isSvg(el)
+    };
+  }
+
+  // -- the layer tree -------------------------------------------------------
+  var tids = [];       // index -> element, rebuilt whenever the tree is asked for
+
+  function nameOf(el) {
+    if (el.children.length === 0) {
+      var t = (el.textContent || '').trim();
+      return t ? 'Text “' + t.slice(0, 18) + '”' : el.tagName.toLowerCase();
+    }
+    var cs = getComputedStyle(el);
+    if (cs.display.indexOf('flex') > -1) {
+      return (cs.flexDirection || 'row').indexOf('column') === 0 ? 'Column' : 'Row';
+    }
+    if (cs.display.indexOf('grid') > -1) return 'Grid';
+    return 'group';
+  }
+
+
+  /** Drop a new element into the selection (or the body) and select it. */
+  function insert(kind) {
+    if (mode !== 'edit') return;
+    var host = sel || document.body;
+    if (host.closest && host.closest('[data-dz]')) host = document.body;
+    var el = document.createElement('div');
+    if (kind === 'text') {
+      el.textContent = 'Text';
+      el.style.cssText = 'font-size:16px;line-height:1.4;';
+    } else {
+      el.style.cssText = 'width:160px;height:96px;background:#E9E5E1;border-radius:8px;';
+    }
+    host.appendChild(el);
+    select(el);
+    flush();
+  }
+
+  function tree() {
+    tids = [];
+    var out = [];
+    (function walk(el, depth) {
+      for (var i = 0; i < el.children.length; i++) {
+        var c = el.children[i];
+        if (c.closest('[data-dz]') || c.tagName === 'SCRIPT' || c.tagName === 'STYLE') continue;
+        var cs = getComputedStyle(c);
+        tids.push(c);
+        out.push({
+          tid: tids.length - 1,
+          depth: depth,
+          name: nameOf(c),
+          tag: (c.getAttribute('class') || '').trim().split(/\s+/)[0] || c.tagName.toLowerCase(),
+          kids: c.children.length,
+          swatch: hex(cs.backgroundColor),
+          on: c === sel
+        });
+        if (depth < 12) walk(c, depth + 1);
+      }
+    })(document.body, 0);
+    post({ dz: 'tree', nodes: out });
+  }
+
+  /** Apply declarations to the selection. A value of '' removes it. */
+  function style(decls) {
+    if (!sel || mode !== 'edit') return;
+    Object.keys(decls || {}).forEach(function (k) {
+      var v = decls[k];
+      if (v === '' || v === null || v === undefined) sel.style.removeProperty(k);
+      else sel.style.setProperty(k, String(v));
+    });
+    place();
+    flush();
+    post({ dz: 'selected', label: label(sel), rect: rectOf(sel),
+           details: details(sel), props: props(sel) });
+  }
+
+  function rectOf(el) {
+    var r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height, svg: isSvg(el) };
+  }
+
   function select(el) {
     sel = el;
     if (!el) {
@@ -236,12 +504,12 @@ export const EDITOR_SCRIPT = String.raw`
     box.classList.toggle('inspect', mode === 'inspect');
     box.classList.toggle('svg', isSvg(el));
     place();
-    var r = el.getBoundingClientRect();
     post({
       dz: 'selected',
       label: label(el),
-      rect: { x: r.left, y: r.top, w: r.width, h: r.height, svg: isSvg(el) },
-      details: details(el)
+      rect: rectOf(el),
+      details: details(el),
+      props: props(el)
     });
   }
 
@@ -647,6 +915,52 @@ export const EDITOR_SCRIPT = String.raw`
         n.removeAttribute('data-dz-hover'); n.removeAttribute('contenteditable');
       });
       post({ dz: 'grabbed', html: copy.outerHTML, label: label(sel), path: pathTo(sel) });
+    }
+    else if (m.dz === 'style') { style(m.decls); }
+    else if (m.dz === 'text') {
+      if (sel && mode === 'edit' && sel.children.length === 0) {
+        sel.textContent = m.text || '';
+        place(); flush();
+      }
+    }
+    else if (m.dz === 'attr') {
+      if (sel && mode === 'edit' && m.name) {
+        if (m.value === '' || m.value === null) sel.removeAttribute(m.name);
+        else sel.setAttribute(m.name, m.value);
+        place(); flush();
+      }
+    }
+    else if (m.dz === 'css') {
+      // The Code tab: one declaration per line, @name for an attribute.
+      if (sel && mode === 'edit') {
+        sel.removeAttribute('style');
+        (m.text || '').split(/[\n;]+/).forEach(function (line) {
+          var t = line.trim();
+          if (!t) return;
+          var at = t.indexOf(':');
+          if (at < 1) return;
+          var k = t.slice(0, at).trim(), v = t.slice(at + 1).trim();
+          if (k.charAt(0) === '@') sel.setAttribute(k.slice(1), v);
+          else sel.style.setProperty(k, v);
+        });
+        place(); flush();
+        post({ dz: 'selected', label: label(sel), rect: rectOf(sel),
+               details: details(sel), props: props(sel) });
+      }
+    }
+    else if (m.dz === 'tree') { tree(); }
+    else if (m.dz === 'insert') { insert(m.kind); }
+    else if (m.dz === 'pick') {
+      var want = tids[m.tid];
+      if (want && mode === 'edit') {
+        select(want);
+        // Only scroll if it is actually off screen — the canvas is scaled, and
+        // scrolling for something already visible throws the sheet out of view.
+        var r = want.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) {
+          want.scrollIntoView({ block: 'center', inline: 'nearest' });
+        }
+      }
     }
     else if (m.dz === 'replace') {
       if (!sel || !m.html) return;

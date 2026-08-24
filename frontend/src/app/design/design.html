@@ -206,8 +206,308 @@
   </div>
 } @else if (open(); as project) {
   <!-- ================= workspace: chat left, canvas right ================= -->
-  <div class="dz-work" [class.solo]="!chatOpen()">
-    @if (chatOpen()) {
+  <div class="dz-work" [class.solo]="!chatOpen() && tool() !== 'edit'">
+    @if (tool() === 'edit') {
+      <section class="dz-edit">
+        <header class="dz-edit-head">
+          <button class="dz-icon" (click)="tool.set('view')" title="Leave Edit" aria-label="Leave Edit">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="dz-edit-title">Edit</span>
+          <button class="dz-edit-discard" (click)="discardEdits()" [disabled]="!editDirty()">Discard</button>
+          <button class="dz-edit-save" (click)="saveEdits()">Save</button>
+        </header>
+
+        <nav class="dz-edit-tabs" role="tablist">
+          <button role="tab" [class.on]="editTab() === 'simple'" (click)="editTab.set('simple')">Simple</button>
+          <button role="tab" [class.on]="editTab() === 'pro'" (click)="editTab.set('pro'); refreshTree()">Pro</button>
+          <button role="tab" [class.on]="editTab() === 'code'" (click)="editTab.set('code'); refreshTree()">Code</button>
+          <button role="tab" [class.on]="editTab() === 'tweaks'" (click)="editTab.set('tweaks')">Tweaks</button>
+        </nav>
+
+        @if (editTab() === 'pro' || editTab() === 'code') {
+          <div class="dz-tree">
+            @for (n of nodes(); track n.tid) {
+              <button class="dz-tree-row" [class.on]="n.on"
+                [style.padding-left.px]="10 + n.depth * 14" (click)="pickNode(n)">
+                <span class="dz-tree-chip" [class.empty]="!n.swatch"
+                  [style.background]="n.swatch || 'transparent'"></span>
+                <span class="dz-tree-name">{{ n.name }}</span>
+                <span class="dz-tree-tag">{{ n.tag }}</span>
+              </button>
+            }
+            @if (!nodes().length) {
+              <p class="dz-edit-empty">Nothing to show yet.</p>
+            }
+          </div>
+        }
+
+        @if (editTab() !== 'tweaks') {
+          <div class="dz-edit-tools" role="group" aria-label="Tools">
+            <button class="on" title="Select">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z"/></svg>
+            </button>
+            <span class="dz-edit-tools-sep"></span>
+            <button (click)="addThing('text')" title="Add a run of text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke-linecap="round"/></svg>
+            </button>
+            <button (click)="addThing('box')" title="Add a box">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+            </button>
+            <span class="dz-edit-tools-sep"></span>
+            <button (click)="deleteSelected()" [disabled]="!selection()" title="Delete the selection">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        }
+
+        <div class="dz-edit-body">
+          @if (editTab() === 'tweaks') {
+            @if (tweaks().length) {
+              @for (t of tweaks(); track t.name) {
+                <div class="dz-field">
+                  <span class="dz-field-name">{{ t.name }}</span>
+                  @if (t.type === 'color') {
+                    <input class="dz-in color" type="color" [value]="t.value"
+                      (input)="setTweak(t, $any($event.target).value)" [title]="t.value" />
+                  } @else if (t.options?.length) {
+                    <select class="dz-in" [ngModel]="t.value" (ngModelChange)="setTweak(t, $event)">
+                      @for (o of t.options ?? []; track o) { <option [value]="o">{{ o }}</option> }
+                    </select>
+                  } @else {
+                    <input class="dz-in" type="text" [ngModel]="t.value"
+                      (ngModelChange)="setTweak(t, $event)" />
+                  }
+                </div>
+              }
+            } @else {
+              <p class="dz-edit-empty">
+                This design has no tweakable controls yet — describe what you want to
+                adjust and Compass will add a tweaks panel for it. The controls appear
+                here when it finishes.
+              </p>
+              <div class="dz-tweak-ask">
+                <input [ngModel]="tweakAsk()" (ngModelChange)="tweakAsk.set($event)"
+                  (keydown.enter)="askForTweaks()" placeholder="Describe a tweak…" />
+                <button (click)="askForTweaks()" [disabled]="!tweakAsk().trim()">Add</button>
+              </div>
+            }
+          } @else if (props(); as p) {
+
+            <!-- ---------------- text ---------------- -->
+            @if (p.leaf) {
+              <h3 class="dz-group">Text</h3>
+              <div class="dz-field">
+                <span class="dz-field-name">Content</span>
+                <input class="dz-in wide" [ngModel]="p.text"
+                  (ngModelChange)="setText($event)" />
+              </div>
+              <div class="dz-field">
+                <span class="dz-field-name">Font</span>
+                <input class="dz-in wide" [ngModel]="p.font"
+                  (ngModelChange)="setStyle('font-family', $event)" />
+              </div>
+              <div class="dz-pair">
+                <label class="dz-field"><span class="dz-field-name">Size</span>
+                  <input class="dz-in num" type="number" [ngModel]="p.fontSize"
+                    (ngModelChange)="setStyle('font-size', $event + 'px')" /><i>px</i>
+                </label>
+                <label class="dz-field"><span class="dz-field-name">Colour</span>
+                  <input class="dz-in swatchy" type="text" [ngModel]="p.color"
+                    (ngModelChange)="setStyle('color', $event)" />
+                  <input class="dz-chip" type="color" [value]="p.color || '#000000'"
+                    (input)="setStyle('color', $any($event.target).value)" />
+                </label>
+              </div>
+              <div class="dz-pair">
+                <label class="dz-field"><span class="dz-field-name">Weight</span>
+                  <select class="dz-in" [ngModel]="p.weight"
+                    (ngModelChange)="setStyle('font-weight', $event)">
+                    <option value="300">Light</option><option value="400">Regular</option>
+                    <option value="500">Medium</option><option value="600">Semibold</option>
+                    <option value="700">Bold</option>
+                  </select>
+                </label>
+                <div class="dz-seg">
+                  <button [class.on]="p.italic"
+                    (click)="setStyle('font-style', p.italic ? 'normal' : 'italic')"><i>I</i></button>
+                  <button [class.on]="p.underline"
+                    (click)="setStyle('text-decoration-line', p.underline ? 'none' : 'underline')"><u>U</u></button>
+                  <button [class.on]="p.strike"
+                    (click)="setStyle('text-decoration-line', p.strike ? 'none' : 'line-through')"><s>S</s></button>
+                </div>
+              </div>
+              <div class="dz-pair">
+                <div class="dz-seg">
+                  <span class="dz-field-name">Align</span>
+                  <button [class.on]="p.align === 'left'" (click)="setStyle('text-align','left')" title="Left">
+                    <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg>
+                  </button>
+                  <button [class.on]="p.align === 'center'" (click)="setStyle('text-align','center')" title="Centre">
+                    <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M6 18h12"/></svg>
+                  </button>
+                  <button [class.on]="p.align === 'right'" (click)="setStyle('text-align','right')" title="Right">
+                    <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M10 12h10M7 18h13"/></svg>
+                  </button>
+                  <button [class.on]="p.align === 'justify'" (click)="setStyle('text-align','justify')" title="Justify">
+                    <svg width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                  </button>
+                </div>
+                <label class="dz-field"><span class="dz-field-name">Leading</span>
+                  <input class="dz-in num" type="number" step="0.05" [ngModel]="p.leading"
+                    (ngModelChange)="setStyle('line-height', $event)" />
+                </label>
+              </div>
+              <div class="dz-pair">
+                <label class="dz-field"><span class="dz-field-name">Case</span>
+                  <select class="dz-in" [ngModel]="p.transform"
+                    (ngModelChange)="setStyle('text-transform', $event)">
+                    <option value="none">none</option><option value="uppercase">UPPER</option>
+                    <option value="lowercase">lower</option><option value="capitalize">Title</option>
+                  </select>
+                </label>
+                <label class="dz-field"><span class="dz-field-name">Tracking</span>
+                  <input class="dz-in" type="text" [ngModel]="p.tracking"
+                    (ngModelChange)="setStyle('letter-spacing', $event)" placeholder="normal" />
+                </label>
+              </div>
+            }
+
+            <!-- ---------------- layout (Pro) ---------------- -->
+            @if (editTab() === 'pro') {
+              <h3 class="dz-group">Sizing</h3>
+              @for (ax of axes; track ax.k) {
+                <div class="dz-field">
+                  <span class="dz-field-name">{{ ax.label }}</span>
+                  <input class="dz-in num" type="number"
+                    [ngModel]="ax.k === 'width' ? p.width : p.height"
+                    (ngModelChange)="setStyle(ax.k, $event + 'px')" /><i>px</i>
+                  <span class="dz-seg tight">
+                    @for (m of modes; track m) {
+                      <button [class.on]="(ax.k === 'width' ? p.widthMode : p.heightMode) === m"
+                        (click)="setSizing(ax.k, m)">{{ m }}</button>
+                    }
+                  </span>
+                </div>
+              }
+              <div class="dz-pair">
+                <label class="dz-field"><span class="dz-field-name">Grow</span>
+                  <input class="dz-in num" type="number" [ngModel]="p.grow"
+                    (ngModelChange)="setStyle('flex-grow', $event)" />
+                </label>
+                <label class="dz-field"><span class="dz-field-name">Align self</span>
+                  <select class="dz-in" [ngModel]="p.alignSelf"
+                    (ngModelChange)="setStyle('align-self', $event)">
+                    <option value="auto">auto</option><option value="flex-start">start</option>
+                    <option value="center">center</option><option value="flex-end">end</option>
+                    <option value="stretch">stretch</option>
+                  </select>
+                </label>
+              </div>
+
+              <h3 class="dz-group">Position</h3>
+              <div class="dz-field">
+                <span class="dz-field-name">Position</span>
+                <span class="dz-seg tight">
+                  <button [class.on]="p.position !== 'absolute'"
+                    (click)="setStyle('position', 'relative')">Inline</button>
+                  <button [class.on]="p.position === 'absolute'"
+                    (click)="setStyle('position', 'absolute')">Absolute</button>
+                </span>
+              </div>
+              <label class="dz-field"><span class="dz-field-name">Z-index</span>
+                <input class="dz-in" type="text" [ngModel]="p.zIndex"
+                  (ngModelChange)="setStyle('z-index', $event)" placeholder="auto" />
+              </label>
+
+              @for (b of boxes; track b.k) {
+                <h3 class="dz-group">{{ b.label }}</h3>
+                <div class="dz-field">
+                  <span class="dz-seg tight">
+                    @for (sh of shapes; track sh.v) {
+                      <button (click)="setBox(b.k, sh.v)">{{ sh.t }}</button>
+                    }
+                  </span>
+                </div>
+                <div class="dz-quad">
+                  @for (side of sides; track side.i) {
+                    <label><i>{{ side.t }}</i>
+                      <input class="dz-in num" type="number"
+                        [ngModel]="(b.k === 'padding' ? p.padding : p.margin)[side.i]"
+                        (ngModelChange)="setSide(b.k, side.i, $event)" />
+                    </label>
+                  }
+                </div>
+              }
+            }
+
+            <!-- ---------------- appearance ---------------- -->
+            <h3 class="dz-group">Appearance
+              <button class="dz-group-act" (click)="resetLook()">Reset</button>
+            </h3>
+            <div class="dz-field">
+              <span class="dz-field-name">Background</span>
+              <input class="dz-in swatchy" type="text" [ngModel]="p.background"
+                (ngModelChange)="setStyle('background-color', $event)" placeholder="None" />
+              <input class="dz-chip" type="color" [value]="p.background || '#ffffff'"
+                (input)="setStyle('background-color', $any($event.target).value)" />
+            </div>
+            <div class="dz-pair">
+              <label class="dz-field"><span class="dz-field-name">Radius</span>
+                <input class="dz-in num" type="number" [ngModel]="p.radius"
+                  (ngModelChange)="setStyle('border-radius', $event + 'px')" /><i>px</i>
+              </label>
+              <label class="dz-field"><span class="dz-field-name">Overflow</span>
+                <select class="dz-in" [ngModel]="p.overflow"
+                  (ngModelChange)="setStyle('overflow', $event)">
+                  <option value="visible">visible</option><option value="hidden">hidden</option>
+                  <option value="auto">auto</option><option value="scroll">scroll</option>
+                </select>
+              </label>
+            </div>
+            <label class="dz-field"><span class="dz-field-name">Opacity</span>
+              <input class="dz-in num" type="number" step="0.05" min="0" max="1"
+                [ngModel]="p.opacity" (ngModelChange)="setStyle('opacity', $event)" />
+            </label>
+            <label class="dz-field"><span class="dz-field-name">Shadow</span>
+              <input class="dz-in wide" type="text" [ngModel]="p.leaf ? p.textShadow : p.boxShadow"
+                (ngModelChange)="setStyle(p.leaf ? 'text-shadow' : 'box-shadow', $event)"
+                placeholder="none" />
+            </label>
+
+            <h3 class="dz-group">Border</h3>
+            <div class="dz-pair">
+              <label class="dz-field"><span class="dz-field-name">Width</span>
+                <input class="dz-in num" type="number" [ngModel]="p.borderWidth"
+                  (ngModelChange)="setStyles({'border-style': p.borderStyle === 'none' ? 'solid' : p.borderStyle, 'border-width': $event + 'px'})" /><i>px</i>
+              </label>
+              <label class="dz-field"><span class="dz-field-name">Colour</span>
+                <input class="dz-chip" type="color" [value]="p.borderColor || '#000000'"
+                  (input)="setStyle('border-color', $any($event.target).value)" />
+              </label>
+            </div>
+
+            @if (editTab() === 'code') {
+              <h3 class="dz-group">Declarations</h3>
+              <textarea class="dz-css" [ngModel]="cssDraft()"
+                (ngModelChange)="cssDraft.set($event)" (blur)="applyCss()" spellcheck="false"
+                rows="10"></textarea>
+              <p class="dz-edit-note">One declaration per line; <code>&#64;name</code> edits an attribute.</p>
+            }
+
+            @if (editTab() === 'pro') {
+              <h3 class="dz-group">Debug</h3>
+              <pre class="dz-debug">{{ debugLine() }}</pre>
+            }
+
+          } @else {
+            <p class="dz-edit-empty">
+              Click any element on the canvas to edit it.
+            </p>
+          }
+        </div>
+      </section>
+    } @else if (chatOpen()) {
       <section class="dz-chat">
         <header class="dz-chat-head">
           <button class="dz-icon" (click)="close()" title="Back to Design" aria-label="Back">
