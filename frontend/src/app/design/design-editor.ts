@@ -305,9 +305,14 @@ export const EDITOR_SCRIPT = String.raw`
       place();
       return;
     }
+    // Once an offset is applied the position is load-bearing: left and top do
+    // nothing on a static element, so serialising it without the position it
+    // was given throws the move away. Drop the marker that would strip it —
+    // this position belongs to the design now, not to the editor.
     if (drag.kind === 'move') {
       sel.style.left = (drag.left + dx) + 'px';
       sel.style.top = (drag.top + dy) + 'px';
+      sel.removeAttribute('data-dz-pos');
     } else {
       // Resizing from a west or north edge moves the box as it shrinks, so the
       // offset has to travel with the size.
@@ -316,10 +321,12 @@ export const EDITOR_SCRIPT = String.raw`
       if (drag.kind.indexOf('w') > -1) {
         sel.style.width = Math.max(16, drag.w - dx) + 'px';
         sel.style.left = (drag.left + dx) + 'px';
+        sel.removeAttribute('data-dz-pos');
       }
       if (drag.kind.indexOf('n') > -1) {
         sel.style.height = Math.max(16, drag.h - dy) + 'px';
         sel.style.top = (drag.top + dy) + 'px';
+        sel.removeAttribute('data-dz-pos');
       }
     }
     place();
@@ -446,6 +453,7 @@ export const EDITOR_SCRIPT = String.raw`
         if (getComputedStyle(sel).position === 'static') sel.style.position = 'relative';
         sel.style.left = ((parseFloat(sel.style.left || '0') || 0) + map[e.key][0]) + 'px';
         sel.style.top = ((parseFloat(sel.style.top || '0') || 0) + map[e.key][1]) + 'px';
+        sel.removeAttribute('data-dz-pos');   // nudged: the position is the design's
       }
       place();
       flush();
