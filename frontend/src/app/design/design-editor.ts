@@ -477,6 +477,10 @@ export const EDITOR_SCRIPT = String.raw`
     if (!sel || mode !== 'edit') return;
     Object.keys(decls || {}).forEach(function (k) {
       var v = decls[k];
+      // Setting the position deliberately makes it the design's, so the marker
+      // that would strip it on the way out has to go — otherwise the panel
+      // shows absolute and the saved document is still static.
+      if (k === 'position') sel.removeAttribute('data-dz-pos');
       if (v === '' || v === null || v === undefined) sel.style.removeProperty(k);
       else sel.style.setProperty(k, String(v));
     });
