@@ -1584,6 +1584,94 @@ async def design_element(
     return {"html": new_html, "saw": bool(shot)}
 
 
+# A picture the model was shown, referred to by a name it can type.
+_IMAGE_MARK = "compass-image:"
+_EMBEDDED = r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{40,}"
+
+
+def _fold_images(html: str, slots: list[str]) -> str:
+    """Swap embedded pictures for short markers, remembering each one.
+
+    A design that already carries a photograph carries fifty kilobytes of
+    base64 with it, and the existing document is handed back to the model on
+    every refinement. Folding them keeps that budget for the design.
+    """
+    import re as _re
+
+    def take(m: "_re.Match[str]") -> str:
+        url = m.group(0)
+        if url not in slots:
+            slots.append(url)
+        return f"{_IMAGE_MARK}{slots.index(url) + 1}"
+
+    return _re.sub(_EMBEDDED, take, html)
+
+
+def _place_images(html: str, slots: list[str]) -> str:
+    """Put the real pictures back where the markers are."""
+    import re as _re
+
+    def put(m: "_re.Match[str]") -> str:
+        i = int(m.group(1)) - 1
+        if 0 <= i < len(slots):
+            return slots[i]
+        return slots[0] if slots else ""
+
+    html = _re.sub(_IMAGE_MARK + r"(\d+)", put, html)
+    # It may write the shape of a data URI with no bytes in it anyway. That is
+    # always a broken image, so point it at the picture it was given.
+    if slots:
+        html = _re.sub(
+            r"data:image/[A-Za-z0-9.+-]+;base64,(?=[\"'\s>])", slots[0], html
+        )
+    return html
+
+
+def _image_note(seen: int, folded: int) -> str:
+    """What to tell the model about the pictures it has."""
+    lines = []
+    if seen:
+        lines.append(
+            f"You have been given {seen} image"
+            f"{'s' if seen > 1 else ''} and you can see "
+            f"{'them' if seen > 1 else 'it'}. To place one in the design, write "
+            f'src="{_IMAGE_MARK}1" on an ordinary <img> — the number of the image '
+            "you mean — with alt text and an explicit width and height. The real "
+            "picture is put in after you reply.\n"
+            "Do not write base64 yourself. You cannot reproduce the bytes, and "
+            'src="data:image/png;base64," with nothing after the comma renders as '
+            "a broken-image icon. Do not invent a file path or a URL for it "
+            "either, and do not draw a placeholder box where the picture goes."
+        )
+    if folded:
+        lines.append(
+            f"Pictures already in this design appear as {_IMAGE_MARK}N markers. "
+            "Leave them exactly as they are unless you are asked to change them."
+        )
+    return "\n".join(lines)
+
+
+async def _keep_images(project_id: str, images: list[str]) -> None:
+    """Put what was attached into the project's own folder, so it survives.
+
+    An image passed to one generation and thrown away can never be used by the
+    next one, nor exported with the project.
+    """
+    from compass.services import design_files
+
+    kinds = {"jpeg": "jpg", "svg+xml": "svg"}
+    for n, url in enumerate(images, 1):
+        head, _, _ = url.partition(",")
+        mime = head[len("data:image/"):].split(";")[0].lower() if "image/" in head else "png"
+        try:
+            design_files.write(
+                project_id, f"uploads/attachment-{n}.{kinds.get(mime, mime or 'png')}",
+                data_url=url,
+            )
+        except Exception:  # noqa: BLE001 - keeping it is a courtesy, not a gate
+            pass
+
+
 REPAIR_PROMPT = (
     "You are correcting faults found in a finished design by an automated "
     "review. The review measured the rendered page, so each finding is a "
@@ -1740,11 +1828,27 @@ async def design_generate(
     if ids:
         store_s = get_system_store()
         parts.append(system_prompt_block(*[await store_s.get(i) for i in ids]))
-    if project.get("html"):
+    # Pictures: the ones attached to this turn, then any already embedded in
+    # the design, all referred to by marker rather than by their bytes.
+    slots: list[str] = [i for i in body.images if i.startswith("data:image/")]
+    seen = len(slots)
+    if seen:
+        await _keep_images(project_id, slots)
+
+    existing = project.get("html") or ""
+    if existing:
+        before = len(slots)
+        existing = _fold_images(existing, slots)
         parts.append(
             "Refine the EXISTING design below; keep everything not mentioned "
-            "unchanged.\n\n```html\n" + project["html"][:60_000] + "\n```"
+            "unchanged.\n\n```html\n" + existing[:60_000] + "\n```"
         )
+        folded = len(slots) - before
+    else:
+        folded = 0
+
+    if note := _image_note(seen, folded):
+        parts.append(note)
     parts.append("Request: " + body.prompt)
 
     try:
@@ -1781,6 +1885,7 @@ async def design_generate(
         m = re.search(r"```(?:html)?\s*\n(.*?)```", html, re.S)
         if m:
             html = m.group(1).strip()
+    html = _place_images(html, slots)
     if not html:
         raise HTTPException(
             status_code=502,
