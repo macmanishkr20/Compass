@@ -963,6 +963,14 @@ export const EDITOR_SCRIPT = String.raw`
         var r = want.getBoundingClientRect();
         if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) {
           want.scrollIntoView({ block: 'center', inline: 'nearest' });
+          // The panel placed its toolbar from the rect reported a moment ago,
+          // which the scroll has just invalidated. Say where it ended up.
+          setTimeout(function () {
+            if (sel !== want) return;
+            place();
+            post({ dz: 'selected', label: label(want), rect: rectOf(want),
+                   details: details(want), props: props(want) });
+          }, 60);
         }
       }
     }

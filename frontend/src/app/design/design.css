@@ -3242,10 +3242,14 @@
    The edit panel.
 
    It stands where the chat panel stands, so it is dressed the same: the
-   application's own surfaces, border, ink and accent, following the theme
-   rather than carrying a palette of its own. Sizes come from the scale the
-   rest of this section already uses — 0.82 for a heading, 0.78 for a label,
-   0.8 for a value.
+   application's own surfaces, border, ink and accent, following the theme.
+   Every class here is dz-ed-* or dz-edit-* — the generic names collided with
+   rules this stylesheet already had, which is what made the rows come out
+   inflated.
+
+   A field is one filled row: the label at the left in the muted ink, the
+   value at the right in the ink, 36px tall. The input has no chrome of its
+   own — the row is the chrome.
    ========================================================================= */
 
 .dz-edit {
@@ -3262,7 +3266,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3274,8 +3278,8 @@
 
 .dz-edit-discard,
 .dz-edit-save {
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-radius: 8px;
   padding: 6px 12px;
   font-family: var(--sans);
   font-size: 0.8rem;
@@ -3286,12 +3290,7 @@
 .dz-edit-discard:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
 .dz-edit-discard:disabled { opacity: 0.4; cursor: default; }
 
-.dz-edit-save {
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
+.dz-edit-save { background: var(--accent); color: #fff; font-weight: 600; }
 .dz-edit-save:hover { background: var(--accent-strong); }
 
 .dz-edit-tabs {
@@ -3325,7 +3324,7 @@
 .dz-tree {
   max-height: 30vh;
   overflow: auto;
-  padding: 6px 0;
+  padding: 5px 0;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -3349,8 +3348,8 @@
 .dz-tree-row.on { background: var(--accent-tint); }
 
 .dz-tree-chip {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 3px;
   flex: none;
   border: 1px solid var(--border-strong);
@@ -3365,13 +3364,13 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-bottom: 1px solid var(--border);
 }
 
 .dz-edit-tools button {
-  width: 28px;
-  height: 26px;
+  width: 27px;
+  height: 25px;
   display: grid;
   place-items: center;
   border: 0;
@@ -3384,138 +3383,189 @@
 .dz-edit-tools button:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
 .dz-edit-tools button.on { background: var(--accent-tint); color: var(--accent-strong); }
 .dz-edit-tools button:disabled { opacity: 0.35; cursor: default; }
-.dz-edit-tools-sep { width: 1px; height: 16px; background: var(--border); margin: 0 4px; }
+.dz-edit-tools-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; }
 
 /* ---------------------------------------------------------------- the body */
 .dz-edit-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 4px 14px 24px;
+  padding: 2px 12px 24px;
 }
 
-.dz-group {
+.dz-ed-group {
   display: flex;
   align-items: center;
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--ink);
-  margin: 18px 0 9px;
+  margin: 16px 2px 7px;
 }
 
-.dz-group-act {
+.dz-ed-reset {
   margin-left: auto;
   border: 0;
   background: transparent;
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   cursor: pointer;
+  padding: 0;
 }
 
-.dz-group-act:hover { color: var(--ink); text-decoration: underline; }
+.dz-ed-reset:hover { color: var(--ink); }
 
-.dz-field {
+/* ------------------------------------------------------------- the field row */
+.dz-ed-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  margin-bottom: 6px;
   min-width: 0;
+  background: var(--bg-2);
+  border-radius: 9px;
 }
 
-.dz-field i {
+.dz-ed-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  flex: none;
+  white-space: nowrap;
+}
+
+.dz-ed-row i {
   color: var(--faint);
   font-style: normal;
-  font-size: 0.74rem;
-  flex: none;
-}
-
-.dz-field-name {
-  color: var(--muted);
   font-size: 0.78rem;
   flex: none;
-  width: 66px;
 }
 
-.dz-pair { display: flex; gap: 10px; }
-.dz-pair > * { flex: 1; min-width: 0; margin-bottom: 8px; }
-.dz-pair .dz-field { margin-bottom: 0; }
-.dz-pair .dz-field-name { width: auto; min-width: 40px; }
+/* Two fields side by side, each still a row of its own. */
+.dz-ed-pair { display: flex; gap: 6px; }
+.dz-ed-pair > * { flex: 1; min-width: 0; }
+.dz-ed-pair .dz-ed-row { margin-bottom: 6px; }
 
-.dz-in {
+/* The input carries the value, and nothing else: the row is the container. */
+.dz-ed-in {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border: 0;
+  background: transparent;
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 0.8rem;
-  padding: 6px 9px;
+  font-size: 0.82rem;
+  text-align: right;
+  padding: 7px 0;
+  margin-left: auto;
 }
 
-.dz-in:focus {
-  outline: none;
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-tint);
-}
+.dz-ed-in:focus { outline: none; color: var(--accent-strong); }
 
-.dz-in.num { font-family: var(--mono); max-width: 72px; }
-.dz-in.swatchy { font-family: var(--mono); }
-.dz-in.color { padding: 2px; height: 28px; }
+/* A font stack is longer than the row; truncate it rather than let it run
+   under the label, and keep the whole value a hover away. */
+.dz-ed-in.wide { text-overflow: ellipsis; }
+.dz-ed-in::placeholder { color: var(--faint); }
+.dz-ed-in.num { font-family: var(--mono); }
+.dz-ed-in.swatchy { font-family: var(--mono); }
 
-.dz-chip {
-  width: 26px;
-  height: 26px;
+.dz-ed-in.color {
   flex: none;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: transparent;
-  padding: 2px;
+  width: 30px;
+  height: 20px;
+  padding: 0;
+  border-radius: 5px;
   cursor: pointer;
 }
 
-.dz-seg {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  background: var(--bg-2);
-  border-radius: 8px;
-  padding: 2px;
+/* select needs its own arrow back, since the chrome is gone */
+select.dz-ed-in {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 14px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: right 5px center, right 1px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
 }
 
-.dz-seg.tight { flex: none; }
+.dz-ed-swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: transparent;
+  padding: 1px;
+  cursor: pointer;
+}
 
-.dz-seg button {
+/* ---------------------------------------------------------- segmented control */
+.dz-ed-seg {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  flex: none;
+}
+
+.dz-ed-seg button {
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.76rem;
-  padding: 5px 9px;
+  font-size: 0.78rem;
+  padding: 4px 8px;
   cursor: pointer;
   text-transform: capitalize;
   display: grid;
   place-items: center;
 }
 
-.dz-seg button:hover { color: var(--ink); }
+.dz-ed-seg button:hover { color: var(--ink); }
 
-.dz-seg button.on {
+.dz-ed-seg button.on {
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-sm);
 }
 
-.dz-seg .dz-field-name { padding-left: 5px; width: auto; }
+/* the I / U / S trio, and Align, sit in a row of their own */
+.dz-ed-pair > .dz-ed-seg {
+  background: var(--bg-2);
+  border-radius: 9px;
+  min-height: 36px;
+  padding: 0 6px;
+  justify-content: space-around;
+  margin-bottom: 6px;
+}
 
-.dz-quad { display: flex; gap: 7px; margin-bottom: 10px; }
-.dz-quad label { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; }
-.dz-quad i { color: var(--faint); font-size: 0.72rem; font-style: normal; }
-.dz-quad .dz-in.num { max-width: none; }
+.dz-ed-seg .dz-ed-label { margin-right: auto; }
 
-.dz-css {
+/* ------------------------------------------------------------- four sides */
+.dz-ed-quad { display: flex; gap: 6px; margin-bottom: 8px; }
+
+.dz-ed-quad label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-2);
+  border-radius: 9px;
+  min-height: 32px;
+  padding: 0 8px;
+}
+
+.dz-ed-quad i { color: var(--faint); font-size: 0.74rem; font-style: normal; }
+.dz-ed-quad .dz-ed-in.num { text-align: right; padding: 5px 0; }
+
+/* ------------------------------------------------------------------ code */
+.dz-ed-css {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--border);
@@ -3529,13 +3579,13 @@
   resize: vertical;
 }
 
-.dz-css:focus {
+.dz-ed-css:focus {
   outline: none;
   border-color: var(--accent-line);
   box-shadow: 0 0 0 3px var(--accent-tint);
 }
 
-.dz-debug {
+.dz-ed-debug {
   margin: 0;
   color: var(--faint);
   font-family: var(--mono);
@@ -3550,14 +3600,14 @@
   font-size: 0.82rem;
   line-height: 1.6;
   text-align: center;
-  padding: 28px 18px;
+  padding: 26px 18px;
   margin: 0;
 }
 
-.dz-edit-note { color: var(--faint); font-size: 0.74rem; margin: 7px 0 0; }
+.dz-edit-note { color: var(--faint); font-size: 0.76rem; margin: 7px 2px 0; }
 .dz-edit-note code { font-family: var(--mono); }
 
-.dz-tweak-ask { display: flex; gap: 7px; padding: 0 4px; }
+.dz-tweak-ask { display: flex; gap: 7px; padding: 0 2px; }
 
 .dz-tweak-ask input {
   flex: 1;
