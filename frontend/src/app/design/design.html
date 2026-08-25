@@ -301,29 +301,68 @@
               @for (t of tweaks(); track t.name) {
                 <div class="dz-ed-row">
                   <span class="dz-ed-label">{{ t.name }}</span>
-                  @if (t.type === 'color') {
-                    <input class="dz-ed-in color" type="color" [value]="t.value"
-                      (input)="setTweak(t, $any($event.target).value)" [title]="t.value" />
-                  } @else if (t.options?.length) {
-                    <select class="dz-ed-in" [ngModel]="t.value" (ngModelChange)="setTweak(t, $event)">
-                      @for (o of t.options ?? []; track o) { <option [value]="o">{{ o }}</option> }
-                    </select>
-                  } @else {
-                    <input class="dz-ed-in" type="text" [ngModel]="t.value"
-                      (ngModelChange)="setTweak(t, $event)" />
+                  @switch (t.type) {
+                    @case ('color') {
+                      @if (t.options?.length) {
+                        <span class="dz-ed-swatches">
+                          @for (c of t.options ?? []; track c) {
+                            <button class="dz-ed-dot" [class.on]="t.value === c"
+                              [style.background]="c" [title]="c" (click)="setTweak(t, c)"></button>
+                          }
+                        </span>
+                      }
+                      <input class="dz-ed-in color" type="color" [value]="t.value"
+                        (input)="setTweak(t, $any($event.target).value)" [title]="t.value" />
+                    }
+                    @case ('range') {
+                      <input class="dz-ed-slider" type="range"
+                        [min]="t.min ?? 0" [max]="t.max ?? 100" [step]="t.step ?? 1"
+                        [value]="numberOf(t.value)"
+                        (input)="setTweak(t, $any($event.target).value + (t.unit ?? ''))" />
+                      <span class="dz-ed-amount">{{ t.value }}</span>
+                    }
+                    @case ('toggle') {
+                      <button class="dz-ed-switch" [class.on]="isOn(t)"
+                        (click)="setTweak(t, isOn(t) ? offValue(t) : onValue(t))"
+                        [attr.aria-pressed]="isOn(t)">
+                        <span></span>
+                      </button>
+                    }
+                    @default {
+                      @if (t.options?.length) {
+                        <select class="dz-ed-in" [ngModel]="t.value"
+                          (ngModelChange)="setTweak(t, $event)">
+                          @for (o of t.options ?? []; track o) { <option [value]="o">{{ o }}</option> }
+                        </select>
+                      } @else {
+                        <input class="dz-ed-in" type="text" [ngModel]="t.value"
+                          (ngModelChange)="setTweak(t, $event)" />
+                      }
+                    }
                   }
                 </div>
               }
             } @else {
               <p class="dz-edit-empty">
                 This design has no tweakable controls yet — describe what you want to
-                adjust and Compass will add a tweaks panel for it. The controls appear
-                here when it finishes.
+                adjust and Compass will add a panel for it. The controls appear here
+                when it finishes.
               </p>
-              <div class="dz-tweak-ask">
-                <input [ngModel]="tweakAsk()" (ngModelChange)="tweakAsk.set($event)"
-                  (keydown.enter)="askForTweaks()" placeholder="Describe a tweak…" />
-                <button (click)="askForTweaks()" [disabled]="!tweakAsk().trim()">Add</button>
+            }
+
+            <div class="dz-tweak-ask">
+              <input [ngModel]="tweakAsk()" (ngModelChange)="tweakAsk.set($event)"
+                (keydown.enter)="askForTweaks()" placeholder="Describe a tweak…" />
+              <button class="dz-tweak-ideas" (click)="ideasOpen.set(!ideasOpen())"
+                title="Knobs worth having on this kind of design">Ideas</button>
+              <button class="dz-tweak-go" (click)="askForTweaks()"
+                [disabled]="!tweakAsk().trim()">Add</button>
+            </div>
+            @if (ideasOpen()) {
+              <div class="dz-tweak-chips">
+                @for (idea of tweakIdeas(); track idea) {
+                  <button (click)="tweakAsk.set(idea); ideasOpen.set(false)">{{ idea }}</button>
+                }
               </div>
             }
           } @else if (props(); as p) {

@@ -554,6 +554,56 @@ _SHEET_JS = r"""() => {
 }"""
 
 
+_TWEAKS_JS = r"""() => {
+  // A tweak sheet promises knobs that work. Turn each one and see whether the
+  // page moves: a control that changes nothing is worse than a missing one,
+  // because it makes the panel look broken.
+  var el = document.getElementById('tweaks');
+  if (!el) return [];
+  var sheet;
+  try { sheet = JSON.parse(el.textContent || '[]'); } catch (e) { return ['unreadable']; }
+  if (!Array.isArray(sheet) || !sheet.length) return [];
+
+  const fingerprint = () => {
+    let out = '';
+    const all = document.querySelectorAll('*');
+    const step = Math.max(1, Math.floor(all.length / 300));
+    for (let i = 0; i < all.length; i += step) {
+      const e = all[i], r = e.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      const cs = getComputedStyle(e);
+      // Where it sits as well as how big it is: a gap or a margin moves things
+      // without resizing them, and size alone would call that knob dead.
+      out += cs.color + cs.backgroundColor + cs.fontSize + cs.borderTopWidth
+           + Math.round(r.width) + 'x' + Math.round(r.height)
+           + '@' + Math.round(r.left) + ',' + Math.round(r.top) + ';';
+    }
+    return out + '#' + document.documentElement.scrollHeight;
+  };
+
+  const root = document.documentElement;
+  const dead = [];
+  for (const knob of sheet) {
+    if (!knob || !knob.var) continue;
+    const was = root.style.getPropertyValue(knob.var);
+    let values = (knob.options || []).slice(0, 4);
+    if (knob.type === 'range') {
+      values = [String(knob.min) + (knob.unit || ''), String(knob.max) + (knob.unit || '')];
+    }
+    if (values.length < 2) continue;           // nothing to compare it against
+    const seen = new Set();
+    for (const v of values) {
+      root.style.setProperty(knob.var, v);
+      seen.add(fingerprint());
+    }
+    if (was) root.style.setProperty(knob.var, was);
+    else root.style.removeProperty(knob.var);
+    if (seen.size < 2) dead.push(knob.name || knob.var);
+  }
+  return dead;
+}"""
+
+
 async def audit(html: str, kind: str = "") -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails.
@@ -722,6 +772,18 @@ async def audit(html: str, kind: str = "") -> list[str]:
                             f"{paper['words']} words on a poster — it has to be "
                             "read standing up, so cut it to the ones that matter"
                         )
+
+        # The tweak sheet promises knobs that work.
+        try:
+            dead_knobs = await page.evaluate(_TWEAKS_JS)
+        except Exception:  # noqa: BLE001
+            dead_knobs = []
+        if dead_knobs:
+            names = ", ".join(f"\u201c{k}\u201d" for k in dead_knobs[:4])
+            findings.append(
+                f"{len(dead_knobs)} tweak control(s) change nothing — {names}. "
+                "The custom property is declared but the design never reads it"
+            )
 
         # A sheet is a fixed width on purpose; it is not meant to reflow.
         for width, label in (() if sheet else ((1024, "1024"), (640, "640"))):

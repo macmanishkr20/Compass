@@ -104,10 +104,15 @@ export interface EditorRect {
 /** A knob the design declares as tweakable. */
 export interface EditorTweak {
   name: string;
-  type: string;
+  type: string;          // color | select | range | toggle | text
   var: string;
   value: string;
   options?: string[];
+  /** A range's bounds, and the unit its value carries. */
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
 }
 
 export interface EditorEvent {

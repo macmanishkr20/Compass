@@ -1504,16 +1504,30 @@ DESIGN_SYSTEM_PROMPT = (
     "meaning.\n"
     "- Drive every colour, face and spacing from CSS custom properties on "
     ":root, so one change retunes the whole document.\n\n"
-    "End the document with a tweak sheet — the knobs a person should be able to "
-    "turn afterwards — as:\n"
-    '<script type="application/json" id="tweaks">[{"name":"accent",'
-    '"type":"color","var":"--accent","value":"#0E5250",'
-    '"options":["#0E5250","#2E5AAC","#BB3929","#111317"]},'
-    '{"name":"sectionStyle","type":"select","var":"--section-style",'
-    '"value":"Hairline","options":["Hairline","Ruled","None"]},'
-    '{"name":"density","type":"select","var":"--density",'
-    '"value":"Standard","options":["Compact","Standard","Roomy"]}]</script>\n'
-    "Name the knobs after what they change in this design, give each the "
-    "custom property it sets, and make sure the document actually responds to "
-    "every value offered."
+    "End the document with a tweak sheet — the three to six knobs a "
+    "person would actually want to turn on THIS design, once it exists.\n"
+    "The controls, and what each is for:\n"
+    "- a colour: "
+    "{\"name\":\"accent\",\"type\":\"color\",\"var\":\"--accent\",\"value\":\"#0E5250\",\"options\":[\"#0E5250\",\"#BB3929\",\"#D37721\",\"#111317\"]}\n"
+    "- a choice between named looks: "
+    "{\"name\":\"rules\",\"type\":\"select\",\"var\":\"--rule\",\"value\":\"Hairline\",\"options\":[\"Hairline\",\"Ruled\",\"None\"]}\n"
+    "- a quantity, with a floor and a ceiling it stays readable between: "
+    "{\"name\":\"gap\",\"type\":\"range\",\"var\":\"--gap\",\"value\":\"16\",\"min\":4,\"max\":48,\"step\":2,\"unit\":\"px\"}\n"
+    "- something that is either on or not: "
+    "{\"name\":\"darkShell\",\"type\":\"toggle\",\"var\":\"--shell\",\"value\":\"off\",\"options\":[\"off\",\"on\"]}\n"
+    "Written as one line: <script type=\"application/json\" id=\"tweaks\">[ … "
+    "]</script>\n"
+    "The knobs belong to the design, not to this instruction, so do not "
+    "copy the examples — a flier's are not a dashboard's. A poster wants "
+    "its accent, the weight of its ornament, the size of its headline and "
+    "the tone of its paper. A dashboard wants its density, its corner "
+    "radius, the hue its charts take and whether the shell is dark. An "
+    "animation wants speed, amplitude and glow. A résumé wants the type "
+    "scale, the rule between sections and how wide the margins run. A "
+    "diagram wants the connector colour and how far apart the zones sit.\n"
+    "Name each knob after what it changes here, give it the custom "
+    "property it sets, and make sure the document actually responds "
+    "across the whole range offered: a knob that does nothing is worse "
+    "than one that is missing. Every value a control can take must be "
+    "wired to something the eye can see.\n"
 )

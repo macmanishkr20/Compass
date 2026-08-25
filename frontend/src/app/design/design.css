@@ -3363,14 +3363,16 @@
 .dz-edit-tools {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 7px 12px;
+  flex-wrap: wrap;          /* twelve tools do not fit 300px in one line */
+  gap: 2px;
+  padding: 7px 10px;
   border-bottom: 1px solid var(--border);
 }
 
 .dz-edit-tools button {
-  width: 27px;
-  height: 25px;
+  width: 26px;
+  height: 26px;
+  flex: none;
   display: grid;
   place-items: center;
   border: 0;
@@ -3634,3 +3636,106 @@ select.dz-ed-in {
 }
 
 .dz-tweak-ask button:disabled { opacity: 0.45; cursor: default; }
+
+/* ------------------------------------------------- tweaks: the richer controls */
+.dz-ed-swatches { display: flex; gap: 4px; margin-left: auto; }
+
+.dz-ed-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.dz-ed-dot.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent); }
+
+.dz-ed-slider {
+  flex: 1;
+  min-width: 60px;
+  margin-left: auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.dz-ed-amount {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  flex: none;
+  min-width: 44px;
+  text-align: right;
+}
+
+.dz-ed-switch {
+  margin-left: auto;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--border-strong);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  transition: background 0.15s ease;
+}
+
+.dz-ed-switch span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease;
+}
+
+.dz-ed-switch.on { background: var(--accent); }
+.dz-ed-switch.on span { transform: translateX(14px); }
+
+.dz-tweak-ask { margin-top: 12px; }
+
+.dz-tweak-ideas {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  padding: 8px 11px;
+  cursor: pointer;
+  flex: none;
+}
+
+.dz-tweak-ideas:hover { color: var(--ink); background: var(--bg-2); }
+
+.dz-tweak-go {
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 8px 13px;
+  cursor: pointer;
+  flex: none;
+}
+
+.dz-tweak-go:disabled { opacity: 0.45; cursor: default; }
+
+.dz-tweak-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 2px 0; }
+
+.dz-tweak-chips button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+
+.dz-tweak-chips button:hover { color: var(--ink); border-color: var(--accent-line); }

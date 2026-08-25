@@ -35,6 +35,7 @@ import {
   EDITOR_SCRIPT,
   type EditorProps,
   type EditorNode,
+  type EditorTweak,
   EditorCommand,
   EditorDetails,
   EditorEvent,
@@ -128,6 +129,7 @@ export class Design {
   readonly nodes = signal<EditorNode[]>([]);
   readonly cssDraft = signal('');
   readonly tweakAsk = signal('');
+  readonly ideasOpen = signal(false);
   readonly editDirty = signal(false);
   /** Which tool holds the pointer, and whether there is history either way. */
   readonly edTool = signal('select');
@@ -1213,6 +1215,35 @@ export class Design {
     { i: 0, t: 'T' }, { i: 1, t: 'R' }, { i: 2, t: 'B' }, { i: 3, t: 'L' },
   ];
 
+  /** A range's value without its unit, for the slider's position. */
+  numberOf(value: string): number {
+    return parseFloat(value) || 0;
+  }
+
+  onValue(t: EditorTweak): string { return t.options?.[1] ?? 'on'; }
+  offValue(t: EditorTweak): string { return t.options?.[0] ?? 'off'; }
+  isOn(t: EditorTweak): boolean { return t.value === this.onValue(t); }
+
+  /** Knobs worth having, by what is being built. A poster and a dashboard do
+   *  not want the same ones, which is the whole point of the panel. */
+  tweakIdeas(): string[] {
+    const kind = this.open()?.template ?? '';
+    const by: Record<string, string[]> = {
+      flier: ['the accent colour', 'how heavy the ornament is', 'the headline size',
+              'the tone of the paper'],
+      mockups: ['the density', 'the corner radius', 'the colour the charts take',
+                'a dark shell toggle'],
+      mobile: ['the corner radius', 'the accent colour', 'the density'],
+      resume: ['the type scale', 'the rule between sections', 'how wide the margins run'],
+      animation: ['the speed', 'the glow', 'how far it travels'],
+      slides: ['the accent colour', 'the type scale', 'whether slides carry a footer'],
+      diagram: ['the connector colour', 'how far apart the zones sit', 'the card width'],
+      document: ['the type scale', 'the measure', 'the rule between sections'],
+    };
+    return by[kind] ?? ['the accent colour', 'the density', 'the type scale',
+                        'the corner radius'];
+  }
+
   /** Arm a tool. Select edits what is there; click-through hands the pointer
    *  back to the design so it can be tried out; the rest draw something. */
   useTool(tool: string): void {
@@ -1255,6 +1286,7 @@ export class Design {
     const wanted = this.tweakAsk().trim();
     if (!wanted) return;
     this.tweakAsk.set('');
+    this.ideasOpen.set(false);
     const asked =
       `Add a tweak sheet to this design so a person can adjust ${wanted} ` +
       `without regenerating it. Keep everything else exactly as it is.`;

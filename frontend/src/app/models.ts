@@ -335,10 +335,15 @@ export interface DesignTemplate {
 /** One knob a design declares as tweakable. */
 export interface DesignTweak {
   name: string;
-  type: 'color' | 'select' | string;
+  type: string;          // color | select | range | toggle | text
   var: string;
   value: string;
   options?: string[];
+  /** A range's bounds, and the unit its value carries. */
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
 }
 
 /** One piece of design work. `html` is only present on a single-project fetch —
