@@ -314,7 +314,7 @@
                       <input class="dz-ed-slider" type="range"
                         [min]="t.min ?? 0" [max]="t.max ?? 100" [step]="t.step ?? 1"
                         [value]="numberOf(t.value)"
-                        (input)="setTweak(t, $any($event.target).value + (t.unit ?? ''))" />
+                        (input)="setTweak(t, withUnit(t, $any($event.target).value))" />
                       <span class="dz-ed-amount">{{ t.value }}</span>
                     }
                     @case ('toggle') {
@@ -348,12 +348,25 @@
 
             <div class="dz-tweak-ask">
               <input [ngModel]="tweakAsk()" (ngModelChange)="tweakAsk.set($event)"
-                (keydown.enter)="askForTweaks()" placeholder="Describe a tweak…" />
+                (keydown.enter)="askForTweaks()" [disabled]="working()"
+                placeholder="Describe a tweak…" />
               <button class="dz-tweak-ideas" (click)="ideasOpen.set(!ideasOpen())"
+                [disabled]="working()"
                 title="Knobs worth having on this kind of design">Ideas</button>
               <button class="dz-tweak-go" (click)="askForTweaks()"
-                [disabled]="!tweakAsk().trim()">Add</button>
+                [disabled]="working() || !tweakAsk().trim()">
+                @if (working()) { <span class="dz-go-spin"></span> Building… }
+                @else { Add control }
+              </button>
             </div>
+            @if (working()) {
+              <p class="dz-tweak-busy">
+                Building the control. Compass is rewriting the design to add it, so
+                this takes a minute or two — the new control appears here when it
+                lands.
+                <button class="dz-tweak-stop" (click)="cancelRun()">Stop</button>
+              </p>
+            }
             @if (ideasOpen()) {
               <div class="dz-tweak-chips">
                 @for (idea of tweakIdeas(); track idea) {

@@ -1220,6 +1220,13 @@ export class Design {
     return parseFloat(value) || 0;
   }
 
+  /** A slider's value with its unit — but only if the unit is one CSS knows.
+   *  A sheet may say "x" for a multiplier, and `0.85x` is not a CSS value. */
+  withUnit(t: EditorTweak, value: string): string {
+    const real = /^(px|%|em|rem|ch|vw|vh|vmin|vmax|deg|rad|turn|s|ms|fr|pt|cm|mm|in)$/;
+    return value + (real.test(t.unit ?? '') ? t.unit : '');
+  }
+
   onValue(t: EditorTweak): string { return t.options?.[1] ?? 'on'; }
   offValue(t: EditorTweak): string { return t.options?.[0] ?? 'off'; }
   isOn(t: EditorTweak): boolean { return t.value === this.onValue(t); }

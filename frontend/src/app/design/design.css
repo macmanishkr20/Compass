@@ -3742,3 +3742,31 @@ select.dz-ed-in {
 }
 
 .dz-tweak-chips button:hover { color: var(--ink); border-color: var(--accent-line); }
+
+.dz-tweak-busy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin: 10px 2px 0;
+}
+
+.dz-tweak-stop {
+  margin-left: auto;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.dz-tweak-stop:hover { color: var(--ink); background: var(--bg-2); }
+
+.dz-tweak-go .dz-go-spin { margin-right: 6px; vertical-align: -1px; }
+.dz-tweak-go:disabled { opacity: 0.55; }

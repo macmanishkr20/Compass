@@ -566,15 +566,19 @@ _TWEAKS_JS = r"""() => {
 
   const fingerprint = () => {
     let out = '';
-    const all = document.querySelectorAll('*');
-    const step = Math.max(1, Math.floor(all.length / 300));
-    for (let i = 0; i < all.length; i += step) {
+    // Every element, not a sample of them: the one an unsampled knob moves is
+    // exactly the one a stride skips, and skipping it calls the knob dead.
+    const all = [...document.querySelectorAll('*')].slice(0, 1500);
+    for (let i = 0; i < all.length; i++) {
       const e = all[i], r = e.getBoundingClientRect();
       if (!r.width && !r.height) continue;
       const cs = getComputedStyle(e);
       // Where it sits as well as how big it is: a gap or a margin moves things
-      // without resizing them, and size alone would call that knob dead.
+      // without resizing them, and size alone would call that knob dead. The
+      // transform matters for the same reason — a scale leaves the measured
+      // box where it was — and so do opacity and visibility.
       out += cs.color + cs.backgroundColor + cs.fontSize + cs.borderTopWidth
+           + cs.transform + cs.opacity + cs.visibility + cs.display
            + Math.round(r.width) + 'x' + Math.round(r.height)
            + '@' + Math.round(r.left) + ',' + Math.round(r.top) + ';';
     }
@@ -588,7 +592,12 @@ _TWEAKS_JS = r"""() => {
     const was = root.style.getPropertyValue(knob.var);
     let values = (knob.options || []).slice(0, 4);
     if (knob.type === 'range') {
-      values = [String(knob.min) + (knob.unit || ''), String(knob.max) + (knob.unit || '')];
+      // Only a real CSS unit may be appended. A sheet that says "unit":"x"
+      // means a multiplier, and --fit: 0.85x is not a value at all — which
+      // would make a working knob look dead.
+      const u = /^(px|%|em|rem|ch|vw|vh|vmin|vmax|deg|rad|turn|s|ms|fr|pt|cm|mm|in)$/
+        .test(knob.unit || '') ? knob.unit : '';
+      values = [String(knob.min) + u, String(knob.max) + u];
     }
     if (values.length < 2) continue;           // nothing to compare it against
     const seen = new Set();
