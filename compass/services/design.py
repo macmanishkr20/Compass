@@ -1439,7 +1439,7 @@ DESIGN_SYSTEM_PROMPT = (
     "- Make it look designed, not templated: real-feeling content, never "
     "lorem ipsum, and never decoration that does no work.\n"
     "- Work to a scale rather than by eye. Spacing is 4px and its "
-    "multiples — 4, 8, 12, 16, 24, 32, 48, 64, 96 — and every margin and "
+    "multiples — 4, 8, 12, 16, 24, 32, 48, 64, 96, 128 — and every margin and "
     "padding is one of them. Type is a ratio near 1.25 — 12, 14, 16, 20, "
     "24, 32, 40, 48 — and each size has a job: body, sub-head, head, "
     "display. Colour starts small: one accent, white, black, three or four "

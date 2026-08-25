@@ -121,12 +121,93 @@ async def _slide_box(page) -> dict | None:
     return None
 
 
+
+# A design built of page sheets prints one page per sheet. The sizes are the
+# ones the templates are told to use, in CSS pixels at 96dpi — 794x1123 is A4,
+# which Chromium turns into 595x842pt.
+_PAGE_SIZES = ((794, 1123), (816, 1056), (1123, 794), (1056, 816))
+# ...and what that paper is actually called, so the PDF says A4 rather than
+# 595.5pt rounded up to 596.
+_PAPER = {
+    (794, 1123): ("210mm", "297mm"),
+    (816, 1056): ("8.5in", "11in"),
+    (1123, 794): ("297mm", "210mm"),
+    (1056, 816): ("11in", "8.5in"),
+}
+
+_PAGES_JS = """(sizes) => {
+  for (const [w, h] of sizes) {
+    let found = [...document.querySelectorAll('body *')].filter((e) => {
+      const r = e.getBoundingClientRect();
+      return Math.abs(r.width - w) < 14 && r.height > h * 0.6;
+    });
+    // A sheet often holds a content frame of the same width; keep the sheet.
+    found = found.filter((e) => !found.some((o) => o !== e && o.contains(e)));
+    if (!found.length) continue;
+    found.forEach((e) => e.setAttribute('data-dz-page', '1'));
+    // :last-of-type only works if the sheets are the last of their tag among
+    // their siblings, which is not something a design promises. Say which one
+    // is last, or a break after it prints one blank page too many.
+    found[found.length - 1].setAttribute('data-dz-page-last', '1');
+    // The space between sheets usually belongs to their parent — a column gap
+    // or its padding — and zeroing the sheets' own margins leaves it behind.
+    if (found[0].parentElement) {
+      found[0].parentElement.setAttribute('data-dz-pagewrap', '1');
+    }
+    return { width: w, height: h, count: found.length };
+  }
+  return null;
+}"""
+
+# What a sheet has to lose to be a page: the ground behind it, the gap between
+# it and the next one, and the shadow that suggested it was floating.
+_PRINT_PAGES = """
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  [data-dz-page] {
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    break-after: page;
+    break-inside: avoid;
+    page-break-after: always;
+  }
+  [data-dz-pagewrap] {
+    gap: 0 !important;
+    row-gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+    min-height: 0 !important;
+    justify-content: flex-start !important;
+    align-content: flex-start !important;
+  }
+  [data-dz-page-last] {
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
+"""
+
+
+async def _page_box(page) -> dict | None:
+    """Tag the sheets this design is built of, and say how big a page is."""
+    try:
+        found = await page.evaluate(_PAGES_JS, [list(x) for x in _PAGE_SIZES])
+    except Exception:  # noqa: BLE001
+        return None
+    return found or None
+
+
 async def to_pdf(html: str, *, width: int = 1280) -> bytes:
     page, close = await _render(html, width, 900)
     try:
         # print_background keeps the palette; the design decides its own size,
         # so the page box follows the rendered width rather than a paper size.
         await _unfold(page)
+        css_paged = False
         box = await _slide_box(page)
         if box:
             # A deck prints one slide per page. Without the break rule Chromium
@@ -139,6 +220,21 @@ async def to_pdf(html: str, *, width: int = 1280) -> bytes:
                 )
             )
             page_width, page_height = box["width"], box["height"]
+        elif sheets := await _page_box(page):
+            # Built of sheets — a document, a flier, a resume. One PDF page per
+            # sheet, at the sheet's size, so A4 comes out as A4.
+            await page.add_style_tag(content=_PRINT_PAGES)
+            await page.wait_for_timeout(150)
+            # Let the CSS name the page. A4 is 841.89pt and a 1123px sheet is
+            # 842.25 — a third of a point taller, which is enough to push every
+            # sheet onto a second page. Declaring @page at the sheet's own size
+            # makes them the same box by construction.
+            await page.add_style_tag(content=(
+                f"@page {{ size: {sheets['width']}px {sheets['height']}px;"
+                " margin: 0; }"
+            ))
+            css_paged = True
+            page_width = page_height = 0
         else:
             page_width = width
             # One tall page, so nothing is cut mid-section. scrollHeight alone
@@ -149,6 +245,12 @@ async def to_pdf(html: str, *, width: int = 1280) -> bytes:
                 "document.documentElement.scrollHeight,"
                 "document.body.scrollHeight,"
                 "document.body.getBoundingClientRect().bottom)) + 2"
+            )
+        if css_paged:
+            return await page.pdf(
+                print_background=True,
+                prefer_css_page_size=True,
+                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
             )
         return await page.pdf(
             print_background=True,
@@ -715,6 +817,79 @@ _DOC_JS = r"""() => {
 }"""
 
 
+_CHECKLIST_JS = r"""() => {
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+
+  // Focus states. Take a handful of the things a keyboard can reach and see
+  // whether anything about them changes when it arrives.
+  const reachable = [...document.querySelectorAll(
+    'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )].filter(vis).slice(0, 12);
+  let noFocusRing = 0;
+  const look = (e) => {
+    const cs = getComputedStyle(e);
+    return cs.outlineStyle + cs.outlineWidth + cs.outlineColor
+         + cs.boxShadow + cs.borderColor + cs.backgroundColor;
+  };
+  const had = document.activeElement;
+  for (const e of reachable) {
+    const before = look(e);
+    try { e.focus({ preventScroll: true }); } catch (err) { continue; }
+    if (document.activeElement !== e) continue;
+    if (look(e) === before) noFocusRing++;
+  }
+  try { (had && had.focus) ? had.focus({ preventScroll: true }) : document.activeElement.blur(); }
+  catch (err) { /* nothing to restore to */ }
+
+  // Spacing from the scale. Every padding, margin and gap the design sets,
+  // measured against multiples of four.
+  const scale = new Set([0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128]);
+  let spaced = 0, offScale = 0, offFirst = '';
+  const props = ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+                 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'gap'];
+  for (const e of [...document.querySelectorAll('body *')].slice(0, 900)) {
+    if (!vis(e)) continue;
+    const cs = getComputedStyle(e);
+    for (const prop of props) {
+      const raw = cs[prop];
+      if (!raw || raw === 'normal' || raw.indexOf(' ') > -1) continue;
+      const v = parseFloat(raw);
+      if (!v || v < 0 || v > 160) continue;
+      spaced++;
+      // Round first: a browser resolves em and rem to fractions of a pixel.
+      if (!scale.has(Math.round(v))) {
+        offScale++;
+        if (!offFirst) offFirst = prop.replace(/([A-Z])/g, ' $1').toLowerCase()
+                                    + ' ' + Math.round(v * 10) / 10 + 'px';
+      }
+    }
+  }
+
+  return {
+    focusChecked: reachable.length,
+    noFocusRing,
+    spaced,
+    offScale,
+    offFirst,
+  };
+}"""
+
+_TARGETS_JS = """() => {
+  // Factory's floor for something a finger has to hit.
+  const small = [...document.querySelectorAll(
+    'a[href], button, input:not([type=hidden]), select, [role=button]'
+  )].filter((e) => {
+    const r = e.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && (r.width < 44 || r.height < 44);
+  });
+  return {
+    n: small.length,
+    first: small.length ? (small[0].textContent || small[0].getAttribute('aria-label') || '')
+      .trim().slice(0, 20) : '',
+  };
+}"""
+
+
 async def audit(html: str, kind: str = "") -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails.
@@ -959,6 +1134,26 @@ async def audit(html: str, kind: str = "") -> list[str]:
                 "The custom property is declared but the design never reads it"
             )
 
+        # The published checklist, measured rather than asserted.
+        try:
+            list_check = await page.evaluate(_CHECKLIST_JS)
+        except Exception:  # noqa: BLE001
+            list_check = None
+        if list_check:
+            if list_check["focusChecked"] >= 3 and list_check["noFocusRing"]:
+                findings.append(
+                    f"{list_check['noFocusRing']} of {list_check['focusChecked']} "
+                    "controls show nothing when the keyboard reaches them — a focus "
+                    "state has to be visible"
+                )
+            off, total = list_check["offScale"], list_check["spaced"]
+            if total >= 40 and off > total * 0.25:
+                findings.append(
+                    f"{round(off / total * 100)}% of the spacing is off the 4px "
+                    f"scale, starting with {list_check['offFirst']} — pick from 4, "
+                    "8, 12, 16, 24, 32, 48, 64, 96, 128 and stay there"
+                )
+
         # A sheet is a fixed width on purpose; it is not meant to reflow.
         for width, label in (() if sheet else ((1024, "1024"), (640, "640"))):
             await page.set_viewport_size({"width": width, "height": 900})
@@ -969,6 +1164,17 @@ async def audit(html: str, kind: str = "") -> list[str]:
             )
             if over > 2:
                 findings.append(f"{over}px of sideways scroll at {label}px")
+            if width == 640 and app:
+                try:
+                    tiny_hits = await page.evaluate(_TARGETS_JS)
+                except Exception:  # noqa: BLE001
+                    tiny_hits = None
+                if tiny_hits and tiny_hits["n"] > 2:
+                    findings.append(
+                        f"{tiny_hits['n']} controls under 44x44 on a phone, starting "
+                        f"with \u201c{tiny_hits['first']}\u201d — that is the floor "
+                        "for something a finger has to hit"
+                    )
     except Exception:  # noqa: BLE001 - the check is a courtesy, not a gate
         return []
     finally:
