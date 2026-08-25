@@ -3363,16 +3363,19 @@
 .dz-edit-tools {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;          /* twelve tools do not fit 300px in one line */
-  gap: 2px;
-  padding: 7px 10px;
+  flex-wrap: nowrap;
+  gap: 1px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--border);
 }
 
+/* The panel is as narrow as 300px, and eleven tools have to sit in one line
+   there. They shrink a little rather than wrap onto a second row. */
 .dz-edit-tools button {
   width: 26px;
   height: 26px;
-  flex: none;
+  flex: 0 1 26px;
+  min-width: 19px;
   display: grid;
   place-items: center;
   border: 0;
@@ -3385,7 +3388,7 @@
 .dz-edit-tools button:hover:not(:disabled) { background: var(--bg-2); color: var(--ink); }
 .dz-edit-tools button.on { background: var(--accent-tint); color: var(--accent-strong); }
 .dz-edit-tools button:disabled { opacity: 0.35; cursor: default; }
-.dz-edit-tools-sep { width: 1px; height: 15px; background: var(--border); margin: 0 4px; }
+.dz-edit-tools-sep { width: 1px; height: 15px; background: var(--border); margin: 0 3px; flex: none; }
 
 /* ---------------------------------------------------------------- the body */
 .dz-edit-body {
