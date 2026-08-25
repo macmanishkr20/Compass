@@ -613,6 +613,108 @@ _TWEAKS_JS = r"""() => {
 }"""
 
 
+_DOC_KINDS = {"document", "research", "email"}
+
+_DOC_JS = r"""() => {
+  // A document is judged as typography: the measure, the reading size, the
+  // hierarchy, and whether its tables say what they are.
+  const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const paras = [...document.querySelectorAll('p, li')]
+    .filter((e) => vis(e) && (e.textContent || '').trim().split(/\s+/).length >= 12);
+  if (!paras.length) return null;
+
+  // The body is whatever most of the prose is set in.
+  const tally = {};
+  for (const e of paras) {
+    const cs = getComputedStyle(e);
+    const key = Math.round(parseFloat(cs.fontSize)) + '|' + cs.fontFamily;
+    (tally[key] = tally[key] || { n: 0, e }).n++;
+  }
+  const body = Object.values(tally).sort((a, b) => b.n - a.n)[0].e;
+  const bs = getComputedStyle(body);
+  const size = parseFloat(bs.fontSize);
+  const lh = parseFloat(bs.lineHeight) / size;
+  // Characters per line: the glyph width of this face, not a guess of 0.5em.
+  const probe = document.createElement('span');
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:' + bs.font;
+  probe.textContent = 'abcdefghijklmnopqrstuvwxyz ';
+  document.body.appendChild(probe);
+  const glyph = probe.getBoundingClientRect().width / 27;
+  probe.remove();
+  const measure = Math.round(body.getBoundingClientRect().width / Math.max(glyph, 1));
+
+  // Headings, largest first, and whether the scale actually steps down.
+  const heads = ['h1', 'h2', 'h3'].map((t) => {
+    const one = [...document.querySelectorAll(t)].find(vis);
+    return one ? Math.round(parseFloat(getComputedStyle(one).fontSize)) : 0;
+  });
+
+  const tables = [...document.querySelectorAll('table')].filter(vis);
+  // A caption is a <caption>, or the small line of text just after the table.
+  const uncaptioned = tables.filter((t) => {
+    if (t.querySelector('caption')) return false;
+    const after = t.nextElementSibling;
+    if (!after) return true;
+    const txt = (after.textContent || '').trim();
+    const small = parseFloat(getComputedStyle(after).fontSize) < size;
+    return !(small && txt.length > 12 && txt.length < 400);
+  }).length;
+
+  // Sheets: a document is pages, and nothing may cross a page's edge.
+  const pageish = [...document.querySelectorAll('*')].filter((e) => {
+    const r = e.getBoundingClientRect();
+    return Math.abs(r.width - 794) < 14 && r.height > 400;
+  });
+  // A page usually holds a content frame of the same width; count the page,
+  // not both of them.
+  const sheets = pageish.filter((e) => !pageish.some((o) => o !== e && o.contains(e)));
+  let spill = 0;
+  for (const sheet of sheets) {
+    const sr = sheet.getBoundingClientRect();
+    for (const kid of sheet.querySelectorAll('*')) {
+      const r = kid.getBoundingClientRect();
+      if (!r.height) continue;
+      if (r.bottom > sr.bottom + 2 || r.top < sr.top - 2) { spill++; break; }
+    }
+  }
+
+  // Two cells with no space between them read as one word — "5Settled",
+  // "MATURITY (1-5)JUDGEMENT". The eye catches it instantly; nothing else did.
+  // Cells always touch — the padding is inside them — so measure where the
+  // WORDS end and begin, not the boxes.
+  const inkBox = (el) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const b = range.getBoundingClientRect();
+    return b && b.width ? b : null;
+  };
+  let touching = 0, touchingFirst = '';
+  for (const row of document.querySelectorAll('tr')) {
+    const cells = [...row.children].filter(vis);
+    for (let i = 1; i < cells.length; i++) {
+      const ta = (cells[i - 1].textContent || '').trim();
+      const tb = (cells[i].textContent || '').trim();
+      if (!ta || !tb) continue;
+      const a = inkBox(cells[i - 1]), b = inkBox(cells[i]);
+      if (!a || !b || Math.abs(a.top - b.top) > 6) continue;
+      if (b.left - a.right < 6) {
+        touching++;
+        if (!touchingFirst) touchingFirst = ta.slice(-16) + tb.slice(0, 16);
+      }
+    }
+  }
+
+  return {
+    touching, touchingFirst,
+    size: Math.round(size), leading: Math.round(lh * 100) / 100, measure,
+    heads, sections: document.querySelectorAll('h2').length,
+    tables: tables.length, uncaptioned,
+    sheets: sheets.length, spill,
+    words: (document.body.innerText || '').trim().split(/\s+/).length,
+  };
+}"""
+
+
 async def audit(html: str, kind: str = "") -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails.
@@ -625,6 +727,7 @@ async def audit(html: str, kind: str = "") -> list[str]:
     findings: list[str] = []
     sheet = kind in _SHEET_KINDS
     poster = kind in _POSTER_KINDS
+    prose = kind in _DOC_KINDS
     app = not sheet                       # an unknown template is treated as a screen
     try:
         page, close = await _render(html, 1280, 900)
@@ -739,7 +842,9 @@ async def audit(html: str, kind: str = "") -> list[str]:
                 paper = None
             if paper:
                 page_h = paper.get("page")
-                if page_h and paper["height"] > page_h * 1.08:
+                # A document is many sheets on purpose; its pages are checked
+                # one by one below instead.
+                if page_h and not prose and paper["height"] > page_h * 1.08:
                     over = paper["height"] - page_h
                     findings.append(
                         f"the sheet runs {paper['height']}px on a page of {page_h}"
@@ -781,6 +886,66 @@ async def audit(html: str, kind: str = "") -> list[str]:
                             f"{paper['words']} words on a poster — it has to be "
                             "read standing up, so cut it to the ones that matter"
                         )
+
+        # A document is judged as typography rather than as layout.
+        if prose:
+            try:
+                doc = await page.evaluate(_DOC_JS)
+            except Exception:  # noqa: BLE001
+                doc = None
+            if doc:
+                if doc["size"] < 15:
+                    findings.append(
+                        f"the body is set at {doc['size']}px — under 15 is a screen "
+                        "size, not a reading size"
+                    )
+                if not 1.35 <= doc["leading"] <= 1.85:
+                    findings.append(
+                        f"a line height of {doc['leading']} on the body — prose wants "
+                        "between 1.4 and 1.75, or the lines crowd or drift apart"
+                    )
+                if not 45 <= doc["measure"] <= 95:
+                    findings.append(
+                        f"the measure is about {doc['measure']} characters a line — "
+                        "a column of prose reads between 45 and 95, ideally near 70"
+                    )
+                h1, h2, h3 = doc["heads"]
+                if h2 and h1 and h2 >= h1:
+                    findings.append(
+                        f"the section headings ({h2}px) are not smaller than the "
+                        f"title ({h1}px) — the hierarchy is flat"
+                    )
+                if h3 and h2 and h3 >= h2:
+                    findings.append(
+                        f"sub-headings ({h3}px) are not smaller than the sections "
+                        f"they sit under ({h2}px)"
+                    )
+                if h2 and h2 < doc["size"] * 1.15:
+                    findings.append(
+                        f"section headings are {h2}px against {doc['size']}px of body "
+                        "— too close to read as headings"
+                    )
+                if not doc["sections"]:
+                    findings.append(
+                        "no section headings at all — a document of any length is "
+                        "navigated by its sections"
+                    )
+                if doc["uncaptioned"]:
+                    findings.append(
+                        f"{doc['uncaptioned']} table(s) with no caption — a table in "
+                        "a document is numbered and says what it shows"
+                    )
+                if doc["touching"]:
+                    findings.append(
+                        f"{doc['touching']} pair(s) of table cells with no space "
+                        f"between them, reading as one word — "
+                        f"\u201c{doc['touchingFirst']}\u201d"
+                    )
+                if doc["spill"]:
+                    findings.append(
+                        f"content crosses the edge of {doc['spill']} page(s) — a "
+                        "document breaks between sheets, it does not overflow them"
+                    )
 
         # The tweak sheet promises knobs that work.
         try:
