@@ -244,19 +244,53 @@
 
         @if (editTab() !== 'tweaks') {
           <div class="dz-edit-tools" role="group" aria-label="Tools">
-            <button class="on" title="Select">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z"/></svg>
+            <button [class.on]="edTool() === 'select'" (click)="useTool('select')"
+              title="Select" aria-label="Select">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'through'" (click)="useTool('through')"
+              title="Click through — try the design out" aria-label="Click through — try the design out">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 3l14 8-6 1.6L10 19z"/></svg>
             </button>
             <span class="dz-edit-tools-sep"></span>
-            <button (click)="addThing('text')" title="Add a run of text">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke-linecap="round"/></svg>
+            <button [class.on]="edTool() === 'text'" (click)="useTool('text')"
+              title="Text" aria-label="Text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M5 6V4h14v2M12 4v16M9 20h6" stroke-linecap="round"/></svg>
             </button>
-            <button (click)="addThing('box')" title="Add a box">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+            <button [class.on]="edTool() === 'frame'" (click)="useTool('frame')"
+              title="Frame" aria-label="Frame">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 8h18M3 16h18M8 3v18M16 3v18" stroke-linecap="round"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'rect'" (click)="useTool('rect')"
+              title="Rectangle" aria-label="Rectangle">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'oval'" (click)="useTool('oval')"
+              title="Oval" aria-label="Oval">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'arrow'" (click)="useTool('arrow')"
+              title="Arrow" aria-label="Arrow">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 18L18 6M10 6h8v8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'line'" (click)="useTool('line')"
+              title="Line" aria-label="Line">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 18L18 6" stroke-linecap="round"/></svg>
+            </button>
+            <button [class.on]="edTool() === 'draw'" (click)="useTool('draw')"
+              title="Draw" aria-label="Draw">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 20c3 .5 5-1 7-4s3-6 5-7 4 .5 4 3" stroke-linecap="round"/></svg>
+            </button>
+            <span class="dz-edit-tools-sep"></span>
+            <button (click)="undo()" [disabled]="!canUndo()" title="Undo" aria-label="Undo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 14L4 9l5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 9h10a6 6 0 010 12h-3" stroke-linecap="round"/></svg>
+            </button>
+            <button (click)="redo()" [disabled]="!canRedo()" title="Redo" aria-label="Redo">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M15 14l5-5-5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 9H10a6 6 0 000 12h3" stroke-linecap="round"/></svg>
             </button>
             <span class="dz-edit-tools-sep"></span>
             <button (click)="deleteSelected()" [disabled]="!selection()" title="Delete the selection">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
           </div>
         }

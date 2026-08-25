@@ -17,7 +17,10 @@ export interface EditorCommand {
   dz:
     | 'mode' | 'align' | 'delete' | 'pins' | 'flush' | 'deselect' | 'pointer'
     | 'tweak' | 'ping' | 'grab' | 'replace'
-    | 'style' | 'text' | 'attr' | 'css' | 'tree' | 'pick' | 'insert';
+    | 'style' | 'text' | 'attr' | 'css' | 'tree' | 'pick' | 'insert'
+    | 'tool' | 'undo' | 'redo';
+  /** Which tool has the pointer. */
+  tool?: string;
   /** Declarations to set on the selection; '' removes one. */
   decls?: Record<string, string>;
   /** Replacement text, for a leaf element. */
@@ -110,7 +113,11 @@ export interface EditorTweak {
 export interface EditorEvent {
   dz:
     | 'selected' | 'html' | 'comment' | 'ready' | 'typing' | 'typed'
-    | 'tweaks' | 'pong' | 'pageerror' | 'grabbed' | 'tree';
+    | 'tweaks' | 'pong' | 'pageerror' | 'grabbed' | 'tree' | 'tools-state';
+  /** Which tool is live, and whether there is anything to take back. */
+  tool?: string;
+  canUndo?: boolean;
+  canRedo?: boolean;
   /** Everything the inspector shows about the selection. */
   props?: EditorProps;
   /** The document's shape, for the layer tree. */
@@ -269,6 +276,177 @@ export const EDITOR_SCRIPT = String.raw`
     };
   }
 
+
+
+  // -- tools, drawing and history -------------------------------------------
+  // Which tool the pointer is holding. 'select' is the editor as it was;
+  // 'through' hands clicks back to the design so it can be tried out; the
+  // rest draw something and hand back to 'select' once they have.
+  var tool = 'select';
+  var DRAWS = { text: 1, frame: 1, rect: 1, oval: 1, arrow: 1, line: 1, draw: 1 };
+  var making = null;     // { kind, x0, y0, el, points }
+  var past = [], future = [];
+  var SVGNS = 'http://www.w3.org/2000/svg';
+
+  /** The design's own markup, with nothing of this editor's in it. */
+  function snapshot() {
+    var copy = document.body.cloneNode(true);
+    copy.querySelectorAll('[data-dz]').forEach(function (n) { n.remove(); });
+    return copy.innerHTML;
+  }
+
+  /** Call before changing anything, so it can be taken back. */
+  function remember() {
+    past.push(snapshot());
+    if (past.length > 40) past.shift();
+    future.length = 0;
+    sayTools();
+  }
+
+  function restore(html) {
+    select(null);
+    box = null;            // the overlay lives in body and goes with it
+    pinLayer = null;
+    document.body.innerHTML = html;
+    place();
+    flush();
+    sayTools();
+  }
+
+  function undo() {
+    if (!past.length) return;
+    future.push(snapshot());
+    restore(past.pop());
+  }
+
+  function redo() {
+    if (!future.length) return;
+    past.push(snapshot());
+    restore(future.pop());
+  }
+
+  function sayTools() {
+    post({ dz: 'tools-state', tool: tool, canUndo: past.length > 0, canRedo: future.length > 0 });
+  }
+
+  function setTool(next) {
+    tool = DRAWS[next] || next === 'through' ? next : 'select';
+    if (tool !== 'select') select(null);
+    document.body.style.cursor = DRAWS[tool] ? 'crosshair' : '';
+    sayTools();
+  }
+
+  /** Build the thing a drag just described. Coordinates are the document's. */
+  function shape(kind, x0, y0, x1, y1, points) {
+    var left = Math.min(x0, x1), top = Math.min(y0, y1);
+    var w = Math.max(Math.abs(x1 - x0), 1), h = Math.max(Math.abs(y1 - y0), 1);
+    var at = 'position:absolute;left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px;';
+    var el;
+
+    if (kind === 'text') {
+      el = document.createElement('div');
+      el.textContent = 'Text';
+      el.style.cssText = at + 'font-size:16px;line-height:1.4;min-width:40px;';
+      return el;
+    }
+    if (kind === 'frame' || kind === 'rect' || kind === 'oval') {
+      el = document.createElement('div');
+      el.style.cssText = at + 'width:' + Math.round(w) + 'px;height:' + Math.round(h) + 'px;'
+        + (kind === 'frame'
+            ? 'border:1px solid #C9C7C2;border-radius:8px;'
+            : 'background:#E9E5E1;border-radius:' + (kind === 'oval' ? '50%' : '6px') + ';');
+      return el;
+    }
+
+    // The drawn kinds are SVG, sized to the drag and allowed to spill a little
+    // so a stroke on the edge is not clipped in half.
+    el = document.createElementNS(SVGNS, 'svg');
+    el.setAttribute('width', Math.round(w));
+    el.setAttribute('height', Math.round(h));
+    el.setAttribute('viewBox', '0 0 ' + Math.round(w) + ' ' + Math.round(h));
+    el.style.cssText = at + 'overflow:visible;';
+
+    if (kind === 'draw') {
+      var d = (points || []).map(function (pt, i) {
+        return (i ? 'L' : 'M') + Math.round(pt[0] - left) + ' ' + Math.round(pt[1] - top);
+      }).join(' ');
+      var path = document.createElementNS(SVGNS, 'path');
+      path.setAttribute('d', d || 'M0 0');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#111317');
+      path.setAttribute('stroke-width', '2');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      el.appendChild(path);
+      return el;
+    }
+
+    var line = document.createElementNS(SVGNS, 'line');
+    line.setAttribute('x1', Math.round(x0 - left));
+    line.setAttribute('y1', Math.round(y0 - top));
+    line.setAttribute('x2', Math.round(x1 - left));
+    line.setAttribute('y2', Math.round(y1 - top));
+    line.setAttribute('stroke', '#111317');
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('stroke-linecap', 'round');
+    if (kind === 'arrow') {
+      var id = 'dz-arrow-' + Math.random().toString(36).slice(2, 8);
+      var defs = document.createElementNS(SVGNS, 'defs');
+      var marker = document.createElementNS(SVGNS, 'marker');
+      marker.setAttribute('id', id);
+      marker.setAttribute('viewBox', '0 0 10 10');
+      marker.setAttribute('refX', '9');
+      marker.setAttribute('refY', '5');
+      marker.setAttribute('markerWidth', '6');
+      marker.setAttribute('markerHeight', '6');
+      marker.setAttribute('orient', 'auto-start-reverse');
+      var head = document.createElementNS(SVGNS, 'path');
+      head.setAttribute('d', 'M0 0 L10 5 L0 10 z');
+      head.setAttribute('fill', '#111317');
+      marker.appendChild(head);
+      defs.appendChild(marker);
+      el.appendChild(defs);
+      line.setAttribute('marker-end', 'url(#' + id + ')');
+    }
+    el.appendChild(line);
+    return el;
+  }
+
+  function beginMake(x, y) {
+    making = { kind: tool, x0: x, y0: y, points: [[x, y]] };
+    window.addEventListener('pointermove', onMakeMove);
+    window.addEventListener('pointerup', onMakeUp);
+  }
+
+  function onMakeMove(e) {
+    if (!making) return;
+    var x = e.clientX + scrollX, y = e.clientY + scrollY;
+    making.points.push([x, y]);
+    if (making.el) making.el.remove();
+    making.el = mark(shape(making.kind, making.x0, making.y0, x, y, making.points));
+    making.el.style.opacity = '0.6';
+    document.body.appendChild(making.el);
+  }
+
+  function onMakeUp(e) {
+    window.removeEventListener('pointermove', onMakeMove);
+    window.removeEventListener('pointerup', onMakeUp);
+    if (!making) return;
+    if (making.el) making.el.remove();
+    var x = e.clientX + scrollX, y = e.clientY + scrollY;
+    var kind = making.kind, x0 = making.x0, y0 = making.y0, pts = making.points;
+    var tiny = Math.abs(x - x0) < 4 && Math.abs(y - y0) < 4;
+    making = null;
+    // A click rather than a drag still places text, and still places a shape
+    // at a sensible default size — an empty 1px box helps nobody.
+    if (tiny && kind !== 'text') { x = x0 + 160; y = y0 + 96; }
+    remember();
+    var el = shape(kind, x0, y0, x, y, pts);
+    document.body.appendChild(el);
+    setTool('select');
+    select(el);
+    flush();
+  }
 
   // -- the property inspector ----------------------------------------------
   /** A colour as #RRGGBB, or '' when there is nothing painted. */
@@ -434,6 +612,7 @@ export const EDITOR_SCRIPT = String.raw`
   /** Drop a new element into the selection (or the body) and select it. */
   function insert(kind) {
     if (mode !== 'edit') return;
+    remember();
     var host = sel || document.body;
     if (host.closest && host.closest('[data-dz]')) host = document.body;
     var el = document.createElement('div');
@@ -475,6 +654,7 @@ export const EDITOR_SCRIPT = String.raw`
   /** Apply declarations to the selection. A value of '' removes it. */
   function style(decls) {
     if (!sel || mode !== 'edit') return;
+    remember();
     Object.keys(decls || {}).forEach(function (k) {
       var v = decls[k];
       // Setting the position deliberately makes it the design's, so the marker
@@ -527,7 +707,8 @@ export const EDITOR_SCRIPT = String.raw`
   }
 
   function beginDrag(target, x, y) {
-    if (!sel || mode !== 'edit') return;
+    if (!sel || mode !== 'edit' || tool !== 'select') return;
+    remember();
     var handle = target && target.dataset ? target.dataset.dzHandle : null;
     var r = sel.getBoundingClientRect();
     if (isSvg(sel)) {
@@ -617,6 +798,7 @@ export const EDITOR_SCRIPT = String.raw`
   // -- pointer routing ------------------------------------------------------
   document.addEventListener('mouseover', function (e) {
     if ((mode !== 'inspect' && mode !== 'edit') || drag) return;
+    if (tool !== 'select') return;      // click-through and the drawing tools
     var el = e.target;
     if (!editable(el)) return;
     el.setAttribute('data-dz-hover', '1');
@@ -628,6 +810,7 @@ export const EDITOR_SCRIPT = String.raw`
 
   function handleClick(el, pageX, pageY) {
     if (mode === 'view') return;   // the design is just a page
+    if (mode === 'edit' && tool !== 'select') return;   // the tool has the pointer
     if (mode === 'comment') {
       var w = document.documentElement.scrollWidth;
       var h = document.documentElement.scrollHeight;
@@ -690,14 +873,26 @@ export const EDITOR_SCRIPT = String.raw`
   }
 
   document.addEventListener('dblclick', function (e) {
+    if (mode === 'edit' && tool !== 'select') return;
     if (mode !== 'edit') return;
     e.preventDefault();
     e.stopPropagation();
     startTyping(target(e.target, e.clientX, e.clientY));
   }, true);
 
+  document.addEventListener('pointerdown', function (e) {
+    if (mode !== 'edit' || !DRAWS[tool]) return;
+    if (e.target && e.target.closest && e.target.closest('[data-dz]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    beginMake(e.clientX + scrollX, e.clientY + scrollY);
+  }, true);
+
   document.addEventListener('click', function (e) {
     if (mode === 'view') return;   // links, buttons and scripts behave normally
+    // Click-through is for trying the design out, so the click has to reach
+    // it: swallowing the event here is what stops a button from working.
+    if (mode === 'edit' && tool !== 'select') return;
     var el = target(e.target, e.clientX, e.clientY);
     if (mode === 'comment' || editable(el)) {
       e.preventDefault();
@@ -746,6 +941,7 @@ export const EDITOR_SCRIPT = String.raw`
   // -- alignment ------------------------------------------------------------
   function align(how) {
     if (!sel || mode !== 'edit') return;
+    remember();
     var across = (how === 'left' || how === 'center' || how === 'right');
     var parent = sel.parentElement;
     var ps = parent ? getComputedStyle(parent) : null;
@@ -896,7 +1092,7 @@ export const EDITOR_SCRIPT = String.raw`
       select(null);
     } else if (m.dz === 'align') { align(m.align); }
     else if (m.dz === 'delete') {
-      if (sel && mode === 'edit') { var g = sel; select(null); g.remove(); flush(); }
+      if (sel && mode === 'edit') { remember(); var g = sel; select(null); g.remove(); flush(); }
     }
     else if (m.dz === 'pins') { drawPins(m.pins); }
     else if (m.dz === 'deselect') { select(null); }
@@ -923,6 +1119,7 @@ export const EDITOR_SCRIPT = String.raw`
     else if (m.dz === 'style') { style(m.decls); }
     else if (m.dz === 'text') {
       if (sel && mode === 'edit' && sel.children.length === 0) {
+        remember();
         sel.textContent = m.text || '';
         place(); flush();
       }
@@ -937,6 +1134,7 @@ export const EDITOR_SCRIPT = String.raw`
     else if (m.dz === 'css') {
       // The Code tab: one declaration per line, @name for an attribute.
       if (sel && mode === 'edit') {
+        remember();
         sel.removeAttribute('style');
         (m.text || '').split(/[\n;]+/).forEach(function (line) {
           var t = line.trim();
@@ -953,6 +1151,9 @@ export const EDITOR_SCRIPT = String.raw`
       }
     }
     else if (m.dz === 'tree') { tree(); }
+    else if (m.dz === 'tool') { setTool(m.tool); }
+    else if (m.dz === 'undo') { undo(); }
+    else if (m.dz === 'redo') { redo(); }
     else if (m.dz === 'insert') { insert(m.kind); }
     else if (m.dz === 'pick') {
       var want = tids[m.tid];

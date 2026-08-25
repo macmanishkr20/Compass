@@ -129,6 +129,10 @@ export class Design {
   readonly cssDraft = signal('');
   readonly tweakAsk = signal('');
   readonly editDirty = signal(false);
+  /** Which tool holds the pointer, and whether there is history either way. */
+  readonly edTool = signal('select');
+  readonly canUndo = signal(false);
+  readonly canRedo = signal(false);
   /** The document as it stood when Edit was entered — what Discard goes back to. */
   private editBase = '';
 
@@ -1209,11 +1213,21 @@ export class Design {
     { i: 0, t: 'T' }, { i: 1, t: 'R' }, { i: 2, t: 'B' }, { i: 3, t: 'L' },
   ];
 
-  /** Drop a new element into the selection. */
-  addThing(kind: 'text' | 'box'): void {
-    this.toAgent({ dz: 'insert', kind });
-    this.editDirty.set(true);
-    setTimeout(() => this.refreshTree(), 120);
+  /** Arm a tool. Select edits what is there; click-through hands the pointer
+   *  back to the design so it can be tried out; the rest draw something. */
+  useTool(tool: string): void {
+    this.edTool.set(tool);
+    this.toAgent({ dz: 'tool', tool });
+  }
+
+  undo(): void {
+    this.toAgent({ dz: 'undo' });
+    setTimeout(() => this.refreshTree(), 200);
+  }
+
+  redo(): void {
+    this.toAgent({ dz: 'redo' });
+    setTimeout(() => this.refreshTree(), 200);
   }
 
   /** Take back everything this element sets for itself, leaving the design's
@@ -1283,9 +1297,35 @@ export class Design {
     this.editDirty.set(true);
   }
 
-  /** Apply the Code tab, declarations and @attributes together. */
+  /** Apply the Code tab.
+
+   *  The box shows what the cascade puts on the element, which is what makes
+   *  it useful to read — but writing all of it back would copy the whole
+   *  stylesheet into the style attribute and freeze it there. Only what
+   *  differs from the cascade is an override, so only that is written.
+   */
   applyCss(): void {
-    this.toAgent({ dz: 'css', text: this.cssDraft() });
+    const p = this.props();
+    const base = new Map<string, string>();
+    const split = (line: string): [string, string] | null => {
+      const at = line.indexOf(':');
+      if (at < 1) return null;
+      return [line.slice(0, at).trim(), line.slice(at + 1).replace(/;\s*$/, '').trim()];
+    };
+    for (const line of (p?.css ?? '').split('\n')) {
+      const pair = split(line.trim());
+      if (pair) base.set(pair[0], pair[1]);
+    }
+    const overrides: string[] = [];
+    for (const line of this.cssDraft().split(/[\n;]+/)) {
+      const pair = split(line.trim());
+      if (!pair) continue;
+      const [key, value] = pair;
+      if (key.startsWith('@')) { overrides.push(`${key}: ${value}`); continue; }
+      if (base.get(key) === value) continue;      // already what the stylesheet says
+      overrides.push(`${key}: ${value}`);
+    }
+    this.toAgent({ dz: 'css', text: overrides.join('\n') });
     this.editDirty.set(true);
   }
 
@@ -1344,12 +1384,16 @@ export class Design {
     this.editDirty.set(false);
   }
 
-  /** Write the edits now rather than on the next debounce. */
+  /** Write the edits now rather than on the next debounce, and step back out
+   *  to the conversation — Save is the end of an editing session. */
   async saveEdits(): Promise<void> {
     const html = this.liveHtml();
     if (html) await this.saveHtml(html);
     this.editBase = html || this.editBase;
     this.editDirty.set(false);
+    this.useTool('select');
+    this.tool.set('view');
+    this.chatOpen.set(true);
   }
 
   /** Open (or close) the ask box on the selection's toolbar. */
@@ -1916,6 +1960,13 @@ export class Design {
       this.cssDraft.set(this.declarations(event.props ?? null));
     } else if (event.dz === 'tree') {
       this.nodes.set(event.nodes ?? []);
+    } else if (event.dz === 'tools-state') {
+      // A drawing tool hands back to select once it has drawn, so the row has
+      // to hear about it rather than assume it is still armed.
+      this.edTool.set(event.tool ?? 'select');
+      this.canUndo.set(!!event.canUndo);
+      this.canRedo.set(!!event.canRedo);
+      if (event.canUndo) this.editDirty.set(true);
     } else if (event.dz === 'html' && event.html) {
       // What the frame holds right now, whether or not it has been written
       // yet. Save reads this, so it must not wait on the debounce it triggers.
