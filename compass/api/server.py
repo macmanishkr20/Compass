@@ -1727,21 +1727,55 @@ def _kinds(findings: list[str]) -> set[str]:
     Two contrast findings are the same kind of problem however the ratio and
     the screens differ, and that is the comparison worth making when deciding
     whether a repair left the design better than it found it.
+
+    Every check the review can emit needs a mark here. One that has none falls
+    back to its own wording, and a repair that takes four dead controls down to
+    two then reads as a brand-new kind of fault and is thrown away — which is
+    exactly what happened to the Meridian stylesheet.
     """
+    import re as _re
+
     marks = (
         ("script", "script threw"),
         ("nav", "does not switch screens"),
         ("contrast", "contrast"),
         ("hit-area", "hit area"),
+        ("touch-target", "under 44x44"),
+        ("focus", "when the keyboard reaches"),
+        ("spacing", "off the 4px scale"),
         ("icon", "icon"),
         ("headings", "heading element"),
-        ("mono", "set in the sans"),
+        ("mono-numbers", "set in the sans"),
         ("hue", "same colour"),
         ("chrome", "strong colour covers"),
         ("sidebar-foot", "short of its foot"),
         ("empty-table", "no rows"),
         ("thin-screen", "barely anything on it"),
         ("scroll", "sideways scroll"),
+        ("tweaks", "change nothing"),
+        # a design system
+        ("system-tokens", "are never declared"),
+        ("system-palette", "not in"),
+        ("system-face", "which is not"),
+        # a printed sheet
+        ("page-overflow", "past the bottom"),
+        ("mono-prose", "set in the monospace"),
+        ("tiny-type", "too small to read on paper"),
+        ("headline", "the body text"),
+        ("headline-place", "below the top third"),
+        ("panels", "bordered panels"),
+        ("wordy", "words on a poster"),
+        # a document
+        ("reading-size", "not a reading size"),
+        ("leading", "a line height of"),
+        ("measure", "characters a line"),
+        ("hierarchy", "hierarchy is flat"),
+        ("sub-heading", "not smaller than the sections"),
+        ("heading-size", "to read as headings"),
+        ("no-sections", "no section headings"),
+        ("caption", "no caption"),
+        ("page-spill", "crosses the edge"),
+        ("cells", "no space between them"),
     )
     out: set[str] = set()
     for f in findings:
@@ -1750,8 +1784,119 @@ def _kinds(findings: list[str]) -> set[str]:
                 out.add(kind)
                 break
         else:
-            out.add(f[:24])
+            # Unmarked: use the wording, with the counts taken out, so "4 of
+            # these" and "2 of these" are one complaint rather than two.
+            out.add(_re.sub(r"\d+", "#", f)[:40])
     return out
+
+
+# Faults a rule can cure, as opposed to ones that need the markup changed.
+_STYLE_FIXABLE = (
+    "which is not",           # ...'s face
+    "hit area",
+    "under 44x44",
+    "focus state",
+    "off the 4px scale",
+    "coloured area is not",
+    "below the 4.5:1 floor",
+    "icon(s) blown up",
+    "sideways scroll",
+    "no space between them",
+    "change nothing",         # a tweak knob wired to nothing
+    "are never declared",     # a design system's tokens
+)
+
+CSS_REPAIR_PROMPT = (
+    "You are correcting faults in a finished design by adding CSS to it. The "
+    "faults were measured on the rendered page, so each one is a fact.\n"
+    "Reply with ONE ```css block and nothing else: the rules that put them "
+    "right, appended to the end of the document\u2019s stylesheet. No markup, "
+    "no commentary, no @import.\n"
+    "Write the narrowest rules that will do it. You may use !important where a "
+    "later rule has to win. Change nothing that was not named.\n"
+    "How these are cured:\n"
+    "- A face that is not the system\u2019s: set font-family on the elements "
+    "that do not inherit one \u2014 button, input, select and textarea all "
+    "take the browser\u2019s default \u2014 using the system\u2019s own "
+    "custom property where it declares one.\n"
+    "- A colour off the system\u2019s palette: map it to the nearest colour "
+    "the system names, by var().\n"
+    "- Tokens the design never declares: declare them on :root with the "
+    "system\u2019s values, and make the design read them.\n"
+    "- A tweak control that changes nothing: make the design read the custom "
+    "property it sets, so every value it offers is visible.\n"
+    "- A hit area under its floor: add padding, or a min-width and "
+    "min-height, without moving what is around it.\n"
+    "- No focus state: give :focus-visible a visible outline with an offset.\n"
+    "- Spacing off the scale: round the offending values to the nearest 4.\n"
+    "- Contrast below the floor: darken the text, never lighten the ground.\n"
+    "- Cells whose words run together: give the table cells horizontal "
+    "padding."
+)
+
+
+async def _repair_css(
+    html: str, issues: list[str], model: str, kind: str, system: dict | None
+) -> tuple[str, list[str], list[str]]:
+    """Cure a style fault with a stylesheet rather than a rewrite.
+
+    Asking for a whole prototype back to change a font-family is a hundred and
+    forty kilobytes reproduced from memory. A handful of appended rules is a
+    small enough ask to come back right, and it cannot truncate the document.
+    """
+    from compass.services import design_export as _ex
+
+    asked = "The review found:\n- " + "\n- ".join(issues)
+    if system:
+        asked += (
+            "\n\nThe design system in force names these colours: "
+            + ", ".join(system.get("colours", [])[:10])
+            + "; these faces: " + ", ".join(system.get("faces", [])[:4])
+            + "; and these custom properties: "
+            + ", ".join(system.get("names", [])[:24])
+        )
+    asked += "\n\nThe document:\n\n```html\n" + html[:120_000] + "\n```"
+
+    try:
+        from compass.gateway.azure_client import get_model_client
+
+        # The reply is a few rules, but the thinking that finds them is billed
+        # against the same budget: measured at 8,128 reasoning tokens on a
+        # 134KB prototype, which a cap of 8,000 truncated into an empty string.
+        out = await get_model_client().complete_utility(
+            CSS_REPAIR_PROMPT, asked, max_tokens=32_000, prefer_main=True, model=model
+        )
+    except Exception:  # noqa: BLE001
+        return html, [], issues
+
+    import re as _re
+
+    css = (out or "").strip()
+    if "```" in css:
+        if m := _re.search(r"```(?:css)?\s*\n?(.*?)```", css, _re.S):
+            css = m.group(1).strip()
+    if not css or css.lstrip().startswith("<") or len(css) > 24_000:
+        return html, [], issues
+
+    block = "<style data-dz-fix>\n" + css + "\n</style>"
+    if "</head>" in html:
+        fixed = html.replace("</head>", block + "\n</head>", 1)
+    elif "</body>" in html:
+        fixed = html.replace("</body>", block + "\n</body>", 1)
+    else:
+        fixed = html + block
+
+    try:
+        after = await _ex.audit(fixed, kind=kind, system=system)
+    except Exception:  # noqa: BLE001
+        return html, [], issues
+
+    if _kinds(after) - _kinds(issues):   # a fault of a new kind appeared
+        return html, [], issues
+    if len(after) >= len(issues):        # or no fewer than before
+        return html, [], issues
+    cured = [i for i in issues if _kinds([i]) - _kinds(after)]
+    return fixed, cured, after
 
 
 async def _repair(
@@ -1940,7 +2085,13 @@ async def design_generate(
     cured: list[str] = []
     if issues:
         steps.append("Found issues — fixing")
-        html, cured, issues = await _repair(html, issues, body.model, kind, wanted)
+        # A style fault wants a stylesheet, not the document written out again.
+        if all(any(m in i for m in _STYLE_FIXABLE) for i in issues):
+            html, cured, issues = await _repair_css(
+                html, issues, body.model, kind, wanted
+            )
+        if issues and not cured:
+            html, cured, issues = await _repair(html, issues, body.model, kind, wanted)
 
     said = " ".join(x for x in (direction, notes) if x)
     if cured:
