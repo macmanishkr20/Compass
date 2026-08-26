@@ -1699,6 +1699,13 @@ REPAIR_PROMPT = (
     "script through, keep what it was trying to do, and write it plainly: no "
     "clever one-liners, no template literals nested inside template literals, "
     "and never document.write.\n"
+    "- A design built beside its design system is rebuilt from it: declare the "
+    "system\u2019s custom properties on :root with the values it gives, then "
+    "refer to them by var() everywhere instead of writing a colour or a face "
+    "in by hand. Replace an off-palette colour with the nearest one the system "
+    "names rather than inventing a token for it, and set the face on anything "
+    "that does not inherit one \u2014 a button and an input take the "
+    "browser\u2019s default, not the page\u2019s.\n"
     "- A sheet that runs past its page is cut, not scaled: take out the "
     "weakest block, shorten the copy, tighten the spacing. Never shrink the "
     "headline to make room — the headline is the reason the sheet works.\n"
@@ -1748,7 +1755,8 @@ def _kinds(findings: list[str]) -> set[str]:
 
 
 async def _repair(
-    html: str, issues: list[str], model: str, kind: str = ""
+    html: str, issues: list[str], model: str, kind: str = "",
+    system: dict | None = None,
 ) -> tuple[str, list[str], list[str]]:
     """One corrective pass: the document to keep, what it cured, what is left.
 
@@ -1784,7 +1792,7 @@ async def _repair(
         return html, [], issues
 
     try:
-        after = await _ex.audit(fixed, kind=kind)
+        after = await _ex.audit(fixed, kind=kind, system=system)
     except Exception:  # noqa: BLE001
         return html, [], issues
 
@@ -1832,9 +1840,11 @@ async def design_generate(
         else project.get("design_systems") or
         ([project["design_system"]] if project.get("design_system") else [])
     )
+    attached: list[dict] = []
     if ids:
         store_s = get_system_store()
-        parts.append(system_prompt_block(*[await store_s.get(i) for i in ids]))
+        attached = [x for x in [await store_s.get(i) for i in ids] if x]
+        parts.append(system_prompt_block(*attached))
     # Pictures: the ones attached to this turn, then any already embedded in
     # the design, all referred to by marker rather than by their bytes.
     slots: list[str] = [i for i in body.images if i.startswith("data:image/")]
@@ -1914,8 +1924,12 @@ async def design_generate(
     # The review's criteria depend on what was asked for: a flier judged by a
     # dashboard's rules passes while looking nothing like a flier.
     kind = body.template or project.get("template") or ""
+    # What the attached systems demand, as things a browser can be asked
+    # about. Applies to every template: a brand does not stop applying
+    # because the thing being built is a flier rather than a dashboard.
+    wanted = _ex.system_expectations(*attached) if attached else None
     try:
-        issues = await _ex.audit(html, kind=kind)
+        issues = await _ex.audit(html, kind=kind, system=wanted)
     except Exception:  # noqa: BLE001 - never fail a design over its review
         issues = []
 
@@ -1926,7 +1940,7 @@ async def design_generate(
     cured: list[str] = []
     if issues:
         steps.append("Found issues — fixing")
-        html, cured, issues = await _repair(html, issues, body.model, kind)
+        html, cured, issues = await _repair(html, issues, body.model, kind, wanted)
 
     said = " ".join(x for x in (direction, notes) if x)
     if cured:

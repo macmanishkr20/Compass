@@ -890,9 +890,140 @@ _TARGETS_JS = """() => {
 }"""
 
 
-async def audit(html: str, kind: str = "") -> list[str]:
+def system_expectations(*systems: dict | None) -> dict | None:
+    """What an attached design system demands, as things that can be measured.
+
+    Its custom properties are the contract: the colours it names, the faces it
+    names, and the property names themselves. Prose in the notes is left for
+    the model to read — this is only the part a browser can be asked about.
+    """
+    import re as _re
+
+    colours: list[str] = []
+    faces: list[str] = []
+    names: list[str] = []
+    label = ""
+    for system in systems:
+        if not system:
+            continue
+        label = label or (system.get("name") or "")
+        css = (system.get("css") or "")[:20_000]
+        for name, value in _re.findall(r"(--[\w-]+)\s*:\s*([^;{}]+)", css):
+            value = value.strip()
+            names.append(name)
+            if _re.fullmatch(r"#[0-9a-fA-F]{3,8}", value):
+                colours.append(_hex_to_rgb(value))
+            elif value.lower().startswith(("rgb", "hsl")):
+                colours.append(value)
+            elif any(k in name for k in ("font", "face", "family")) or "," in value:
+                first = value.split(",")[0].strip().strip("\"'")
+                if first and not first.endswith(("px", "rem", "em", "%")):
+                    faces.append(first)
+    if not (colours or faces or names):
+        return None
+    return {
+        "name": label,
+        "colours": sorted(set(colours)),
+        "faces": sorted(set(faces)),
+        "names": sorted(set(names)),
+    }
+
+
+def _hex_to_rgb(value: str) -> str:
+    """#RGB or #RRGGBB as an rgb() string, so one comparison covers both."""
+    v = value.lstrip("#")
+    if len(v) == 3:
+        v = "".join(c * 2 for c in v)
+    if len(v) < 6:
+        return value
+    return f"rgb({int(v[0:2], 16)}, {int(v[2:4], 16)}, {int(v[4:6], 16)})"
+
+
+_SYSTEM_JS = r"""(want) => {
+  const parse = (c) => {
+    const m = (c || '').match(/[\d.]+/g);
+    if (!m || m.length < 3) return null;
+    if (m.length > 3 && Number(m[3]) < 0.35) return null;   // barely there
+    return m.slice(0, 3).map(Number);
+  };
+  const near = (a, b) => Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) + Math.abs(a[2]-b[2]) < 24;
+  const neutral = (c) => Math.max(...c) - Math.min(...c) < 26;   // grey, paper, ink
+  const palette = want.colours.map(parse).filter(Boolean);
+
+  // Which of the system's own tokens the document bothered to declare.
+  const declared = new Set();
+  for (const sheet of document.styleSheets) {
+    let rules; try { rules = sheet.cssRules; } catch (e) { continue; }
+    for (const rule of rules || []) {
+      if (!rule.style) continue;
+      for (let i = 0; i < rule.style.length; i++) {
+        const n = rule.style[i];
+        if (n.startsWith('--')) declared.add(n);
+      }
+    }
+  }
+  const missing = want.names.filter((n) => !declared.has(n));
+
+  // Colour actually painted, by area, ignoring neutrals — a brand is not
+  // broken by grey.
+  const strays = {};
+  let onPalette = 0, offPalette = 0;
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const area = Math.min(r.width, 1600) * Math.min(r.height, 1600);
+    const cs = getComputedStyle(el);
+    for (const raw of [cs.backgroundColor, cs.borderTopColor, cs.fill]) {
+      const c = parse(raw);
+      if (!c || neutral(c)) continue;
+      if (palette.length && palette.some((p) => near(p, c))) onPalette += area;
+      else {
+        offPalette += area;
+        const key = 'rgb(' + c.join(', ') + ')';
+        strays[key] = (strays[key] || 0) + area;
+      }
+    }
+  }
+  const worst = Object.entries(strays).sort((a, b) => b[1] - a[1])[0];
+
+  // The faces the words are actually set in.
+  const used = {};
+  for (const el of document.querySelectorAll('p,li,h1,h2,h3,h4,td,th,span,div,button,a')) {
+    const t = (el.textContent || '').trim();
+    if (!t || el.children.length) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const face = getComputedStyle(el).fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    used[face] = (used[face] || 0) + r.width * r.height;
+  }
+  const facesUsed = Object.entries(used).sort((a, b) => b[1] - a[1]).map((x) => x[0]);
+  const offFace = want.faces.length
+    ? facesUsed.filter((f) => !want.faces.some(
+        (w) => f.toLowerCase() === w.toLowerCase())).slice(0, 3)
+    : [];
+
+  return {
+    missing: missing.slice(0, 6),
+    missingCount: missing.length,
+    tokenCount: want.names.length,
+    onPalette: Math.round(onPalette),
+    offPalette: Math.round(offPalette),
+    stray: worst ? worst[0] : '',
+    facesUsed: facesUsed.slice(0, 3),
+    offFace,
+  };
+}"""
+
+
+async def audit(
+    html: str, kind: str = "", system: dict | None = None
+) -> list[str]:
     """Look at the finished design the way a reviewer would, and say what is
     wrong with it. Never raises: a check that fails is not a design that fails.
+
+    `system` is what `system_expectations` made of the design systems the
+    project attached, if any — the colours, faces and tokens the design is
+    supposed to be built from. Without one, only the house rules apply.
 
     `kind` is the template, because the criteria are not the same. A flier is
     not a worse dashboard: its dates belong in prose rather than in a
@@ -921,6 +1052,38 @@ async def audit(html: str, kind: str = "") -> list[str]:
             screens = await page.evaluate(_SCREENS_JS) if app else []
         except Exception:  # noqa: BLE001
             screens = []
+
+        # The design system the project attached, if it attached one. This
+        # runs for every template: a brand does not stop applying because the
+        # thing being built is a flier rather than a dashboard.
+        if system:
+            try:
+                held = await page.evaluate(_SYSTEM_JS, system)
+            except Exception:  # noqa: BLE001
+                held = None
+            if held:
+                named = f"\u201c{system['name']}\u201d" if system.get("name") else "the design system"
+                if held["tokenCount"] and held["missingCount"] >= held["tokenCount"] * 0.5:
+                    some = ", ".join(held["missing"][:4])
+                    findings.append(
+                        f"{held['missingCount']} of {held['tokenCount']} tokens from "
+                        f"{named} are never declared ({some}) — the design was built "
+                        "beside the system rather than from it"
+                    )
+                total = held["onPalette"] + held["offPalette"]
+                if total > 1000 and held["offPalette"] > total * 0.35:
+                    share = round(held["offPalette"] / total * 100)
+                    findings.append(
+                        f"{share}% of the coloured area is not in {named}'s palette, "
+                        f"mostly {held['stray']} — pick from the system's colours"
+                    )
+                if held["offFace"]:
+                    findings.append(
+                        f"set in {', '.join(held['offFace'])}, which "
+                        f"{'is' if len(held['offFace']) == 1 else 'are'} not "
+                        f"{named}'s face — it names "
+                        f"{', '.join(system['faces'][:3])}"
+                    )
 
         if errors:
             findings.append(f"its own script threw ({errors[0]})")
