@@ -332,10 +332,19 @@ _AUDIT_JS = r"""() => {
     if (r && r < worst) { worst=r; worstText=t.slice(0,32); }
   }
 
-  const tiny = [...root.querySelectorAll('button, a, input[type=checkbox], [role=button]')]
+  // Name the offenders as selectors. An icon button has no text, so reporting
+  // the text reported nothing at all — and nothing is not something a
+  // stylesheet can target.
+  const sel = (e) => {
+    const cls = (e.getAttribute('class') || '').trim().split(/\s+/)[0];
+    return e.tagName.toLowerCase() + (cls ? '.' + cls : '');
+  };
+  const tinyEls = [...root.querySelectorAll('button, a, input[type=checkbox], [role=button]')]
       .filter(b => b.offsetParent !== null)
-      .map(b => ({r: b.getBoundingClientRect(), t: (b.textContent||'').trim().slice(0,20)}))
-      .filter(x => x.r.width && (x.r.height < 24 || x.r.width < 24));
+      .filter(b => { const r = b.getBoundingClientRect();
+                     return r.width && (r.height < 24 || r.width < 24); });
+  const tiny = tinyEls;
+  const tinyWhich = [...new Set(tinyEls.map(sel))].slice(0, 5);
 
   // how loud is the colour? count strongly-saturated pixels' worth of area
   let painted = 0, total = 0;
@@ -426,7 +435,7 @@ _AUDIT_JS = r"""() => {
     dataBits,
     sidebarFootGap,
     contrast: Math.round(worst*100)/100, contrastOn: worstText,
-    tiny: tiny.length, tinyFirst: tiny.length ? tiny[0].t : '',
+    tiny: tiny.length, tinyWhich,
     bigIcons,
     accentShare,
     emptyTables,
@@ -875,18 +884,19 @@ _CHECKLIST_JS = r"""() => {
 }"""
 
 _TARGETS_JS = """() => {
-  // Factory's floor for something a finger has to hit.
+  // Factory's floor for something a finger has to hit, reported as selectors
+  // so a rule can be written against them.
   const small = [...document.querySelectorAll(
     'a[href], button, input:not([type=hidden]), select, [role=button]'
   )].filter((e) => {
     const r = e.getBoundingClientRect();
     return r.width > 0 && r.height > 0 && (r.width < 44 || r.height < 44);
   });
-  return {
-    n: small.length,
-    first: small.length ? (small[0].textContent || small[0].getAttribute('aria-label') || '')
-      .trim().slice(0, 20) : '',
+  const sel = (e) => {
+    const cls = (e.getAttribute('class') || '').trim().split(/\\s+/)[0];
+    return e.tagName.toLowerCase() + (cls ? '.' + cls : '');
   };
+  return { n: small.length, which: [...new Set(small.map(sel))].slice(0, 5) };
 }"""
 
 
@@ -1094,8 +1104,8 @@ async def audit(
             )
         if found.get("tiny"):
             findings.append(
-                f"{found['tiny']} hit area(s) under 24px, starting with "
-                f"\u201c{found['tinyFirst']}\u201d"
+                f"{found['tiny']} hit area(s) under 24px: "
+                + ", ".join(found.get("tinyWhich") or ["unnamed elements"])
             )
         if app and not screens and found.get("bigIcons"):
             findings.append(
@@ -1334,9 +1344,9 @@ async def audit(
                     tiny_hits = None
                 if tiny_hits and tiny_hits["n"] > 2:
                     findings.append(
-                        f"{tiny_hits['n']} controls under 44x44 on a phone, starting "
-                        f"with \u201c{tiny_hits['first']}\u201d — that is the floor "
-                        "for something a finger has to hit"
+                        f"{tiny_hits['n']} controls under 44x44 on a phone — "
+                        + ", ".join(tiny_hits.get("which") or ["unnamed elements"])
+                        + " — that is the floor for something a finger has to hit"
                     )
     except Exception:  # noqa: BLE001 - the check is a courtesy, not a gate
         return []

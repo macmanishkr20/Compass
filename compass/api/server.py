@@ -1827,12 +1827,33 @@ CSS_REPAIR_PROMPT = (
     "property it sets, so every value it offers is visible.\n"
     "- A hit area under its floor: add padding, or a min-width and "
     "min-height, without moving what is around it.\n"
+    "- A checkbox or a radio under the floor: those default to about 13px and "
+    "ignore padding, so give the control an explicit width and height, or put "
+    "the padding on its label and let that be what a finger hits. Do not "
+    "exempt them \u2014 they are the control most often missed.\n"
     "- No focus state: give :focus-visible a visible outline with an offset.\n"
     "- Spacing off the scale: round the offending values to the nearest 4.\n"
     "- Contrast below the floor: darken the text, never lighten the ground.\n"
     "- Cells whose words run together: give the table cells horizontal "
     "padding."
 )
+
+
+def _weight(findings: list[str]) -> tuple[int, int]:
+    """How much is wrong: how many kinds of fault, and how many things in them.
+
+    Counting findings alone cannot see a repair that takes 27 controls under
+    the touch floor down to 9 — that is still one finding, so a guard watching
+    the count refuses a fix that plainly worked. Most findings open with the
+    number of things they are about; that number is the rest of the answer.
+    """
+    import re as _re
+
+    things = 0
+    for f in findings:
+        m = _re.match(r"\s*(\d+)", f)
+        things += int(m.group(1)) if m else 1
+    return len(_kinds(findings)), things
 
 
 async def _repair_css(
@@ -1891,9 +1912,9 @@ async def _repair_css(
     except Exception:  # noqa: BLE001
         return html, [], issues
 
-    if _kinds(after) - _kinds(issues):   # a fault of a new kind appeared
+    if _kinds(after) - _kinds(issues):        # a fault of a new kind appeared
         return html, [], issues
-    if len(after) >= len(issues):        # or no fewer than before
+    if _weight(after) >= _weight(issues):     # or nothing is less wrong
         return html, [], issues
     cured = [i for i in issues if _kinds([i]) - _kinds(after)]
     return fixed, cured, after
@@ -1948,7 +1969,7 @@ async def _repair(
     before_kinds, after_kinds = _kinds(issues), _kinds(after)
     if after_kinds - before_kinds:          # a fault of a new kind appeared
         return html, [], issues
-    if len(after) > len(issues):            # or simply more of them
+    if _weight(after) >= _weight(issues):   # or nothing is less wrong
         return html, [], issues
     if after == issues:                     # or nothing moved at all
         return html, [], issues
@@ -2085,13 +2106,29 @@ async def design_generate(
     cured: list[str] = []
     if issues:
         steps.append("Found issues — fixing")
-        # A style fault wants a stylesheet, not the document written out again.
-        if all(any(m in i for m in _STYLE_FIXABLE) for i in issues):
-            html, cured, issues = await _repair_css(
-                html, issues, body.model, kind, wanted
-            )
-        if issues and not cured:
-            html, cured, issues = await _repair(html, issues, body.model, kind, wanted)
+        # Corrections, plural: keep going while each pass leaves the design
+        # less wrong, and stop the moment one does not move it.
+        stalled = 0
+        for _ in range(3):
+            was = html
+            # A style fault wants a stylesheet, not the document written again.
+            if all(any(m in i for m in _STYLE_FIXABLE) for i in issues):
+                html, got, issues = await _repair_css(
+                    html, issues, body.model, kind, wanted
+                )
+            else:
+                html, got, issues = await _repair(
+                    html, issues, body.model, kind, wanted
+                )
+            cured += got
+            if not issues:
+                break
+            # A round that changes nothing is usually the model varying rather
+            # than the fault being incurable — the same finding has cured on a
+            # second attempt. Give it one, then stop.
+            stalled = stalled + 1 if html == was else 0
+            if stalled >= 2:
+                break
 
     said = " ".join(x for x in (direction, notes) if x)
     if cured:
