@@ -139,7 +139,9 @@ _PAGES_JS = """(sizes) => {
   for (const [w, h] of sizes) {
     let found = [...document.querySelectorAll('body *')].filter((e) => {
       const r = e.getBoundingClientRect();
-      return Math.abs(r.width - w) < 14 && r.height > h * 0.6;
+      // Between two thirds and one and a half pages tall: a sheet, possibly
+      // overflowing. Anything taller is the container holding the sheets.
+      return Math.abs(r.width - w) < 14 && r.height > h * 0.6 && r.height < h * 1.6;
     });
     // A sheet often holds a content frame of the same width; keep the sheet.
     found = found.filter((e) => !found.some((o) => o !== e && o.contains(e)));
@@ -799,7 +801,9 @@ _DOC_JS = r"""() => {
   // Sheets: a document is pages, and nothing may cross a page's edge.
   const pageish = [...document.querySelectorAll('*')].filter((e) => {
     const r = e.getBoundingClientRect();
-    return Math.abs(r.width - 794) < 14 && r.height > 400;
+    // A page is about as tall as a page. A 794-wide column five thousand
+    // pixels tall is the stack the sheets sit in, not one of the sheets.
+    return Math.abs(r.width - 794) < 14 && r.height > 640 && r.height < 1800;
   });
   // A page usually holds a content frame of the same width; count the page,
   // not both of them.
