@@ -38,6 +38,35 @@ class TextDelta(Event):
 
 
 @dataclass
+class ThinkingDelta(Event):
+    """A fragment of the model's reasoning, as it is produced.
+
+    Kept apart from TextDelta all the way to the surface because it is a
+    different kind of content: the model's working, not its answer. A turn the
+    model answered directly carries none of these, which is normal — a
+    reasoning model decides per request whether thinking helps.
+    """
+
+    text: str = ""
+    #: Starts a new paragraph of reasoning rather than continuing one.
+    starts_part: bool = False
+
+
+@dataclass
+class ThinkingComplete(Event):
+    """What the finished reasoning cost, once the turn's thinking is done.
+
+    Reasoning is billed as output and shares the output cap with the answer,
+    so `tokens` is the number that explains a turn that ran out of room.
+    """
+
+    tokens: int = 0
+    #: Characters of summary shown. Never equal to what was billed: the
+    #: summary is a readable account of the reasoning, not the reasoning.
+    summary_chars: int = 0
+
+
+@dataclass
 class AssistantMessage(Event):
     uuid: str = ""
     content: str | None = None
@@ -112,6 +141,8 @@ class ErrorEvent(Event):
 _TYPE_NAMES = {
     StreamRequestStart: "stream_request_start",
     TextDelta: "text_delta",
+    ThinkingDelta: "thinking_delta",
+    ThinkingComplete: "thinking_complete",
     AssistantMessage: "assistant_message",
     ToolCallStarted: "tool_call_started",
     ToolProgress: "tool_progress",

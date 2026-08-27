@@ -33,6 +33,7 @@ from compass.common.gateway.azure_client import (
     StreamDelta,
     get_model_client,
 )
+from compass.common.gateway.responses import REASONING_META_KEY, ThinkingDelta
 from compass.common.models import events
 from compass.common.models.messages import (
     Message,
@@ -107,10 +108,20 @@ async def query(
             yield _compaction(auto_report, ctx)
 
         visible = messages_after_compact_boundary(messages)
-        api_messages = [{"role": "system", "content": system_prompt}] + [
-            m.to_openai() for m in visible
-        ]
         tool_schemas = [t.to_openai_schema() for t in ctx.tools]
+
+        # The request, and the reasoning behind each earlier assistant turn,
+        # built together so the positions cannot drift apart. That reasoning
+        # is handed back so the model resumes it rather than working it out
+        # again after every tool result; it is opaque and travels verbatim.
+        # `to_openai()` cannot carry it, because the plain chat-completions
+        # path would then send a field the API does not know.
+        api_messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        reasoning_by_index: dict[int, list[dict]] = {}
+        for message in visible:
+            if message.role == "assistant" and message.meta.get(REASONING_META_KEY):
+                reasoning_by_index[len(api_messages)] = message.meta[REASONING_META_KEY]
+            api_messages.append(message.to_openai())
 
         yield events.StreamRequestStart(
             turn=turn, model=settings.azure.deployment, agent_id=ctx.agent_id
@@ -120,9 +131,16 @@ async def query(
         result: CompletionResult | None = None
         try:
             async for item in client.stream_chat(
-                api_messages, tool_schemas, effort=effort, deployment=model
+                api_messages, tool_schemas, effort=effort, deployment=model,
+                reasoning_by_index=reasoning_by_index,
             ):
-                if isinstance(item, StreamDelta):
+                if isinstance(item, ThinkingDelta):
+                    yield events.ThinkingDelta(
+                        text=item.text,
+                        starts_part=item.starts_part,
+                        agent_id=ctx.agent_id,
+                    )
+                elif isinstance(item, StreamDelta):
                     yield events.TextDelta(text=item.text, agent_id=ctx.agent_id)
                 else:
                     result = item
@@ -165,8 +183,20 @@ async def query(
                 "prompt_tokens": result.prompt_tokens,
                 "completion_tokens": result.completion_tokens,
                 "cached_prompt_tokens": result.cached_prompt_tokens,
+                "reasoning_tokens": result.reasoning.tokens,
             }
         }
+        if result.reasoning:
+            # Stored on the message, so it is written to the transcript with
+            # everything else and survives a resume. Nothing reads it but the
+            # request builder, which passes it straight back.
+            usage_meta[REASONING_META_KEY] = result.reasoning.items
+            usage_meta["thinking_summary"] = result.reasoning.summary
+            yield events.ThinkingComplete(
+                tokens=result.reasoning.tokens,
+                summary_chars=len(result.reasoning.summary),
+                agent_id=ctx.agent_id,
+            )
         assistant = Message(
             role="assistant",
             content=result.content or None,
