@@ -463,8 +463,15 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
    the wait, then collapses to one line so what stays on screen is the answer.
    Same tokens as the rest of the surface — it is part of the conversation,
    not a panel bolted onto it. */
+/* The reasoning takes the whole column. It is dense, secondary text, and at
+   the answer's reading measure it became a long thin ribbon — nested inside
+   a wrap that was already capped, it was landing near 60% of the column. The
+   answer keeps its measure; prose wants one, a scratchpad does not. */
+.cwrap:not(.mine) { max-width: 100%; }
+.cwrap:not(.mine) .cbubble { max-width: 82%; }
+
 .cthink {
-  max-width: 82%;
+  width: 100%;
   margin: 0 0 6px;
   border-left: 2px solid var(--border-strong);
   padding-left: 10px;

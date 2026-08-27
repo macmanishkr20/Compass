@@ -3060,7 +3060,13 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 /* ---- the model's reasoning, in the console --------------------------------
    Same treatment as Home: quieter than the answer, set off by a rule, open
    while it streams and collapsed to one line once the answer arrives. */
+/* Same as Home: the reasoning takes the whole column rather than the answer's
+   reading measure, which turned it into a long thin ribbon. */
+.bubble-wrap:not(.mine) { max-width: 100%; }
+.bubble-wrap:not(.mine) .bubble { max-width: min(70ch, 82%); }
+
 .cthink {
+  width: 100%;
   margin: 0 0 6px;
   border-left: 2px solid var(--border-strong);
   padding-left: 10px;

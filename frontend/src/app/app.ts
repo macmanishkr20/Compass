@@ -2493,8 +2493,24 @@ export class App {
       const text = this.msgText(m.content);
       if (m.role === 'user' && !meta['synthetic'] && !meta['compact_boundary']) {
         items.push(this.bubble('user', text, false, m.uuid, at));
-      } else if (m.role === 'assistant' && text) {
-        items.push(this.bubble('assistant', text, false, undefined, at));
+      } else if (m.role === 'assistant') {
+        // Reasoning is part of the record too: a reopened session shows what
+        // the model thought, collapsed, as it was left. The sealed reasoning
+        // stays on the server — this is the summary it wrote for people.
+        //
+        // The turn that calls a tool often has no text of its own, and that
+        // is exactly the turn whose reasoning is worth seeing: it is why the
+        // tool was chosen. So a message earns a bubble for its thinking as
+        // well as for its words, and only a turn with neither is skipped.
+        const usage = (meta['usage'] ?? {}) as Record<string, unknown>;
+        const thinking = (meta['thinking_summary'] as string) || undefined;
+        if (text || thinking) {
+          items.push({
+            ...this.bubble('assistant', text, false, undefined, at),
+            thinking,
+            thinkingTokens: (usage['reasoning_tokens'] as number) || undefined,
+          });
+        }
       }
     }
     this.timeline.set(items);
