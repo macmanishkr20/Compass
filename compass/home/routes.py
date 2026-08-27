@@ -19,9 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from compass.api.auth import require_user
+from compass.common.auth import require_user
 from compass.home.engine import ChatEngine, ChatSession
-from compass.models.events import ErrorEvent
+from compass.common.models.events import ErrorEvent
 
 logger = logging.getLogger("compass.chat")
 
@@ -172,7 +172,7 @@ VOICE_INSTRUCTIONS = (
 @router.get("/voice")
 async def voice_status(user: str = Depends(require_user)) -> dict:
     """Whether realtime voice mode is available (a realtime deployment set)."""
-    from compass.config import get_settings
+    from compass.common.config import get_settings
 
     return {"available": get_settings().azure.realtime_configured}
 
@@ -184,7 +184,7 @@ async def voice_session(user: str = Depends(require_user)) -> dict:
     Realtime WebRTC flow. Returns the token + the WebRTC calls URL."""
     import httpx
 
-    from compass.config import get_settings
+    from compass.common.config import get_settings
 
     az = get_settings().azure
     if not az.realtime_configured:

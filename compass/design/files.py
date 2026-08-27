@@ -16,7 +16,7 @@ import shutil
 import time
 from pathlib import Path
 
-from compass.config import get_settings
+from compass.common.config import get_settings
 
 # The folders a project starts with, in the order the browser lists them.
 DEFAULT_FOLDERS = ("assets", "scraps", "uploads")

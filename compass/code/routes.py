@@ -20,12 +20,12 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from compass.api.auth import require_user
+from compass.common.auth import require_user
 from compass.common.paths import _SKIP_DIRS, _safe_join
-from compass.core.query_engine import QueryEngine, Session
-from compass.models.events import ErrorEvent
-from compass.persistence.factory import get_transcript_store
-from compass.persistence.session_meta import SessionMeta
+from compass.code.engine import QueryEngine, Session
+from compass.common.models.events import ErrorEvent
+from compass.common.persistence.factory import get_transcript_store
+from compass.common.persistence.session_meta import SessionMeta
 
 logger = logging.getLogger("compass.code")
 
@@ -349,7 +349,7 @@ async def list_sessions(
 
 @router.get("/v1/workspaces")
 async def list_workspaces(user: str = Depends(require_user)) -> dict:
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     ws = await get_workspace_registry().list()
     return {"workspaces": [w.to_dict() for w in ws]}
@@ -359,7 +359,7 @@ async def list_workspaces(user: str = Depends(require_user)) -> dict:
 async def add_folder_workspace(
     body: WorkspaceFolderRequest, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     reg = get_workspace_registry()
     try:
@@ -379,7 +379,7 @@ async def workspace_git(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
     """Working-tree summary (branch, diff stats, ahead) for the status bar."""
-    from compass.services.workspaces import get_workspace_registry, git_summary
+    from compass.common.workspaces import get_workspace_registry, git_summary
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     return git_summary(root)
@@ -430,7 +430,7 @@ async def suggest_next(session_id: str, user: str = Depends(require_user)) -> di
     if not turns:
         return {"suggestion": ""}
     try:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         out = (await get_model_client().complete_utility(
             SUGGEST_PROMPT, "\n\n".join(turns)
@@ -455,7 +455,7 @@ async def browser_ws(ws: WebSocket) -> None:
     """
     import json
 
-    from compass.services.remote_browser import RemoteBrowserSession, handle_command
+    from compass.code.remote_browser import RemoteBrowserSession, handle_command
 
     await ws.accept()
     # Serialise sends so screencast frames and nav events never interleave on
@@ -495,7 +495,7 @@ async def workspace_diff(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
     """Unified working-tree diff vs HEAD, for the composer's diff viewer."""
-    from compass.services.workspaces import get_workspace_registry, git_diff
+    from compass.common.workspaces import get_workspace_registry, git_diff
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     return {"diff": git_diff(root)}
@@ -514,7 +514,7 @@ async def workspace_create_pr(
 ) -> dict:
     """Push the branch and open a GitHub PR (gh CLI), optionally as a draft, or
     return the compare URL for manual creation."""
-    from compass.services.workspaces import (
+    from compass.common.workspaces import (
         create_pull_request,
         get_workspace_registry,
     )
@@ -531,7 +531,7 @@ async def pick_folder(user: str = Depends(require_user)) -> dict:
     """Open the host's native folder chooser (macOS Finder, Windows folder
     dialog, or Linux zenity) and return the selected absolute path; empty
     string if the user cancelled. Runs off the event loop (it blocks on a GUI)."""
-    from compass.services.workspaces import choose_folder
+    from compass.common.workspaces import choose_folder
 
     try:
         path = await asyncio.to_thread(choose_folder)
@@ -547,7 +547,7 @@ async def list_files(
     workspace_id: str, path: str = "", user: str = Depends(require_user)
 ) -> dict:
     """One directory level, folders first — backs the Files tree."""
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     target = _safe_join(root, path)
@@ -577,7 +577,7 @@ async def read_file(
     workspace_id: str, path: str, user: str = Depends(require_user)
 ) -> dict:
     """File contents for the Files viewer (text only, size-capped)."""
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     target = _safe_join(root, path)
@@ -596,7 +596,7 @@ async def search_files(
     workspace_id: str, q: str, content: bool = False, user: str = Depends(require_user)
 ) -> dict:
     """Filter by filename, or (content=true, the '?text' syntax) grep contents."""
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     needle = q.lower()
@@ -629,7 +629,7 @@ async def reveal_workspace(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
     """Reveal the workspace folder in the host's file manager (Finder)."""
-    from compass.services.workspaces import (
+    from compass.common.workspaces import (
         get_workspace_registry,
         reveal_in_file_manager,
     )
@@ -646,7 +646,7 @@ async def open_workspace_terminal(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
     """Open a terminal at the workspace folder on the host."""
-    from compass.services.workspaces import (
+    from compass.common.workspaces import (
         get_workspace_registry,
         open_in_terminal,
     )
@@ -663,7 +663,7 @@ async def open_workspace_in_vscode(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
     """Open the workspace folder in VS Code on the host running this backend."""
-    from compass.services.workspaces import (
+    from compass.common.workspaces import (
         get_workspace_registry,
         open_in_vscode,
     )
@@ -688,7 +688,7 @@ async def open_workspace_in_vscode(
 async def delete_workspace(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.workspaces import get_workspace_registry
+    from compass.common.workspaces import get_workspace_registry
 
     try:
         await get_workspace_registry().delete(workspace_id)
@@ -702,7 +702,7 @@ async def delete_workspace(
 
 @router.get("/v1/github/repos")
 async def github_repos(user: str = Depends(require_user)) -> dict:
-    from compass.services.github import GitHubDisabledError, list_repos
+    from compass.common.github import GitHubDisabledError, list_repos
 
     try:
         repos = await list_repos()
@@ -717,7 +717,7 @@ async def github_repos(user: str = Depends(require_user)) -> dict:
 async def github_clone(
     body: GitHubCloneRequest, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.github import GitHubDisabledError, clone_repo
+    from compass.common.github import GitHubDisabledError, clone_repo
 
     try:
         ws = await clone_repo(body.full_name, body.branch)
@@ -733,7 +733,7 @@ async def github_clone(
 
 @router.get("/v1/background-tasks")
 async def list_background_tasks(user: str = Depends(require_user)) -> dict:
-    from compass.services.background_tasks import registry
+    from compass.code.background_tasks import registry
 
     tasks = [t.to_dict() for t in registry.list()]
     return {
@@ -745,7 +745,7 @@ async def list_background_tasks(user: str = Depends(require_user)) -> dict:
 
 @router.get("/v1/background-tasks/{task_id}/logs")
 async def background_task_logs(task_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.background_tasks import registry
+    from compass.code.background_tasks import registry
 
     if not registry.get(task_id):
         raise HTTPException(status_code=404, detail="unknown task")
@@ -754,7 +754,7 @@ async def background_task_logs(task_id: str, user: str = Depends(require_user)) 
 
 @router.post("/v1/background-tasks/{task_id}/stop")
 async def stop_background_task(task_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.background_tasks import registry
+    from compass.code.background_tasks import registry
 
     ok = await registry.stop(task_id)
     if not ok and not registry.get(task_id):
@@ -764,7 +764,7 @@ async def stop_background_task(task_id: str, user: str = Depends(require_user)) 
 
 @router.post("/v1/background-tasks/clear")
 async def clear_background_tasks(user: str = Depends(require_user)) -> dict:
-    from compass.services.background_tasks import registry
+    from compass.code.background_tasks import registry
 
     return {"cleared": await registry.clear_finished()}
 
@@ -774,7 +774,7 @@ async def clear_background_tasks(user: str = Depends(require_user)) -> dict:
 
 @router.get("/v1/routines")
 async def list_routines(user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import (
+    from compass.code.routines import (
         CONNECTOR_OPTIONS, SUGGESTIONS, TEMPLATES, store,
     )
 
@@ -789,7 +789,7 @@ async def list_routines(user: str = Depends(require_user)) -> dict:
 async def create_routine(
     body: RoutineRequest, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.routines import store
+    from compass.code.routines import store
 
     if not body.prompt.strip():
         raise HTTPException(status_code=400, detail="instructions are required")
@@ -809,7 +809,7 @@ async def create_routine(
 
 @router.get("/v1/routines/{routine_id}")
 async def get_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import store
+    from compass.code.routines import store
 
     r = await store.get(routine_id)
     if not r:
@@ -821,7 +821,7 @@ async def get_routine(routine_id: str, user: str = Depends(require_user)) -> dic
 async def update_routine(
     routine_id: str, body: RoutinePatchRequest, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.routines import store
+    from compass.code.routines import store
 
     patch = body.model_dump(exclude_none=True)
     if "triggers" in patch:
@@ -834,7 +834,7 @@ async def update_routine(
 
 @router.delete("/v1/routines/{routine_id}")
 async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import store
+    from compass.code.routines import store
 
     if not await store.delete(routine_id):
         raise HTTPException(status_code=404, detail="unknown routine")
@@ -843,14 +843,14 @@ async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> 
 
 @router.get("/v1/routines/{routine_id}/runs")
 async def list_routine_runs(routine_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import runs
+    from compass.code.routines import runs
 
     return {"runs": [r.to_dict() for r in await runs.list_for(routine_id)]}
 
 
 @router.post("/v1/routines/{routine_id}/run")
 async def run_routine_now(routine_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import execute_routine, store
+    from compass.code.routines import execute_routine, store
 
     routine = await store.get(routine_id)
     if not routine:
@@ -861,7 +861,7 @@ async def run_routine_now(routine_id: str, user: str = Depends(require_user)) ->
 
 @router.get("/v1/routines/runs/{run_id}")
 async def get_routine_run(run_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.routines import runs
+    from compass.code.routines import runs
 
     run = await runs.get(run_id)
     if not run:
@@ -875,7 +875,7 @@ async def recent_routine_runs(
 ) -> dict:
     """Runs that finished after `since`, each joined with its routine's
     notification settings — the browser polls this to fire push notifications."""
-    from compass.services.routines import runs, store
+    from compass.code.routines import runs, store
 
     routines_by_id = {r.id: r for r in await store.list()}
     out = []
@@ -891,6 +891,6 @@ async def recent_routine_runs(
 
 
 def _email_configured() -> bool:
-    from compass.services.notify import email_configured
+    from compass.code.notify import email_configured
 
     return email_configured()

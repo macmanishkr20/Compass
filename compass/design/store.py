@@ -17,7 +17,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from compass.config import get_settings
+from compass.common.config import get_settings
 
 BLANK_PAGE = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Blank page</title>

@@ -12,9 +12,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
-from compass.api.auth import require_user
-from compass.config import get_settings
-from compass.services.mcp.manager import get_mcp_manager
+from compass.common.auth import require_user
+from compass.common.config import get_settings
+from compass.code.mcp.manager import get_mcp_manager
 
 logger = logging.getLogger("compass.common")
 
@@ -27,7 +27,7 @@ class SpeechRequest(BaseModel):
 
 
 def _tts_voices() -> list[str]:
-    from compass.services.speech import AVAILABLE_VOICES
+    from compass.common.speech import AVAILABLE_VOICES
 
     return AVAILABLE_VOICES
 
@@ -73,7 +73,7 @@ async def list_models(user: str = Depends(require_user)) -> dict:
 async def speech(body: SpeechRequest, user: str = Depends(require_user)) -> Response:
     """Synthesize expressive speech for a response. 503 when TTS isn't
     configured — the client then falls back to the browser voice."""
-    from compass.services.speech import SpeechDisabledError, synthesize
+    from compass.common.speech import SpeechDisabledError, synthesize
 
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="text is required")
@@ -100,7 +100,7 @@ async def take_screenshot(
     body: ScreenshotRequest, user: str = Depends(require_user)
 ) -> dict:
     """Headless-browser screenshot of a URL, returned as a data: URI."""
-    from compass.services.screenshot import capture_data_uri
+    from compass.common.screenshot import capture_data_uri
 
     try:
         image = await capture_data_uri(body.url, full_page=body.full_page)
@@ -115,7 +115,10 @@ async def take_screenshot(
 async def get_customize(user: str = Depends(require_user)) -> dict:
     """One place listing what Compass can do and what it's connected to —
     the port of Claude's Customize section (skills / plugins / connectors)."""
-    from compass.tools.registry import get_all_tools
+    # This route is the one place that reports on all of Compass at once, so
+    # it is also the one place in common that reaches into a section. Deferred,
+    # so importing common cannot pull the agent in behind it.
+    from compass.code.tools.registry import get_all_tools
 
     settings = get_settings()
     manager = get_mcp_manager()
@@ -174,7 +177,7 @@ async def get_customize(user: str = Depends(require_user)) -> dict:
 
     routines: list[dict] = []
     try:
-        from compass.services.routines import store as routine_store
+        from compass.code.routines import store as routine_store
 
         routines = [
             {"name": r.name, "detail": f"{len(r.triggers)} trigger(s)"}
@@ -195,7 +198,7 @@ async def get_customize(user: str = Depends(require_user)) -> dict:
 @router.get("/v1/recap")
 async def get_recap(days: int = 30, user: str = Depends(require_user)) -> dict:
     """"How you've been working with Compass" — topics, busiest day, peak hour."""
-    from compass.services.recap import build_recap
+    from compass.common.recap import build_recap
 
     return await build_recap(days)
 
@@ -216,7 +219,7 @@ class MemoryPatch(BaseModel):
 @router.get("/v1/memory")
 async def list_memory(scope: str | None = None, user: str = Depends(require_user)) -> dict:
     """Everything Compass remembers, grouped by category in the UI."""
-    from compass.services.memory import CATEGORIES, get_memory_store
+    from compass.common.memory import CATEGORIES, get_memory_store
 
     entries = await get_memory_store().list(scope)
     return {"entries": entries, "categories": CATEGORIES}
@@ -224,7 +227,7 @@ async def list_memory(scope: str | None = None, user: str = Depends(require_user
 
 @router.post("/v1/memory")
 async def add_memory(body: MemoryCreate, user: str = Depends(require_user)) -> dict:
-    from compass.services.memory import get_memory_store
+    from compass.common.memory import get_memory_store
 
     return await get_memory_store().add(
         scope=body.scope,
@@ -238,7 +241,7 @@ async def add_memory(body: MemoryCreate, user: str = Depends(require_user)) -> d
 async def patch_memory(
     entry_id: str, body: MemoryPatch, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.memory import get_memory_store
+    from compass.common.memory import get_memory_store
 
     row = await get_memory_store().update(
         entry_id, summary=body.summary, details=body.details, category=body.category
@@ -250,7 +253,7 @@ async def patch_memory(
 
 @router.delete("/v1/memory/{entry_id}")
 async def delete_memory(entry_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.memory import get_memory_store
+    from compass.common.memory import get_memory_store
 
     return {"deleted": await get_memory_store().delete(entry_id)}
 
@@ -258,7 +261,7 @@ async def delete_memory(entry_id: str, user: str = Depends(require_user)) -> dic
 @router.get("/v1/screenshot-cache/{shot_id}")
 async def screenshot_cache(shot_id: str) -> Response:
     """Serve a cached agent screenshot (referenced by screenshot://<id>)."""
-    from compass.services.screenshot import get_cached
+    from compass.common.screenshot import get_cached
 
     png = get_cached(shot_id)
     if png is None:

@@ -24,13 +24,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from compass.config import get_settings
-from compass.core.query_loop import query
-from compass.gateway.cost_tracker import CostTracker
-from compass.models import events
-from compass.models.messages import Message
-from compass.services.attachments import build_user_message
-from compass.tools.base import PermissionBroker, ToolUseContext
+from compass.common.config import get_settings
+from compass.common.agent.query_loop import query
+from compass.common.gateway.cost_tracker import CostTracker
+from compass.common.models import events
+from compass.common.models.messages import Message
+from compass.common.attachments import build_user_message
+from compass.common.tools.base import PermissionBroker, ToolUseContext
 
 @dataclass
 class _WorkIqSources:
@@ -222,7 +222,7 @@ class ChatSession:
         auto_deny as a belt-and-braces guard: `memory` is read-only so it is
         auto-allowed and the broker is never consulted, but anything that
         somehow asked for permission is refused rather than silently granted."""
-        from compass.tools.memory import MemoryTool
+        from compass.common.tools.memory import MemoryTool
 
         return ToolUseContext(
             session_id=self.id,
@@ -330,7 +330,7 @@ class ChatEngine:
         # Memory: appended last so it survives the Work IQ prompt swap above.
         # Home reads the global scope — what the user tells Compass here is
         # remembered across chats (Claude's memory behaviour).
-        from compass.services.memory import GLOBAL_SCOPE, memory_prompt
+        from compass.common.memory import GLOBAL_SCOPE, memory_prompt
 
         mem = await memory_prompt(GLOBAL_SCOPE)
         if mem:

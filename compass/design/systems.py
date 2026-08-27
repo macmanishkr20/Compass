@@ -13,7 +13,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from compass.config import get_settings
+from compass.common.config import get_settings
 
 @dataclass
 class DesignSystem:

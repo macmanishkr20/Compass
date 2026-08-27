@@ -2,7 +2,7 @@
 
 The routes live with the section that owns them and are mounted here.
 
-    compass.api.auth        signing in
+    compass.common.auth        signing in
     compass.home.routes     Home/Chat — tool-free, its own store
     compass.code.routes     Code/Agent — sessions, workspaces, routines
     compass.design.routes   Design — projects, generation, export
@@ -18,15 +18,15 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
-from compass.api.auth import router as auth_router
+from compass.common.auth import router as auth_router
 from compass.code.routes import engine
 from compass.code.routes import router as code_router
 from compass.common.routes import router as common_router
 from compass.design.routes import router as design_router
 from compass.home.routes import router as chat_router
-from compass.persistence.factory import get_transcript_store
-from compass.services.mcp.manager import get_mcp_manager
-from compass.services.telemetry import log_event, setup_telemetry
+from compass.common.persistence.factory import get_transcript_store
+from compass.code.mcp.manager import get_mcp_manager
+from compass.common.telemetry import log_event, setup_telemetry
 
 logger = logging.getLogger("compass.api")
 
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     if manager.status:
         logger.info("mcp servers: %s", manager.status)
     log_event("server_started", mcp_servers=len(manager.status))
-    from compass.services.routines import start_scheduler
+    from compass.code.routines import start_scheduler
 
     start_scheduler(engine)
     yield

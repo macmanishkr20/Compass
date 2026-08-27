@@ -16,9 +16,9 @@ from pathlib import Path
 os.environ.setdefault("COMPASS_MOCK_MODEL", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from compass.core.query_engine import QueryEngine, Session  # noqa: E402
-from compass.models import events  # noqa: E402
-from compass.tools.base import PermissionBroker  # noqa: E402
+from compass.code.engine import QueryEngine, Session  # noqa: E402
+from compass.common.models import events  # noqa: E402
+from compass.common.tools.base import PermissionBroker  # noqa: E402
 
 
 async def main() -> int:

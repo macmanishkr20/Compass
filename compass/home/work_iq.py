@@ -17,7 +17,7 @@ import logging
 
 import httpx
 
-from compass.config import get_settings
+from compass.common.config import get_settings
 
 logger = logging.getLogger("compass.work_iq")
 

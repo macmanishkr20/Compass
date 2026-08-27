@@ -65,17 +65,21 @@ def prompts() -> dict[str, str]:
             return
         raise SystemExit(f"{name} has vanished: not in any of {modules}")
 
-    from compass.services import design as _design
-
-    take("design.TEMPLATE_PROMPTS", _design.TEMPLATE_PROMPTS)
-    take("design.DESIGN_SYSTEM_PROMPT", _design.DESIGN_SYSTEM_PROMPT)
-    take("design.CLARIFY_PROMPT", _design.CLARIFY_PROMPT)
-    take("design.FOLLOWUP_PROMPT", _design.FOLLOWUP_PROMPT)
-    take("design.FOLLOWUP_FALLBACK", _design.FOLLOWUP_FALLBACK)
-    take("design.EXTRACT_PROMPT", _design.EXTRACT_PROMPT)
-    take("design.TEMPLATES", _design.TEMPLATES)
-    take("design.BUILTIN_SYSTEMS", _design.BUILTIN_SYSTEMS)
-    take("design.BLANK_PAGE", _design.BLANK_PAGE)
+    for label, name in (
+        ("design.TEMPLATE_PROMPTS", "TEMPLATE_PROMPTS"),
+        ("design.DESIGN_SYSTEM_PROMPT", "DESIGN_SYSTEM_PROMPT"),
+        ("design.CLARIFY_PROMPT", "CLARIFY_PROMPT"),
+        ("design.FOLLOWUP_PROMPT", "FOLLOWUP_PROMPT"),
+        ("design.FOLLOWUP_FALLBACK", "FOLLOWUP_FALLBACK"),
+        ("design.EXTRACT_PROMPT", "EXTRACT_PROMPT"),
+        ("design.TEMPLATES", "TEMPLATES"),
+        ("design.BUILTIN_SYSTEMS", "BUILTIN_SYSTEMS"),
+        ("design.BLANK_PAGE", "BLANK_PAGE"),
+    ):
+        wherever(label, name,
+                 "compass.services.design", "compass.design.skills",
+                 "compass.design.skills.catalogue", "compass.design.store",
+                 "compass.design.systems", "compass.design.clarify")
 
     wherever("server.SUGGEST_PROMPT", "SUGGEST_PROMPT",
              "compass.api.server", "compass.code.routes")
@@ -85,13 +89,13 @@ def prompts() -> dict[str, str]:
              "compass.api.server", "compass.design.routes", "compass.design.review")
 
     wherever("chat.CHAT_SYSTEM_PROMPT", "CHAT_SYSTEM_PROMPT",
-             "compass.core.chat_engine", "compass.home.engine")
+             "compass.home.engine")
     wherever("work_iq.WORK_IQ_SYSTEM_PROMPT", "WORK_IQ_SYSTEM_PROMPT",
-             "compass.services.work_iq", "compass.home.work_iq")
+             "compass.home.work_iq")
     wherever("compaction.SUMMARY_PROMPT", "SUMMARY_PROMPT",
-             "compass.context.compaction", "compass.common.compaction")
+             "compass.context.compaction", "compass.common.agent.compaction")
     wherever("query_loop.MAX_OUTPUT_RECOVERY_PROMPT", "MAX_OUTPUT_RECOVERY_PROMPT",
-             "compass.core.query_loop", "compass.common.query_loop")
+             "compass.core.query_loop", "compass.common.agent.query_loop")
 
     # The agent's system prompt is many constants rather than one, so it is
     # swept whole: every upper-case string the module defines.

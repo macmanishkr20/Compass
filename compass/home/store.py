@@ -21,8 +21,8 @@ import asyncio
 import logging
 import time
 
-from compass.config import get_settings
-from compass.models.messages import Message
+from compass.common.config import get_settings
+from compass.common.models.messages import Message
 
 logger = logging.getLogger("compass.chat.cosmos")
 

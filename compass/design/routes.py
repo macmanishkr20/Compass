@@ -18,9 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from compass.api.auth import require_user
+from compass.common.auth import require_user
 from compass.common.paths import _SKIP_DIRS, _safe_join
-from compass.config import get_settings
+from compass.common.config import get_settings
 
 logger = logging.getLogger("compass.design")
 
@@ -50,14 +50,14 @@ class DesignPatch(BaseModel):
 
 @router.get("/v1/design/templates")
 async def design_templates(user: str = Depends(require_user)) -> dict:
-    from compass.services.design import TEMPLATES
+    from compass.design.skills.catalogue import TEMPLATES
 
     return {"templates": TEMPLATES}
 
 
 @router.get("/v1/design/projects")
 async def design_projects(user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     return {"projects": await get_design_store().list()}
 
@@ -82,7 +82,7 @@ async def design_attach(
     """Read an attachment the way Chat does — a PDF, a Word file or a zip is
     text once it has been through the same extractor, and the design gets to
     use it. Images come back untouched, for the model to look at."""
-    from compass.services.attachments import process_attachment
+    from compass.common.attachments import process_attachment
 
     done = process_attachment(body.model_dump())
     if not done:
@@ -99,13 +99,8 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     """Is this brief enough to design from? If not, what should we ask?"""
     import json as _json
 
-    from compass.services.design import (
-        CLARIFY_PROMPT,
-        FOLLOWUP_FALLBACK,
-        FOLLOWUP_PROMPT,
-        TEMPLATES,
-        normalize_clarify,
-    )
+    from compass.design.clarify import CLARIFY_PROMPT, FOLLOWUP_FALLBACK, FOLLOWUP_PROMPT, normalize_clarify
+    from compass.design.skills.catalogue import TEMPLATES
 
     prompt = body.prompt.strip()
     stem = next(
@@ -118,7 +113,7 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     if not body.followup and len(without_stem) >= 25:
         return {"ready": True}
 
-    from compass.gateway.azure_client import get_model_client
+    from compass.common.gateway.azure_client import get_model_client
 
     asked = f"Template: {body.template}\nRequest: {prompt or '(empty)'}"
     if body.answers.strip():
@@ -155,7 +150,7 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
 
 @router.post("/v1/design/projects")
 async def design_create(body: DesignCreate, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     return await get_design_store().create(
         name=body.name or (body.prompt[:60] if body.prompt else "Untitled"),
@@ -168,7 +163,7 @@ async def design_create(body: DesignCreate, user: str = Depends(require_user)) -
 
 @router.get("/v1/design/projects/{project_id}")
 async def design_get(project_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
     if p is None:
@@ -180,7 +175,7 @@ async def design_get(project_id: str, user: str = Depends(require_user)) -> dict
 async def design_patch(
     project_id: str, body: DesignPatch, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().update(project_id, **body.model_dump())
     if p is None:
@@ -190,8 +185,8 @@ async def design_patch(
 
 @router.delete("/v1/design/projects/{project_id}")
 async def design_delete(project_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services import design_files
-    from compass.services.design import get_design_store
+    from compass.design import files as design_files
+    from compass.design.store import get_design_store
 
     deleted = await get_design_store().delete(project_id)
     if deleted:
@@ -276,7 +271,7 @@ async def _fetch_page(url: str) -> str:
 
 @router.get("/v1/design/systems")
 async def design_systems(user: str = Depends(require_user)) -> dict:
-    from compass.services.design import BUILTIN_SYSTEMS, get_system_store
+    from compass.design.systems import BUILTIN_SYSTEMS, get_system_store
 
     return {"systems": await get_system_store().list(), "included": BUILTIN_SYSTEMS}
 
@@ -288,14 +283,14 @@ async def design_system_create(
     """Import a design system. With `distil`, the pasted source is read into a
     short system first — a whole stylesheet in the prompt would crowd out the
     actual design request."""
-    from compass.services.design import EXTRACT_PROMPT, get_system_store, parse_extract
+    from compass.design.systems import EXTRACT_PROMPT, get_system_store, parse_extract
 
     text, origin = body.text.strip(), ""
     if body.url.strip():
         text = await _fetch_page(body.url.strip())
         origin = body.url.strip()
     elif body.workspace_id:
-        from compass.services.workspaces import get_workspace_registry
+        from compass.common.workspaces import get_workspace_registry
 
         root = await get_workspace_registry().resolve_root(body.workspace_id)
         text, names = _read_repo_styles(root, body.path)
@@ -306,7 +301,7 @@ async def design_system_create(
 
     name, notes, fonts, swatches = body.name.strip(), text, "", []
     if text and body.distil:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         try:
             notes = (
@@ -351,7 +346,7 @@ async def design_system_setup(
     body: SystemSetup, user: str = Depends(require_user)
 ) -> dict:
     """Build a design system from everything the form collected."""
-    from compass.services.design import EXTRACT_PROMPT, get_system_store, parse_extract
+    from compass.design.systems import EXTRACT_PROMPT, get_system_store, parse_extract
 
     sources: list[str] = []
     origin_bits: list[str] = []
@@ -370,7 +365,7 @@ async def design_system_setup(
             .removesuffix(".git")
         )
         try:
-            from compass.services.github import clone_repo
+            from compass.common.github import clone_repo
 
             ws = await clone_repo(full_name)
             repo_workspace = ws.to_dict()["id"]
@@ -383,7 +378,7 @@ async def design_system_setup(
         origin_bits.append(full_name)
 
     if repo_workspace:
-        from compass.services.workspaces import get_workspace_registry
+        from compass.common.workspaces import get_workspace_registry
 
         root = await get_workspace_registry().resolve_root(repo_workspace)
         text, names = _read_repo_styles(root, repo_path)
@@ -404,7 +399,7 @@ async def design_system_setup(
     if not sources and not body.images:
         raise HTTPException(status_code=400, detail="nothing to build a system from")
 
-    from compass.gateway.azure_client import get_model_client
+    from compass.common.gateway.azure_client import get_model_client
 
     try:
         notes = (
@@ -436,7 +431,7 @@ async def design_system_setup(
 
 @router.post("/v1/design/systems/{system_id}/duplicate")
 async def design_system_duplicate(system_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_system_store
+    from compass.design.systems import get_system_store
 
     store = get_system_store()
     system = await store.get(system_id)
@@ -449,8 +444,8 @@ async def design_system_duplicate(system_id: str, user: str = Depends(require_us
 async def design_system_doc(system_id: str, user: str = Depends(require_user)) -> dict:
     """The system as a browsable project: its pages, its parameters, and the
     files a developer would receive."""
-    from compass.services import design_docs
-    from compass.services.design import get_system_store
+    from compass.design import docs as design_docs
+    from compass.design.systems import get_system_store
 
     system = await get_system_store().get(system_id)
     if system is None:
@@ -471,8 +466,8 @@ async def design_system_page(
     system_id: str, section_id: str, user: str = Depends(require_user)
 ) -> Response:
     """One section, as a standalone document — what the preview frames render."""
-    from compass.services import design_docs
-    from compass.services.design import get_system_store
+    from compass.design import docs as design_docs
+    from compass.design.systems import get_system_store
 
     system = await get_system_store().get(system_id)
     if system is None:
@@ -489,8 +484,8 @@ async def design_system_file(
     system_id: str, path: str = "styles.css", user: str = Depends(require_user)
 ) -> Response:
     """A raw file from the system — the token sheet, the guide, the record."""
-    from compass.services import design_docs
-    from compass.services.design import get_system_store
+    from compass.design import docs as design_docs
+    from compass.design.systems import get_system_store
 
     system = await get_system_store().get(system_id)
     if system is None:
@@ -508,8 +503,8 @@ async def design_system_file(
 
 @router.get("/v1/design/systems/{system_id}/export")
 async def design_system_export(system_id: str, user: str = Depends(require_user)) -> Response:
-    from compass.services import design_docs
-    from compass.services.design import get_system_store
+    from compass.design import docs as design_docs
+    from compass.design.systems import get_system_store
 
     system = await get_system_store().get(system_id)
     if system is None:
@@ -535,7 +530,7 @@ async def design_system_usage(
 ) -> dict:
     """Usage notes a team adds to a section. Only a system of the user's own can
     carry them — the included ones are read-only by design."""
-    from compass.services.design import get_system_store
+    from compass.design.systems import get_system_store
 
     store = get_system_store()
     rows = store._read()
@@ -557,7 +552,7 @@ async def design_system_usage(
 
 @router.delete("/v1/design/systems/{system_id}")
 async def design_system_delete(system_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_system_store
+    from compass.design.systems import get_system_store
 
     return {"deleted": await get_system_store().delete(system_id)}
 
@@ -573,7 +568,7 @@ async def design_save_html(
 ) -> dict:
     """Store a design edited directly on the canvas, keeping the old one as a
     version. Separate from PATCH so canvas edits always enter history."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().save_html(project_id, body.html, label=body.label)
     if p is None:
@@ -584,7 +579,7 @@ async def design_save_html(
 @router.post("/v1/design/projects/{project_id}/open")
 async def design_open(project_id: str, user: str = Depends(require_user)) -> dict:
     """Mark the project as viewed — backs the table's Last viewed column."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().touch(project_id)
     if p is None:
@@ -594,7 +589,7 @@ async def design_open(project_id: str, user: str = Depends(require_user)) -> dic
 
 @router.post("/v1/design/projects/{project_id}/duplicate")
 async def design_duplicate(project_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().duplicate(project_id)
     if p is None:
@@ -608,7 +603,7 @@ class PageCreate(BaseModel):
 
 @router.get("/v1/design/projects/{project_id}/pages")
 async def design_pages(project_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     store = get_design_store()
     project = await store.get(project_id)
@@ -622,7 +617,7 @@ async def design_pages(project_id: str, user: str = Depends(require_user)) -> di
 async def design_page_add(
     project_id: str, body: PageCreate, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().add_page(project_id, body.name)
     if p is None:
@@ -634,7 +629,7 @@ async def design_page_add(
 async def design_page_delete(
     project_id: str, page_id: str, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().delete_page(project_id, page_id)
     if p is None:
@@ -648,7 +643,7 @@ async def design_page_delete(
 async def design_page_open(
     project_id: str, page_id: str, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().open_page(project_id, page_id)
     if p is None:
@@ -669,7 +664,7 @@ class ProjectFile(BaseModel):
 async def design_files(
     project_id: str, path: str = "", user: str = Depends(require_user)
 ) -> dict:
-    from compass.services import design_files
+    from compass.design import files as design_files
 
     try:
         return design_files.listing(project_id, path)
@@ -683,7 +678,7 @@ async def design_files(
 async def design_file_read(
     project_id: str, path: str, user: str = Depends(require_user)
 ) -> Response:
-    from compass.services import design_files
+    from compass.design import files as design_files
 
     try:
         blob, media = design_files.read_bytes(project_id, path)
@@ -698,7 +693,7 @@ async def design_file_read(
 async def design_file_write(
     project_id: str, body: ProjectFile, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services import design_files
+    from compass.design import files as design_files
 
     try:
         if not body.text and not body.data_url:
@@ -716,7 +711,7 @@ async def design_file_write(
 async def design_file_delete(
     project_id: str, path: str, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services import design_files
+    from compass.design import files as design_files
 
     try:
         return {"deleted": design_files.remove(project_id, path)}
@@ -727,7 +722,7 @@ async def design_file_delete(
 @router.get("/v1/design/projects/{project_id}/versions")
 async def design_versions(project_id: str, user: str = Depends(require_user)) -> dict:
     """The history list — html omitted, since a version can be tens of kilobytes."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
     if p is None:
@@ -746,7 +741,7 @@ async def design_restore(
 ) -> dict:
     """Restore a past version. The design being replaced becomes a version of
     its own, so restoring is itself undoable."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     store = get_design_store()
     p = await store.get(project_id)
@@ -771,7 +766,7 @@ async def design_comment_add(
 ) -> dict:
     import uuid as _uuid
 
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     store = get_design_store()
     p = await store.get(project_id)
@@ -796,7 +791,7 @@ async def design_comment_add(
 async def design_comment_delete(
     project_id: str, comment_id: str, user: str = Depends(require_user)
 ) -> dict:
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     store = get_design_store()
     p = await store.get(project_id)
@@ -809,7 +804,7 @@ async def design_comment_delete(
 @router.get("/v1/design/projects/{project_id}/thumbnail")
 async def design_thumbnail(project_id: str, user: str = Depends(require_user)) -> Response:
     """A small render of the design, cached on disk until the design changes."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
     if p is None:
@@ -823,7 +818,7 @@ async def design_thumbnail(project_id: str, user: str = Depends(require_user)) -
     cache_dir.mkdir(parents=True, exist_ok=True)
     cached = cache_dir / f"{project_id}-{int(p.get('updated_at', 0))}.png"
     if not cached.is_file():
-        from compass.services import design_export as ex
+        from compass.design import export as ex
 
         try:
             png = await ex.to_thumbnail(html)
@@ -848,7 +843,8 @@ async def design_export(
     project_id: str, format: str = "html", user: str = Depends(require_user)
 ) -> Response:
     """Export the design as html | pdf | png | zip | pptx."""
-    from compass.services.design import get_design_store, get_system_store
+    from compass.design.store import get_design_store
+    from compass.design.systems import get_system_store
 
     project = await get_design_store().get(project_id)
     if project is None:
@@ -870,7 +866,7 @@ async def design_export(
     if format == "html":
         return send(html.encode(), "text/html", "html")
 
-    from compass.services import design_export as ex
+    from compass.design import export as ex
 
     if format in ("zip", "archive"):
         system = await get_system_store().get(project.get("design_system") or "")
@@ -888,7 +884,7 @@ async def design_export(
             )
 
         # The whole project: every page, and every file it was given.
-        from compass.services import design_files
+        from compass.design import files as design_files
 
         pages = await get_design_store().pages_with_html(project_id)
         carried: list[tuple[str, bytes]] = []
@@ -954,7 +950,7 @@ async def design_element(
     """Rewrite one element to order — Factory calls this design mode: point at
     the part that needs attention, say what to change, and the change lands
     there rather than anywhere else in the document."""
-    from compass.services.design import get_design_store
+    from compass.design.store import get_design_store
 
     project = await get_design_store().get(project_id)
     if project is None:
@@ -1002,7 +998,7 @@ async def design_element(
     # colour is wrong" are about how it looks, and the markup does not show it.
     shot = ""
     if body.path:
-        from compass.services import design_export as _ex
+        from compass.design import export as _ex
 
         shot = await _ex.element_shot(project.get("html") or "", body.path)
     if shot:
@@ -1013,7 +1009,7 @@ async def design_element(
         )
 
     try:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         out = await get_model_client().complete_utility(
             system,
@@ -1111,7 +1107,7 @@ async def _keep_images(project_id: str, images: list[str]) -> None:
     An image passed to one generation and thrown away can never be used by the
     next one, nor exported with the project.
     """
-    from compass.services import design_files
+    from compass.design import files as design_files
 
     kinds = {"jpeg": "jpg", "svg+xml": "svg"}
     for n, url in enumerate(images, 1):
@@ -1319,7 +1315,7 @@ async def _repair_css(
     forty kilobytes reproduced from memory. A handful of appended rules is a
     small enough ask to come back right, and it cannot truncate the document.
     """
-    from compass.services import design_export as _ex
+    from compass.design import export as _ex
 
     asked = "The review found:\n- " + "\n- ".join(issues)
     if system:
@@ -1333,7 +1329,7 @@ async def _repair_css(
     asked += "\n\nThe document:\n\n```html\n" + html[:120_000] + "\n```"
 
     try:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         # The reply is a few rules, but the thinking that finds them is billed
         # against the same budget: measured at 8,128 reasoning tokens on a
@@ -1383,10 +1379,10 @@ async def _repair(
     A repair that trades one fault for another is not a repair, so the
     original is kept unless the review comes back with nothing new in it.
     """
-    from compass.services import design_export as _ex
+    from compass.design import export as _ex
 
     try:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         out = await get_model_client().complete_utility(
             REPAIR_PROMPT,
@@ -1439,13 +1435,9 @@ async def design_generate(
     project_id: str, body: DesignGenerate, user: str = Depends(require_user)
 ) -> dict:
     """Generate (or refine) the project's design and store the HTML."""
-    from compass.services.design import (
-        DESIGN_SYSTEM_PROMPT,
-        TEMPLATE_PROMPTS,
-        get_design_store,
-        get_system_store,
-        system_prompt_block,
-    )
+    from compass.design.skills import DESIGN_SYSTEM_PROMPT, TEMPLATE_PROMPTS
+    from compass.design.store import get_design_store
+    from compass.design.systems import get_system_store, system_prompt_block
 
     store = get_design_store()
     project = await store.get(project_id)
@@ -1489,7 +1481,7 @@ async def design_generate(
     parts.append("Request: " + body.prompt)
 
     try:
-        from compass.gateway.azure_client import get_model_client
+        from compass.common.gateway.azure_client import get_model_client
 
         # A full design needs a large budget: on reasoning models the thinking
         # is billed against the same cap, so a small one returns nothing — and
@@ -1539,7 +1531,7 @@ async def design_generate(
     # "Checking the design for issues" is what the card says while this runs;
     # this is that check, actually run — contrast, hit areas, sideways scroll,
     # tables with no rows, a script that threw.
-    from compass.services import design_export as _ex
+    from compass.design import export as _ex
 
     # The review's criteria depend on what was asked for: a flier judged by a
     # dashboard's rules passes while looking nothing like a flier.
