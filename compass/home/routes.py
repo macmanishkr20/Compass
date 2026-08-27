@@ -20,6 +20,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.common.agent.steering import steer
+from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
 from compass.home.engine import ChatEngine, ChatSession
 from compass.common.models.events import ErrorEvent
@@ -27,6 +28,21 @@ from compass.common.models.events import ErrorEvent
 logger = logging.getLogger("compass.chat")
 
 router = APIRouter(prefix="/v1/chat", tags=["chat"])
+
+
+def for_the_browser(record: dict) -> dict:
+    """A transcript record with the encrypted reasoning taken out.
+
+    The sealed reasoning is meaningless outside the model and runs to
+    kilobytes per turn; it belongs in the transcript on disk, where a resumed
+    session reads it, not on the wire to a browser that cannot use it. The
+    readable summary and what it cost do go, because those are for people.
+    """
+    meta = record.get("meta") or {}
+    if REASONING_META_KEY not in meta:
+        return record
+    return {**record, "meta": {k: v for k, v in meta.items()
+                               if k != REASONING_META_KEY}}
 chat_engine = ChatEngine()
 chat_sessions: dict[str, ChatSession] = {}
 
@@ -162,7 +178,7 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
     if not await chat_engine.store.exists(session_id):
         raise HTTPException(status_code=404, detail="unknown chat session")
     messages = await chat_engine.store.load(session_id)
-    return {"session_id": session_id, "messages": [m.to_record() for m in messages]}
+    return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
 
 
 @router.get("/work-iq")

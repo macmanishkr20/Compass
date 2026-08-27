@@ -60,7 +60,11 @@ import {
 } from './models';
 
 const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
-const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+/** How hard the model is asked to think. These are the four levels Azure's
+ *  reasoning models accept — 'minimal' was never one of them, and 'max' is
+ *  rejected. Higher means it thinks more often and goes further; at 'low' it
+ *  skips thinking on work that does not need it. */
+const EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 
 /** A rendered timeline block: either a standalone item (user/assistant bubble,
  * permission card, meaningful notice) or a collapsed "activity" group folding
@@ -3082,18 +3086,59 @@ export class App {
       this.thinking.set(false);
     }
     switch (ev.type) {
+      case 'thinking_delta': {
+        if (agentId) return;
+        // Reasoning opens the bubble, so the thinking is visible while it
+        // happens rather than only after the answer starts.
+        if (!this.currentBubble) {
+          this.currentBubble = this.bubble('assistant', '', true);
+          this.push(this.currentBubble);
+        }
+        {
+          const id = this.currentBubble.id;
+          const chunk = (ev['text'] as string) ?? '';
+          const gap = (ev['starts_part'] as boolean) ? '\n\n' : '';
+          this.patch(id, (b) => {
+            const bubble = b as ChatBubble;
+            const so_far = bubble.thinking ?? '';
+            return {
+              ...bubble,
+              thinking: so_far + (so_far ? gap : '') + chunk,
+              thinkingLive: true,
+            };
+          });
+        }
+        break;
+      }
+      case 'thinking_complete': {
+        if (agentId || !this.currentBubble) return;
+        {
+          const id = this.currentBubble.id;
+          const tokens = (ev['tokens'] as number) ?? 0;
+          this.patch(id, (b) => ({
+            ...(b as ChatBubble),
+            thinkingLive: false,
+            thinkingTokens: tokens,
+          }));
+        }
+        break;
+      }
       case 'text_delta': {
         if (agentId) return;
         if (!this.currentBubble) {
           this.currentBubble = this.bubble('assistant', '', true);
           this.push(this.currentBubble);
+        }
+        if (!this.textSmoother) {
           // Reveal tokens smoothly (rAF-paced) rather than per-network-chunk.
+          // The bubble may already exist because thinking opened it; either
+          // way the answer streams into that same one.
           const id = this.currentBubble.id;
           this.textSmoother = new SmoothText((t) =>
             this.patch(id, (b) => ({ ...(b as ChatBubble), text: t })),
           );
         }
-        this.textSmoother?.push((ev['text'] as string) ?? '');
+        this.textSmoother.push((ev['text'] as string) ?? '');
         break;
       }
       case 'assistant_message':
@@ -3224,6 +3269,15 @@ export class App {
   }
 
   // -- timeline helpers ----------------------------------------------------
+
+  /** Show or hide a finished turn's reasoning. It collapses on its own once
+   *  the answer starts, so what stays on screen is the answer. */
+  toggleThinking(b: ChatBubble): void {
+    this.patch(b.id, (x) => ({
+      ...(x as ChatBubble),
+      thinkingOpen: !(x as ChatBubble).thinkingOpen,
+    }));
+  }
 
   private bubble(
     role: 'user' | 'assistant',

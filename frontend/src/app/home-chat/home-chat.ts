@@ -36,6 +36,18 @@ interface ChatMsg {
   at?: number; // epoch ms — shown as a relative age under the message
   atts?: UiAttachment[];
   sources?: WorkIqSource[];
+  /** The model's reasoning, when it reasoned. Arrives before the answer and
+   *  is kept apart from it: this is the working, not the reply. A turn the
+   *  model answered outright has none, which is normal. */
+  thinking?: string;
+  /** Tokens the reasoning cost. Billed as output, and shares the cap with
+   *  the answer — the number that explains a turn that ran out of room. */
+  thinkingTokens?: number;
+  /** Still being produced. Open while it streams, collapsed once done, so
+   *  the answer is what remains on screen. */
+  thinkingLive?: boolean;
+  /** The reader opened it back up. */
+  thinkingOpen?: boolean;
 }
 
 const FOLLOW_SLACK = 120; // px from the bottom that still counts as following
@@ -50,7 +62,11 @@ function scrolledUp(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK;
 }
 
-const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+/** How hard the model is asked to think. These are the four levels Azure's
+ *  reasoning models accept — 'minimal' was never one of them, and 'max' is
+ *  rejected. Higher means it thinks more often and goes further; at 'low' it
+ *  skips thinking on work that does not need it. */
+const EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 
 /**
  * Home / Chat — a pure-conversation surface. It is a self-contained sibling of
@@ -279,7 +295,19 @@ export class HomeChat {
       for (const m of t.messages) {
         if (m.role !== 'user' && m.role !== 'assistant') continue;
         const text = typeof m.content === 'string' ? m.content : this.contentText(m.content);
-        msgs.push({ id: m.uuid || crypto.randomUUID(), role: m.role, text, streaming: false });
+        // Reasoning is part of the record, not just of the moment: a reopened
+        // thread shows what the model thought, collapsed, exactly as it was
+        // left. The sealed reasoning stays on the server — this is the summary.
+        const meta = (m['meta'] ?? {}) as Record<string, unknown>;
+        const usage = (meta['usage'] ?? {}) as Record<string, unknown>;
+        msgs.push({
+          id: m.uuid || crypto.randomUUID(),
+          role: m.role,
+          text,
+          streaming: false,
+          thinking: (meta['thinking_summary'] as string) || undefined,
+          thinkingTokens: (usage['reasoning_tokens'] as number) || undefined,
+        });
       }
       // Ensure a chat session object exists on the server for follow-up turns.
       await this.api.createChatSession({ resume: true, sessionId: id });
@@ -654,12 +682,50 @@ export class HomeChat {
     this.voiceError.set(msg);
     setTimeout(() => this.voiceError.set(''), 5000);
   }
+  /** Show or hide a finished turn's reasoning. It collapses on its own once
+   *  the answer starts, so what stays on screen is the answer. */
+  toggleThinking(m: ChatMsg): void {
+    this.patch(m.id, (x) => ({ ...x, thinkingOpen: !x.thinkingOpen }));
+  }
+
   private onEvent(ev: CompassEvent): void {
     switch (ev.type) {
       case 'work_iq_sources':
         // Arrives before the answer streams — hold it for the reply bubble.
         this.pendingSources = (ev['sources'] as WorkIqSource[]) ?? null;
         break;
+      case 'thinking_delta': {
+        // Reasoning opens the bubble, so thinking is visible before the first
+        // word of the answer rather than after it.
+        if (!this.currentAssistant) {
+          this.currentAssistant = {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: '',
+            streaming: true,
+            sources: this.pendingSources ?? undefined,
+          };
+          this.push(this.currentAssistant);
+          this.pendingSources = null;
+        }
+        const chunk = (ev['text'] as string) ?? '';
+        const gap = (ev['starts_part'] as boolean) ? '\n\n' : '';
+        const id = this.currentAssistant.id;
+        this.patch(id, (m) => ({
+          ...m,
+          thinking: ((m.thinking ?? '') + (m.thinking ? gap : '') + chunk),
+          thinkingLive: true,
+        }));
+        break;
+      }
+      case 'thinking_complete': {
+        if (this.currentAssistant) {
+          const id = this.currentAssistant.id;
+          const tokens = (ev['tokens'] as number) ?? 0;
+          this.patch(id, (m) => ({ ...m, thinkingLive: false, thinkingTokens: tokens }));
+        }
+        break;
+      }
       case 'text_delta': {
         if (!this.currentAssistant) {
           this.currentAssistant = {
@@ -671,11 +737,15 @@ export class HomeChat {
           };
           this.push(this.currentAssistant);
           this.pendingSources = null;
+        }
+        if (!this.smoother) {
           // Reveal tokens smoothly (rAF-paced) instead of per-network-chunk.
+          // The bubble may already exist because thinking opened it; either
+          // way the answer streams into that same one.
           const id = this.currentAssistant.id;
           this.smoother = new SmoothText((t) => this.patch(id, (m) => ({ ...m, text: t })));
         }
-        this.smoother?.push((ev['text'] as string) ?? '');
+        this.smoother.push((ev['text'] as string) ?? '');
         break;
       }
       case 'assistant_message':
@@ -683,7 +753,7 @@ export class HomeChat {
           const id = this.currentAssistant.id;
           this.smoother?.finish();
           this.smoother = null;
-          this.patch(id, (m) => ({ ...m, streaming: false }));
+          this.patch(id, (m) => ({ ...m, streaming: false, thinkingLive: false }));
           this.currentAssistant = null;
         }
         break;

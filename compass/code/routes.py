@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.common.agent.steering import steer
+from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.code.engine import QueryEngine, Session
@@ -31,6 +32,21 @@ from compass.common.persistence.session_meta import SessionMeta
 logger = logging.getLogger("compass.code")
 
 router = APIRouter()
+
+
+def for_the_browser(record: dict) -> dict:
+    """A transcript record with the encrypted reasoning taken out.
+
+    The sealed reasoning is meaningless outside the model and runs to
+    kilobytes per turn; it belongs in the transcript on disk, where a resumed
+    session reads it, not on the wire to a browser that cannot use it. The
+    readable summary and what it cost do go, because those are for people.
+    """
+    meta = record.get("meta") or {}
+    if REASONING_META_KEY not in meta:
+        return record
+    return {**record, "meta": {k: v for k, v in meta.items()
+                               if k != REASONING_META_KEY}}
 
 
 engine = QueryEngine()
@@ -330,7 +346,7 @@ async def transcript(
     messages = await engine.store.load(
         session_id, include_sidechains=include_sidechains
     )
-    return {"session_id": session_id, "messages": [m.to_record() for m in messages]}
+    return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
 
 
 @router.get("/v1/sessions")

@@ -91,6 +91,17 @@ export interface ChatBubble {
   at?: number; // epoch ms — shown on hover (user prompts)
   stats?: { ms: number; tokens: number }; // per-response, set at stream end
   atts?: UiAttachmentVM[]; // files/images attached to a user prompt
+  /** The model's reasoning for this turn, when it reasoned. Shown above the
+   *  answer and kept apart from it: this is the working, not the reply. A
+   *  turn answered outright has none, which is normal for a reasoning model. */
+  thinking?: string;
+  /** What that reasoning cost. Billed as output, sharing the cap with the
+   *  answer — the number that explains a turn that ran out of room. */
+  thinkingTokens?: number;
+  /** Still streaming. Open while it arrives, collapsed once the answer does. */
+  thinkingLive?: boolean;
+  /** Reopened by the reader. */
+  thinkingOpen?: boolean;
 }
 
 /** Attachment shown on a user bubble (mirror of attachments.ts UiAttachment). */

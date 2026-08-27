@@ -843,6 +843,22 @@
                       }
                     </div>
                   }
+                  @if (b.role === 'assistant' && b.thinking) {
+                    <div class="cthink" [class.live]="b.thinkingLive">
+                      <button class="cthink-head" type="button"
+                        (click)="toggleThinking(b)"
+                        [attr.aria-expanded]="b.thinkingLive || b.thinkingOpen">
+                        <svg class="cthink-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <span class="cthink-label">{{ b.thinkingLive ? 'Thinking…' : 'Thought about it' }}</span>
+                        @if (b.thinkingTokens) {
+                          <span class="cthink-cost">{{ b.thinkingTokens }} tokens</span>
+                        }
+                      </button>
+                      @if (b.thinkingLive || b.thinkingOpen) {
+                        <div class="cthink-body"><app-markdown [text]="b.thinking!" /></div>
+                      }
+                    </div>
+                  }
                   @if (b.role === 'assistant' || b.text) {
                   <article class="bubble" [class.user]="b.role === 'user'" [class.assistant]="b.role === 'assistant'">
                     @if (b.role === 'assistant') {
