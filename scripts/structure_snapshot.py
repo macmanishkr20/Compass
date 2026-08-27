@@ -156,9 +156,36 @@ def smoke() -> dict[str, str]:
     return out
 
 
+def startup() -> str:
+    """Run the app's lifespan and say whether it worked.
+
+    TestClient swallows a lifespan that fails, so every route can answer
+    normally while startup is quietly broken — which is where the MCP servers
+    are connected and the routine scheduler is started. Losing a decorator off
+    `lifespan` looks like nothing at all without this.
+    """
+    import asyncio
+    import contextlib
+
+    from compass.api.server import app
+
+    async def run() -> str:
+        ctx = app.router.lifespan_context
+        try:
+            async with ctx(app):
+                pass
+        except Exception as err:  # noqa: BLE001
+            return f"{type(err).__name__}: {err}"
+        return "ok"
+
+    with contextlib.suppress(Exception):
+        return asyncio.run(run())
+    return "could not be run"
+
+
 def gather() -> dict:
-    return {"prompts": prompts(), "routes": routes(),
-            "schema": schema(), "smoke": smoke()}
+    return {"prompts": prompts(), "routes": routes(), "schema": schema(),
+            "smoke": smoke(), "startup": startup()}
 
 
 def _report(old: dict, new: dict) -> bool:
@@ -201,6 +228,16 @@ def _report(old: dict, new: dict) -> bool:
                   f" now {new.get('smoke', {}).get(p, '-')}")
     elif new.get("smoke"):
         print(f"calls     {len(new['smoke'])} GET routes answered as before")
+
+    was, now_ = old.get("startup", "ok"), new.get("startup", "ok")
+    if was != now_:
+        ok = False
+        print(f"STARTUP CHANGED: was {was!r}, now {now_!r}")
+    elif now_ != "ok":
+        ok = False
+        print(f"STARTUP IS BROKEN, and was already: {now_}")
+    else:
+        print("startup   the lifespan still runs")
 
     if old["schema"] != new["schema"]:
         ok = False

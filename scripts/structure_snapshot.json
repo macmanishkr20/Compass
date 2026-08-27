@@ -172,5 +172,6 @@
   "/v1/routines": "200",
   "/v1/sessions": "200",
   "/v1/workspaces": "200"
- }
+ },
+ "startup": "ok"
 }
