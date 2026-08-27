@@ -147,5 +147,30 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "eda6a5262dd393fe"
+ "schema": "eda6a5262dd393fe",
+ "smoke": {
+  "/": "200",
+  "/docs": "200",
+  "/docs/oauth2-redirect": "200",
+  "/healthz": "200",
+  "/openapi.json": "200",
+  "/redoc": "200",
+  "/v1/auth/me": "200",
+  "/v1/background-tasks": "200",
+  "/v1/chat/sessions": "200",
+  "/v1/chat/voice": "200",
+  "/v1/chat/work-iq": "200",
+  "/v1/customize": "200",
+  "/v1/design/projects": "200",
+  "/v1/design/systems": "200",
+  "/v1/design/templates": "200",
+  "/v1/github/repos": "400",
+  "/v1/memory": "200",
+  "/v1/models": "200",
+  "/v1/recap": "200",
+  "/v1/routine-runs/recent": "200",
+  "/v1/routines": "200",
+  "/v1/sessions": "200",
+  "/v1/workspaces": "200"
+ }
 }

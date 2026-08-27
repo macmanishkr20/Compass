@@ -61,11 +61,27 @@ def prompts() -> dict[str, str]:
     take("design.BUILTIN_SYSTEMS", _design.BUILTIN_SYSTEMS)
     take("design.BLANK_PAGE", _design.BLANK_PAGE)
 
-    from compass.api import server as _server
+    # These three are looked up by name across the modules they could live in,
+    # so a prompt that MOVES still has to prove its bytes did not change. The
+    # label stays put, because the label is what the baseline was saved under.
+    def wherever(label: str, name: str, *modules: str) -> None:
+        import importlib
 
-    take("server.SUGGEST_PROMPT", _server.SUGGEST_PROMPT)
-    take("server.REPAIR_PROMPT", _server.REPAIR_PROMPT)
-    take("server.CSS_REPAIR_PROMPT", _server.CSS_REPAIR_PROMPT)
+        for mod in modules:
+            try:
+                value = getattr(importlib.import_module(mod), name)
+            except (ImportError, AttributeError):
+                continue
+            take(label, value)
+            return
+        raise SystemExit(f"{name} has vanished: not in any of {modules}")
+
+    wherever("server.SUGGEST_PROMPT", "SUGGEST_PROMPT",
+             "compass.api.server", "compass.code.routes")
+    wherever("server.REPAIR_PROMPT", "REPAIR_PROMPT",
+             "compass.api.server", "compass.design.routes", "compass.design.review")
+    wherever("server.CSS_REPAIR_PROMPT", "CSS_REPAIR_PROMPT",
+             "compass.api.server", "compass.design.routes", "compass.design.review")
 
     from compass.core import chat_engine as _chat
 
@@ -110,8 +126,35 @@ def schema() -> str:
     return _digest(json.dumps(app.openapi(), sort_keys=True))
 
 
+def smoke() -> dict[str, str]:
+    """Actually call every route that can be called without arguments.
+
+    The route table and the schema can both be perfectly intact while a
+    handler raises the moment it runs — a module-level singleton left behind
+    in the wrong file, say. Only calling them finds that.
+    """
+    from fastapi.testclient import TestClient
+
+    from compass.api.server import app
+
+    out: dict[str, str] = {}
+    with TestClient(app, raise_server_exceptions=False) as client:
+        for route in app.routes:
+            path = route.path
+            methods = getattr(route, "methods", set()) or set()
+            if "GET" not in methods or "{" in path:
+                continue
+            try:
+                status = client.get(path).status_code
+            except Exception as err:  # noqa: BLE001
+                status = f"raised {type(err).__name__}"
+            out[path] = str(status)
+    return out
+
+
 def gather() -> dict:
-    return {"prompts": prompts(), "routes": routes(), "schema": schema()}
+    return {"prompts": prompts(), "routes": routes(),
+            "schema": schema(), "smoke": smoke()}
 
 
 def _report(old: dict, new: dict) -> bool:
@@ -141,6 +184,19 @@ def _report(old: dict, new: dict) -> bool:
             print(f"   new   {r}")
     else:
         print(f"routes    {len(new['routes'])} checked, the table is unchanged")
+
+    broke = [
+        p for p in sorted(set(old.get("smoke", {})) | set(new.get("smoke", {})))
+        if old.get("smoke", {}).get(p) != new.get("smoke", {}).get(p)
+    ]
+    if broke:
+        ok = False
+        print(f"{len(broke)} ROUTE(S) NOW ANSWER DIFFERENTLY:")
+        for p in broke:
+            print(f"   {p}: was {old.get('smoke', {}).get(p, '-')}"
+                  f" now {new.get('smoke', {}).get(p, '-')}")
+    elif new.get("smoke"):
+        print(f"calls     {len(new['smoke'])} GET routes answered as before")
 
     if old["schema"] != new["schema"]:
         ok = False
