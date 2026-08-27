@@ -162,12 +162,12 @@ HMAC-signed (`COMPASS_AUTH_SECRET`; blank = per-process random) and expire
 after `COMPASS_AUTH_TOKEN_TTL_HOURS` (12h default). Set
 `COMPASS_AUTH_ENABLED=0` to disable the gate entirely (all requests run as
 `guest` and the web UI skips the login screen). The `require_user` dependency
-in `compass/api/auth.py` is the single seam to swap in Entra ID/OIDC later.
+in `compass/common/auth.py` is the single seam to swap in Entra ID/OIDC later.
 
 ### Read-aloud (text-to-speech)
 
 The message "read aloud" button uses Azure OpenAI TTS for an expressive,
-emotive voice (`compass/services/speech.py`) — the `instructions` prompt
+emotive voice (`compass/common/speech.py`) — the `instructions` prompt
 steers tone, warmth, pacing, and accent, which a plain `tts-1` model can't do.
 Configure it in `.env`:
 
