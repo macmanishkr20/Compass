@@ -20,7 +20,14 @@ class GlobInput(BaseModel):
 
 class GlobTool(Tool):
     name = "glob"
-    description = "Find files by glob pattern, newest first."
+    description = (
+        "Find files by a glob pattern on their path, most recently modified "
+        "first. Use this to locate files by name, extension or directory when you "
+        "do not know exactly where they are — 'src/**/*.ts', '**/test_*.py'. Use "
+        "grep instead when you are searching for what is inside files rather than "
+        "what they are called. Returns paths only, never contents, and skips the "
+        "directories a repository does not track."
+    )
     input_model = GlobInput
 
     def is_read_only(self, inp: BaseModel) -> bool:
@@ -47,7 +54,16 @@ class GrepInput(BaseModel):
 
 class GrepTool(Tool):
     name = "grep"
-    description = "Search file contents with a regex. Returns path:line:text matches."
+    description = (
+        "Search the contents of files with a regular expression and return each "
+        "match as path:line:text. Use this to find where something is defined, "
+        "used or mentioned when you know roughly what the text looks like but not "
+        "which file it is in. Use glob instead when you are looking for files by "
+        "name, and file_read when you already know the file and want the whole "
+        "thing. Results are capped, so a very common pattern returns the first "
+        "matches rather than all of them — narrow the pattern if the answer "
+        "depends on seeing every one."
+    )
     input_model = GrepInput
 
     def is_read_only(self, inp: BaseModel) -> bool:

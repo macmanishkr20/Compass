@@ -27,7 +27,15 @@ class FileReadInput(BaseModel):
 
 class FileReadTool(Tool):
     name = "file_read"
-    description = "Read a text file from the workspace. Returns numbered lines."
+    description = (
+        "Read a text file from the workspace and return its contents with line "
+        "numbers. Use this when you need to see a specific file you can already "
+        "name, and before editing any file — file_edit matches on exact text, so "
+        "it needs the text as it actually stands. Use grep instead when you are "
+        "looking for which files contain something, and glob when you are looking "
+        "for files by name or path. Reads are truncated for very large files, so "
+        "the tail of a long file may be missing."
+    )
     input_model = FileReadInput
 
     def is_read_only(self, inp: BaseModel) -> bool:
@@ -59,7 +67,14 @@ class FileWriteInput(BaseModel):
 
 class FileWriteTool(Tool):
     name = "file_write"
-    description = "Create or overwrite a file in the workspace."
+    description = (
+        "Create a new file, or replace an existing file's contents entirely. Use "
+        "this for a file that does not exist yet, or when rewriting one is "
+        "genuinely simpler than patching it. Prefer file_edit for a change to an "
+        "existing file: this tool replaces the whole file, so anything not "
+        "included in the new content is lost, including parts you did not read. "
+        "Writing outside the workspace is refused."
+    )
     input_model = FileWriteInput
 
     def check_tool_permissions(self, inp, ctx):

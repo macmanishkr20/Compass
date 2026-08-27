@@ -21,8 +21,13 @@ class TodoWriteInput(BaseModel):
 class TodoWriteTool(Tool):
     name = "todo_write"
     description = (
-        "Replace the session todo list. Use for multi-step work so progress "
-        "is visible; keep at most one item in_progress."
+        "Replace the session's todo list with a new one. Use this at the start of "
+        "work that has several distinct steps, and again after each step, so the "
+        "person watching can see what is planned and what is done. It writes the "
+        "whole list every time, so include the items already finished rather than "
+        "only the new ones. Keep at most one item in_progress: two in progress "
+        "means the list no longer says what is actually being worked on. Skip it "
+        "for a single-step request, where the list is noise."
     )
     input_model = TodoWriteInput
 
