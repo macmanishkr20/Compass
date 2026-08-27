@@ -361,6 +361,58 @@ async def consume(
             )
 
 
+def parse_response(payload: dict[str, Any]) -> ResponsesOutcome:
+    """Fold a non-streaming response into the same shape the stream produces.
+
+    Design generates in one long call rather than a stream, but it wants the
+    same three things out of it: the text, the reasoning to carry into the
+    next step, and an honest reason when the answer was cut short. This is
+    `consume` for a response that arrived all at once.
+    """
+    outcome = ResponsesOutcome()
+    for item in payload.get("output") or []:
+        kind = item.get("type")
+        if kind == "reasoning":
+            outcome.reasoning.items.append(item)
+            parts = [p.get("text", "") for p in item.get("summary") or []]
+            if parts:
+                joined = "\n\n".join(p for p in parts if p)
+                outcome.reasoning.summary += (
+                    "\n\n" if outcome.reasoning.summary else "") + joined
+        elif kind == "message":
+            outcome.text += "".join(
+                c.get("text", "") for c in item.get("content") or []
+                if c.get("type") == "output_text"
+            )
+        elif kind == "function_call":
+            outcome.tool_calls.append({
+                "id": item.get("call_id") or item.get("id") or "",
+                "name": item.get("name") or "",
+                "arguments": item.get("arguments") or "{}",
+            })
+
+    usage = payload.get("usage") or {}
+    outcome.prompt_tokens = usage.get("input_tokens", 0) or 0
+    outcome.completion_tokens = usage.get("output_tokens", 0) or 0
+    outcome.cached_prompt_tokens = (
+        (usage.get("input_tokens_details") or {}).get("cached_tokens", 0) or 0
+    )
+    outcome.reasoning.tokens = (
+        (usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0
+    )
+
+    if payload.get("status") == "incomplete":
+        reason = (payload.get("incomplete_details") or {}).get("reason", "")
+        # Named the way the rest of Compass already reacts to it, rather than
+        # left as this API's own spelling.
+        outcome.finish_reason = (
+            "length" if "max_output_tokens" in reason else reason or "incomplete"
+        )
+    else:
+        outcome.finish_reason = "tool_calls" if outcome.tool_calls else "stop"
+    return outcome
+
+
 async def sse_events(lines: AsyncIterator[str]) -> AsyncIterator[dict[str, Any]]:
     """Parse `data:` lines into event dicts, ignoring everything else."""
     async for line in lines:

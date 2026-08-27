@@ -21,10 +21,56 @@ from pydantic import BaseModel, Field
 from compass.common.auth import require_user
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.common.config import get_settings
+from compass.common.gateway.responses import ReasoningTrace
 
 logger = logging.getLogger("compass.design")
 
 router = APIRouter()
+
+
+async def _think_through(
+    prompt: str,
+    asked: str,
+    *,
+    max_tokens: int,
+    model: str = "",
+    images: list[str] | None = None,
+    prior: ReasoningTrace | None = None,
+    effort: str = "",
+) -> tuple[str, ReasoningTrace | None]:
+    """Ask the model, letting it think, and keep what it thought.
+
+    Design's work is a sequence rather than a single question: write the
+    document, review it, correct what the review found, review again. Handing
+    each step the reasoning from the one before it makes the next a
+    continuation instead of a stranger meeting the document for the first
+    time — the same reason an agent hands thinking back with a tool result.
+
+    Falls back to a plain completion on a deployment that cannot reason, so
+    the sequence still runs, just without the continuity.
+    """
+    from compass.common.config import get_settings
+    from compass.common.gateway.azure_client import get_model_client
+
+    settings = get_settings()
+    client = get_model_client()
+    deployment = model or settings.azure.deployment
+    wanted = effort or settings.thinking.design_effort
+
+    if settings.thinking.reasons(deployment):
+        try:
+            return await client.complete_reasoning(
+                prompt, asked, max_tokens=max_tokens, deployment=deployment,
+                images=images, effort=wanted, prior=prior,
+            )
+        except Exception as err:  # noqa: BLE001 — never lose the step over this
+            logger.warning("design: reasoning call failed (%s); plain completion", err)
+
+    out = await client.complete_utility(
+        prompt, asked, max_tokens=max_tokens, prefer_main=True,
+        model=model, images=images, effort=wanted,
+    )
+    return out, None
 
 
 class DesignCreate(BaseModel):
@@ -1309,8 +1355,9 @@ def _weight(findings: list[str]) -> tuple[int, int]:
 
 
 async def _repair_css(
-    html: str, issues: list[str], model: str, kind: str, system: dict | None
-) -> tuple[str, list[str], list[str]]:
+    html: str, issues: list[str], model: str, kind: str, system: dict | None,
+    prior: "ReasoningTrace | None" = None,
+) -> tuple[str, list[str], list[str], "ReasoningTrace | None"]:
     """Cure a style fault with a stylesheet rather than a rewrite.
 
     Asking for a whole prototype back to change a font-family is a hundred and
@@ -1336,11 +1383,11 @@ async def _repair_css(
         # The reply is a few rules, but the thinking that finds them is billed
         # against the same budget: measured at 8,128 reasoning tokens on a
         # 134KB prototype, which a cap of 8,000 truncated into an empty string.
-        out = await get_model_client().complete_utility(
-            CSS_REPAIR_PROMPT, asked, max_tokens=32_000, prefer_main=True, model=model
+        out, thought = await _think_through(
+            CSS_REPAIR_PROMPT, asked, max_tokens=32_000, model=model, prior=prior
         )
     except Exception:  # noqa: BLE001
-        return html, [], issues
+        return html, [], issues, prior
 
     import re as _re
 
@@ -1349,7 +1396,7 @@ async def _repair_css(
         if m := _re.search(r"```(?:css)?\s*\n?(.*?)```", css, _re.S):
             css = m.group(1).strip()
     if not css or css.lstrip().startswith("<") or len(css) > 24_000:
-        return html, [], issues
+        return html, [], issues, prior
 
     block = "<style data-dz-fix>\n" + css + "\n</style>"
     if "</head>" in html:
@@ -1362,20 +1409,20 @@ async def _repair_css(
     try:
         after = await _ex.audit(fixed, kind=kind, system=system)
     except Exception:  # noqa: BLE001
-        return html, [], issues
+        return html, [], issues, prior
 
     if _kinds(after) - _kinds(issues):        # a fault of a new kind appeared
-        return html, [], issues
+        return html, [], issues, prior
     if _weight(after) >= _weight(issues):     # or nothing is less wrong
-        return html, [], issues
+        return html, [], issues, prior
     cured = [i for i in issues if _kinds([i]) - _kinds(after)]
-    return fixed, cured, after
+    return fixed, cured, after, thought
 
 
 async def _repair(
     html: str, issues: list[str], model: str, kind: str = "",
-    system: dict | None = None,
-) -> tuple[str, list[str], list[str]]:
+    system: dict | None = None, prior: "ReasoningTrace | None" = None,
+) -> tuple[str, list[str], list[str], "ReasoningTrace | None"]:
     """One corrective pass: the document to keep, what it cured, what is left.
 
     A repair that trades one fault for another is not a repair, so the
@@ -1386,16 +1433,16 @@ async def _repair(
     try:
         from compass.common.gateway.azure_client import get_model_client
 
-        out = await get_model_client().complete_utility(
+        out, thought = await _think_through(
             REPAIR_PROMPT,
             "The review found:\n- " + "\n- ".join(issues)
             + "\n\nThe document:\n\n```html\n" + html + "\n```",
             max_tokens=64_000,
-            prefer_main=True,
             model=model,
+            prior=prior,
         )
     except Exception:  # noqa: BLE001 - a failed repair is not a failed design
-        return html, [], issues
+        return html, [], issues, prior
 
     import re as _re
 
@@ -1405,14 +1452,14 @@ async def _repair(
             fixed = m.group(1).strip()
     # It has to still be a document, and not a stub of one.
     if not fixed.lower().startswith("<!doctype") and not fixed.lower().startswith("<html"):
-        return html, [], issues
+        return html, [], issues, prior
     if len(fixed) < len(html) * 0.6:
-        return html, [], issues
+        return html, [], issues, prior
 
     try:
         after = await _ex.audit(fixed, kind=kind, system=system)
     except Exception:  # noqa: BLE001
-        return html, [], issues
+        return html, [], issues, prior
 
     # Judging the repair by how many findings are left throws away good work:
     # moving one colour from 4.09:1 to 4.46:1 across six screens is progress,
@@ -1420,16 +1467,16 @@ async def _repair(
     # and let a fault that merely changed shape count as movement.
     before_kinds, after_kinds = _kinds(issues), _kinds(after)
     if after_kinds - before_kinds:          # a fault of a new kind appeared
-        return html, [], issues
+        return html, [], issues, prior
     if _weight(after) >= _weight(issues):   # or nothing is less wrong
-        return html, [], issues
+        return html, [], issues, prior
     if after == issues:                     # or nothing moved at all
-        return html, [], issues
+        return html, [], issues, prior
 
     # Cured means the kind of fault is gone. A fault that survived in a milder
     # form is not cured — it comes back in the remainder, in its new words.
     cured = [i for i in issues if _kinds([i]) - after_kinds]
-    return fixed, cured, after
+    return fixed, cured, after, thought
 
 
 @router.post("/v1/design/projects/{project_id}/generate")
@@ -1488,14 +1535,13 @@ async def design_generate(
         # A full design needs a large budget: on reasoning models the thinking
         # is billed against the same cap, so a small one returns nothing — and
         # a prototype of eight working screens is a lot of document.
-        out = await get_model_client().complete_utility(
+        out, made_it = await _think_through(
             DESIGN_SYSTEM_PROMPT,
             "\n\n".join(p for p in parts if p),
             max_tokens=64_000,
-            prefer_main=True,
             model=body.model,
             images=body.images,
-            effort=body.effort or get_settings().thinking.design_effort,
+            effort=body.effort,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"design generation failed: {err}")
@@ -1553,6 +1599,10 @@ async def design_generate(
     # Finding a fault and reporting it leaves the fault in the design. Correct
     # what was found, once, and say what was corrected.
     cured: list[str] = []
+    # The reasoning from the generation carries into the first correction, and
+    # from each correction into the next: three rounds of a model rediscovering
+    # the same document is three times the thinking for the same work.
+    thought: ReasoningTrace | None = made_it
     if issues:
         steps.append("Found issues — fixing")
         # Corrections, plural: keep going while each pass leaves the design
@@ -1562,12 +1612,12 @@ async def design_generate(
             was = html
             # A style fault wants a stylesheet, not the document written again.
             if all(any(m in i for m in _STYLE_FIXABLE) for i in issues):
-                html, got, issues = await _repair_css(
-                    html, issues, body.model, kind, wanted
+                html, got, issues, thought = await _repair_css(
+                    html, issues, body.model, kind, wanted, thought
                 )
             else:
-                html, got, issues = await _repair(
-                    html, issues, body.model, kind, wanted
+                html, got, issues, thought = await _repair(
+                    html, issues, body.model, kind, wanted, thought
                 )
             cured += got
             if not issues:

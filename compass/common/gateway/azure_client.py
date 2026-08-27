@@ -28,6 +28,7 @@ from compass.common.gateway.responses import (
     ThinkingDelta,
     build_request,
     consume,
+    parse_response,
     sse_events,
 )
 
@@ -451,6 +452,97 @@ class AzureModelClient:
             model=deployment,
         )
 
+    async def complete_reasoning(
+        self,
+        prompt: str,
+        text: str,
+        *,
+        max_tokens: int,
+        deployment: str,
+        images: list[str] | None = None,
+        effort: str | None = None,
+        prior: ReasoningTrace | None = None,
+    ) -> tuple[str, ReasoningTrace]:
+        """One non-streaming call that actually reasons, and says what it cost.
+
+        This is what a long single-shot generation needs that chat completions
+        cannot give it: reasoning asked for properly, the reasoning itself
+        handed back so a follow-up step resumes it instead of starting over,
+        an honest reason when the answer was cut short, and the token count
+        that explains it.
+
+        `prior` is the reasoning from the previous step of the same piece of
+        work. Passing it is what makes a repair round a continuation rather
+        than a stranger looking at the document for the first time.
+        """
+        import httpx
+
+        settings = get_settings()
+        azure, thinking = settings.azure, settings.thinking
+        url = (
+            f"{azure.endpoint.rstrip('/')}/openai/responses"
+            f"?api-version={thinking.responses_api_version}"
+        )
+
+        user: Any = text
+        if images:
+            user = [{"type": "text", "text": text}] + [
+                {"type": "image_url", "image_url": {"url": src}} for src in images
+            ]
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": user},
+        ]
+        # The prior reasoning belongs to the assistant turn before this one, so
+        # it is attached to a placeholder for that turn.
+        by_index: dict[int, list[dict[str, Any]]] = {}
+        if prior and prior.items:
+            messages.insert(1, {"role": "assistant", "content": ""})
+            by_index[1] = prior.items
+
+        body = build_request(
+            deployment=deployment,
+            messages=messages,
+            tools=None,
+            max_output_tokens=max_tokens,
+            effort=thinking.normalize_effort(effort or thinking.default_effort),
+            display=thinking.display,
+            reasoning_by_index=by_index,
+            stream=False,
+        )
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(900.0, connect=30.0)) as http:
+            response = await http.post(
+                url, json=body,
+                headers={"api-key": azure.api_key, "content-type": "application/json"},
+            )
+        if response.status_code != 200:
+            message = response.text
+            try:
+                message = response.json()["error"]["message"]
+            except (ValueError, KeyError, TypeError):
+                pass
+            low = message.lower()
+            if "context" in low and "length" in low:
+                raise ContextOverflowError(message)
+            raise _http_error(response.status_code, message, deployment, azure)
+
+        outcome = parse_response(response.json())
+        if outcome.finish_reason == "length":
+            logger.warning(
+                "%s ran out of room: %d of %d output tokens went to thinking, "
+                "leaving %s. Raise the cap for this call or lower the effort.",
+                deployment, outcome.reasoning.tokens, max_tokens,
+                "a truncated answer" if outcome.text else "nothing for the answer",
+            )
+        elif outcome.reasoning.tokens:
+            logger.info(
+                "%s thought for %d tokens before answering (%d of %d used)",
+                deployment, outcome.reasoning.tokens,
+                outcome.completion_tokens, max_tokens,
+            )
+        return outcome.text, outcome.reasoning
+
     async def complete_utility(
         self,
         prompt: str,
@@ -504,6 +596,27 @@ class AzureModelClient:
         )
         last: Exception | None = None
         for deployment in dict.fromkeys(candidates):  # de-duped, order kept
+            # A deployment that reasons goes to the API that will actually
+            # reason. Every caller here — a design, a repair, a summary —
+            # gets that without having to ask for it.
+            if settings.thinking.reasons(deployment):
+                try:
+                    answer, _ = await self.complete_reasoning(
+                        prompt, text, max_tokens=max_tokens, deployment=deployment,
+                        images=images, effort=effort,
+                    )
+                    return answer
+                except ContextOverflowError:
+                    raise
+                except NotFoundError as err:
+                    logger.warning("deployment %r not found; falling back", deployment)
+                    last = err
+                    continue
+                except Exception as err:  # noqa: BLE001 — fall back to chat completions
+                    logger.warning(
+                        "reasoning call to %s failed (%s); retrying on chat "
+                        "completions without thinking", deployment, err,
+                    )
             base: dict[str, Any] = {"model": deployment, "messages": messages}
             # Effort applies only where there is reasoning to steer; a
             # deployment that rejects it drops it and retries below.
