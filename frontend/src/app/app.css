@@ -3062,7 +3062,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
    while it streams and collapsed to one line once the answer arrives. */
 .cthink {
   margin: 0 0 6px;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--border-strong);
   padding-left: 10px;
 }
 .cthink.live { border-left-color: var(--accent-line); }
@@ -3078,6 +3078,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   color: var(--muted);
   font: inherit;
   font-size: 0.78rem;
+  font-style: italic;
   text-align: left;
 }
 .cthink-head:hover { color: var(--ink); }
@@ -3090,7 +3091,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .cthink-cost {
   margin-left: auto;
-  color: var(--faint);
+  color: var(--accent);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
 }

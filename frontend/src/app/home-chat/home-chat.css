@@ -466,7 +466,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .cthink {
   max-width: 82%;
   margin: 0 0 6px;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--border-strong);
   padding-left: 10px;
 }
 .cthink.live { border-left-color: var(--accent-line); }
@@ -483,6 +483,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   color: var(--muted);
   font: inherit;
   font-size: 0.78rem;
+  font-style: italic;
   text-align: left;
 }
 .cthink-head:hover { color: var(--ink); }
@@ -506,7 +507,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 
 .cthink-cost {
   margin-left: auto;
-  color: var(--faint);
+  color: var(--accent);
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
 }
