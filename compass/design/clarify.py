@@ -134,6 +134,47 @@ _FIELD_TYPES = {
 }
 
 
+
+#: The shape the answer must take, enforced by the model rather than hoped for.
+#: Compass used to ask for JSON in prose, strip the code fence, try to parse it
+#: and fall back to an empty form when that failed — which read to the person
+#: waiting as "no questions", not as "the reply was malformed". The fields here
+#: are exactly the ones `normalize_clarify` reads; a strict schema requires
+#: every property to be listed as required and additional ones to be refused,
+#: so optional values are typed as nullable rather than left out.
+CLARIFY_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "ready": {
+            "type": "boolean",
+            "description": "True when the brief needs no further questions.",
+        },
+        "fields": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "type": {
+                        "type": "string",
+                        "enum": sorted(set(_FIELD_TYPES) | set(_FIELD_TYPES.values())),
+                    },
+                    "hint": {"type": ["string", "null"]},
+                    "placeholder": {"type": ["string", "null"]},
+                    "options": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["label", "type", "hint", "placeholder", "options"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["ready", "fields"],
+    "additionalProperties": False,
+}
+
 def normalize_clarify(form: dict) -> dict:
     """Coerce a model's form into the shapes the canvas can render."""
     fields = []

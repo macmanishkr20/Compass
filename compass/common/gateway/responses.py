@@ -219,6 +219,8 @@ def build_request(
     display: str,
     reasoning_by_index: dict[int, list[dict[str, Any]]] | None = None,
     stream: bool = True,
+    schema: dict[str, Any] | None = None,
+    schema_name: str = "result",
 ) -> dict[str, Any]:
     """The request body, with reasoning asked for in the way this API wants.
 
@@ -250,6 +252,16 @@ def build_request(
         body["instructions"] = instructions
     if reasoning:
         body["reasoning"] = reasoning
+    if schema:
+        # The answer is constrained to the schema rather than asked for in
+        # prose and parsed hopefully afterwards. `strict` is what makes it a
+        # guarantee instead of a strong suggestion.
+        body["text"] = {"format": {
+            "type": "json_schema",
+            "name": schema_name,
+            "strict": True,
+            "schema": schema,
+        }}
     if tools:
         body["tools"] = to_tools(tools)
         body["tool_choice"] = "auto"

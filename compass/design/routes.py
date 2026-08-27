@@ -145,7 +145,13 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
     """Is this brief enough to design from? If not, what should we ask?"""
     import json as _json
 
-    from compass.design.clarify import CLARIFY_PROMPT, FOLLOWUP_FALLBACK, FOLLOWUP_PROMPT, normalize_clarify
+    from compass.design.clarify import (
+        CLARIFY_PROMPT,
+        CLARIFY_SCHEMA,
+        FOLLOWUP_FALLBACK,
+        FOLLOWUP_PROMPT,
+        normalize_clarify,
+    )
     from compass.design.skills.catalogue import TEMPLATES
 
     prompt = body.prompt.strip()
@@ -166,11 +172,17 @@ async def design_clarify(body: DesignClarify, user: str = Depends(require_user))
         asked += f"\n\nAlready answered:\n{body.answers.strip()}"
 
     try:
+        # The answer is constrained to the schema, so the parsing below is
+        # now a formality rather than the thing that decides whether anyone
+        # sees a form. The prompt is unchanged: this constrains the shape of
+        # the reply, not what is asked for.
         raw = await get_model_client().complete_utility(
             FOLLOWUP_PROMPT if body.followup else CLARIFY_PROMPT,
             asked,
             max_tokens=4_000,
             prefer_main=True,
+            schema=CLARIFY_SCHEMA,
+            schema_name="clarify",
         )
     except Exception:  # noqa: BLE001 - never block designing on this
         return {"ready": True}

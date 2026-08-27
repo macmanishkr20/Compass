@@ -132,6 +132,13 @@ class ThinkingSettings(BaseModel):
     #: levels do not land where a particular workload needs them.
     posture: str = ""
 
+    #: The language every reply is written in, whatever language the question
+    #: was asked in. Empty means the model decides from the conversation,
+    #: which is the right default — naming a language nobody chose is worse
+    #: than inferring one well. Set it when replies must be in one language
+    #: regardless: COMPASS_RESPONSE_LANGUAGE="Hindi".
+    response_language: str = ""
+
     #: Set false to keep every request on chat completions, giving up thinking
     #: text and encrypted reasoning. The escape hatch if a resource misbehaves.
     enabled: bool = True
@@ -448,6 +455,9 @@ def get_settings() -> Settings:
         "COMPASS_DESIGN_EFFORT", think.design_effort
     ).lower()
     think.posture = os.environ.get("COMPASS_THINKING_POSTURE", think.posture).lower()
+    think.response_language = os.environ.get(
+        "COMPASS_RESPONSE_LANGUAGE", think.response_language
+    ).strip()
     think.responses_api_version = os.environ.get(
         "AZURE_OPENAI_RESPONSES_API_VERSION", think.responses_api_version
     )

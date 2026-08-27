@@ -112,6 +112,8 @@ class ModelClient(Protocol):
         model: str = "",
         images: list[str] | None = None,
         effort: str | None = None,
+        schema: dict[str, Any] | None = None,
+        schema_name: str = "result",
     ) -> str: ...
 
 
@@ -502,6 +504,8 @@ class AzureModelClient:
         images: list[str] | None = None,
         effort: str | None = None,
         prior: ReasoningTrace | None = None,
+        schema: dict[str, Any] | None = None,
+        schema_name: str = "result",
     ) -> tuple[str, ReasoningTrace]:
         """One non-streaming call that actually reasons, and says what it cost.
 
@@ -549,6 +553,8 @@ class AzureModelClient:
             display=thinking.display,
             reasoning_by_index=by_index,
             stream=False,
+            schema=schema,
+            schema_name=schema_name,
         )
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(900.0, connect=30.0)) as http:
@@ -593,6 +599,8 @@ class AzureModelClient:
         model: str = "",
         images: list[str] | None = None,
         effort: str | None = None,
+        schema: dict[str, Any] | None = None,
+        schema_name: str = "result",
     ) -> str:
         """Non-streaming call for side tasks (compaction summaries, suggestions,
         design generation). `max_tokens` must be generous for reasoning models:
@@ -644,6 +652,7 @@ class AzureModelClient:
                     answer, _ = await self.complete_reasoning(
                         prompt, text, max_tokens=max_tokens, deployment=deployment,
                         images=images, effort=effort,
+                        schema=schema, schema_name=schema_name,
                     )
                     return answer
                 except ContextOverflowError:
@@ -658,6 +667,14 @@ class AzureModelClient:
                         "completions without thinking", deployment, err,
                     )
             base: dict[str, Any] = {"model": deployment, "messages": messages}
+            if schema:
+                # Same guarantee on the older API, under its own name.
+                base["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name, "strict": True, "schema": schema,
+                    },
+                }
             # Effort applies only where there is reasoning to steer; a
             # deployment that rejects it drops it and retries below.
             if wanted and settings.thinking.reasons(deployment):
@@ -671,6 +688,14 @@ class AzureModelClient:
                     low = str(err).lower()
                     if "reasoning_effort" in low:
                         base.pop("reasoning_effort", None)
+                    if "response_format" in low or "json_schema" in low:
+                        # An older deployment cannot constrain the answer.
+                        # Better a reply that has to be parsed than no reply.
+                        base.pop("response_format", None)
+                        logger.warning(
+                            "%s will not enforce a JSON schema; falling back to "
+                            "parsing the reply", deployment,
+                        )
                     response = await self._get_client().chat.completions.create(
                         **base, max_tokens=max_tokens
                     )
@@ -902,6 +927,8 @@ class MockModelClient:
         model: str = "",
         images: list[str] | None = None,
         effort: str | None = None,
+        schema: dict[str, Any] | None = None,
+        schema_name: str = "result",
     ) -> str:
         return "Mock summary of the session so far."
 

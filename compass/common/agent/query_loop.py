@@ -26,7 +26,7 @@ from compass.common.agent.compaction import (
     autocompact_if_needed,
     microcompact,
 )
-from compass.common.agent.steering import threshold_guidance
+from compass.common.agent.steering import answer_in, threshold_guidance
 from compass.common.agent.tool_orchestration import run_tools
 from compass.common.gateway.azure_client import (
     CompletionResult,
@@ -115,8 +115,11 @@ async def query(
         # A standing instruction about when thinking earns its latency, when
         # one is configured. Appended rather than prepended so it reads as a
         # note on the brief, not a replacement for it.
-        guidance = threshold_guidance(settings.thinking.posture)
-        prompt_text = f"{system_prompt}\n\n{guidance}" if guidance else system_prompt
+        notes = [
+            threshold_guidance(settings.thinking.posture),
+            answer_in(settings.thinking.response_language),
+        ]
+        prompt_text = "\n\n".join([system_prompt, *(n for n in notes if n)])
 
         # The request, and the reasoning behind each earlier assistant turn,
         # built together so the positions cannot drift apart. That reasoning

@@ -35,6 +35,31 @@ DISCOURAGE_THINKING = (
 HINTS = ("more", "less")
 
 
+def answer_in(language: str | None) -> str:
+    """The line that fixes the language of every reply.
+
+    A model infers the language from the conversation, which is usually right
+    and occasionally not — a question asked in English about a French document
+    can come back in either. Where an application lets someone choose, the
+    guidance is to say so in the system prompt rather than leave it to
+    inference, because the system prompt is the one place the instruction
+    survives every turn.
+
+    Empty for no choice, which leaves the inference alone. That is the right
+    default: naming a language nobody asked for is worse than guessing well.
+    """
+    if not language:
+        return ""
+    name = language.strip()
+    if not name:
+        return ""
+    return (
+        f"Always respond in {name}, regardless of the language the user "
+        f"writes in. Use idiomatic {name} as a native speaker would, in its "
+        "own script."
+    )
+
+
 def steer(content: str, hint: str | None) -> str:
     """Append the phrase for `hint` to one user message.
 
