@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from compass.common.agent.steering import steer
 from compass.common.auth import require_user
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.code.engine import QueryEngine, Session
@@ -40,7 +41,9 @@ class CreateSessionRequest(BaseModel):
     permission_mode: str | None = Field(
         default=None, description="default | accept_edits | plan | bypass"
     )
-    effort: str | None = Field(default=None, description="minimal | low | medium | high")
+    effort: str | None = Field(
+        default=None, description="low | medium | high | xhigh"
+    )
     model: str | None = Field(default=None, description="Azure deployment to use")
     workspace_id: str | None = Field(default=None, description="Workspace to operate in")
     resume: bool = Field(default=False, description="Reload transcript if it exists")
@@ -60,6 +63,11 @@ class MessageAttachment(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     attachments: list[MessageAttachment] = []
+    # Steer thinking for this turn alone: "more" or "less". Effort is the
+    # calibrated control, but it is part of the cached prefix — changing it
+    # mid-conversation re-sends everything — so a single turn is steered with
+    # words instead.
+    think: str = ""
 
 
 class ResolvePermissionRequest(BaseModel):
@@ -205,7 +213,7 @@ async def send_message(
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
     attachments = [a.model_dump() for a in body.attachments]
-    return _sse(engine.ask(session, body.content, attachments))
+    return _sse(engine.ask(session, steer(body.content, body.think), attachments))
 
 
 @router.post("/v1/sessions/{session_id}/messages/{message_uuid}/edit")

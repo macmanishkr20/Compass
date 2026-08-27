@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from compass.common.agent.steering import steer
 from compass.common.auth import require_user
 from compass.home.engine import ChatEngine, ChatSession
 from compass.common.models.events import ErrorEvent
@@ -31,7 +32,9 @@ chat_sessions: dict[str, ChatSession] = {}
 
 
 class CreateChatRequest(BaseModel):
-    effort: str | None = Field(default=None, description="minimal | low | medium | high")
+    effort: str | None = Field(
+        default=None, description="low | medium | high | xhigh"
+    )
     model: str | None = Field(default=None, description="Azure deployment to use")
     resume: bool = Field(default=False, description="Reload the thread if it exists")
     session_id: str | None = None
@@ -52,6 +55,11 @@ class ChatMessageRequest(BaseModel):
     content: str
     attachments: list[ChatAttachment] = []
     work_iq: bool = False  # ground this turn in Azure AI Search (Home "Work IQ")
+    # Steer thinking for this turn alone: "more" or "less". Effort is the
+    # calibrated control, but it is part of the cached prefix — changing it
+    # mid-conversation re-sends everything — so a single turn is steered with
+    # words instead.
+    think: str = ""
 
 
 def _sse(gen) -> StreamingResponse:
@@ -105,7 +113,11 @@ async def send_chat_message(
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
     attachments = [a.model_dump() for a in body.attachments]
-    return _sse(chat_engine.ask(session, body.content, attachments, body.work_iq))
+    return _sse(
+        chat_engine.ask(
+            session, steer(body.content, body.think), attachments, body.work_iq
+        )
+    )
 
 
 class ChatRegenRequest(BaseModel):

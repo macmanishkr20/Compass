@@ -933,6 +933,8 @@ class DesignGenerate(BaseModel):
     design_system: str = ""
     model: str = ""     # deployment chosen in the composer; "" = the default
     images: list[str] = []  # data: URLs to design from
+    # How hard to think before writing. "" = the configured design posture.
+    effort: str = ""
 
 
 class DesignElement(BaseModel):
@@ -1493,6 +1495,7 @@ async def design_generate(
             prefer_main=True,
             model=body.model,
             images=body.images,
+            effort=body.effort or get_settings().thinking.design_effort,
         )
     except Exception as err:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"design generation failed: {err}")

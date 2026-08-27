@@ -100,6 +100,7 @@ class ModelClient(Protocol):
         prefer_main: bool = False,
         model: str = "",
         images: list[str] | None = None,
+        effort: str | None = None,
     ) -> str: ...
 
 
@@ -138,6 +139,34 @@ def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
 
 class _RetryableHTTPError(Exception):
     """A reasoning-path failure worth another attempt."""
+
+
+def _warn_if_reasoning_ate_the_budget(
+    response: Any, content: str, deployment: str, cap: int
+) -> None:
+    """Say when an answer was crowded out by the thinking that preceded it.
+
+    Reasoning is billed as output and shares the output cap with the answer,
+    so a cap sized for a reply without thinking produces a short answer or no
+    answer at all — and the call returns an empty string, which reads like the
+    model having nothing to say. The two ways out are a bigger cap or a lower
+    effort, so both are named.
+    """
+    usage = getattr(response, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None)
+    spent = getattr(details, "reasoning_tokens", 0) or 0
+    if not spent:
+        return
+    finish = getattr(response.choices[0], "finish_reason", None)
+    if content and finish != "length":
+        logger.debug("%s spent %d tokens thinking of %d", deployment, spent, cap)
+        return
+    logger.warning(
+        "%s spent %d of its %d output tokens thinking, leaving %s. Raise the "
+        "cap for this call or lower the effort.",
+        deployment, spent, cap,
+        "a truncated answer" if content else "nothing for the answer",
+    )
 
 
 class AzureModelClient:
@@ -431,12 +460,17 @@ class AzureModelClient:
         prefer_main: bool = False,
         model: str = "",
         images: list[str] | None = None,
+        effort: str | None = None,
     ) -> str:
         """Non-streaming call for side tasks (compaction summaries, suggestions,
         design generation). `max_tokens` must be generous for reasoning models:
         thinking is billed against the same budget, so a small cap can consume
-        it entirely and return an empty string. `prefer_main` puts the primary
-        deployment first when output quality matters more than cost.
+        it entirely and return an empty string — which is why a call that comes
+        back empty for that reason now says so in the log instead of looking
+        like the model had nothing to say. `prefer_main` puts the primary
+        deployment first when output quality matters more than cost. `effort`
+        steers how much of the budget goes to reasoning; lowering it is the
+        other way out of a truncated answer.
 
         Falls back to the main deployment when the configured utility deployment
         does not exist on the resource — otherwise a stale
@@ -465,19 +499,33 @@ class AzureModelClient:
         # A chosen deployment leads; the usual order still follows it, so an
         # unavailable choice degrades instead of failing the request.
         candidates = [d for d in ((model,) + order) if d]
+        wanted = settings.thinking.normalize_effort(
+            effort or settings.thinking.default_effort
+        )
         last: Exception | None = None
         for deployment in dict.fromkeys(candidates):  # de-duped, order kept
-            base = {"model": deployment, "messages": messages}
+            base: dict[str, Any] = {"model": deployment, "messages": messages}
+            # Effort applies only where there is reasoning to steer; a
+            # deployment that rejects it drops it and retries below.
+            if wanted and settings.thinking.reasons(deployment):
+                base["reasoning_effort"] = wanted
             try:
                 try:
                     response = await self._get_client().chat.completions.create(
                         **base, max_completion_tokens=max_tokens
                     )
-                except BadRequestError:
+                except BadRequestError as err:
+                    low = str(err).lower()
+                    if "reasoning_effort" in low:
+                        base.pop("reasoning_effort", None)
                     response = await self._get_client().chat.completions.create(
                         **base, max_tokens=max_tokens
                     )
-                return response.choices[0].message.content or ""
+                content = response.choices[0].message.content or ""
+                _warn_if_reasoning_ate_the_budget(
+                    response, content, deployment, max_tokens
+                )
+                return content
             except NotFoundError as err:  # deployment missing — try the next one
                 logger.warning("utility deployment %r not found; falling back", deployment)
                 last = err
@@ -569,6 +617,7 @@ class MockModelClient:
         max_output_tokens: int | None = None,
         deployment: str | None = None,
         effort: str | None = None,
+        reasoning_by_index: dict[int, list[dict[str, Any]]] | None = None,
     ) -> AsyncIterator[StreamItem]:
         scenario = get_settings().mock_scenario
         tool_results = [m for m in messages if m.get("role") == "tool"]
@@ -699,6 +748,7 @@ class MockModelClient:
         prefer_main: bool = False,
         model: str = "",
         images: list[str] | None = None,
+        effort: str | None = None,
     ) -> str:
         return "Mock summary of the session so far."
 

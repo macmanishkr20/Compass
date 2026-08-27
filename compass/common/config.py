@@ -103,6 +103,12 @@ class ThinkingSettings(BaseModel):
     #: changing it starts the cache over.
     default_effort: str = "medium"
 
+    #: Writing a whole prototype is the most demanding thing Compass asks of a
+    #: model, and it already reserves 64k output tokens for it. It ran at the
+    #: server's own default only because Compass sent no effort at all, which
+    #: was never a decision. This makes it one.
+    design_effort: str = "high"
+
     #: "summarized" streams a readable summary of the reasoning as it is
     #: produced; "omitted" asks for none, which reaches the first word of the
     #: answer sooner. Billing is identical either way — only what you see
@@ -431,6 +437,9 @@ def get_settings() -> Settings:
         "COMPASS_THINKING_EFFORT", think.default_effort
     ).lower()
     think.display = os.environ.get("COMPASS_THINKING_DISPLAY", think.display).lower()
+    think.design_effort = os.environ.get(
+        "COMPASS_DESIGN_EFFORT", think.design_effort
+    ).lower()
     think.responses_api_version = os.environ.get(
         "AZURE_OPENAI_RESPONSES_API_VERSION", think.responses_api_version
     )
@@ -440,6 +449,8 @@ def get_settings() -> Settings:
         think.reasoning_models = [m.strip().lower() for m in models.split(",") if m.strip()]
     if think.default_effort not in EFFORT_LEVELS:
         think.default_effort = ThinkingSettings().default_effort
+    if think.design_effort not in EFFORT_LEVELS:
+        think.design_effort = ThinkingSettings().design_effort
 
     if mot := os.environ.get("COMPASS_MAX_OUTPUT_TOKENS"):
         try:
