@@ -808,13 +808,17 @@ _DOC_JS = r"""() => {
   // A page usually holds a content frame of the same width; count the page,
   // not both of them.
   const sheets = pageish.filter((e) => !pageish.some((o) => o !== e && o.contains(e)));
+  // A page that has outgrown its paper hides its own overflow: nothing hangs
+  // out of a sheet that grew to fit. Measure against the page's height.
+  const PAGE_H = 1123;
   let spill = 0;
   for (const sheet of sheets) {
     const sr = sheet.getBoundingClientRect();
+    if (sr.height > PAGE_H + 2) { spill++; continue; }
     for (const kid of sheet.querySelectorAll('*')) {
       const r = kid.getBoundingClientRect();
       if (!r.height) continue;
-      if (r.bottom > sr.bottom + 2 || r.top < sr.top - 2) { spill++; break; }
+      if (r.bottom > sr.top + PAGE_H + 2 || r.top < sr.top - 2) { spill++; break; }
     }
   }
 
@@ -1062,6 +1066,9 @@ _PAGED_KINDS = {"document", "research"}
 
 _REFLOW_JS = r"""() => {
   const W = 794;
+  // The running header and footer belong to the page, not to the text: they
+  // are never lifted off it and never removed when a sheet is cloned.
+  const PAGE_FURNITURE = new Set(['HEADER', 'FOOTER']);
   let sheets = [...document.querySelectorAll('body *')].filter((e) => {
     const r = e.getBoundingClientRect();
     return Math.abs(r.width - W) < 14 && r.height > 640 && r.height < 2400;
@@ -1079,7 +1086,7 @@ _REFLOW_JS = r"""() => {
   const flowOf = (sheet) => {
     let node = sheet;
     for (let depth = 0; depth < 8; depth++) {
-      const kids = [...node.children].filter((k) => k.tagName !== 'FOOTER');
+      const kids = [...node.children].filter((k) => !PAGE_FURNITURE.has(k.tagName));
       if (kids.length !== 1) break;
       node = kids[0];
     }
@@ -1093,18 +1100,24 @@ _REFLOW_JS = r"""() => {
   const blocks = [];
   for (const f of flows) {
     for (const k of [...f.children]) {
-      if (k.tagName === 'FOOTER') continue;
+      if (PAGE_FURNITURE.has(k.tagName)) continue;
       blocks.push(k);
       k.remove();
     }
   }
   if (!blocks.length) return { moved: 0, pages: sheets.length, why: 'nothing to place' };
 
+  // A page is full when it passes the page's height — measured from the top of
+  // the sheet, not against the sheet's own box. A sheet given min-height grows
+  // with whatever is put on it, so nothing ever hangs out of it and a test that
+  // watches for overhang says every page fits while one page takes the lot.
+  const PAGE_H = 1123;
   const spills = (sheet) => {
     const sr = sheet.getBoundingClientRect();
+    if (sr.height > PAGE_H + 1) return true;
     for (const k of sheet.querySelectorAll('*')) {
       const r = k.getBoundingClientRect();
-      if (r.height && r.bottom > sr.bottom + 1) return true;
+      if (r.height && r.bottom > sr.top + PAGE_H + 1) return true;
     }
     return false;
   };
@@ -1113,29 +1126,67 @@ _REFLOW_JS = r"""() => {
     const last = sheets[sheets.length - 1];
     const copy = last.cloneNode(true);
     const flow = flowOf(copy);
-    for (const k of [...flow.children]) if (k.tagName !== 'FOOTER') k.remove();
+    for (const k of [...flow.children]) if (!PAGE_FURNITURE.has(k.tagName)) k.remove();
     last.parentNode.insertBefore(copy, last.nextSibling);
     sheets.push(copy);
     flows.push(flow);
   };
 
+  // Place each block, and when one cannot fit a page even on its own, open it
+  // and place its children instead — a section longer than a page is carried
+  // over, with its wrapper re-opened on the next sheet so the styling holds.
   let at = 0, moved = 0;
-  for (const block of blocks) {
-    flows[at].appendChild(block);
-    if (!spills(sheets[at])) continue;
-    // It does not fit here. If it is the only thing on the page it can never
-    // fit anywhere, so leave it and carry on rather than loop for ever.
-    if (flows[at].children.length === 1) continue;
-    block.remove();
+  let stack = [];                       // wrappers currently open, innermost last
+  const tip = () => (stack.length ? stack[stack.length - 1] : flows[at]);
+  // The running footer is usually a child of the very element being filled, so
+  // appending puts the text after it — the footer ends up mid-page and the last
+  // block hangs off the bottom. Everything goes in above it.
+  const footIn = (el) => [...el.children].find((k) => k.tagName === 'FOOTER') || null;
+  const add = (parent, node) => parent.insertBefore(node, footIn(parent));
+
+  const turnPage = () => {
     at += 1;
     moved += 1;
     if (at >= sheets.length) addSheet();
-    flows[at].appendChild(block);
-  }
+    const rebuilt = [];
+    let parent = flows[at];
+    for (const open of stack) {
+      const copy = open.cloneNode(false);
+      add(parent, copy);
+      rebuilt.push(copy);
+      parent = copy;
+    }
+    stack = rebuilt;
+  };
+
+  const put = (node, depth) => {
+    add(tip(), node);
+    if (!spills(sheets[at])) return;
+    node.remove();
+    // Not the first thing here, so try a fresh page with the same wrappers.
+    if (flows[at].children.length || stack.length) {
+      turnPage();
+      add(tip(), node);
+      if (!spills(sheets[at])) return;
+      node.remove();
+    }
+    // Alone on a page and still too tall: break it open, or accept it.
+    if (node.children.length > 1 && depth < 4) {
+      const shell = node.cloneNode(false);
+      add(tip(), shell);
+      stack.push(shell);
+      for (const kid of [...node.children]) put(kid, depth + 1);
+      stack.pop();
+    } else {
+      add(tip(), node);
+    }
+  };
+
+  for (const block of blocks) put(block, 0);
 
   // Any sheet left with nothing on it is not a page.
   for (let i = sheets.length - 1; i >= 0; i--) {
-    const kids = [...flows[i].children].filter((k) => k.tagName !== 'FOOTER');
+    const kids = [...flows[i].children].filter((k) => !PAGE_FURNITURE.has(k.tagName));
     if (!kids.length) { sheets[i].remove(); sheets.splice(i, 1); flows.splice(i, 1); }
   }
 
