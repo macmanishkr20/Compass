@@ -508,7 +508,6 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   margin-left: auto;
   color: var(--accent);
   font-size: 0.72rem;
-  font-style: italic;
   font-variant-numeric: tabular-nums;
 }
 

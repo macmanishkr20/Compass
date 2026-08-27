@@ -3092,7 +3092,6 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   margin-left: auto;
   color: var(--accent);
   font-size: 0.72rem;
-  font-style: italic;
   font-variant-numeric: tabular-nums;
 }
 .cthink-body {
