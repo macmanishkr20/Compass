@@ -26,6 +26,7 @@ from compass.common.agent.compaction import (
     autocompact_if_needed,
     microcompact,
 )
+from compass.common.agent.steering import threshold_guidance
 from compass.common.agent.tool_orchestration import run_tools
 from compass.common.gateway.azure_client import (
     CompletionResult,
@@ -110,13 +111,19 @@ async def query(
         visible = messages_after_compact_boundary(messages)
         tool_schemas = [t.to_openai_schema() for t in ctx.tools]
 
+        # A standing instruction about when thinking earns its latency, when
+        # one is configured. Appended rather than prepended so it reads as a
+        # note on the brief, not a replacement for it.
+        guidance = threshold_guidance(settings.thinking.posture)
+        prompt_text = f"{system_prompt}\n\n{guidance}" if guidance else system_prompt
+
         # The request, and the reasoning behind each earlier assistant turn,
         # built together so the positions cannot drift apart. That reasoning
         # is handed back so the model resumes it rather than working it out
         # again after every tool result; it is opaque and travels verbatim.
         # `to_openai()` cannot carry it, because the plain chat-completions
         # path would then send a field the API does not know.
-        api_messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        api_messages: list[dict] = [{"role": "system", "content": prompt_text}]
         reasoning_by_index: dict[int, list[dict]] = {}
         for message in visible:
             if message.role == "assistant" and message.meta.get(REASONING_META_KEY):

@@ -125,6 +125,13 @@ class ThinkingSettings(BaseModel):
     #: chat-completions path, which has no reasoning to ask for.
     reasoning_models: list[str] = ["gpt-5", "o1", "o3", "o4", "gpt-6"]
 
+    #: A standing instruction about when thinking is worth it, added to every
+    #: system prompt: "more" lowers the threshold, "less" raises it, "" leaves
+    #: the model's own judgement alone. Reach for effort first — it is
+    #: calibrated, where this is wording — and use this only when the effort
+    #: levels do not land where a particular workload needs them.
+    posture: str = ""
+
     #: Set false to keep every request on chat completions, giving up thinking
     #: text and encrypted reasoning. The escape hatch if a resource misbehaves.
     enabled: bool = True
@@ -440,6 +447,7 @@ def get_settings() -> Settings:
     think.design_effort = os.environ.get(
         "COMPASS_DESIGN_EFFORT", think.design_effort
     ).lower()
+    think.posture = os.environ.get("COMPASS_THINKING_POSTURE", think.posture).lower()
     think.responses_api_version = os.environ.get(
         "AZURE_OPENAI_RESPONSES_API_VERSION", think.responses_api_version
     )
