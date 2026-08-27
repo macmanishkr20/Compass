@@ -203,17 +203,98 @@ class Tool(ABC):
         ...
 
     def to_openai_schema(self) -> dict[str, Any]:
+        from compass.common.config import get_settings
+
         schema = self.input_model.model_json_schema()
         schema.pop("title", None)
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": schema,
-            },
+        function: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": schema,
         }
+        # Strict mode constrains the model's sampling to the schema, so a tool
+        # call cannot arrive with a missing field or the wrong type. It is not
+        # free: the schema has to be reshaped to a stricter subset, and the
+        # model then sends an explicit null for anything it is not supplying —
+        # which `_without_nulls` turns back into "not supplied" before the
+        # input model sees it.
+        if get_settings().tools.strict_schemas:
+            function["parameters"] = strict_schema(schema)
+            function["strict"] = True
+        return {"type": "function", "function": function}
 
+
+
+def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Reshape a JSON Schema into the subset strict mode accepts.
+
+    Two rules, applied at every level: an object refuses properties it did not
+    declare, and every property it declares is required. An optional field
+    cannot simply be left out of `required`, so it becomes nullable instead —
+    "not supplied" is expressed as null rather than as absence.
+
+    The original schema is left alone; this returns a copy, because the
+    unmodified one is still what validates the arguments that come back.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: v for k, v in schema.items() if k != "title"}
+
+    for key in ("items", "additionalItems"):
+        if isinstance(out.get(key), dict):
+            out[key] = strict_schema(out[key])
+    for key in ("anyOf", "oneOf", "allOf"):
+        if isinstance(out.get(key), list):
+            out[key] = [strict_schema(x) for x in out[key]]
+    if isinstance(out.get("$defs"), dict):
+        out["$defs"] = {k: strict_schema(v) for k, v in out["$defs"].items()}
+
+    properties = out.get("properties")
+    if not isinstance(properties, dict):
+        return out
+
+    required = list(out.get("required") or [])
+    rebuilt: dict[str, Any] = {}
+    for name, spec in properties.items():
+        spec = strict_schema(spec) if isinstance(spec, dict) else spec
+        if name not in required and isinstance(spec, dict):
+            spec = _nullable(spec)
+        rebuilt[name] = spec
+    out["properties"] = rebuilt
+    out["required"] = list(properties)
+    out["additionalProperties"] = False
+    return out
+
+
+def _nullable(spec: dict[str, Any]) -> dict[str, Any]:
+    """Let a value be null, however the schema happens to state its type."""
+    spec = dict(spec)
+    # A default is meaningless once the field is always sent; the null carries
+    # the same meaning and the input model supplies the default.
+    spec.pop("default", None)
+    if "type" in spec:
+        kinds = spec["type"] if isinstance(spec["type"], list) else [spec["type"]]
+        if "null" not in kinds:
+            spec["type"] = [*kinds, "null"]
+    elif any(k in spec for k in ("anyOf", "oneOf")):
+        key = "anyOf" if "anyOf" in spec else "oneOf"
+        if not any(x.get("type") == "null" for x in spec[key] if isinstance(x, dict)):
+            spec[key] = [*spec[key], {"type": "null"}]
+    else:
+        spec["type"] = ["string", "null"]
+    return spec
+
+
+def without_nulls(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys whose value is null, so the input model applies its defaults.
+
+    Under strict mode the model must send every property, and says "nothing
+    here" with null. An input model that declares `replace_all: bool = False`
+    rejects null outright, so the null has to be removed rather than passed
+    through. Harmless when strict mode is off: a null arriving for a field
+    with a default was going to fail validation either way.
+    """
+    return {k: v for k, v in arguments.items() if v is not None}
 
 def find_tool(tools: list[Tool], name: str) -> Tool | None:
     return next((t for t in tools if t.name == name), None)

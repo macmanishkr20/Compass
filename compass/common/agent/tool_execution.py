@@ -29,6 +29,7 @@ from compass.common.policy.hooks import HookEvent, get_hook_registry
 from compass.common.policy.permissions import Behavior, check_permissions
 from compass.common.telemetry import log_event
 from compass.common.tools.base import (
+    without_nulls,
     Progress,
     Tool,
     ToolOutput,
@@ -100,6 +101,9 @@ async def run_tool_use(
         ):
             yield item
         return
+    # Strict schemas make the model send every property, using null for the
+    # ones it is not supplying; the input model reads absence, not null.
+    arguments = without_nulls(arguments)
     try:
         parsed = tool.validate_input(arguments)
     except (ValidationError, ValueError) as err:

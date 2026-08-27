@@ -85,6 +85,18 @@ EFFORT_BEHAVIOUR: dict[str, str] = {
 }
 
 
+class ToolSettings(BaseModel):
+    """How tool definitions are put to the model."""
+
+    #: Constrain the model's sampling so a tool call cannot arrive with a
+    #: missing field or the wrong type. Off by default, and deliberately: it
+    #: reshapes every tool's schema into a stricter subset, which changes what
+    #: the model sends, and Compass already answers a malformed call with an
+    #: instructive error the model recovers from. Turn it on with
+    #: COMPASS_STRICT_TOOLS=1 once you have measured it on your own work.
+    strict_schemas: bool = False
+
+
 class ThinkingSettings(BaseModel):
     """How much the model reasons before answering, and how much of that you see.
 
@@ -323,6 +335,7 @@ class Settings(BaseModel):
     # startup (Container Apps can also map them to env vars natively).
     key_vault_url: str = ""
     thinking: ThinkingSettings = Field(default_factory=ThinkingSettings)
+    tools: ToolSettings = Field(default_factory=ToolSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -458,6 +471,10 @@ def get_settings() -> Settings:
     think.response_language = os.environ.get(
         "COMPASS_RESPONSE_LANGUAGE", think.response_language
     ).strip()
+    if (flag := os.environ.get("COMPASS_STRICT_TOOLS")) is not None:
+        settings.tools.strict_schemas = flag.strip().lower() not in (
+            "0", "false", "no", "off",
+        )
     think.responses_api_version = os.environ.get(
         "AZURE_OPENAI_RESPONSES_API_VERSION", think.responses_api_version
     )

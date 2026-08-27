@@ -195,12 +195,18 @@ def to_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         if fn is None:  # already flat
             flattened.append(tool)
             continue
-        flattened.append({
+        flat: dict[str, Any] = {
             "type": "function",
             "name": fn.get("name"),
             "description": fn.get("description") or "",
             "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
-        })
+        }
+        # `strict` has to survive the flattening. Dropped here it is a setting
+        # that changes nothing: the schemas are reshaped, the request looks
+        # right, and the model is never actually constrained by them.
+        if fn.get("strict"):
+            flat["strict"] = True
+        flattened.append(flat)
     return flattened
 
 

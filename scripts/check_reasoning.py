@@ -76,6 +76,13 @@ def check_translation() -> None:
         "name": "get_weather", "description": "d", "parameters": {"type": "object"}}}])
     ok(tools[0].get("name") == "get_weather" and "function" not in tools[0],
        "tool schemas lose the nesting chat completions adds")
+    ok("strict" not in tools[0], "and carry no strict flag when none was set")
+
+    strict = to_tools([{"type": "function", "function": {
+        "name": "t", "description": "d", "strict": True,
+        "parameters": {"type": "object"}}}])
+    ok(strict[0].get("strict") is True,
+       "a strict schema stays strict through the flattening")
 
 
 def check_reasoning_round_trip() -> None:
