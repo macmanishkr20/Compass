@@ -17,6 +17,7 @@ pretending the format exists.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import re
 import zipfile
@@ -1064,7 +1065,14 @@ _SYSTEM_JS = r"""(want) => {
 # are authored, not flowed.
 _PAGED_KINDS = {"document", "research"}
 
-_REFLOW_JS = r"""() => {
+_REFLOW_JS = r"""async () => {
+  // Every decision below is a measurement, so nothing may be measured while
+  // the type is still arriving: a page laid out in the fallback face and
+  // re-laid in the real one is a page whose heights were all wrong. The
+  // render already pauses for this, but a pause is a guess and this is the
+  // answer.
+  try { await document.fonts.ready; } catch (e) {}
+
   const W = 794;
   // The running header and footer belong to the page, not to the text: they
   // are never lifted off it and never removed when a sheet is cloned.
@@ -1083,11 +1091,19 @@ _REFLOW_JS = r"""() => {
   // element has the most children instead dives straight past the page's own
   // column into a section inside it, and then only that section's paragraphs
   // get moved while the page stays exactly as overfull as it was.
+  // Only these can hold a paragraph. Descending into anything else — a table
+  // whose sheet happens to carry nothing but that table — makes the page's
+  // column a <tbody>, and every block added to it afterwards is hoisted back
+  // out by the parser: headings end up between rows, cells end up outside the
+  // table, and the document comes apart while every page still measures full.
+  const HOLDS_FLOW = /^(DIV|SECTION|MAIN|ARTICLE|BODY|ASIDE)$/;
+
   const flowOf = (sheet) => {
     let node = sheet;
     for (let depth = 0; depth < 8; depth++) {
       const kids = [...node.children].filter((k) => !PAGE_FURNITURE.has(k.tagName));
       if (kids.length !== 1) break;
+      if (!HOLDS_FLOW.test(kids[0].tagName)) break;
       node = kids[0];
     }
     return node;
@@ -1159,13 +1175,68 @@ _REFLOW_JS = r"""() => {
     stack = rebuilt;
   };
 
+  // Something that only introduces what comes after it: a heading, a table's
+  // header row, or a small wrapper holding just those. Left at the foot of a
+  // page when the block it introduces moves on, it prints as a page carrying
+  // a title and nothing else — or, for a table, a row of column names with no
+  // rows under them.
+  const introduces = (el) => {
+    if (!el) return false;
+    if (el.tagName === 'THEAD') return true;
+    // A table carrying only its header row is not a table yet — it is the
+    // heading of the one that follows. Documents come back with a long table
+    // written as several: the column names in one, the rows in the next. Left
+    // at the foot of a page, that first one prints as a page of column names
+    // with nothing under them.
+    if (el.tagName === 'TABLE') return !el.querySelector('tbody tr, tr td');
+    if (/^H[1-6]$/.test(el.tagName)) return true;
+    if (el.querySelector('p, table, ul, ol, img, figure, blockquote')) return false;
+    return el.querySelector('h1, h2, h3, h4, h5, h6') !== null
+      && el.textContent.trim().length <= 160;
+  };
+
+  // Take that introduction off the page, so it can travel with what it
+  // introduces. Returns null when the page does not end with one.
+  // Where a block may legally sit. Moving a heading into a table wrapper is
+  // not a layout mistake the reader forgives later: the parser rewrites the
+  // markup around it, and the page comes apart.
+  const INSIDE_TABLE = /^(TABLE|THEAD|TBODY|TFOOT|TR)$/;
+
+  // Introductions come in runs — a section heading, then the column names of
+  // the table under it — and taking only the innermost leaves the rest
+  // stranded one page back. Capped, so a page can never be emptied entirely
+  // by carrying its own contents forward.
+  const liftIntroduction = () => {
+    const parent = tip();
+    const taken = [];
+    while (taken.length < 3) {
+      const kids = [...parent.children].filter((k) => !PAGE_FURNITURE.has(k.tagName));
+      const last = kids[kids.length - 1];
+      if (!introduces(last)) break;
+      // A header row travels only within a table, and everything else only
+      // outside one. The page it lands on rebuilds the same wrappers, so
+      // matching the parent here is enough to know it will fit there.
+      const inTable = INSIDE_TABLE.test(parent.tagName);
+      if (inTable !== (last.tagName === 'THEAD')) break;
+      last.remove();
+      taken.unshift(last);
+    }
+    return taken;
+  };
+
   const put = (node, depth) => {
     add(tip(), node);
     if (!spills(sheets[at])) return;
     node.remove();
     // Not the first thing here, so try a fresh page with the same wrappers.
     if (flows[at].children.length || stack.length) {
+      // Whatever introduces this block comes with it. Without this, the
+      // heading of a section stays on the page the section left, and a
+      // table's header row keeps a page to itself while its body starts the
+      // next one.
+      const intro = liftIntroduction();
       turnPage();
+      for (const el of intro) add(tip(), el);
       add(tip(), node);
       if (!spills(sheets[at])) return;
       node.remove();
@@ -1183,6 +1254,27 @@ _REFLOW_JS = r"""() => {
   };
 
   for (const block of blocks) put(block, 0);
+
+  // A page can still finish over the paper: what is measured here and what
+  // Chromium measures when it prints are not identical, and a heading carried
+  // forward to stay with its section can tip the page it lands on. Such a page
+  // prints a blank one after it, so its last block is moved to a sheet of its
+  // own inserted directly after — a short page reads as a page, a blank one
+  // does not. One sheet per offender, so this cannot cascade.
+  for (let i = 0; i < sheets.length; i++) {
+    if (!spills(sheets[i])) continue;
+    const kids = [...flows[i].children].filter((k) => !PAGE_FURNITURE.has(k.tagName));
+    if (kids.length < 2) continue;
+    const blank = sheets[i].cloneNode(true);
+    const blankFlow = flowOf(blank);
+    for (const k of [...blankFlow.children])
+      if (!PAGE_FURNITURE.has(k.tagName)) k.remove();
+    sheets[i].parentNode.insertBefore(blank, sheets[i].nextSibling);
+    sheets.splice(i + 1, 0, blank);
+    flows.splice(i + 1, 0, blankFlow);
+    blankFlow.insertBefore(kids[kids.length - 1], footIn(blankFlow));
+    moved += 1;
+  }
 
   // Any sheet left with nothing on it is not a page.
   for (let i = sheets.length - 1; i >= 0; i--) {
@@ -1207,6 +1299,23 @@ async def reflow_pages(html: str) -> tuple[str, dict]:
     except Exception:  # noqa: BLE001 - no browser on this host
         return html, {"moved": 0, "why": "no browser"}
     try:
+        # Measure the way the printer will. The export applies a print
+        # stylesheet and prints with print media, and a page laid out under
+        # screen rules can be a different height under those — which is how a
+        # document whose sheets all fit on screen still printed blank pages
+        # between the full ones.
+        # Measure exactly what the printer will see. The export tags the
+        # sheets, applies a print stylesheet keyed to that tag, and prints
+        # with print media; a document laid out under screen rules has
+        # different heights, which is how sheets that all fit on screen still
+        # printed a blank page between the full ones. Tagging has to come
+        # first — the stylesheet selects on the tag, so without it the rules
+        # match nothing and the measurement is the screen's again.
+        with contextlib.suppress(Exception):
+            await _page_box(page)
+            await page.add_style_tag(content=_PRINT_PAGES)
+            await page.emulate_media(media="print")
+            await page.wait_for_timeout(150)
         report = await page.evaluate(_REFLOW_JS)
         if not report or not report.get("moved"):
             return html, report or {"moved": 0}
