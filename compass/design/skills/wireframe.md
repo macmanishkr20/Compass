@@ -1,0 +1,1 @@
+Design a low-fidelity greyscale wireframe: boxes, placeholder text, no colour.

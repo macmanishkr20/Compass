@@ -1,0 +1,1 @@
+Design a slide deck: each slide a 16:9 section with class="slide". The class is what the PowerPoint and PDF exports cut on, so every slide needs it. If the deck presents one slide at a time, put the navigation chrome in an element with data-export-hide so it stays out of the exported file.
