@@ -69,6 +69,81 @@ class AzureOpenAISettings(BaseModel):
         return opts or [self.deployment]
 
 
+#: The effort ladder, weakest first. Measured against the configured resource
+#: rather than taken from documentation: gpt-5 on Azure names exactly these
+#: four and rejects `max` with "Supported values are: 'low', 'medium', 'high',
+#: and 'xhigh'". `minimal` is not among them, which is why it is not offered.
+EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
+
+#: What each level does, in the same terms the model-facing docs use. Shown in
+#: the UI so the choice means something to whoever is making it.
+EFFORT_BEHAVIOUR: dict[str, str] = {
+    "low": "Thinks as little as possible. Skips thinking on simple work, where speed matters most.",
+    "medium": "Moderate thinking. May skip thinking for simple queries.",
+    "high": "Almost always thinks. Deep reasoning on complex tasks.",
+    "xhigh": "Always thinks deeply, exploring further before answering.",
+}
+
+
+class ThinkingSettings(BaseModel):
+    """How much the model reasons before answering, and how much of that you see.
+
+    Reasoning models decide per request whether deeper thinking will help, so
+    effort is a posture rather than a token budget: it shifts how willing the
+    model is to think and how far it goes, and a simple question can still come
+    back with no thinking at all. That is expected, not a fault.
+
+    Reasoning is billed as output and counts against the same output cap as the
+    answer, so a cap sized for a reply with no thinking is too small once the
+    model starts thinking.
+    """
+
+    #: Default posture for a new conversation. Held stable for the life of one,
+    #: because the resolved effort is part of the cached prompt prefix and
+    #: changing it starts the cache over.
+    default_effort: str = "medium"
+
+    #: "summarized" streams a readable summary of the reasoning as it is
+    #: produced; "omitted" asks for none, which reaches the first word of the
+    #: answer sooner. Billing is identical either way — only what you see
+    #: changes.
+    display: str = "summarized"
+
+    #: The Responses API is what carries reasoning summaries and the encrypted
+    #: reasoning that survives a tool call. Azure serves it only on
+    #: 2025-03-01-preview and later, so it has its own version rather than
+    #: forcing the whole deployment onto a newer one.
+    responses_api_version: str = "2025-04-01-preview"
+
+    #: Deployment name prefixes that reason. Anything else keeps the plain
+    #: chat-completions path, which has no reasoning to ask for.
+    reasoning_models: list[str] = ["gpt-5", "o1", "o3", "o4", "gpt-6"]
+
+    #: Set false to keep every request on chat completions, giving up thinking
+    #: text and encrypted reasoning. The escape hatch if a resource misbehaves.
+    enabled: bool = True
+
+    def reasons(self, deployment: str) -> bool:
+        """Whether this deployment is one that thinks."""
+        name = (deployment or "").lower()
+        return self.enabled and any(name.startswith(p) for p in self.reasoning_models)
+
+    def normalize_effort(self, effort: str | None) -> str | None:
+        """Coerce a requested effort onto the ladder the API actually accepts.
+
+        `minimal` predates this and is still stored on old sessions; it means
+        "as little as possible", which is `low` here.
+        """
+        if not effort:
+            return None
+        value = effort.strip().lower()
+        if value == "minimal":
+            return "low"
+        if value == "max":  # Claude has this level; Azure rejects it
+            return "xhigh"
+        return value if value in EFFORT_LEVELS else None
+
+
 class AiSearchSettings(BaseModel):
     """Azure AI Search — powers the Home-only "Work IQ" hybrid retrieval.
     Entirely optional; when unset, Work IQ reports itself as not configured and
@@ -227,6 +302,7 @@ class Settings(BaseModel):
     # Azure Key Vault URL; when set, secrets are pulled into the environment at
     # startup (Container Apps can also map them to env vars natively).
     key_vault_url: str = ""
+    thinking: ThinkingSettings = Field(default_factory=ThinkingSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -349,6 +425,21 @@ def get_settings() -> Settings:
     azure.realtime_voice = os.environ.get(
         "AZURE_OPENAI_REALTIME_VOICE", azure.realtime_voice
     )
+
+    think = settings.thinking
+    think.default_effort = os.environ.get(
+        "COMPASS_THINKING_EFFORT", think.default_effort
+    ).lower()
+    think.display = os.environ.get("COMPASS_THINKING_DISPLAY", think.display).lower()
+    think.responses_api_version = os.environ.get(
+        "AZURE_OPENAI_RESPONSES_API_VERSION", think.responses_api_version
+    )
+    if (flag := os.environ.get("COMPASS_THINKING_ENABLED")) is not None:
+        think.enabled = flag.strip().lower() not in ("0", "false", "no", "off")
+    if models := os.environ.get("COMPASS_REASONING_MODELS"):
+        think.reasoning_models = [m.strip().lower() for m in models.split(",") if m.strip()]
+    if think.default_effort not in EFFORT_LEVELS:
+        think.default_effort = ThinkingSettings().default_effort
 
     if mot := os.environ.get("COMPASS_MAX_OUTPUT_TOKENS"):
         try:

@@ -21,6 +21,15 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol
 
 from compass.common.config import get_settings
+from compass.common.gateway.responses import (
+    REASONING_META_KEY,
+    ReasoningTrace,
+    ResponsesOutcome,
+    ThinkingDelta,
+    build_request,
+    consume,
+    sse_events,
+)
 
 logger = logging.getLogger("compass.gateway")
 
@@ -58,9 +67,16 @@ class CompletionResult:
     completion_tokens: int = 0
     cached_prompt_tokens: int = 0
     model: str = ""
+    #: What the model thought before answering, when it reasoned at all. The
+    #: items in it are handed back verbatim on the next request so the model
+    #: resumes its reasoning instead of re-deriving it after every tool call.
+    #: Empty on a turn the model answered directly, which is normal and not a
+    #: fault: a reasoning model decides per request whether thinking helps.
+    reasoning: ReasoningTrace = field(default_factory=ReasoningTrace)
 
 
-StreamItem = StreamDelta | CompletionResult
+#: Reasoning arrives on its own channel, ahead of and separate from the answer.
+StreamItem = StreamDelta | ThinkingDelta | CompletionResult
 
 
 class ModelClient(Protocol):
@@ -72,6 +88,7 @@ class ModelClient(Protocol):
         max_output_tokens: int | None = None,
         deployment: str | None = None,
         effort: str | None = None,
+        reasoning_by_index: dict[int, list[dict[str, Any]]] | None = None,
     ) -> AsyncIterator[StreamItem]: ...
 
     async def complete_utility(
@@ -84,6 +101,43 @@ class ModelClient(Protocol):
         model: str = "",
         images: list[str] | None = None,
     ) -> str: ...
+
+
+def _credentials_error(deployment: str, azure) -> RuntimeError:
+    """The 401 worth reading: which key, which resource, which deployment."""
+    return RuntimeError(
+        "Azure OpenAI rejected the credentials (401). Check that "
+        "AZURE_OPENAI_API_KEY is one of the keys for the SAME resource as "
+        f"AZURE_OPENAI_ENDPOINT ({azure.endpoint}), and that the deployment "
+        f"'{deployment}' exists there. For an Azure AI Foundry resource, copy "
+        "the key from that project's Keys & Endpoint page."
+    )
+
+
+def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
+    """Turn a failed reasoning request into the error the loop expects.
+
+    The reasoning path is raw HTTP, so it has to categorize failures itself
+    where the SDK would otherwise do it: the retry ladder above only retries
+    what `_is_retryable` recognizes.
+    """
+    if status in (401, 403):
+        return _credentials_error(deployment, azure)
+    if status == 404:
+        return RuntimeError(
+            f"Azure has no Responses API at api-version "
+            f"{get_settings().thinking.responses_api_version} for deployment "
+            f"'{deployment}' ({message}). Set AZURE_OPENAI_RESPONSES_API_VERSION "
+            "to one the resource serves, or COMPASS_THINKING_ENABLED=0 to stay "
+            "on chat completions without thinking."
+        )
+    if status in (408, 409, 429) or status >= 500:
+        return _RetryableHTTPError(f"Azure returned {status}: {message}")
+    return RuntimeError(f"Azure returned {status}: {message}")
+
+
+class _RetryableHTTPError(Exception):
+    """A reasoning-path failure worth another attempt."""
 
 
 class AzureModelClient:
@@ -145,6 +199,7 @@ class AzureModelClient:
         max_output_tokens: int | None = None,
         deployment: str | None = None,
         effort: str | None = None,
+        reasoning_by_index: dict[int, list[dict[str, Any]]] | None = None,
     ) -> AsyncIterator[StreamItem]:
         settings = get_settings()
         primary = deployment or settings.azure.deployment
@@ -156,9 +211,20 @@ class AzureModelClient:
         for target in ladder:
             for attempt in range(MAX_RETRIES):
                 try:
-                    async for item in self._stream_once(
-                        target, messages, tools, max_output_tokens, effort
-                    ):
+                    # A deployment that reasons goes to the Responses API,
+                    # which is the only one that will show its thinking or
+                    # hand back reasoning that survives a tool call. Anything
+                    # else has no thinking to ask for.
+                    if settings.thinking.reasons(target):
+                        stream = self._stream_responses(
+                            target, messages, tools, max_output_tokens, effort,
+                            reasoning_by_index,
+                        )
+                    else:
+                        stream = self._stream_once(
+                            target, messages, tools, max_output_tokens, effort
+                        )
+                    async for item in stream:
                         yield item
                     return
                 except ContextOverflowError:
@@ -166,14 +232,7 @@ class AzureModelClient:
                 except Exception as err:  # noqa: BLE001 — categorized below
                     last_error = err
                     if _is_auth_error(err):
-                        raise RuntimeError(
-                            "Azure OpenAI rejected the credentials (401). Check that "
-                            "AZURE_OPENAI_API_KEY is one of the keys for the SAME "
-                            f"resource as AZURE_OPENAI_ENDPOINT ({settings.azure.endpoint}), "
-                            f"and that the deployment '{target}' exists there. For an "
-                            "Azure AI Foundry resource, copy the key from that project's "
-                            "Keys & Endpoint page."
-                        ) from err
+                        raise _credentials_error(target, settings.azure) from err
                     if not _is_retryable(err):
                         raise
                     delay = BASE_DELAY_SECONDS * (2**attempt) + random.random()
@@ -184,6 +243,78 @@ class AzureModelClient:
                     await asyncio.sleep(delay)
             logger.warning("deployment %s exhausted retries, trying fallback", target)
         raise last_error or RuntimeError("model request failed")
+
+    async def _stream_responses(
+        self,
+        deployment: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        max_output_tokens: int | None,
+        effort: str | None,
+        reasoning_by_index: dict[int, list[dict[str, Any]]] | None,
+    ) -> AsyncIterator[StreamItem]:
+        """One turn on the Responses API, where the thinking is visible.
+
+        Kept on raw HTTP rather than the SDK: this needs `store: false` with
+        `include: ["reasoning.encrypted_content"]` and the reasoning-summary
+        event stream, and the SDK version a deployment happens to have is not
+        something to depend on for that.
+        """
+        import httpx
+
+        settings = get_settings()
+        azure, thinking = settings.azure, settings.thinking
+        url = (
+            f"{azure.endpoint.rstrip('/')}/openai/responses"
+            f"?api-version={thinking.responses_api_version}"
+        )
+        body = build_request(
+            deployment=deployment,
+            messages=messages,
+            tools=tools,
+            max_output_tokens=max_output_tokens or settings.context.max_output_tokens,
+            effort=thinking.normalize_effort(effort),
+            display=thinking.display,
+            reasoning_by_index=reasoning_by_index,
+        )
+
+        outcome = ResponsesOutcome()
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0)) as http:
+            async with http.stream(
+                "POST", url, json=body,
+                headers={"api-key": azure.api_key, "content-type": "application/json"},
+            ) as response:
+                if response.status_code != 200:
+                    raw = (await response.aread()).decode("utf-8", "replace")
+                    message = raw
+                    try:
+                        message = json.loads(raw)["error"]["message"]
+                    except (ValueError, KeyError, TypeError):
+                        pass
+                    low = message.lower()
+                    if "context" in low and "length" in low:
+                        raise ContextOverflowError(message)
+                    raise _http_error(response.status_code, message, deployment, azure)
+
+                async for item in consume(sse_events(response.aiter_lines()), outcome):
+                    if isinstance(item, ThinkingDelta):
+                        yield item
+                    else:
+                        yield StreamDelta(text=item)
+
+        yield CompletionResult(
+            content=outcome.text,
+            tool_calls=[
+                ToolCallDraft(id=c["id"], name=c["name"], arguments=c["arguments"])
+                for c in outcome.tool_calls
+            ],
+            finish_reason=outcome.finish_reason,
+            prompt_tokens=outcome.prompt_tokens,
+            completion_tokens=outcome.completion_tokens,
+            cached_prompt_tokens=outcome.cached_prompt_tokens,
+            model=deployment,
+            reasoning=outcome.reasoning,
+        )
 
     async def _create_stream_adapting(self, kwargs: dict[str, Any], effort: str | None):
         """Create the streaming request, adapting to per-model parameter quirks.
@@ -388,6 +519,10 @@ class AzureModelClient:
 
 
 def _is_retryable(err: Exception) -> bool:
+    # The reasoning path raises this itself; it is not an SDK type, so it is
+    # checked before the SDK import that the rest of this depends on.
+    if isinstance(err, _RetryableHTTPError):
+        return True
     try:
         from openai import (
             APIConnectionError,
@@ -397,7 +532,8 @@ def _is_retryable(err: Exception) -> bool:
         )
 
         return isinstance(
-            err, (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
+            err,
+            (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError),
         )
     except ImportError:
         return False
