@@ -12,6 +12,7 @@ The routes live with the section that owns them and are mounted here.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -30,6 +31,40 @@ from compass.common.telemetry import log_event, setup_telemetry
 
 logger = logging.getLogger("compass.api")
 
+
+def _make_compass_audible() -> None:
+    """Give Compass's own loggers somewhere to write.
+
+    Under uvicorn the root logger has no handler, so everything logged under
+    `compass.*` is discarded — including the line that says a call spent its
+    whole output budget thinking, which is the one worth reading when a
+    generation comes back short. uvicorn's own handler is reused where there
+    is one, so the format matches the rest of the output.
+
+    Left alone entirely if something has already configured logging.
+    """
+    ours = logging.getLogger("compass")
+    # The level is set whatever else is true. Inheriting it from a root that
+    # nobody configured leaves us at WARNING, which silences exactly the lines
+    # this exists to show.
+    ours.setLevel(os.environ.get("COMPASS_LOG_LEVEL", "INFO").upper())
+    if ours.handlers:
+        return
+    # Somewhere to write, but only if there is nowhere already: a handler on
+    # the root serves us through propagation, and adding a second would print
+    # everything twice.
+    if logging.getLogger().handlers:
+        return
+    for handler in logging.getLogger("uvicorn").handlers or ():
+        ours.addHandler(handler)  # match the format of the rest of the output
+    if not ours.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(levelname)s:     %(name)s — %(message)s")
+        )
+        ours.addHandler(handler)
+
+
 # The built web UI ships beside this file, and is served by the app rather than
 # by any one section of it.
 STATIC_DIR = Path(__file__).parent / "static"
@@ -37,6 +72,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _make_compass_audible()
     setup_telemetry()
     manager = get_mcp_manager()
     await manager.start()
