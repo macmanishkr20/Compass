@@ -761,6 +761,31 @@ _DOC_JS = r"""() => {
   });
 
   const tables = [...document.querySelectorAll('table')].filter(vis);
+  // A table with more columns than the measure can carry: every cell becomes a
+  // narrow paragraph and the table grows until it leaves the page.
+  let cramped = 0, crampedCols = 0, crampedLines = 0;
+  for (const t of tables) {
+    const row = t.querySelector('tbody tr') || t.querySelector('tr');
+    if (!row) continue;
+    const cells = [...row.children].filter(vis);
+    let worstLines = 0, narrowest = 1e6;
+    for (const c of t.querySelectorAll('td')) {
+      const cs = getComputedStyle(c);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4;
+      const inner = c.getBoundingClientRect().height
+                  - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const lines = Math.round(inner / Math.max(lh, 1));
+      if ((c.textContent || '').trim().split(/\s+/).length > 3) {
+        worstLines = Math.max(worstLines, lines);
+        narrowest = Math.min(narrowest, c.getBoundingClientRect().width);
+      }
+    }
+    if (worstLines > 3 || (narrowest < 150 && narrowest < 1e6)) {
+      cramped++;
+      crampedCols = Math.max(crampedCols, cells.length);
+      crampedLines = Math.max(crampedLines, worstLines);
+    }
+  }
   // A caption is a <caption>, or the small line of text just after the table.
   const uncaptioned = tables.filter((t) => {
     if (t.querySelector('caption')) return false;
@@ -816,6 +841,7 @@ _DOC_JS = r"""() => {
   }
 
   return {
+    cramped, crampedCols, crampedLines,
     touching, touchingFirst,
     size: Math.round(size), leading: Math.round(lh * 100) / 100, measure,
     heads, sections: document.querySelectorAll('h2').length,
@@ -1282,6 +1308,13 @@ async def audit(
                     findings.append(
                         f"{doc['uncaptioned']} table(s) with no caption — a table in "
                         "a document is numbered and says what it shows"
+                    )
+                if doc["cramped"]:
+                    findings.append(
+                        f"a {doc['crampedCols']}-column table in a column of "
+                        f"prose — cells wrap to {doc['crampedLines']} lines, so "
+                        "the table grows until it leaves the page. Carry fewer "
+                        "columns, or move one into the text"
                     )
                 if doc["touching"]:
                     findings.append(
