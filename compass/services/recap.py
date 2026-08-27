@@ -78,7 +78,7 @@ async def build_recap(days: int = 30) -> dict:
 
     # Home chats.
     try:
-        from compass.core.chat_engine import get_chat_store
+        from compass.home.engine import get_chat_store
 
         for c in await get_chat_store().list_cards():
             ts = c.get("updated_at", 0)

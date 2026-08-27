@@ -20,7 +20,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.api.auth import require_user
-from compass.core.chat_engine import ChatEngine, ChatSession
+from compass.home.engine import ChatEngine, ChatSession
 from compass.models.events import ErrorEvent
 
 logger = logging.getLogger("compass.chat")
@@ -156,7 +156,7 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
 @router.get("/work-iq")
 async def work_iq_status(user: str = Depends(require_user)) -> dict:
     """Whether Work IQ (Azure AI Search) is configured — drives the Home toggle."""
-    from compass.services import work_iq
+    from compass.home import work_iq
 
     return {"configured": work_iq.configured()}
 

@@ -198,7 +198,7 @@ def get_chat_store():
     transcript store uses. Absent Cosmos credentials, nothing changes."""
     cfg = get_settings().storage
     if cfg.backend == "cosmos" and cfg.cosmos_configured:
-        from compass.persistence.chat_cosmos import CosmosChatStore
+        from compass.home.store import CosmosChatStore
 
         return CosmosChatStore()
     return ChatStore()
@@ -317,7 +317,7 @@ class ChatEngine:
         # persisted), so history stays clean; sources go to the UI.
         system_prompt = CHAT_SYSTEM_PROMPT
         if work_iq:
-            from compass.services import work_iq as wiq
+            from compass.home import work_iq as wiq
 
             if wiq.configured():
                 docs = await wiq.hybrid_search(query_text)

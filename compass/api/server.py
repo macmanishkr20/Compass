@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from compass.api.auth import require_user
 from compass.api.auth import router as auth_router
-from compass.api.chat_routes import router as chat_router
+from compass.home.routes import router as chat_router
 from compass.config import get_settings
 from compass.core.query_engine import QueryEngine, Session
 from compass.models.events import ErrorEvent
