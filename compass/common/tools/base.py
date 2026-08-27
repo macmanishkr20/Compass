@@ -134,6 +134,11 @@ class ToolUseContext:
     pending_vision: list[str] = field(default_factory=list)
     # session-scoped todo list (TodoWriteTool state)
     todos: list[dict[str, Any]] = field(default_factory=list)
+    # Which held-back tools have been found by searching. Only used when the
+    # catalogue is large enough that not all of it is described each request;
+    # owned by the Session so a tool found on one turn is still there on the
+    # next. See compass.common.tools.shelf.
+    shelf: Any = None
     # persistent shell working directory (Shell.ts cwd-tracking analog); a `cd`
     # in one bash call is visible to the next. Owned by the Session so it
     # survives across turns.

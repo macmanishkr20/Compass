@@ -27,6 +27,7 @@ from compass.common.agent.compaction import (
     microcompact,
 )
 from compass.common.agent.steering import answer_in, threshold_guidance
+from compass.common.tools.shelf import visible as shelf_visible
 from compass.common.agent.tool_orchestration import run_tools
 from compass.common.gateway.azure_client import (
     CompletionResult,
@@ -110,7 +111,15 @@ async def query(
             yield _compaction(auto_report, ctx)
 
         visible = messages_after_compact_boundary(messages)
-        tool_schemas = [t.to_openai_schema() for t in ctx.tools]
+        # Only what is worth describing this turn. Below the threshold that is
+        # everything, which is today's behaviour unchanged; above it the tools
+        # from MCP servers are found by searching instead of listed, because a
+        # hundred descriptions crowd out the conversation and make choosing
+        # between them harder.
+        offered = shelf_visible(
+            ctx.tools, ctx.shelf, threshold=settings.tools.search_above
+        )
+        tool_schemas = [t.to_openai_schema() for t in offered]
 
         # A standing instruction about when thinking earns its latency, when
         # one is configured. Appended rather than prepended so it reads as a

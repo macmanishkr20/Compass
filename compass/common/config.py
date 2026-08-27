@@ -96,6 +96,14 @@ class ToolSettings(BaseModel):
     #: COMPASS_STRICT_TOOLS=1 once you have measured it on your own work.
     strict_schemas: bool = False
 
+    #: Above this many tools, the ones that arrive from MCP servers stop being
+    #: described on every request and are found by searching instead. Compass's
+    #: own twelve are always described. Chosen below the 30–50 range where
+    #: choosing between descriptions starts to get worse, and above the point
+    #: where a search round trip costs more than the descriptions would.
+    #: 0 turns it off and sends everything, whatever the count.
+    search_above: int = 24
+
 
 class ThinkingSettings(BaseModel):
     """How much the model reasons before answering, and how much of that you see.
@@ -471,6 +479,11 @@ def get_settings() -> Settings:
     think.response_language = os.environ.get(
         "COMPASS_RESPONSE_LANGUAGE", think.response_language
     ).strip()
+    if raw := os.environ.get("COMPASS_TOOL_SEARCH_ABOVE"):
+        try:
+            settings.tools.search_above = max(0, int(raw))
+        except ValueError:
+            pass
     if (flag := os.environ.get("COMPASS_STRICT_TOOLS")) is not None:
         settings.tools.strict_schemas = flag.strip().lower() not in (
             "0", "false", "no", "off",

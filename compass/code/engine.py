@@ -28,6 +28,7 @@ from compass.common.policy.hooks import HookEvent, get_hook_registry
 from compass.common.attachments import build_user_message
 from compass.common.tools.base import PermissionBroker, ToolUseContext
 from compass.code.tools.registry import get_all_tools
+from compass.common.tools.shelf import Shelf
 from compass.common.tools.shell_session import ShellState
 
 
@@ -45,15 +46,29 @@ class Session:
     workspace_root: "Path | None" = None
     shell_state: ShellState = field(default_factory=ShellState)
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Which held-back tools have been found by searching. Owned here rather
+    # than rebuilt per turn: a tool found once should stay found.
+    shelf: "Shelf | None" = None
 
     def make_context(self) -> ToolUseContext:
         from compass.code.mcp.manager import get_mcp_manager
+        from compass.common.tools.shelf import attach
 
         if self.workspace_root is not None:
             self.shell_state.root = str(self.workspace_root)
+        catalogue, shelf = attach([*get_all_tools(), *get_mcp_manager().tools])
+        if self.shelf is None:
+            self.shelf = shelf
+        else:
+            # Keep what earlier turns found; the search tool built above is
+            # bound to this turn's catalogue, which may have gained or lost
+            # an MCP server since.
+            shelf.found = self.shelf.found
+            self.shelf = shelf
         return ToolUseContext(
             session_id=self.id,
-            tools=[*get_all_tools(), *get_mcp_manager().tools],
+            tools=catalogue,
+            shelf=self.shelf,
             broker=self.broker,
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,

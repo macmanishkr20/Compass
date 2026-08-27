@@ -301,6 +301,58 @@ def check_browsing() -> None:
     ok(refuse_reason("") != "", "an empty URL is refused too")
 
 
+def check_shelf() -> None:
+    """A catalogue too large to describe is searched instead — and, crucially,
+    a catalogue small enough is not."""
+    print("\ntools are held back only when there are too many")
+    from pydantic import BaseModel
+
+    from compass.code.mcp.tool_wrapper import MCPTool
+    from compass.code.tools.registry import get_all_tools
+    from compass.common.tools.shelf import attach, search, visible
+
+    class Fake(MCPTool):
+        def __init__(self, name: str, description: str) -> None:
+            self.name, self.description = name, description
+            self._schema = {"type": "object", "properties": {}}
+            self.input_model = type("I", (BaseModel,), {"__annotations__": {}})
+
+    own = get_all_tools()
+    small, shelf_small = attach(own)
+    shown = visible(small, shelf_small, threshold=24)
+    ok([t.name for t in shown] == [t.name for t in own],
+       f"below the threshold the list is exactly what it always was ({len(shown)})")
+    ok(all(t.name != "find_tools" for t in shown),
+       "and no search tool is offered when nothing is hidden")
+
+    many = [*own, *(Fake(f"svc{i}_op{j}", f"Operation {j} on service {i}.")
+                    for i in range(10) for j in range(8))]
+    big, shelf = attach(many)
+    held = visible(big, shelf, threshold=24)
+    ok(len(held) < len(many), f"above it, {len(many)} becomes {len(held)}")
+    ok(any(t.name == "find_tools" for t in held), "and a way to search is offered")
+    kept = {x.name for x in held}
+    ok(all(x.name in kept for x in own),
+       "Compass's own tools are never held back")
+
+    shelf.remember(["svc3_op2"])
+    after = visible(big, shelf, threshold=24)
+    ok(any(t.name == "svc3_op2" for t in after),
+       "a tool found by searching stays listed afterwards")
+
+    ranked = search(
+        [Fake("github_merge_pull_request", "Merge an open pull request."),
+         Fake("github_list_repos", "List repositories for the account."),
+         Fake("slack_post_message", "Post a message to a Slack channel.")],
+        "merge a pull request", limit=2)
+    ok(ranked and ranked[0].name == "github_merge_pull_request",
+       "the best match ranks first, not the alphabetically first")
+    ok(search([Fake("a_b", "c")], "") == [], "an empty query finds nothing")
+
+    off = visible(big, shelf, threshold=0)
+    ok(len(off) == len(many), "a threshold of 0 turns the whole thing off")
+
+
 def main() -> int:
     import asyncio
 
@@ -311,6 +363,7 @@ def main() -> int:
     asyncio.run(check_stream_folding())
     asyncio.run(check_refusals())
     check_browsing()
+    check_shelf()
 
     print()
     if FAILURES:
