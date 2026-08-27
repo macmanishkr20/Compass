@@ -5,11 +5,21 @@ from __future__ import annotations
 
 import base64
 
+from compass.common.urls import refuse_reason
+
 _UNAVAILABLE = "Playwright is not installed on the server host (pip install playwright && playwright install chromium)."
 
 
 async def capture(url: str, *, full_page: bool = False, width: int = 1280, height: int = 800) -> bytes:
-    """Return a PNG screenshot of `url`. Raises RuntimeError on failure."""
+    """Return a PNG screenshot of `url`. Raises RuntimeError on failure.
+
+    Only the web can be photographed. The URL reaching here can come from the
+    model, and a screenshot of `file:///etc/passwd` is that file's contents
+    rendered as an image and handed back as something to read — a file read
+    with no permission gate in front of it, dressed as a picture.
+    """
+    if refusal := refuse_reason(url):
+        raise RuntimeError(refusal)
     try:
         from playwright.async_api import async_playwright
     except ImportError as err:  # pragma: no cover

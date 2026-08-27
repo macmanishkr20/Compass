@@ -59,6 +59,7 @@ class BrowserTool(Tool):
         self, inp: BrowserInput, ctx: ToolUseContext
     ) -> AsyncIterator[ToolYield]:
         from compass.code.agent_browser import get_agent_browser
+        from compass.common.urls import refuse_reason
         from compass.common.screenshot import store_png
 
         b = get_agent_browser(ctx.session_id)
@@ -66,6 +67,14 @@ class BrowserTool(Tool):
             if inp.action == "navigate":
                 if not inp.url:
                     yield ToolOutput("browser navigate needs a `url`.", is_error=True)
+                    return
+                # The URL can come from a page the agent has just read, so it
+                # is not trusted input. Only the web is reachable: a file: URL
+                # would turn this into a file reader with no permission gate
+                # in front of it, and javascript: would run in whatever page
+                # is already open.
+                if refusal := refuse_reason(inp.url):
+                    yield ToolOutput(refusal, is_error=True)
                     return
                 await b.navigate(inp.url)
                 self._register_session(ctx, b.current_url() or inp.url)

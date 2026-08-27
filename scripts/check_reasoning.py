@@ -272,6 +272,28 @@ async def check_refusals() -> None:
        "the surface is told with its own event, not an error")
 
 
+def check_browsing() -> None:
+    """A browser may be pointed at the web, and at nothing else.
+
+    The URL can come from a page the agent just read, so it is untrusted. The
+    schemes below are not "unexpected sites" — they are a file reader, a
+    script injector and a way to render attacker-authored markup as a page.
+    """
+    print("\nthe browser goes to the web and nowhere else")
+    from compass.common.urls import refuse_reason
+
+    for allowed in ("https://example.com", "http://localhost:4310",
+                    "http://127.0.0.1:8000/healthz", "example.com"):
+        ok(refuse_reason(allowed) == "", f"allowed: {allowed}")
+
+    for blocked in ("file:///etc/passwd", "javascript:alert(1)", "data:text/html,x",
+                    "vbscript:x", "view-source:https://e.com", "chrome://settings",
+                    "blob:https://e.com/a"):
+        ok(bool(refuse_reason(blocked)), f"refused: {blocked.split(':')[0]}:")
+
+    ok(refuse_reason("") != "", "an empty URL is refused too")
+
+
 def main() -> int:
     import asyncio
 
@@ -281,6 +303,7 @@ def main() -> int:
     check_effort_ladder()
     asyncio.run(check_stream_folding())
     asyncio.run(check_refusals())
+    check_browsing()
 
     print()
     if FAILURES:
