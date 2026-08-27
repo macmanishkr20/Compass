@@ -1548,6 +1548,9 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .preview-open:hover { filter: brightness(1.1); }
 .notice.compaction { color: var(--info); }
 .notice.error { color: var(--danger); }
+/* A turn the model declined. Warmer than an error, because nothing
+   went wrong: the request was fine and the answer was stopped. */
+.notice.warn { color: var(--accent-strong); }
 
 /* ============================= Composer ============================ */
 .composer-wrap {

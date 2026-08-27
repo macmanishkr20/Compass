@@ -21,6 +21,12 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Protocol
 
 from compass.common.config import get_settings
+from compass.common.gateway.refusals import (
+    REFUSED,
+    Refusal,
+    from_choice,
+    from_error,
+)
 from compass.common.gateway.responses import (
     REASONING_META_KEY,
     ReasoningTrace,
@@ -74,6 +80,10 @@ class CompletionResult:
     #: Empty on a turn the model answered directly, which is normal and not a
     #: fault: a reasoning model decides per request whether thinking helps.
     reasoning: ReasoningTrace = field(default_factory=ReasoningTrace)
+    #: Set when the turn was declined rather than finished. A refusal arrives
+    #: as a perfectly successful response, so nothing that watches only for
+    #: exceptions will see it — this is how the loop is told.
+    refusal: Refusal | None = None
 
 
 #: Reasoning arrives on its own channel, ahead of and separate from the answer.
@@ -125,6 +135,9 @@ def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
     """
     if status in (401, 403):
         return _credentials_error(deployment, azure)
+    declined = from_error(message) if status == 400 else None
+    if declined:
+        return RefusedError(declined)
     if status == 404:
         return RuntimeError(
             f"Azure has no Responses API at api-version "
@@ -140,6 +153,21 @@ def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
 
 class _RetryableHTTPError(Exception):
     """A reasoning-path failure worth another attempt."""
+
+
+class RefusedError(Exception):
+    """The request was declined before the model answered.
+
+    Raised rather than returned because there is no turn to return: nothing
+    was generated. It is deliberately not retryable — sending the same prompt
+    again gets the same answer — and deliberately not a generic error, so the
+    loop can say what happened instead of showing a stack trace's worth of
+    Azure JSON.
+    """
+
+    def __init__(self, refusal: Refusal) -> None:
+        super().__init__(refusal.message())
+        self.refusal = refusal
 
 
 def _warn_if_reasoning_ate_the_budget(
@@ -344,6 +372,7 @@ class AzureModelClient:
             cached_prompt_tokens=outcome.cached_prompt_tokens,
             model=deployment,
             reasoning=outcome.reasoning,
+            refusal=outcome.refusal,
         )
 
     async def _create_stream_adapting(self, kwargs: dict[str, Any], effort: str | None):
@@ -364,6 +393,11 @@ class AzureModelClient:
                 low = str(err).lower()
                 if "context" in low and "length" in low:
                     raise ContextOverflowError(str(err)) from err
+                # A declined prompt is an answer, not a parameter to strip and
+                # retry: the loop below would otherwise drop fields one by one
+                # and send the same refused request four more times.
+                if (declined := from_error(str(err))) is not None:
+                    raise RefusedError(declined) from err
                 if "max_completion_tokens" in low and "max_tokens" in low:
                     # old deployment wants the legacy name
                     if "max_completion_tokens" in kwargs:
@@ -415,6 +449,7 @@ class AzureModelClient:
         content_parts: list[str] = []
         drafts: dict[int, ToolCallDraft] = {}
         finish_reason: str | None = None
+        refusal: Refusal | None = None
         usage: Any = None
 
         async for chunk in stream:
@@ -438,6 +473,10 @@ class AzureModelClient:
                         draft.arguments += tc.function.arguments
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
+                declined = from_choice(choice, partial=bool(content_parts))
+                if declined:
+                    refusal = declined
+                    finish_reason = REFUSED
 
         cached = 0
         if usage and getattr(usage, "prompt_tokens_details", None):
@@ -450,6 +489,7 @@ class AzureModelClient:
             completion_tokens=usage.completion_tokens if usage else 0,
             cached_prompt_tokens=cached,
             model=deployment,
+            refusal=refusal,
         )
 
     async def complete_reasoning(

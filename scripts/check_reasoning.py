@@ -198,6 +198,80 @@ async def check_stream_folding() -> None:
        "and the reasoning tokens that consumed it are visible")
 
 
+async def check_refusals() -> None:
+    """A declined turn has to be recognisable, on all three shapes.
+
+    This cannot be checked by asking the model to refuse — that means writing
+    a prompt designed to trip a content filter, which is not a test worth
+    having. What can be checked is that every shape Azure reports a refusal
+    in is recognised, and that nothing else is mistaken for one.
+    """
+    print("\na declined turn is recognised, however it arrives")
+
+    from compass.common.gateway.refusals import (
+        REFUSED, from_choice, from_error, from_incomplete,
+    )
+    from compass.common.gateway.responses import ResponsesOutcome, consume
+
+    class Choice:
+        def __init__(self, finish, refusal=None, results=None):
+            self.finish_reason = finish
+            self.message = type("M", (), {"refusal": refusal})()
+            self.content_filter_results = results
+
+    filtered = from_choice(
+        Choice("content_filter", results={"violence": {"filtered": True, "severity": "high"}}),
+        partial=True)
+    ok(filtered is not None, "finish_reason 'content_filter' is a refusal")
+    ok(filtered and filtered.category == "violence", "the flagged category is read")
+    ok(filtered and filtered.partial, "text already shown is remembered as partial")
+    ok(filtered and "violence" in filtered.message(),
+       f"and it says so: {filtered.message()!r}")
+
+    said = from_choice(Choice("stop", refusal="I can't help with that."), partial=False)
+    ok(said is not None and said.explanation == "I can't help with that.",
+       "a refusal string on the message is a refusal too")
+
+    ok(from_choice(Choice("stop"), partial=False) is None,
+       "an ordinary turn is not mistaken for one")
+    ok(from_choice(Choice("length"), partial=False) is None,
+       "and neither is one that ran out of room")
+
+    ok(from_incomplete({"reason": "content_filter"}, partial=False) is not None,
+       "the Responses API's spelling is recognised")
+    ok(from_incomplete({"reason": "max_output_tokens"}, partial=False) is None,
+       "running out of room there is still not a refusal")
+
+    ok(from_error("The response was filtered due to the prompt triggering "
+                  "Azure OpenAI's content management policy") is not None,
+       "a 400 naming the filter is a refusal")
+    ok(from_error("The response was filtered due to the prompt triggering "
+                  "Azure OpenAI's content management policy. Please modify "
+                  "your prompt and retry.") is not None,
+       "and so is the prose Azure actually sends, which names no code")
+    ok(from_error("Invalid value: 'max'. Supported values are: 'low'") is None,
+       "an ordinary 400 is not")
+    ok(from_error("context_length_exceeded: too many tokens") is None,
+       "and neither is a full context window")
+
+    async def stream():
+        yield {"type": "response.output_text.delta", "delta": "Here is th"}
+        yield {"type": "response.incomplete", "response": {
+            "incomplete_details": {"reason": "content_filter"},
+            "usage": {"output_tokens": 12}}}
+
+    outcome = ResponsesOutcome()
+    async for _ in consume(stream(), outcome):
+        pass
+    ok(outcome.finish_reason == REFUSED, "a stopped stream finishes as a refusal")
+    ok(outcome.refusal is not None and outcome.refusal.partial,
+       "and knows some of the answer was already shown")
+
+    from compass.common.models import events
+    ok(events.Refused(message="x").type == "refused",
+       "the surface is told with its own event, not an error")
+
+
 def main() -> int:
     import asyncio
 
@@ -206,6 +280,7 @@ def main() -> int:
     check_request_shape()
     check_effort_ladder()
     asyncio.run(check_stream_folding())
+    asyncio.run(check_refusals())
 
     print()
     if FAILURES:

@@ -757,6 +757,25 @@ export class HomeChat {
           this.currentAssistant = null;
         }
         break;
+      case 'refused': {
+        // Not an error: the request was fine and the model declined. Shown
+        // as its own note so the reader knows the turn was stopped rather
+        // than that Compass broke, and — when text was already streamed —
+        // that what is above is only the part written first.
+        this.smoother?.finish();
+        this.smoother = null;
+        if (this.currentAssistant) {
+          this.patch(this.currentAssistant.id, (m) => ({ ...m, streaming: false }));
+          this.currentAssistant = null;
+        }
+        this.push({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: '⊘ ' + ((ev['message'] as string) ?? 'The response was stopped.'),
+          streaming: false,
+        });
+        break;
+      }
       case 'error':
         this.push({
           id: crypto.randomUUID(),

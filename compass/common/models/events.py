@@ -134,6 +134,24 @@ class TurnComplete(Event):
 
 
 @dataclass
+class Refused(Event):
+    """The model declined, rather than failed.
+
+    A refusal arrives as a perfectly successful response, so it is not an
+    error and is not reported as one: nothing went wrong with the request. It
+    is its own event so a surface can say what happened and, when some of the
+    answer was already shown, that what is on screen is only the part written
+    before the turn was stopped.
+    """
+
+    message: str = ""
+    #: What the filter flagged, when it says. Often empty.
+    category: str = ""
+    #: Text had already been streamed when the turn was stopped.
+    partial: bool = False
+
+
+@dataclass
 class ErrorEvent(Event):
     message: str = ""
 
@@ -151,6 +169,7 @@ _TYPE_NAMES = {
     PermissionResolved: "permission_resolved",
     Compaction: "compaction",
     UsageReport: "usage_report",
+    Refused: "refused",
     TurnComplete: "turn_complete",
     ErrorEvent: "error",
 }

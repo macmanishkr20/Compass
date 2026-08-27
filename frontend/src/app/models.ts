@@ -142,7 +142,9 @@ export interface PermissionVM {
 export interface NoticeVM {
   kind: 'notice';
   id: string;
-  tone: 'info' | 'compaction' | 'error' | 'complete';
+  /** 'warn' is a turn the model declined — not a failure, so not an
+   *  error, but more than information. */
+  tone: 'info' | 'compaction' | 'error' | 'complete' | 'warn';
   text: string;
 }
 

@@ -31,6 +31,7 @@ from compass.common.agent.tool_orchestration import run_tools
 from compass.common.gateway.azure_client import (
     CompletionResult,
     ContextOverflowError,
+    RefusedError,
     StreamDelta,
     get_model_client,
 )
@@ -151,6 +152,18 @@ async def query(
                     yield events.TextDelta(text=item.text, agent_id=ctx.agent_id)
                 else:
                     result = item
+        except RefusedError as declined:
+            # Nothing was generated, so there is no turn to keep. Saying so is
+            # the whole point: without this the surface shows a stack trace
+            # about a 400 and the reader has no idea they were declined.
+            yield events.Refused(
+                message=declined.refusal.message(),
+                category=declined.refusal.category,
+                partial=False,
+                agent_id=ctx.agent_id,
+            )
+            yield _complete(Terminal("refused", declined.refusal.category), turn, ctx)
+            return
         except ContextOverflowError:
             if reactive_attempted:
                 yield events.ErrorEvent(
@@ -261,6 +274,21 @@ async def query(
                 )
             transition = Continue("tool_results")
             continue
+
+        # A declined turn ends here. It is not retried: the same prompt gets
+        # the same answer, and the recovery path below would otherwise ask the
+        # model to continue something it was stopped from writing.
+        if result.refusal is not None:
+            yield events.Refused(
+                message=result.refusal.message(),
+                category=result.refusal.category,
+                partial=result.refusal.partial,
+                agent_id=ctx.agent_id,
+            )
+            log_event("refused", category=result.refusal.category,
+                      partial=result.refusal.partial)
+            yield _complete(Terminal("refused", result.refusal.category), turn, ctx)
+            return
 
         if (
             result.finish_reason == "length"

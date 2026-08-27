@@ -36,6 +36,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
+from compass.common.gateway.refusals import REFUSED, Refusal, from_incomplete
+
 logger = logging.getLogger("compass.gateway.reasoning")
 
 #: Where an assistant message keeps the reasoning that produced it. Kept in
@@ -269,6 +271,10 @@ class ResponsesOutcome:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     reasoning: ReasoningTrace = field(default_factory=ReasoningTrace)
     finish_reason: str | None = None
+    #: Set when the turn was declined rather than finished. Kept apart from
+    #: the finish reason so a surface can say what happened, not just that
+    #: something did.
+    refusal: Refusal | None = None
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_prompt_tokens: int = 0
@@ -343,12 +349,19 @@ async def consume(
                 (usage.get("output_tokens_details") or {}).get("reasoning_tokens", 0) or 0
             )
             if kind == "response.incomplete":
-                reason = (response.get("incomplete_details") or {}).get("reason", "")
-                # The API's name for it is `max_output_tokens`; the rest of
-                # Compass already reacts to the chat-completions name.
-                outcome.finish_reason = (
-                    "length" if "max_output_tokens" in reason else reason or "incomplete"
-                )
+                details = response.get("incomplete_details") or {}
+                reason = details.get("reason", "")
+                refused = from_incomplete(details, partial=bool(outcome.text))
+                if refused:
+                    outcome.refusal = refused
+                    outcome.finish_reason = REFUSED
+                else:
+                    # The API's name for it is `max_output_tokens`; the rest of
+                    # Compass already reacts to the chat-completions name.
+                    outcome.finish_reason = (
+                        "length" if "max_output_tokens" in reason
+                        else reason or "incomplete"
+                    )
             else:
                 outcome.finish_reason = "tool_calls" if outcome.tool_calls else "stop"
             continue
@@ -402,12 +415,18 @@ def parse_response(payload: dict[str, Any]) -> ResponsesOutcome:
     )
 
     if payload.get("status") == "incomplete":
-        reason = (payload.get("incomplete_details") or {}).get("reason", "")
-        # Named the way the rest of Compass already reacts to it, rather than
-        # left as this API's own spelling.
-        outcome.finish_reason = (
-            "length" if "max_output_tokens" in reason else reason or "incomplete"
-        )
+        details = payload.get("incomplete_details") or {}
+        reason = details.get("reason", "")
+        refused = from_incomplete(details, partial=bool(outcome.text))
+        if refused:
+            outcome.refusal = refused
+            outcome.finish_reason = REFUSED
+        else:
+            # Named the way the rest of Compass already reacts to it, rather
+            # than left as this API's own spelling.
+            outcome.finish_reason = (
+                "length" if "max_output_tokens" in reason else reason or "incomplete"
+            )
     else:
         outcome.finish_reason = "tool_calls" if outcome.tool_calls else "stop"
     return outcome

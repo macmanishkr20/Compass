@@ -3273,6 +3273,25 @@ export class App {
         });
         break;
       }
+      case 'refused': {
+        // Not an error: the request was fine and the model declined. It gets
+        // its own notice so the reader is told the turn was stopped, rather
+        // than being shown nothing and left to wonder.
+        if (this.currentBubble) {
+          const id = this.currentBubble.id;
+          this.textSmoother?.finish();
+          this.textSmoother = null;
+          this.patch(id, (b) => ({ ...(b as ChatBubble), streaming: false }));
+          this.currentBubble = null;
+        }
+        this.push({
+          kind: 'notice',
+          id: crypto.randomUUID(),
+          tone: 'warn',
+          text: (ev['message'] as string) ?? 'The response was stopped.',
+        });
+        break;
+      }
       case 'error':
         this.push({
           kind: 'notice',
