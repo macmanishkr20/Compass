@@ -1055,6 +1055,124 @@ _SYSTEM_JS = r"""(want) => {
 }"""
 
 
+# Templates where running to several pages is the point, so filling them by
+# measurement is right. A flier is one sheet by definition and a deck's slides
+# are authored, not flowed.
+_PAGED_KINDS = {"document", "research"}
+
+_REFLOW_JS = r"""() => {
+  const W = 794;
+  let sheets = [...document.querySelectorAll('body *')].filter((e) => {
+    const r = e.getBoundingClientRect();
+    return Math.abs(r.width - W) < 14 && r.height > 640 && r.height < 2400;
+  });
+  sheets = sheets.filter((e) => !sheets.some((o) => o !== e && o.contains(e)));
+  if (sheets.length < 1) return { moved: 0, pages: 0, why: 'no sheets' };
+
+  // The flow inside a sheet is whichever descendant holds the most blocks.
+  // The footer is not part of it: it belongs to the page, not to the text.
+  // Walk down the chain of wrappers — sheet, page, content, measure — and
+  // stop at the first element holding more than one block. Picking whichever
+  // element has the most children instead dives straight past the page's own
+  // column into a section inside it, and then only that section's paragraphs
+  // get moved while the page stays exactly as overfull as it was.
+  const flowOf = (sheet) => {
+    let node = sheet;
+    for (let depth = 0; depth < 8; depth++) {
+      const kids = [...node.children].filter((k) => k.tagName !== 'FOOTER');
+      if (kids.length !== 1) break;
+      node = kids[0];
+    }
+    return node;
+  };
+
+  const flows = sheets.map(flowOf);
+  if (flows.some((f) => !f)) return { moved: 0, pages: sheets.length, why: 'no flow' };
+
+  // Everything the document says, in order, lifted off the paper.
+  const blocks = [];
+  for (const f of flows) {
+    for (const k of [...f.children]) {
+      if (k.tagName === 'FOOTER') continue;
+      blocks.push(k);
+      k.remove();
+    }
+  }
+  if (!blocks.length) return { moved: 0, pages: sheets.length, why: 'nothing to place' };
+
+  const spills = (sheet) => {
+    const sr = sheet.getBoundingClientRect();
+    for (const k of sheet.querySelectorAll('*')) {
+      const r = k.getBoundingClientRect();
+      if (r.height && r.bottom > sr.bottom + 1) return true;
+    }
+    return false;
+  };
+
+  const addSheet = () => {
+    const last = sheets[sheets.length - 1];
+    const copy = last.cloneNode(true);
+    const flow = flowOf(copy);
+    for (const k of [...flow.children]) if (k.tagName !== 'FOOTER') k.remove();
+    last.parentNode.insertBefore(copy, last.nextSibling);
+    sheets.push(copy);
+    flows.push(flow);
+  };
+
+  let at = 0, moved = 0;
+  for (const block of blocks) {
+    flows[at].appendChild(block);
+    if (!spills(sheets[at])) continue;
+    // It does not fit here. If it is the only thing on the page it can never
+    // fit anywhere, so leave it and carry on rather than loop for ever.
+    if (flows[at].children.length === 1) continue;
+    block.remove();
+    at += 1;
+    moved += 1;
+    if (at >= sheets.length) addSheet();
+    flows[at].appendChild(block);
+  }
+
+  // Any sheet left with nothing on it is not a page.
+  for (let i = sheets.length - 1; i >= 0; i--) {
+    const kids = [...flows[i].children].filter((k) => k.tagName !== 'FOOTER');
+    if (!kids.length) { sheets[i].remove(); sheets.splice(i, 1); flows.splice(i, 1); }
+  }
+
+  return { moved, pages: sheets.length,
+           spilling: sheets.filter(spills).length };
+}"""
+
+
+async def reflow_pages(html: str) -> tuple[str, dict]:
+    """Fill the sheets by measuring, and hand back the document that results.
+
+    Returns the html unchanged, and a reason, when there is nothing to do or
+    anything goes wrong — a document that cannot be re-flowed is still a
+    document.
+    """
+    try:
+        page, close = await _render(html, 1280, 900)
+    except Exception:  # noqa: BLE001 - no browser on this host
+        return html, {"moved": 0, "why": "no browser"}
+    try:
+        report = await page.evaluate(_REFLOW_JS)
+        if not report or not report.get("moved"):
+            return html, report or {"moved": 0}
+        out = await page.evaluate(
+            "() => '<!DOCTYPE html>\\n' + document.documentElement.outerHTML"
+        )
+        return (out or html), report
+    except Exception:  # noqa: BLE001
+        return html, {"moved": 0, "why": "reflow failed"}
+    finally:
+        try:
+            await close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+
 async def audit(
     html: str, kind: str = "", system: dict | None = None
 ) -> list[str]:

@@ -2130,6 +2130,18 @@ async def design_generate(
             if stalled >= 2:
                 break
 
+    # A document is laid out over its pages by measuring, which no amount of
+    # asking can do: the model has to decide where page three ends before it
+    # knows how tall anything renders. This does not need it to.
+    if kind in _ex._PAGED_KINDS:
+        html, flow = await _ex.reflow_pages(html)
+        if flow.get("moved"):
+            steps.append("Laying out the pages")
+            try:
+                issues = await _ex.audit(html, kind=kind, system=wanted)
+            except Exception:  # noqa: BLE001
+                pass
+
     said = " ".join(x for x in (direction, notes) if x)
     if cured:
         said = (said + " ").lstrip() + "Found and fixed: " + "; ".join(cured) + "."
