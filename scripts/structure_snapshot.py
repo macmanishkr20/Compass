@@ -49,21 +49,10 @@ def prompts() -> dict[str, str]:
         elif isinstance(value, (list, tuple)):
             out[label] = f"{_digest(json.dumps(value, sort_keys=True, default=str))}:{len(value)}"
 
-    from compass.services import design as _design
-
-    take("design.TEMPLATE_PROMPTS", _design.TEMPLATE_PROMPTS)
-    take("design.DESIGN_SYSTEM_PROMPT", _design.DESIGN_SYSTEM_PROMPT)
-    take("design.CLARIFY_PROMPT", _design.CLARIFY_PROMPT)
-    take("design.FOLLOWUP_PROMPT", _design.FOLLOWUP_PROMPT)
-    take("design.FOLLOWUP_FALLBACK", _design.FOLLOWUP_FALLBACK)
-    take("design.EXTRACT_PROMPT", _design.EXTRACT_PROMPT)
-    take("design.TEMPLATES", _design.TEMPLATES)
-    take("design.BUILTIN_SYSTEMS", _design.BUILTIN_SYSTEMS)
-    take("design.BLANK_PAGE", _design.BLANK_PAGE)
-
-    # These three are looked up by name across the modules they could live in,
-    # so a prompt that MOVES still has to prove its bytes did not change. The
-    # label stays put, because the label is what the baseline was saved under.
+    # A prompt is checked by NAME, across every module it could have moved to.
+    # That is the whole point: the bytes must not change even though the file
+    # they live in is expected to. The label stays put, because the label is
+    # what the baseline was saved under. A name found nowhere is a failure.
     def wherever(label: str, name: str, *modules: str) -> None:
         import importlib
 
@@ -76,6 +65,18 @@ def prompts() -> dict[str, str]:
             return
         raise SystemExit(f"{name} has vanished: not in any of {modules}")
 
+    from compass.services import design as _design
+
+    take("design.TEMPLATE_PROMPTS", _design.TEMPLATE_PROMPTS)
+    take("design.DESIGN_SYSTEM_PROMPT", _design.DESIGN_SYSTEM_PROMPT)
+    take("design.CLARIFY_PROMPT", _design.CLARIFY_PROMPT)
+    take("design.FOLLOWUP_PROMPT", _design.FOLLOWUP_PROMPT)
+    take("design.FOLLOWUP_FALLBACK", _design.FOLLOWUP_FALLBACK)
+    take("design.EXTRACT_PROMPT", _design.EXTRACT_PROMPT)
+    take("design.TEMPLATES", _design.TEMPLATES)
+    take("design.BUILTIN_SYSTEMS", _design.BUILTIN_SYSTEMS)
+    take("design.BLANK_PAGE", _design.BLANK_PAGE)
+
     wherever("server.SUGGEST_PROMPT", "SUGGEST_PROMPT",
              "compass.api.server", "compass.code.routes")
     wherever("server.REPAIR_PROMPT", "REPAIR_PROMPT",
@@ -83,27 +84,30 @@ def prompts() -> dict[str, str]:
     wherever("server.CSS_REPAIR_PROMPT", "CSS_REPAIR_PROMPT",
              "compass.api.server", "compass.design.routes", "compass.design.review")
 
-    from compass.core import chat_engine as _chat
+    wherever("chat.CHAT_SYSTEM_PROMPT", "CHAT_SYSTEM_PROMPT",
+             "compass.core.chat_engine", "compass.home.engine")
+    wherever("work_iq.WORK_IQ_SYSTEM_PROMPT", "WORK_IQ_SYSTEM_PROMPT",
+             "compass.services.work_iq", "compass.home.work_iq")
+    wherever("compaction.SUMMARY_PROMPT", "SUMMARY_PROMPT",
+             "compass.context.compaction", "compass.common.compaction")
+    wherever("query_loop.MAX_OUTPUT_RECOVERY_PROMPT", "MAX_OUTPUT_RECOVERY_PROMPT",
+             "compass.core.query_loop", "compass.common.query_loop")
 
-    take("chat.CHAT_SYSTEM_PROMPT", _chat.CHAT_SYSTEM_PROMPT)
+    # The agent's system prompt is many constants rather than one, so it is
+    # swept whole: every upper-case string the module defines.
+    import importlib
 
-    from compass.context import compaction as _compaction
-
-    take("compaction.SUMMARY_PROMPT", _compaction.SUMMARY_PROMPT)
-
-    from compass.services import work_iq as _work_iq
-
-    take("work_iq.WORK_IQ_SYSTEM_PROMPT", _work_iq.WORK_IQ_SYSTEM_PROMPT)
-
-    from compass.core import query_loop as _loop
-
-    take("query_loop.MAX_OUTPUT_RECOVERY_PROMPT", _loop.MAX_OUTPUT_RECOVERY_PROMPT)
-
-    from compass.core import system_prompt as _sysprompt
-
-    for name in dir(_sysprompt):
-        if name.isupper() and isinstance(getattr(_sysprompt, name), str):
-            take(f"system_prompt.{name}", getattr(_sysprompt, name))
+    for mod in ("compass.core.system_prompt", "compass.code.system_prompt"):
+        try:
+            _sysprompt = importlib.import_module(mod)
+        except ImportError:
+            continue
+        for name in dir(_sysprompt):
+            if name.isupper() and isinstance(getattr(_sysprompt, name), str):
+                take(f"system_prompt.{name}", getattr(_sysprompt, name))
+        break
+    else:
+        raise SystemExit("the system prompt module has vanished")
 
     return out
 
