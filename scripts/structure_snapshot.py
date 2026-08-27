@@ -160,6 +160,56 @@ def smoke() -> dict[str, str]:
     return out
 
 
+def writes() -> dict[str, str]:
+    """Create something through the API, then put it back.
+
+    Everything above only ever asked for things. A GET route can answer
+    perfectly while the code that makes a record is broken — which is exactly
+    what happened: a name left behind by a move meant creating a design
+    project raised NameError, and nothing here noticed, because nothing here
+    had ever created one.
+
+    Each of these creates and then removes what it created, so running the
+    harness leaves no litter.
+    """
+    from fastapi.testclient import TestClient
+
+    from compass.api.server import app
+
+    out: dict[str, str] = {}
+    with TestClient(app, raise_server_exceptions=False) as client:
+        # A design project on a real template — the path that was broken.
+        made = client.post("/v1/design/projects", json={
+            "name": "structure-snapshot probe",
+            "template": "document",
+            "prompt": "a probe, deleted immediately",
+        })
+        out["POST /v1/design/projects"] = str(made.status_code)
+        if made.status_code < 300:
+            project = made.json()
+            pid = project.get("id") or (project.get("project") or {}).get("id", "")
+            out["created template"] = str(
+                project.get("template")
+                or (project.get("project") or {}).get("template")
+            )
+            if pid:
+                gone = client.delete(f"/v1/design/projects/{pid}")
+                out["DELETE /v1/design/projects/{id}"] = str(gone.status_code)
+
+        # A chat session, which is the Home equivalent.
+        chat = client.post("/v1/chat/sessions", json={})
+        out["POST /v1/chat/sessions"] = str(chat.status_code)
+
+        # An agent session. Nothing runs in it; creating it is the point.
+        code = client.post("/v1/sessions", json={})
+        out["POST /v1/sessions"] = str(code.status_code)
+        if code.status_code < 300:
+            sid = code.json().get("session_id", "")
+            if sid:
+                client.delete(f"/v1/sessions/{sid}")
+    return out
+
+
 def startup() -> str:
     """Run the app's lifespan and say whether it worked.
 
@@ -189,7 +239,7 @@ def startup() -> str:
 
 def gather() -> dict:
     return {"prompts": prompts(), "routes": routes(), "schema": schema(),
-            "smoke": smoke(), "startup": startup()}
+            "smoke": smoke(), "writes": writes(), "startup": startup()}
 
 
 def _report(old: dict, new: dict) -> bool:
@@ -232,6 +282,19 @@ def _report(old: dict, new: dict) -> bool:
                   f" now {new.get('smoke', {}).get(p, '-')}")
     elif new.get("smoke"):
         print(f"calls     {len(new['smoke'])} GET routes answered as before")
+
+    made = [
+        k for k in sorted(set(old.get("writes", {})) | set(new.get("writes", {})))
+        if old.get("writes", {}).get(k) != new.get("writes", {}).get(k)
+    ]
+    if made:
+        ok = False
+        print(f"{len(made)} WRITE PATH(S) NOW BEHAVE DIFFERENTLY:")
+        for k in made:
+            print(f"   {k}: was {old.get('writes', {}).get(k, '-')}"
+                  f" now {new.get('writes', {}).get(k, '-')}")
+    elif new.get("writes"):
+        print(f"writes    {len(new['writes'])} creations still succeed")
 
     was, now_ = old.get("startup", "ok"), new.get("startup", "ok")
     if was != now_:

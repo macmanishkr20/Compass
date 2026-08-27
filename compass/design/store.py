@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.design.skills import TEMPLATE_PROMPTS
 
 BLANK_PAGE = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><title>Blank page</title>
