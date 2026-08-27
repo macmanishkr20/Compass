@@ -3078,7 +3078,6 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   color: var(--muted);
   font: inherit;
   font-size: 0.78rem;
-  font-style: italic;
   text-align: left;
 }
 .cthink-head:hover { color: var(--ink); }
@@ -3093,12 +3092,14 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   margin-left: auto;
   color: var(--accent);
   font-size: 0.72rem;
+  font-style: italic;
   font-variant-numeric: tabular-nums;
 }
 .cthink-body {
   margin: 4px 0 2px;
   color: var(--muted);
   font-size: 0.84rem;
+  font-style: italic;
   line-height: 1.55;
   max-height: 15rem;
   overflow-y: auto;

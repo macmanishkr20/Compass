@@ -483,7 +483,6 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   color: var(--muted);
   font: inherit;
   font-size: 0.78rem;
-  font-style: italic;
   text-align: left;
 }
 .cthink-head:hover { color: var(--ink); }
@@ -509,6 +508,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   margin-left: auto;
   color: var(--accent);
   font-size: 0.72rem;
+  font-style: italic;
   font-variant-numeric: tabular-nums;
 }
 
@@ -516,6 +516,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   margin: 4px 0 2px;
   color: var(--muted);
   font-size: 0.84rem;
+  font-style: italic;
   line-height: 1.55;
   /* Long reasoning scrolls inside itself rather than pushing the answer off
      the screen. */

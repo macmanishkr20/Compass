@@ -195,3 +195,16 @@ body {
   background: rgba(255,255,255,0.1); color: #fff; cursor: pointer;
 }
 .lb-close:hover { background: rgba(255,255,255,0.22); }
+
+/* ---- headings inside a reasoning block ------------------------------------
+   The reasoning text is italic, because it reads as recalled thought rather
+   than as the answer sitting upright beneath it. The headings the model puts
+   in that thought stay upright, so they still divide it.
+
+   This lives here rather than beside the rest of the thinking styles because
+   the reasoning is rendered through app-markdown's [innerHTML], and injected
+   markup carries no component scope attribute — a scoped rule cannot reach
+   it. Everything else about the block is styled in its own component. */
+.cthink-body :is(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-style: normal;
+}
