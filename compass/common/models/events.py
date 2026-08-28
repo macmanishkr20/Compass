@@ -53,6 +53,24 @@ class ThinkingDelta(Event):
 
 
 @dataclass
+class ServerToolUsed(Event):
+    """Something Azure did inside the turn, rather than something Compass ran.
+
+    A web search or a snippet of Python executes server-side and never comes
+    back to the loop, so none of the tool events fire for it. Without this the
+    surface cannot tell an answer that quietly rested on three web pages from
+    one the model produced out of memory — and those are not the same claim.
+    """
+
+    #: "web_search" or "code_interpreter".
+    tool: str = ""
+    #: One line saying what it did, already written for a reader.
+    detail: str = ""
+    #: Pages actually opened, when it opened any.
+    sources: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ThinkingComplete(Event):
     """What the finished reasoning cost, once the turn's thinking is done.
 
@@ -161,6 +179,7 @@ _TYPE_NAMES = {
     TextDelta: "text_delta",
     ThinkingDelta: "thinking_delta",
     ThinkingComplete: "thinking_complete",
+    ServerToolUsed: "server_tool_used",
     AssistantMessage: "assistant_message",
     ToolCallStarted: "tool_call_started",
     ToolProgress: "tool_progress",

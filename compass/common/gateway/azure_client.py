@@ -84,6 +84,11 @@ class CompletionResult:
     #: as a perfectly successful response, so nothing that watches only for
     #: exceptions will see it — this is how the loop is told.
     refusal: Refusal | None = None
+    #: Searches made and code run by Azure inside this turn. Reported rather
+    #: than requested: it has already happened by the time we see it, and the
+    #: only thing left to do with it is show it. Empty on every turn that used
+    #: no server tool, which is most of them.
+    hosted: list[dict[str, Any]] = field(default_factory=list)
 
 
 #: Reasoning arrives on its own channel, ahead of and separate from the answer.
@@ -336,6 +341,7 @@ class AzureModelClient:
             effort=thinking.normalize_effort(effort),
             display=thinking.display,
             reasoning_by_index=reasoning_by_index,
+            server_tools=True,
         )
 
         outcome = ResponsesOutcome()
@@ -375,6 +381,7 @@ class AzureModelClient:
             model=deployment,
             reasoning=outcome.reasoning,
             refusal=outcome.refusal,
+            hosted=outcome.hosted,
         )
 
     async def _create_stream_adapting(self, kwargs: dict[str, Any], effort: str | None):

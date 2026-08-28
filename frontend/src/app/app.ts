@@ -64,7 +64,7 @@ const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
  *  reasoning models accept — 'minimal' was never one of them, and 'max' is
  *  rejected. Higher means it thinks more often and goes further; at 'low' it
  *  skips thinking on work that does not need it. */
-const EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
+const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
 /** A rendered timeline block: either a standalone item (user/assistant bubble,
  * permission card, meaningful notice) or a collapsed "activity" group folding
@@ -3096,6 +3096,7 @@ export class App {
       this.thinking() &&
       (ev.type === 'text_delta' ||
         ev.type === 'tool_call_started' ||
+        ev.type === 'server_tool_used' ||
         ev.type === 'permission_request' ||
         ev.type === 'assistant_message')
     ) {
@@ -3170,6 +3171,23 @@ export class App {
           this.currentBubble = null;
         }
         break;
+      case 'server_tool_used': {
+        // Azure ran this one; there is no start, no progress and no result to
+        // wait for, so the card is posted already finished. It is still a
+        // card, because the alternative is an answer that silently rests on
+        // three web pages and looks exactly like one that does not.
+        this.push({
+          kind: 'tool',
+          id: crypto.randomUUID(),
+          name: (ev['tool'] as string) ?? 'server_tool',
+          args: '',
+          output: (ev['detail'] as string) ?? '',
+          status: 'ok',
+          agentId,
+          isMcp: false,
+        });
+        break;
+      }
       case 'tool_call_started': {
         const name = (ev['tool_name'] as string) ?? 'tool';
         this.push({

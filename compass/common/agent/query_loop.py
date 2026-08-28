@@ -36,6 +36,7 @@ from compass.common.gateway.azure_client import (
     StreamDelta,
     get_model_client,
 )
+from compass.common.gateway import hosted
 from compass.common.gateway.responses import REASONING_META_KEY, ThinkingDelta
 from compass.common.models import events
 from compass.common.models.messages import (
@@ -218,6 +219,16 @@ async def query(
                 "reasoning_tokens": result.reasoning.tokens,
             }
         }
+        # Reported before the reasoning summary, because it happened first:
+        # the search is what the thinking was about.
+        for item in result.hosted:
+            if detail := hosted.describe(item):
+                yield events.ServerToolUsed(
+                    tool=item.get("type", "").removesuffix("_call"),
+                    detail=detail,
+                    sources=hosted.sources(item),
+                    agent_id=ctx.agent_id,
+                )
         if result.reasoning:
             # Stored on the message, so it is written to the transcript with
             # everything else and survives a resume. Nothing reads it but the

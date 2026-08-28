@@ -694,6 +694,32 @@ export class HomeChat {
         // Arrives before the answer streams — hold it for the reply bubble.
         this.pendingSources = (ev['sources'] as WorkIqSource[]) ?? null;
         break;
+      case 'server_tool_used': {
+        // A page the model opened while searching is a source in exactly the
+        // sense the Work IQ strip already means, so it goes in the same place
+        // rather than into a second surface that says the same thing.
+        const urls = (ev['sources'] as string[]) ?? [];
+        if (!urls.length) break;
+        // Unlike Work IQ's, these arrive after the answer has begun: the
+        // search happens inside the turn, not before it.
+        const target = this.currentAssistant;
+        const add = (have: WorkIqSource[]) => {
+          const merged = [...have];
+          for (const url of urls) {
+            if (merged.some((s) => s.url === url)) continue;
+            let title = url;
+            try { title = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+            merged.push({ n: merged.length + 1, title, url });
+          }
+          return merged;
+        };
+        if (target) {
+          this.patch(target.id, (m) => ({ ...m, sources: add(m.sources ?? []) }));
+        } else {
+          this.pendingSources = add(this.pendingSources ?? []);
+        }
+        break;
+      }
       case 'thinking_delta': {
         // Reasoning opens the bubble, so thinking is visible before the first
         // word of the answer rather than after it.

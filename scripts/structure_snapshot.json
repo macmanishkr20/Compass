@@ -147,7 +147,7 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "4bf57e708d34b089",
+ "schema": "a8174cd150293ebe",
  "smoke": {
   "/": "200",
   "/docs": "200",

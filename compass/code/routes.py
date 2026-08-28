@@ -58,7 +58,7 @@ class CreateSessionRequest(BaseModel):
         default=None, description="default | accept_edits | plan | bypass"
     )
     effort: str | None = Field(
-        default=None, description="low | medium | high | xhigh"
+        default=None, description="minimal | low | medium | high"
     )
     model: str | None = Field(default=None, description="Azure deployment to use")
     workspace_id: str | None = Field(default=None, description="Workspace to operate in")

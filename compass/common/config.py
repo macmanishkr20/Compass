@@ -70,18 +70,24 @@ class AzureOpenAISettings(BaseModel):
 
 
 #: The effort ladder, weakest first. Measured against the configured resource
-#: rather than taken from documentation: gpt-5 on Azure names exactly these
-#: four and rejects `max` with "Supported values are: 'low', 'medium', 'high',
-#: and 'xhigh'". `minimal` is not among them, which is why it is not offered.
-EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
+#: rather than taken from documentation, and re-measured after a level in an
+#: earlier version of this list turned out to be rejected: gpt-5-2025-08-07
+#: answers `xhigh`, `max` and `none` with "Supported values are: 'minimal',
+#: 'low', 'medium', and 'high'". Those four are what is offered, because a
+#: level the UI shows and the API refuses is a 400 the user chose from a menu.
+#:
+#: Re-measure before adding to this, and measure against the deployment rather
+#: than the model family — the accepted set is a property of the deployed
+#: snapshot, and a newer one may well take more.
+EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high")
 
 #: What each level does, in the same terms the model-facing docs use. Shown in
 #: the UI so the choice means something to whoever is making it.
 EFFORT_BEHAVIOUR: dict[str, str] = {
+    "minimal": "Barely thinks. Fastest and cheapest, for work that needs none.",
     "low": "Thinks as little as possible. Skips thinking on simple work, where speed matters most.",
     "medium": "Moderate thinking. May skip thinking for simple queries.",
     "high": "Almost always thinks. Deep reasoning on complex tasks.",
-    "xhigh": "Always thinks deeply, exploring further before answering.",
 }
 
 
@@ -95,6 +101,20 @@ class ToolSettings(BaseModel):
     #: instructive error the model recovers from. Turn it on with
     #: COMPASS_STRICT_TOOLS=1 once you have measured it on your own work.
     strict_schemas: bool = False
+
+    #: Search the web. Azure runs this one itself: Compass does not execute
+    #: it, and the model gets cited results back inside the same turn. On by
+    #: default because Compass otherwise has no way to look anything up at
+    #: all, which is the difference between an answer and a guess on anything
+    #: newer than the training data. It is billed per search and the query
+    #: leaves the tenancy, so COMPASS_WEB_SEARCH=0 turns it off.
+    web_search: bool = True
+
+    #: Run Python in a sandbox Azure hosts. Off by default: it overlaps with
+    #: bash, which Compass already has in the workspace and which costs
+    #: nothing extra. Worth turning on for computation or data work that
+    #: should not touch the workspace at all. COMPASS_CODE_INTERPRETER=1.
+    code_interpreter: bool = False
 
     #: Above this many tools, the ones that arrive from MCP servers stop being
     #: described on every request and are found by searching instead. Compass's
@@ -128,6 +148,13 @@ class ThinkingSettings(BaseModel):
     #: server's own default only because Compass sent no effort at all, which
     #: was never a decision. This makes it one.
     design_effort: str = "high"
+
+    #: What the advisor tool thinks at. The top of the ladder on purpose: the
+    #: whole point of a separate, explicitly-called tool is that it buys
+    #: something the default turn does not have. Dropping this to the default
+    #: effort would leave a tool that costs a round trip and returns what the
+    #: caller could already do itself.
+    advisor_effort: str = "high"
 
     #: "summarized" streams a readable summary of the reasoning as it is
     #: produced; "omitted" asks for none, which reaches the first word of the
@@ -171,16 +198,17 @@ class ThinkingSettings(BaseModel):
     def normalize_effort(self, effort: str | None) -> str | None:
         """Coerce a requested effort onto the ladder the API actually accepts.
 
-        `minimal` predates this and is still stored on old sessions; it means
-        "as little as possible", which is `low` here.
+        Sessions and settings written before the ladder was corrected still
+        say `xhigh`, and Claude's own name for the top is `max`. Both mean
+        "the most thinking available", so both land on `high` rather than on
+        None — returning None would drop the effort field entirely and quietly
+        give the turn the deployment's default instead of the most it can do.
         """
         if not effort:
             return None
         value = effort.strip().lower()
-        if value == "minimal":
-            return "low"
-        if value == "max":  # Claude has this level; Azure rejects it
-            return "xhigh"
+        if value in ("xhigh", "max"):
+            return "high"
         return value if value in EFFORT_LEVELS else None
 
 
@@ -474,11 +502,19 @@ def get_settings() -> Settings:
     think.display = os.environ.get("COMPASS_THINKING_DISPLAY", think.display).lower()
     think.design_effort = os.environ.get(
         "COMPASS_DESIGN_EFFORT", think.design_effort
+    )
+    think.advisor_effort = os.environ.get(
+        "COMPASS_ADVISOR_EFFORT", think.advisor_effort
     ).lower()
     think.posture = os.environ.get("COMPASS_THINKING_POSTURE", think.posture).lower()
     think.response_language = os.environ.get(
         "COMPASS_RESPONSE_LANGUAGE", think.response_language
     ).strip()
+    for flag, field_name in (("COMPASS_WEB_SEARCH", "web_search"),
+                             ("COMPASS_CODE_INTERPRETER", "code_interpreter")):
+        if (raw := os.environ.get(flag)) is not None:
+            setattr(settings.tools, field_name,
+                    raw.strip().lower() not in ("0", "false", "no", "off"))
     if raw := os.environ.get("COMPASS_TOOL_SEARCH_ABOVE"):
         try:
             settings.tools.search_above = max(0, int(raw))

@@ -132,16 +132,85 @@ def check_request_shape() -> None:
 
 
 def check_effort_ladder() -> None:
+    """The ladder, as the deployment reports it.
+
+    This check previously asserted a ladder with `xhigh` at the top, which the
+    resource rejects outright — so it was not protecting the ladder, it was
+    protecting a mistake, and it passed every time it ran. The levels below
+    are what gpt-5-2025-08-07 names in its own 400: 'minimal', 'low',
+    'medium', 'high'. Anything added here should come from asking the API, not
+    from a document, and `scripts/` has a probe that asks it.
+    """
     print("\nthe effort ladder matches what the API accepts")
     t = ThinkingSettings()
-    ok(EFFORT_LEVELS == ("low", "medium", "high", "xhigh"),
+    ok(EFFORT_LEVELS == ("minimal", "low", "medium", "high"),
        f"the ladder is {EFFORT_LEVELS}")
-    ok(t.normalize_effort("minimal") == "low", "'minimal' from an old session becomes low")
-    ok(t.normalize_effort("max") == "xhigh", "'max' becomes the highest Azure has")
+    ok("xhigh" not in EFFORT_LEVELS,
+       "'xhigh' is not offered — the deployment refuses it")
+    ok(t.normalize_effort("xhigh") == "high",
+       "'xhigh' on an old session becomes high, not nothing")
+    ok(t.normalize_effort("max") == "high", "'max' becomes the highest Azure has")
+    ok(t.normalize_effort("minimal") == "minimal", "'minimal' is a real level now")
     ok(t.normalize_effort("nonsense") is None, "an unknown level is dropped, not sent")
     ok(t.normalize_effort(None) is None, "no effort stays no effort")
     ok(t.reasons("gpt-5") and not t.reasons("gpt-4o-mini"),
        "only reasoning deployments take the reasoning path")
+    ok(ThinkingSettings().advisor_effort in EFFORT_LEVELS,
+       "the advisor asks for a level that exists")
+
+
+def check_server_tools() -> None:
+    """Tools Azure runs itself: offered where they belong, never executed."""
+    print("\ntools the server runs are offered without being executed")
+    from compass.common.gateway import hosted
+    from compass.common.gateway.responses import build_request, parse_response
+
+    msgs = [{"role": "user", "content": "hello"}]
+    agentic = build_request(deployment="gpt-5", messages=msgs, tools=None,
+                            max_output_tokens=99, effort="medium",
+                            display="auto", server_tools=True)
+    names = {t.get("type") for t in agentic.get("tools") or []}
+    ok("web_search" in names, "the agentic path offers web search")
+
+    oneshot = build_request(deployment="gpt-5", messages=msgs, tools=None,
+                            max_output_tokens=99, effort="medium",
+                            display="auto", stream=False,
+                            schema={"type": "object"})
+    ok(not oneshot.get("tools"),
+       "the structured one-shot path is left exactly as it was")
+
+    # The invariant that matters: a record of work already done must never be
+    # mistaken for a request to do work.
+    outcome = parse_response({"output": [
+        {"type": "web_search_call", "status": "completed",
+         "action": {"type": "open_page", "url": "https://example.com"}},
+        {"type": "code_interpreter_call", "code": "print(1)"},
+        {"type": "message", "content": [{"type": "output_text", "text": "hi"}]},
+    ]})
+    ok(outcome.tool_calls == [], "hosted items never become tool calls")
+    ok(len(outcome.hosted) == 2, "but they are kept, so the turn can show them")
+    ok(hosted.sources(outcome.hosted[0]) == ["https://example.com"],
+       "a page that was opened is reported as a source")
+    ok("example.com" in hosted.describe(outcome.hosted[0]),
+       "and described in a line a reader can use")
+
+
+def check_fetching() -> None:
+    """web_fetch refuses the addresses that turn a fetch into an escalation."""
+    print("\nfetching refuses what it should")
+    from compass.common.tools.web_fetch import _to_text, _unsafe
+
+    for url in ("https://example.com", "http://localhost:4310/x"):
+        ok(not _unsafe(url), f"allowed: {url}")
+    for url in ("http://169.254.169.254/latest/meta-data/",
+                "http://metadata.google.internal/x",
+                "file:///etc/passwd", "javascript:alert(1)"):
+        ok(bool(_unsafe(url)), f"refused: {url}")
+
+    text = _to_text(b"<h1>Title</h1><p>Body.</p><script>x=1</script>", "text/html")
+    ok("x=1" not in text, "script contents are dropped")
+    ok(text.splitlines() == ["Title", "Body."],
+       "block elements stay on their own lines rather than running together")
 
 
 async def check_stream_folding() -> None:
@@ -364,6 +433,8 @@ def main() -> int:
     asyncio.run(check_refusals())
     check_browsing()
     check_shelf()
+    check_server_tools()
+    check_fetching()
 
     print()
     if FAILURES:

@@ -49,7 +49,7 @@ chat_sessions: dict[str, ChatSession] = {}
 
 class CreateChatRequest(BaseModel):
     effort: str | None = Field(
-        default=None, description="low | medium | high | xhigh"
+        default=None, description="minimal | low | medium | high"
     )
     model: str | None = Field(default=None, description="Azure deployment to use")
     resume: bool = Field(default=False, description="Reload the thread if it exists")

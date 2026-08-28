@@ -36,6 +36,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
+from compass.common.gateway import hosted
 from compass.common.gateway.refusals import REFUSED, Refusal, from_incomplete
 
 logger = logging.getLogger("compass.gateway.reasoning")
@@ -227,6 +228,7 @@ def build_request(
     stream: bool = True,
     schema: dict[str, Any] | None = None,
     schema_name: str = "result",
+    server_tools: bool = False,
 ) -> dict[str, Any]:
     """The request body, with reasoning asked for in the way this API wants.
 
@@ -268,8 +270,13 @@ def build_request(
             "strict": True,
             "schema": schema,
         }}
-    if tools:
-        body["tools"] = to_tools(tools)
+    # Asked for rather than assumed. The agentic path wants them; the one-shot
+    # structured path — Design's generation, the utility calls — does not, and
+    # handing a tool to a call whose whole job is to fill in a schema is a
+    # behaviour change to a feature that was not asking for one.
+    offered = [*to_tools(tools), *(hosted.specs() if server_tools else [])]
+    if offered:
+        body["tools"] = offered
         body["tool_choice"] = "auto"
     if stream:
         body["stream"] = True
@@ -293,6 +300,10 @@ class ResponsesOutcome:
     #: the finish reason so a surface can say what happened, not just that
     #: something did.
     refusal: Refusal | None = None
+    #: Output items from tools Azure ran itself — searches made, pages read,
+    #: code executed. Deliberately not `tool_calls`: those are requests for
+    #: Compass to do something, these are reports that something was done.
+    hosted: list[dict[str, Any]] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_prompt_tokens: int = 0
@@ -346,6 +357,11 @@ async def consume(
             if item.get("type") == "reasoning":
                 # Kept whole and never edited: only the API can read it back.
                 outcome.reasoning.items.append(item)
+            elif item.get("type") in hosted.HOSTED_ITEMS:
+                # Work that has already happened, server-side. Recorded so the
+                # turn can show it, never appended to `tool_calls` — nothing
+                # downstream is meant to execute this.
+                outcome.hosted.append(item)
             elif item.get("type") == "function_call":
                 outcome.tool_calls.append({
                     "id": item.get("call_id") or item.get("id") or "",
@@ -415,6 +431,8 @@ def parse_response(payload: dict[str, Any]) -> ResponsesOutcome:
                 c.get("text", "") for c in item.get("content") or []
                 if c.get("type") == "output_text"
             )
+        elif kind in hosted.HOSTED_ITEMS:
+            outcome.hosted.append(item)
         elif kind == "function_call":
             outcome.tool_calls.append({
                 "id": item.get("call_id") or item.get("id") or "",
