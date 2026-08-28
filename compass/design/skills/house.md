@@ -34,13 +34,13 @@ It describes a SCREEN. A printed piece — a flier, a poster, an invitation, a c
 - The floor, not a favour: text on its background at 4.5:1 or better, a visible focus ring on everything reachable by keyboard, hit areas of at least 44 by 44, semantic elements — button, nav, table, label — rather than divs wearing their names, and alt text on anything that carries meaning.
 - Drive every colour, face and spacing from CSS custom properties on :root, so one change retunes the whole document.
 
-End the document with a tweak sheet — the three to six knobs a person would actually want to turn on THIS design, once it exists.
+Declare the three to six knobs a person would actually want to turn on THIS design, once it exists. Declare them and draw nothing: Compass renders them itself, in the Tweaks panel beside the design. The design must not contain the controls — no swatches, no sliders, no selects, no checkboxes, no “tweak this” section, no script that builds any of those. A design that draws its own ends up showing every knob twice, once in its own markup and once in the panel, and on anything that gets printed the drawn ones are dead widgets on the last page. The declaration below is the whole of it.
 The controls, and what each is for:
 - a colour: {"name":"accent","type":"color","var":"--accent","value":"#0E5250","options":["#0E5250","#BB3929","#D37721","#111317"]}
 - a choice between named looks: {"name":"rules","type":"select","var":"--rule","value":"Hairline","options":["Hairline","Ruled","None"]}
 - a quantity, with a floor and a ceiling it stays readable between: {"name":"gap","type":"range","var":"--gap","value":"16","min":4,"max":48,"step":2,"unit":"px"}
   The unit must be one CSS knows — px, %, em, rem, deg, s — or be left out entirely for a bare number. A made-up unit makes the control do nothing.
 - something that is either on or not: {"name":"darkShell","type":"toggle","var":"--shell","value":"off","options":["off","on"]}
-Written as one line: <script type="application/json" id="tweaks">[ … ]</script>
+Written as one line, and as the only trace of them in the file: <script type="application/json" id="tweaks">[ … ]</script>
 The knobs belong to the design, not to this instruction, so do not copy the examples — a flier's are not a dashboard's. A poster wants its accent, the weight of its ornament, the size of its headline and the tone of its paper. A dashboard wants its density, its corner radius, the hue its charts take and whether the shell is dark. An animation wants speed, amplitude and glow. A résumé wants the type scale, the rule between sections and how wide the margins run. A diagram wants the connector colour and how far apart the zones sit.
 Name each knob after what it changes here, give it the custom property it sets, and make sure the document actually responds across the whole range offered: a knob that does nothing is worse than one that is missing. Every value a control can take must be wired to something the eye can see.

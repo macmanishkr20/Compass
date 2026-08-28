@@ -728,33 +728,39 @@ def check_design_audit_sees_sideways() -> None:
        "the measurement reaches the report")
 
 
-def check_documents_have_no_tweak_sheet() -> None:
-    """A document is printed. Live sliders after the conclusion are not.
+def check_tweaks_are_declared_not_drawn() -> None:
+    """Every design declares its knobs; none of them draws the controls.
 
-    The house style asks every design to end with a tweak sheet — a panel of
-    colour swatches, selects and sliders for retuning it. That earns its place
-    on something used on screen. On a document it is an extra page of widgets
-    after the last paragraph, and in print they cannot be moved at all.
+    The knobs still matter — the editor's Tweaks panel reads the `#tweaks`
+    JSON, falling back to inferring from :root — so the declaration has to
+    stay. What must not happen is the design also rendering swatches and
+    sliders into itself. When it does they appear twice, once in its own
+    markup and once in the panel, and on a printed page the drawn ones are
+    dead widgets after the last paragraph.
     """
-    print("\ndocuments are not asked for a tweak sheet")
-    from compass.design.skills import (
-        DESIGN_SYSTEM_PROMPT, NO_TWEAK_SHEET, system_prompt_for)
+    print("\ntweaks are declared, never drawn")
+    from compass.design.skills import DESIGN_SYSTEM_PROMPT as house
 
-    doc = system_prompt_for("document")
-    ok("tweak sheet" not in doc, "a document's brief does not mention one")
-    ok("application/json\" id=\"tweaks\"" not in doc,
-       "nor the JSON block that declares one")
-    ok(len(doc) < len(DESIGN_SYSTEM_PROMPT),
-       f"the brief is shorter by {len(DESIGN_SYSTEM_PROMPT) - len(doc):,} chars")
-    ok("Everything belongs inside the sheet" in doc,
-       "and the rest of the house style is untouched")
+    ok('id="tweaks"' in house,
+       "the JSON declaration is still asked for — the panel reads it")
+    ok("draw nothing" in house, "and the design is told to draw nothing")
+    ok("must not contain the controls" in house,
+       "in as many words, not by implication")
+    for widget in ("swatches", "sliders", "selects", "checkboxes"):
+        ok(widget in house, f"naming {widget} specifically")
+    ok("no script that builds any of those" in house,
+       "including a script that renders them at runtime, which is how the "
+       "duplicate panel actually arrived")
+    ok("End the document with a tweak sheet" not in house,
+       "and the old wording, which read as an instruction to add a section, "
+       "is gone")
 
-    for other in ("slides", "mobile", "flier", "blank", "", None):
-        ok(system_prompt_for(other) == DESIGN_SYSTEM_PROMPT,
-           f"{other or '(none)'} still gets the house style whole")
-
-    ok(NO_TWEAK_SHEET == frozenset({"document"}),
-       "only the document is excluded, which is what was asked")
+    # It is one house style again: the per-template variant that preceded
+    # this was the wrong mechanism, since it removed the declaration the
+    # panel needs along with the controls it does not.
+    import compass.design.skills as skills_mod
+    ok(not hasattr(skills_mod, "system_prompt_for"),
+       "there is one house style for every template again")
 
 
 def check_fetching() -> None:
@@ -1000,7 +1006,7 @@ def main() -> int:
     check_execution_surfaces()
     check_reach()
     check_design_resilience()
-    check_documents_have_no_tweak_sheet()
+    check_tweaks_are_declared_not_drawn()
     check_design_audit_sees_sideways()
     check_thinking_header_alignment()
     check_thinking_rule_colour()

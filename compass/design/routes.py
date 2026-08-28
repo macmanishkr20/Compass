@@ -1582,7 +1582,7 @@ async def design_generate(
     project_id: str, body: DesignGenerate, user: str = Depends(require_user)
 ) -> dict:
     """Generate (or refine) the project's design and store the HTML."""
-    from compass.design.skills import TEMPLATE_PROMPTS, system_prompt_for
+    from compass.design.skills import DESIGN_SYSTEM_PROMPT, TEMPLATE_PROMPTS
     from compass.design.store import get_design_store
     from compass.design.systems import get_system_store, system_prompt_block
 
@@ -1634,10 +1634,7 @@ async def design_generate(
         # is billed against the same cap, so a small one returns nothing — and
         # a prototype of eight working screens is a lot of document.
         out, made_it, settled_for = await _think_through(
-            # Per template: a document does not want a panel of live sliders
-            # after its conclusion, and it is the one thing here that gets
-            # printed.
-            system_prompt_for(template),
+            DESIGN_SYSTEM_PROMPT,
             "\n\n".join(p for p in parts if p),
             max_tokens=64_000,
             model=body.model,
