@@ -40,6 +40,16 @@ def subagent_tools(subagent_type: str) -> list[Tool]:
         return [FileReadTool(), GlobTool(), GrepTool()]
     # General subagents get everything except the agent tool itself; the
     # depth guard is the real recursion limit, this just avoids fan-out.
+    #
+    # `web_fetch` is here because a subagent sent off to research something
+    # could otherwise search the web — server tools ride on the request, not
+    # on this list — and then not read any of the pages it found, which is a
+    # strange half-capability to hand someone.
+    #
+    # `consult` is deliberately not. It is the expensive tool, and the parent
+    # is the one that decided to delegate: if a question is hard enough to buy
+    # an opinion on, that is a judgement for whoever is holding the whole task,
+    # not for each helper spawned underneath it.
     return [
         FileReadTool(),
         FileWriteTool(),
@@ -49,4 +59,5 @@ def subagent_tools(subagent_type: str) -> list[Tool]:
         BashTool(),
         BashOutputTool(),
         TodoWriteTool(),
+        WebFetchTool(),
     ]

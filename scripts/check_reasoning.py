@@ -228,6 +228,28 @@ def check_execution_surfaces() -> None:
     ok(not hosted.where_code_runs(), "and the default is restored")
 
 
+def check_reach() -> None:
+    """Which surface can do what. Written down because "the tool exists" and
+    "this surface can use it" are different claims, and the gap between them
+    is invisible from the registry alone."""
+    print("\neach surface reaches what it is meant to")
+    from compass.code.tools.registry import get_all_tools, subagent_tools
+
+    main = {t.name for t in get_all_tools()}
+    ok({"consult", "web_fetch"} <= main, "Code/Agent has both new tools")
+
+    general = {t.name for t in subagent_tools("general")}
+    ok("web_fetch" in general,
+       "a subagent can read the pages a search turns up")
+    ok("consult" not in general,
+       "but cannot buy an expensive opinion — that is the parent's call")
+    ok("agent" not in general, "and still cannot spawn further subagents")
+
+    explore = {t.name for t in subagent_tools("explore")}
+    ok(explore == {"file_read", "glob", "grep"},
+       "the read-only sidechain stays local and unchanged")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -468,6 +490,7 @@ def main() -> int:
     check_shelf()
     check_server_tools()
     check_execution_surfaces()
+    check_reach()
     check_fetching()
 
     print()
