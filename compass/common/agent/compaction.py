@@ -22,6 +22,7 @@ import uuid
 from dataclasses import dataclass
 
 from compass.common.config import get_settings
+from compass.common.gateway import limits
 from compass.common.gateway.azure_client import ModelClient
 from compass.common.persistence.artifact_store import save_artifact
 from compass.common.models.messages import (
@@ -137,9 +138,15 @@ async def autocompact_if_needed(
     # Threshold decision uses the accurate, usage-anchored count so it fires on
     # true prompt size, not a pessimistic char guess.
     before = count_context_tokens(visible)
-    threshold = int(
-        settings.context.context_window_tokens * settings.context.autocompact_threshold
-    )
+    # Plan against what the deployment will actually take, not only what the
+    # model could hold. On a resource whose quota is smaller than the context
+    # window, a conversation gets refused long before it gets large — and a
+    # threshold above that point never fires, so the conversation 429s instead
+    # of compacting. `effective_window` is the configured window until a
+    # response reports a smaller quota, so nothing changes on a resource
+    # generous enough that this never binds.
+    budget = limits.effective_window(settings.context.context_window_tokens)
+    threshold = int(budget * settings.context.autocompact_threshold)
     if not force and before < threshold:
         return messages, None
 

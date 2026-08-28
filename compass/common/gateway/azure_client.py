@@ -27,6 +27,7 @@ from compass.common.gateway.refusals import (
     from_choice,
     from_error,
 )
+from compass.common.gateway import limits
 from compass.common.gateway.responses import (
     REASONING_META_KEY,
     ReasoningTrace,
@@ -351,6 +352,10 @@ class AzureModelClient:
                 "POST", url, json=body,
                 headers={"api-key": azure.api_key, "content-type": "application/json"},
             ) as response:
+                # Every response names the deployment's quota, including the
+                # 429s. Recording it is what lets the context budget be a
+                # measured fact rather than a guess written in a config file.
+                limits.remember(response.headers)
                 if response.status_code != 200:
                     raw = (await response.aread()).decode("utf-8", "replace")
                     message = raw
@@ -575,6 +580,7 @@ class AzureModelClient:
                 url, json=body,
                 headers={"api-key": azure.api_key, "content-type": "application/json"},
             )
+        limits.remember(response.headers)
         if response.status_code != 200:
             message = response.text
             try:

@@ -274,7 +274,8 @@ def build_request(
     # structured path — Design's generation, the utility calls — does not, and
     # handing a tool to a call whose whole job is to fill in a schema is a
     # behaviour change to a feature that was not asking for one.
-    offered = [*to_tools(tools), *(hosted.specs() if server_tools else [])]
+    offered = [*to_tools(tools),
+               *(hosted.specs(effort) if server_tools else [])]
     if offered:
         body["tools"] = offered
         body["tool_choice"] = "auto"

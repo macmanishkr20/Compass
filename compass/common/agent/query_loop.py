@@ -24,9 +24,10 @@ from compass.common.config import get_settings
 from compass.common.agent.compaction import (
     apply_tool_result_budget,
     autocompact_if_needed,
+    count_context_tokens,
     microcompact,
 )
-from compass.common.agent.steering import answer_in, threshold_guidance
+from compass.common.agent.steering import answer_in, budget_note, threshold_guidance
 from compass.common.tools.shelf import visible as shelf_visible
 from compass.common.agent.tool_orchestration import run_tools
 from compass.common.gateway.azure_client import (
@@ -36,7 +37,7 @@ from compass.common.gateway.azure_client import (
     StreamDelta,
     get_model_client,
 )
-from compass.common.gateway import hosted
+from compass.common.gateway import hosted, limits
 from compass.common.gateway.responses import (
     REASONING_META_KEY,
     ThinkingDelta,
@@ -150,6 +151,15 @@ async def query(
             if message.role == "assistant" and message.meta.get(REASONING_META_KEY):
                 reasoning_by_index[len(api_messages)] = message.meta[REASONING_META_KEY]
             api_messages.append(message.to_openai())
+
+        # How much room is left, said out loud once it is worth saying. Sent
+        # rather than stored: it describes this request, and a transcript full
+        # of stale usage lines would be worse than one with none. Appended
+        # last, after every real message, so it cannot shift the positions
+        # `reasoning_by_index` was just keyed on.
+        budget = limits.effective_window(settings.context.context_window_tokens)
+        if note := budget_note(count_context_tokens(visible), budget):
+            api_messages.append({"role": "system", "content": note})
 
         yield events.StreamRequestStart(
             turn=turn, model=settings.azure.deployment, agent_id=ctx.agent_id

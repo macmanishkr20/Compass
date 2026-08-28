@@ -60,6 +60,48 @@ def answer_in(language: str | None) -> str:
     )
 
 
+#: Below this share of the budget, saying anything is noise. A model told it
+#: has 94% of its context left learns nothing it can act on.
+BUDGET_QUIET_BELOW = 0.60
+
+
+def budget_note(used: int, budget: int) -> str:
+    """What to tell the model about the room it has left, or "" while there is
+    plenty.
+
+    Claude's models get this injected by the API — a token budget in the
+    system prompt and a running `<system_warning>` after each tool call — so
+    that a long task can be paced against the space that remains instead of
+    running until it stops. Nothing injects it here, so Compass says it.
+
+    It goes in as an operator-level message placed after the conversation so
+    far, rather than as an edit to the prompt at the front. Measured on this
+    resource: a mid-conversation `system` message is obeyed (an instruction
+    added after two turns changed the next answer), and because it is appended
+    rather than prepended, the cached prefix in front of it is untouched.
+
+    Phrased as a fact and not an order. The guidance is explicit that stating
+    what changed works better than telling the model what to do about it, and
+    a hard instruction here would also be wrong: whether to wrap up or keep
+    going is the task's business, not the budget's.
+    """
+    if budget <= 0 or used <= 0:
+        return ""
+    if used < int(budget * BUDGET_QUIET_BELOW):
+        return ""
+    left = max(budget - used, 0)
+    note = (
+        f"Context usage: {used:,} of {budget:,} tokens; {left:,} remaining "
+        "before this conversation is summarised and earlier detail is lost."
+    )
+    if left <= int(budget * 0.15):
+        note += (
+            " Very little room is left. Prefer finishing what is in progress "
+            "and recording anything that must survive over starting new work."
+        )
+    return note
+
+
 def steer(content: str, hint: str | None) -> str:
     """Append the phrase for `hint` to one user message.
 

@@ -186,6 +186,31 @@ def check_server_tools() -> None:
     names = {t.get("type") for t in agentic.get("tools") or []}
     ok("web_search" in names, "the agentic path offers web search")
 
+    # `minimal` refuses the hosted tools outright — measured, after a live
+    # turn came back 400 naming web_search. Since search is on by default,
+    # offering `minimal` in the picker without this would have made every
+    # Code and Home turn at that level fail.
+    lowest = build_request(deployment="gpt-5", messages=msgs, tools=None,
+                           max_output_tokens=99, effort="minimal",
+                           display="auto", server_tools=True)
+    ok(not lowest.get("tools"),
+       "at minimal effort no hosted tool is offered, because it is refused")
+    for level in ("low", "medium", "high"):
+        body = build_request(deployment="gpt-5", messages=msgs, tools=None,
+                             max_output_tokens=99, effort=level,
+                             display="auto", server_tools=True)
+        ok(any(t.get("type") == "web_search" for t in body.get("tools") or []),
+           f"and is offered again at {level}")
+
+    # Compass's own tools are unaffected at every level.
+    fn = [{"type": "function", "function": {
+        "name": "noop", "description": "d", "parameters": {"type": "object"}}}]
+    with_fn = build_request(deployment="gpt-5", messages=msgs, tools=fn,
+                            max_output_tokens=99, effort="minimal",
+                            display="auto", server_tools=True)
+    ok(any(t.get("name") == "noop" for t in with_fn.get("tools") or []),
+       "function tools still go out at minimal, which the API accepts")
+
     oneshot = build_request(deployment="gpt-5", messages=msgs, tools=None,
                             max_output_tokens=99, effort="medium",
                             display="auto", stream=False,
@@ -377,6 +402,83 @@ def check_home_says_what_it_does() -> None:
        "the old claim that Home has no tools is gone")
     ok("cannot touch your files" in page,
        "and what is still true of it is what is said")
+
+
+def check_context_budget() -> None:
+    """The conversation is planned against what the deployment will accept.
+
+    Measured on this resource: the quota is 50,000 tokens a minute, a 30,000-
+    token request is accepted, and a 70,000-token one is refused 429 with the
+    budget reported as zero on a freshly renewed window. Compass compacted at
+    80% of 128,000 = 102,400, a size this deployment would never have taken —
+    so a long conversation 429'd instead of compacting, and the threshold that
+    would have saved it was unreachable.
+    """
+    print("\nthe context budget matches what the deployment accepts")
+    from compass.common.config import get_settings
+    from compass.common.gateway import limits
+
+    window = get_settings().context.context_window_tokens
+    ratio = get_settings().context.autocompact_threshold
+    limits.reset()
+    try:
+        ok(limits.request_ceiling() is None,
+           "before any response there is no opinion")
+        ok(limits.effective_window(window) == window,
+           "so the configured window is used unchanged")
+
+        limits.remember({"x-ratelimit-limit-tokens": "50000"})
+        ok(limits.observed_quota() == 50_000, "the quota is read from headers")
+        narrowed = limits.effective_window(window)
+        ok(narrowed < window, f"and narrows the budget ({narrowed:,})")
+        ok(int(narrowed * ratio) < 50_000,
+           "so the compaction threshold is now reachable, which it was not")
+
+        limits.remember({"x-ratelimit-limit-tokens": "2000000"})
+        ok(limits.effective_window(window) == window,
+           "a generous quota leaves the configured window alone")
+
+        limits.remember({"x-ratelimit-limit-tokens": "not-a-number"})
+        ok(limits.observed_quota() == 2_000_000, "junk in a header is ignored")
+        limits.remember({})
+        ok(limits.observed_quota() == 2_000_000, "and so is a missing header")
+    finally:
+        limits.reset()
+
+
+def check_budget_note() -> None:
+    """Context awareness: the model is told the room it has left.
+
+    Claude's models get a token budget injected by the API. Nothing injects
+    one here, so Compass says it — as a mid-conversation system message,
+    which was measured being obeyed on this resource and which appends rather
+    than editing the prefix, so the cache in front of it survives.
+    """
+    print("\nthe model is told how much room is left")
+    from compass.common.agent.steering import budget_note
+    from compass.common.gateway.responses import to_input
+
+    ok(budget_note(5_000, 35_000) == "",
+       "nothing is said while there is plenty of room")
+    ok(budget_note(0, 35_000) == "" and budget_note(100, 0) == "",
+       "and nothing is said when the numbers are not yet meaningful")
+
+    mid = budget_note(25_000, 35_000)
+    ok("25,000" in mid and "35,000" in mid and "10,000" in mid,
+       "past the threshold it states used, total and remaining")
+    ok("Prefer finishing" not in mid, "without advice it does not yet need")
+
+    late = budget_note(33_000, 35_000)
+    ok("Prefer finishing" in late, "near the end it says what to prioritise")
+
+    # It has to survive translation as a system item, not as user text: the
+    # whole point is that it carries operator weight rather than looking like
+    # something the person typed.
+    items = to_input([{"role": "user", "content": "hi"},
+                      {"role": "assistant", "content": "ok"},
+                      {"role": "system", "content": late}])
+    ok(items[-1].get("role") == "system",
+       "and reaches the request as a system item, mid-conversation")
 
 
 def check_fetching() -> None:
@@ -621,6 +723,8 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_context_budget()
+    check_budget_note()
     check_home_says_what_it_does()
     check_degraded_designs_say_so()
     check_fetching()

@@ -40,13 +40,28 @@ from compass.common.config import get_settings
 HOSTED_ITEMS = ("web_search_call", "code_interpreter_call")
 
 
-def specs() -> list[dict[str, Any]]:
-    """The hosted tools to offer on this request, per settings.
+#: The one effort level that refuses these outright. Measured, after a live
+#: turn came back 400: "The following tools cannot be used with
+#: reasoning.effort 'minimal': web_search." It refuses `code_interpreter` the
+#: same way, and names both when both are offered; `low` and everything above
+#: accept them, and ordinary function tools are fine at every level.
+#:
+#: The refusal is also coherent, which is why the answer is to drop the tools
+#: rather than to quietly raise the effort: `minimal` means do not deliberate,
+#: and searching the web is deliberation. Someone who picks it wants the fast
+#: answer, not the researched one.
+NO_HOSTED_AT = "minimal"
+
+
+def specs(effort: str | None = None) -> list[dict[str, Any]]:
+    """The hosted tools to offer on this request, per settings and effort.
 
     Returns a fresh list each call: it goes into a request body, and a shared
     mutable default in a request body is the kind of bug that only shows up
     under concurrency.
     """
+    if (effort or "").strip().lower() == NO_HOSTED_AT:
+        return []
     tools = get_settings().tools
     offered: list[dict[str, Any]] = []
     if tools.web_search:
