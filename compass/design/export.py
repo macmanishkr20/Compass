@@ -813,13 +813,33 @@ _DOC_JS = r"""() => {
   // out of a sheet that grew to fit. Measure against the page's height.
   const PAGE_H = 1123;
   let spill = 0;
+  // Sideways is measured too, and separately. The responsive sideways-scroll
+  // check further down is skipped for sheet documents, correctly — a page is
+  // a fixed width and is not meant to reflow at 640px. But that left nothing
+  // watching the other axis at all, and a table one column too wide walks off
+  // the right edge of its page unnoticed. Found exactly that way: a four-column
+  // comparison table 20px past the paper, on a document that had passed audit.
+  let wide = 0, wideBy = 0, wideWhat = '';
   for (const sheet of sheets) {
     const sr = sheet.getBoundingClientRect();
     if (sr.height > PAGE_H + 2) { spill++; continue; }
+    let over = false, sideways = 0, culprit = '';
     for (const kid of sheet.querySelectorAll('*')) {
       const r = kid.getBoundingClientRect();
       if (!r.height) continue;
-      if (r.bottom > sr.top + PAGE_H + 2 || r.top < sr.top - 2) { spill++; break; }
+      if (!over && (r.bottom > sr.top + PAGE_H + 2 || r.top < sr.top - 2)) {
+        spill++; over = true;
+      }
+      // 2px of slack: a border or a rounding artefact is not a layout fault.
+      const past = Math.max(r.right - sr.right, sr.left - r.left);
+      if (past > 2 && past > sideways) {
+        sideways = past;
+        culprit = kid.tagName.toLowerCase();
+      }
+    }
+    if (sideways > 0) {
+      wide++;
+      if (sideways > wideBy) { wideBy = Math.round(sideways); wideWhat = culprit; }
     }
   }
 
@@ -855,7 +875,7 @@ _DOC_JS = r"""() => {
     size: Math.round(size), leading: Math.round(lh * 100) / 100, measure,
     heads, sections: document.querySelectorAll('h2').length,
     tables: tables.length, uncaptioned,
-    sheets: sheets.length, spill,
+    sheets: sheets.length, spill, wide, wideBy, wideWhat,
     words: (document.body.innerText || '').trim().split(/\s+/).length,
   };
 }"""
@@ -1608,6 +1628,13 @@ async def audit(
                     findings.append(
                         f"content crosses the edge of {doc['spill']} page(s) — a "
                         "document breaks between sheets, it does not overflow them"
+                    )
+                if doc.get("wide"):
+                    findings.append(
+                        f"content runs {doc['wideBy']}px past the side of "
+                        f"{doc['wide']} page(s), widest a <{doc['wideWhat']}> — "
+                        "a page cannot scroll, so whatever hangs off the edge is "
+                        "simply lost when it is read or printed"
                     )
 
         # The tweak sheet promises knobs that work.

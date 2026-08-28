@@ -678,6 +678,56 @@ def check_thinking_rule_colour() -> None:
            f"{short}: and holds still, bright, for anyone who asked for that")
 
 
+def check_design_resilience() -> None:
+    """Design waits out a rate limit instead of degrading on the first one.
+
+    Measured: the exact request Design sends came back 429 during a busy
+    minute and went through in 227s on a quiet one, 8,226 in / 15,778 out. So
+    the 64k cap was never the problem, and degrading immediately cost a whole
+    document its deliberation and its research over one spent minute.
+    """
+    print("\na rate-limited design waits before it settles for less")
+    from compass.design import routes
+
+    ok(routes._is_rate_limited(Exception("Azure returned 429: exceeded rate limit.")),
+       "a 429 is recognised as the minute's budget")
+    ok(routes._is_rate_limited(Exception("... rate limit ...")),
+       "and so is the prose form")
+    ok(not routes._is_rate_limited(Exception("connection reset by peer")),
+       "a real fault is not mistaken for one")
+    ok(routes.RATE_LIMIT_WAIT_SECONDS > 60,
+       f"the wait clears the 60s renewal window "
+       f"({routes.RATE_LIMIT_WAIT_SECONDS}s)")
+
+    import inspect
+    src = inspect.getsource(routes._think_through)
+    ok(src.count("complete_reasoning") == 2,
+       "the good path is attempted twice, never more")
+    ok("_why_degraded" in src,
+       "and a second failure still explains itself rather than going quiet")
+
+
+def check_design_audit_sees_sideways() -> None:
+    """A page cannot scroll, so anything past its edge is lost.
+
+    The responsive sideways check is skipped for sheet documents — correctly,
+    a page is a fixed width and is not meant to reflow — and the spill check
+    only ever looked at `top` and `bottom`. Nothing watched the other axis. A
+    four-column comparison table sat 20px past the paper on a document that
+    had passed audit; with this it is reported, and five other documents
+    stayed silent.
+    """
+    print("\nthe design audit watches both axes of a page")
+    src = (ROOT / "compass/design/export.py").read_text()
+    ok("let wide = 0" in src, "sheets are measured sideways as well as down")
+    ok("sr.left - r.left" in src and "r.right - sr.right" in src,
+       "on both edges, not just the right one")
+    ok("past the side of" in src,
+       "and a page that loses content off its edge says so")
+    ok("sheets: sheets.length, spill, wide" in src,
+       "the measurement reaches the report")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -920,6 +970,8 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_design_resilience()
+    check_design_audit_sees_sideways()
     check_thinking_header_alignment()
     check_thinking_rule_colour()
     check_skills()

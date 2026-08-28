@@ -28,6 +28,18 @@ logger = logging.getLogger("compass.design")
 router = APIRouter()
 
 
+def _is_rate_limited(err: Exception) -> bool:
+    """Whether this failure is the minute's budget, rather than a real fault."""
+    text = str(err).lower()
+    return "429" in text or "rate limit" in text
+
+
+#: How long to wait before trying the good path a second time. The deployment
+#: reports its quota renewal period as 60 seconds; a little past that is the
+#: cheapest way to be on the other side of it.
+RATE_LIMIT_WAIT_SECONDS = 65
+
+
 def _why_degraded(err: Exception) -> str:
     """What to tell someone about a document written without the good path.
 
@@ -104,6 +116,31 @@ async def _think_through(
             )
             return text, trace, ""
         except Exception as err:  # noqa: BLE001 — never lose the step over this
+            # A rate limit is not a fault, it is a queue. Degrading on the
+            # first one is expensive out of all proportion: the whole document
+            # loses its deliberation and its research because one minute's
+            # budget happened to be spent, and the difference shows. Measured
+            # on this deployment — the same request that 429'd during a busy
+            # minute went through in 227s on a quiet one — so the wait almost
+            # always buys back the good path. Once only: if the budget is
+            # still gone a minute later, something is genuinely saturated and
+            # a degraded document beats no document.
+            if _is_rate_limited(err):
+                logger.warning(
+                    "design: rate limited; waiting %ss for the quota to renew "
+                    "rather than giving up the reasoning path",
+                    RATE_LIMIT_WAIT_SECONDS,
+                )
+                await asyncio.sleep(RATE_LIMIT_WAIT_SECONDS)
+                try:
+                    text, trace = await client.complete_reasoning(
+                        prompt, asked, max_tokens=max_tokens,
+                        deployment=deployment, images=images, effort=wanted,
+                        prior=prior, server_tools=True,
+                    )
+                    return text, trace, ""
+                except Exception as second:  # noqa: BLE001
+                    err = second
             logger.warning("design: reasoning call failed (%s); plain completion", err)
             settled = _why_degraded(err)
     else:
