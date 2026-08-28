@@ -645,6 +645,39 @@ def check_thinking_header_alignment() -> None:
            f"{name} still right-aligns the count within the header")
 
 
+def check_thinking_rule_colour() -> None:
+    """The thinking block's rule is Compass's colour, and shows when it is live.
+
+    Measured in the browser: settled it computes to rgba(184,134,11,0.26) in
+    light and rgba(217,164,65,0.30) in dark — the accent's faded form in each,
+    where it used to be a neutral grey. Live, it animates cthink-alive over
+    1.6s and the sampled alpha sweeps 0.26 to 0.996 and back with the hue
+    unchanged.
+    """
+    print("\nthe thinking rule wears the theme, and breathes while live")
+    global_css = (ROOT / "frontend/src/styles.css").read_text()
+    ok("@keyframes cthink-alive" in global_css,
+       "the keyframes are global, not scoped inside one component")
+    frames = global_css.split("@keyframes cthink-alive")[1][:220]
+    ok("var(--accent-line)" in frames and "var(--accent)" in frames,
+       "and move between the theme's faded and full accent, so dark mode "
+       "follows without a second rule")
+
+    for name in ("frontend/src/app/app.css",
+                 "frontend/src/app/home-chat/home-chat.css"):
+        css = (ROOT / name).read_text()
+        short = name.rsplit("/", 1)[-1]
+        ok("border-left: 2px solid var(--accent-line);" in css,
+           f"{short}: a settled block keeps a faded accent, not a grey")
+        ok("var(--border-strong)" not in css.split(".cthink {")[1][:200],
+           f"{short}: the old neutral is gone")
+        live = css.split(".cthink.live")[1][:400]
+        ok("animation: cthink-alive" in live,
+           f"{short}: a live block animates")
+        ok("prefers-reduced-motion" in css,
+           f"{short}: and holds still, bright, for anyone who asked for that")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -888,6 +921,7 @@ def main() -> int:
     check_execution_surfaces()
     check_reach()
     check_thinking_header_alignment()
+    check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()
     check_context_budget()

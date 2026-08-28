@@ -481,10 +481,22 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .cthink {
   width: 100%;
   margin: 0 0 6px;
-  border-left: 2px solid var(--border-strong);
+  border-left: 2px solid var(--accent-line);
   padding-left: 10px;
 }
-.cthink.live { border-left-color: var(--accent-line); }
+/* Alive: the rule breathes between faded and full accent. Settled: it stays
+   at the faded accent, so a finished block still reads as Compass's rather
+   than as a neutral grey divider. */
+.cthink.live {
+  border-left-color: var(--accent-line);
+  animation: cthink-alive 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Still obviously active, just not blinking — a pulsing element is a real
+     problem for some people, and "it is working" is the only thing the
+     animation was carrying. */
+  .cthink.live { animation: none; border-left-color: var(--accent); }
+}
 
 .cthink-head {
   display: flex;

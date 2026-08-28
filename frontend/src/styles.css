@@ -208,3 +208,12 @@ body {
 .cthink-body :is(h1, h2, h3, h4, h5, h6, strong, b) {
   font-style: normal;
 }
+
+/* The thinking block's left rule, while the thinking is still arriving.
+   Fades between the theme's quiet line colour and the full accent, so the
+   block reads as live without anything moving on the page. Both endpoints are
+   theme variables, so it follows light and dark without a second rule. */
+@keyframes cthink-alive {
+  0%, 100% { border-left-color: var(--accent-line); }
+  50%      { border-left-color: var(--accent); }
+}
