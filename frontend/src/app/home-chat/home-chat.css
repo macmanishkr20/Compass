@@ -79,6 +79,14 @@
 
 /* bubble + its hover actions, stacked */
 .cwrap { display: flex; flex-direction: column; min-width: 0; max-width: 82%; }
+/* The assistant column spans the row so the thinking header's token count can
+   right-align against the row rather than against the header's own width — a
+   turn whose bubble is short otherwise collapses the column to ~200px and the
+   count ends up beside the label. `flex-start` is what keeps the bubbles
+   themselves shrink-wrapped: unlike the Code console's, `.cbubble` is
+   max-width: 100%, so stretching the column would stretch every short reply
+   with it. */
+.cwrap:not(.mine) { width: 100%; align-items: flex-start; }
 .cwrap.mine { align-items: flex-end; }
 .cwrap .cbubble { max-width: 100%; }
 

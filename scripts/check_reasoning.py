@@ -618,6 +618,33 @@ def check_skills() -> None:
            "and a workspace without a skills directory adds nothing")
 
 
+def check_thinking_header_alignment() -> None:
+    """The token count sits at the right edge on both surfaces.
+
+    It always had `margin-left: auto`, and that was never the problem: an
+    assistant turn ending in tool calls has a thinking header and no answer
+    bubble, so the flex column shrink-wrapped to about 200px and the count
+    right-aligned inside *that* — which reads as glued to the label. The
+    wrapper has to span the row. Measured after the fix: header 836px in the
+    Code console and 673px in Home, count flush right in both, and the bubbles
+    unchanged at 649px and 12/92px respectively.
+    """
+    print("\nthe thinking header's token count is right-aligned")
+    code = (ROOT / "frontend/src/app/app.css").read_text()
+    home = (ROOT / "frontend/src/app/home-chat/home-chat.css").read_text()
+
+    ok(".bubble-wrap:not(.mine) { width: 100%; }" in code,
+       "the Code console's assistant wrapper spans the row")
+    ok(".cwrap:not(.mine) { width: 100%; align-items: flex-start; }" in home,
+       "and so does Home's")
+    ok("align-items: flex-start" in home.split(".cwrap:not(.mine)")[1][:80],
+       "Home also keeps its bubbles shrink-wrapped, since .cbubble is "
+       "max-width: 100% and would otherwise stretch with the column")
+    for name, css in (("app.css", code), ("home-chat.css", home)):
+        ok("margin-left: auto" in css.split(".cthink-cost")[1][:120],
+           f"{name} still right-aligns the count within the header")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -860,6 +887,7 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_thinking_header_alignment()
     check_skills()
     check_pdf_pages()
     check_context_budget()
