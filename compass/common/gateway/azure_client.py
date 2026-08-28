@@ -513,6 +513,7 @@ class AzureModelClient:
         prior: ReasoningTrace | None = None,
         schema: dict[str, Any] | None = None,
         schema_name: str = "result",
+        server_tools: bool = False,
     ) -> tuple[str, ReasoningTrace]:
         """One non-streaming call that actually reasons, and says what it cost.
 
@@ -562,6 +563,7 @@ class AzureModelClient:
             stream=False,
             schema=schema,
             schema_name=schema_name,
+            server_tools=server_tools,
         )
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(900.0, connect=30.0)) as http:

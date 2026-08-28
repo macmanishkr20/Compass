@@ -177,7 +177,17 @@ def check_server_tools() -> None:
                             display="auto", stream=False,
                             schema={"type": "object"})
     ok(not oneshot.get("tools"),
-       "the structured one-shot path is left exactly as it was")
+       "a one-shot call gets none unless it asks — utility calls stay bare")
+
+    # Design asks. A hosted search and a strict json_schema were measured
+    # coexisting on this API before this was relied on: the call searched and
+    # still returned JSON that matched the schema.
+    researching = build_request(deployment="gpt-5", messages=msgs, tools=None,
+                               max_output_tokens=99, effort="high",
+                               display="auto", stream=False,
+                               schema={"type": "object"}, server_tools=True)
+    ok(any(t.get("type") == "web_search" for t in researching.get("tools") or []),
+       "but Design can research while writing, schema and all")
 
     # The invariant that matters: a record of work already done must never be
     # mistaken for a request to do work.
@@ -237,6 +247,16 @@ def check_reach() -> None:
 
     main = {t.name for t in get_all_tools()}
     ok({"consult", "web_fetch"} <= main, "Code/Agent has both new tools")
+
+    # Home is tool-free by design; the exceptions are read-only and touch
+    # nothing on the machine, which is the bar the docstring there sets.
+    from compass.home.engine import ChatSession
+    import inspect
+    home = inspect.getsource(ChatSession.make_context)
+    ok("WebFetchTool()" in home, "Home can read a link it is given")
+    ok("MemoryTool()" in home, "and still remembers what it learns")
+    for absent in ("BashTool", "FileWriteTool", "FileEditTool", "BrowserTool"):
+        ok(absent not in home, f"Home still has no {absent}")
 
     general = {t.name for t in subagent_tools("general")}
     ok("web_fetch" in general,

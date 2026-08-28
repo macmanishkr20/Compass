@@ -6,9 +6,12 @@ scoping, routines, git/PR. `ChatEngine` here owns the Home/Chat section and
 shares none of that — it reuses only the shared low-level `query()` streaming
 loop, invoked with an **empty tool list** and a conversational system prompt.
 
-Consequences of `tools=[]`:
-  * `run_tools` never fires — the model can only produce text.
-  * no `PermissionRequest` is ever emitted (nothing to approve).
+The tool list is deliberately tiny — `memory` and `web_fetch`, both read-only
+and neither touching the machine — rather than empty:
+  * no file, shell or workspace tool is ever offered, so Home cannot read or
+    change anything on disk.
+  * no `PermissionRequest` is ever emitted; both tools are read-only, so they
+    are auto-allowed and the auto_deny broker is never consulted.
   * no workspace root is attached — pure conversation, no file access.
 
 Chat transcripts persist to their own `sessions_dir/chat/` namespace so they
@@ -47,15 +50,20 @@ class _WorkIqSources:
 
 CHAT_SYSTEM_PROMPT = (
     "You are Compass Chat — a friendly, knowledgeable conversational assistant "
-    "running on Azure OpenAI (gpt-5). This is a plain chat: your only tool is "
-    "`memory` (to remember durable facts about the user). You have no file "
-    "access and cannot run commands or make changes. Just talk with "
-    "the user — answer questions, brainstorm, explain, draft, and reason things "
-    "through in clear, well-structured Markdown. If a request genuinely needs "
-    "running code, editing files, inspecting a repository, or executing tools, "
-    "say so briefly and point the user to the Code (Agent Console) section, "
-    "where Compass can act with tools and your approval. Be concise by default "
-    "and expand when the user wants depth."
+    "running on Azure OpenAI (gpt-5). This is a plain chat, with three ways to "
+    "reach beyond it: `memory` (to remember durable facts about the user), "
+    "`web_fetch` (to read a web page when you have its address), and web "
+    "search (to find pages when you do not). Use them when the answer depends "
+    "on something you cannot know — anything current, anything at a link the "
+    "user gives you — and not otherwise; most questions want an answer, not a "
+    "search. You have no file access and cannot run commands or make changes. "
+    "Otherwise just talk with the user — answer questions, brainstorm, "
+    "explain, draft, and reason things through in clear, well-structured "
+    "Markdown. If a request genuinely needs running code, editing files, "
+    "inspecting a repository, or executing tools, say so briefly and point the "
+    "user to the Code (Agent Console) section, where Compass can act with "
+    "tools and your approval. Be concise by default and expand when the user "
+    "wants depth."
 )
 
 
@@ -215,18 +223,27 @@ class ChatSession:
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def make_context(self) -> ToolUseContext:
-        """Home's context carries exactly ONE tool: `memory`, so Compass can
-        save what it learns while you chat (Claude's memory behaviour). It
-        touches no files, runs no commands and needs no approval — every other
-        tool stays out, so Home remains pure conversation. The broker is still
-        auto_deny as a belt-and-braces guard: `memory` is read-only so it is
+        """Home carries two tools, and the bar both clear is the same one:
+        touches no files, runs no commands, needs no approval.
+
+        `memory`, so Compass can save what it learns while you chat (Claude's
+        memory behaviour). And `web_fetch`, because Home can already search the
+        web — server tools ride on the request rather than on this list — and
+        without it a link you paste is the one thing on the internet Home
+        cannot read. Searching for a page you have the address of is a poor
+        substitute for opening it.
+
+        Everything else stays out and Home remains pure conversation: no files,
+        no commands, no workspace. The broker is still auto_deny as a
+        belt-and-braces guard — both tools are read-only so they are
         auto-allowed and the broker is never consulted, but anything that
         somehow asked for permission is refused rather than silently granted."""
         from compass.common.tools.memory import MemoryTool
+        from compass.common.tools.web_fetch import WebFetchTool
 
         return ToolUseContext(
             session_id=self.id,
-            tools=[MemoryTool()],
+            tools=[MemoryTool(), WebFetchTool()],
             broker=PermissionBroker(policy="auto_deny"),
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,

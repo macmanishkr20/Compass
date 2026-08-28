@@ -59,9 +59,16 @@ async def _think_through(
 
     if settings.thinking.reasons(deployment):
         try:
+            # Research while writing, the way Claude does: the tool is
+            # offered, and the model decides per document whether the content
+            # needs facts it does not have. A document about the conversation
+            # above searches nothing; one about a library's current release
+            # goes and checks. Verified that a hosted search and a strict
+            # json_schema coexist on this API before relying on it.
             return await client.complete_reasoning(
                 prompt, asked, max_tokens=max_tokens, deployment=deployment,
                 images=images, effort=wanted, prior=prior,
+                server_tools=True,
             )
         except Exception as err:  # noqa: BLE001 — never lose the step over this
             logger.warning("design: reasoning call failed (%s); plain completion", err)
