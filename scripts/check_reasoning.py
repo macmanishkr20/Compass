@@ -158,6 +158,20 @@ def check_effort_ladder() -> None:
     ok(ThinkingSettings().advisor_effort in EFFORT_LEVELS,
        "the advisor asks for a level that exists")
 
+    # Every picker, not just the one that was found first. The Code console and
+    # Home chat keep separate lists, and correcting one of them left the other
+    # offering a level the deployment refuses — which only showed up by opening
+    # the page and reading the dropdown.
+    for page in ("frontend/src/app/app.ts",
+                 "frontend/src/app/home-chat/home-chat.ts"):
+        text = (ROOT / page).read_text()
+        line = next((ln for ln in text.splitlines()
+                     if ln.startswith("const EFFORTS")), "")
+        ok(bool(line), f"{page} declares an effort list")
+        ok("xhigh" not in line,
+           f"{page} does not offer a level the API refuses")
+        ok("minimal" in line, f"{page} offers the level it accepts")
+
 
 def check_server_tools() -> None:
     """Tools Azure runs itself: offered where they belong, never executed."""
@@ -348,6 +362,21 @@ async def check_argument_streaming() -> None:
     ok(len(outcome.tool_calls) == 1
        and outcome.tool_calls[0]["arguments"] == blob,
        "the call that actually runs is still the completed one")
+
+
+def check_home_says_what_it_does() -> None:
+    """Home's own description of itself, kept true.
+
+    It read "No tools, just conversation" for as long as that was accurate.
+    Giving Home web search and a fetch tool made it false, and nothing in the
+    code would ever have noticed — it is a sentence in a template.
+    """
+    print("\nHome describes itself accurately")
+    page = (ROOT / "frontend/src/app/home-chat/home-chat.html").read_text()
+    ok("No tools, just conversation" not in page,
+       "the old claim that Home has no tools is gone")
+    ok("cannot touch your files" in page,
+       "and what is still true of it is what is said")
 
 
 def check_fetching() -> None:
@@ -592,6 +621,7 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_home_says_what_it_does()
     check_degraded_designs_say_so()
     check_fetching()
 

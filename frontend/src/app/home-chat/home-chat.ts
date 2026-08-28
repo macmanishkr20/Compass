@@ -71,7 +71,7 @@ function scrolledUp(el: HTMLElement): boolean {
  *  reasoning models accept — 'minimal' was never one of them, and 'max' is
  *  rejected. Higher means it thinks more often and goes further; at 'low' it
  *  skips thinking on work that does not need it. */
-const EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
+const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 
 /**
  * Home / Chat — a pure-conversation surface. It is a self-contained sibling of
