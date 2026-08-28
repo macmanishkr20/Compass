@@ -463,6 +463,11 @@ export interface DesignTurn {
   answers?: Array<{ label: string; value: string }>;   // a filled-in form, shown as a card
   steps?: string[];   // the work the turn did, shown as collapsible rows
   file?: string;      // the document it wrote, shown as a chip
+  /** Written without deliberation or web research, because the reasoning call
+   *  failed. Flagged rather than left to prose: the document itself looks
+   *  entirely normal, and the reader has no other way to know that anything
+   *  recent in it may be years out of date. */
+  degraded?: boolean;
   vote?: 'up' | 'down';
 }
 

@@ -3770,3 +3770,19 @@ select.dz-ed-in {
 
 .dz-tweak-go .dz-go-spin { margin-right: 6px; vertical-align: -1px; }
 .dz-tweak-go:disabled { opacity: 0.55; }
+
+/* A document written without the reasoning call — no deliberation, no web
+   research. Marked because nothing about the document itself gives it away:
+   it is well-formed, confident, and possibly years out of date. */
+.dz-degraded {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: 0 0 2px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--ink, inherit);
+  background: color-mix(in srgb, var(--warn, #b4690e) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #b4690e) 32%, transparent);
+  border-radius: 8px;
+}
+.dz-degraded svg { flex: none; margin-top: 2px; color: var(--warn, #b4690e); }

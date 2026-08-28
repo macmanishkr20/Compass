@@ -651,7 +651,14 @@
                       <svg class="dz-file-out" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                   }
-                  <p class="dz-asst-text">{{ t.text }}</p>
+                  @if (t.degraded) {
+                    <p class="dz-degraded">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke-linejoin="round"/></svg>
+                      <span>{{ t.text }}</span>
+                    </p>
+                  } @else {
+                    <p class="dz-asst-text">{{ t.text }}</p>
+                  }
                   <div class="dz-feedback">
                     <button class="dz-icon sm" [class.on]="t.vote === 'up'" (click)="vote($index, 'up')" aria-label="Good result">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 10v10H4V10zM7 10l4-7a2 2 0 013 2l-1 5h5a2 2 0 012 2.4l-1.5 6A2 2 0 0116 20H7" stroke-linejoin="round"/></svg>

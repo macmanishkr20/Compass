@@ -270,6 +270,36 @@ def check_reach() -> None:
        "the read-only sidechain stays local and unchanged")
 
 
+def check_degraded_designs_say_so() -> None:
+    """A document written without research must not look like one with it.
+
+    This is the concrete failure it prevents: asked for a brief on Angular's
+    current release while the deployment was rate limited, Design produced a
+    well-formed document titled "Angular 18 — Stable Release Brief". The
+    current release is 22.1.4. Nothing in the output marked it.
+    """
+    print("\na design written the poor way says that it was")
+    from compass.design.routes import _why_degraded
+
+    rate = _why_degraded(Exception("Azure returned 429: exceeded rate limit."))
+    ok(bool(rate), "a rate-limited generation produces a notice")
+    ok("rate limited" in rate, "which names what happened")
+    ok("out of date" in rate,
+       "and says what it means for the document, not just for the call")
+
+    other = _why_degraded(Exception("connection reset"))
+    ok(bool(other) and "out of date" in other,
+       "any other failure is reported the same way")
+
+    import inspect
+    from compass.design import routes
+    src = inspect.getsource(routes)
+    ok("\"degraded\": bool(settled_for)" in src,
+       "the turn carries a flag, so a surface need not parse the prose")
+    ok("said = (settled_for + \" \" + said).strip()" in src,
+       "and the notice comes first, before the polish notes")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -511,6 +541,7 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_degraded_designs_say_so()
     check_fetching()
 
     print()

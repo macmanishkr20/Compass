@@ -28,6 +28,29 @@ logger = logging.getLogger("compass.design")
 router = APIRouter()
 
 
+def _why_degraded(err: Exception) -> str:
+    """What to tell someone about a document written without the good path.
+
+    Phrased around the consequence rather than the cause: "rate limited" tells
+    a reader nothing about whether to trust what is in front of them, whereas
+    "written without web research, so anything recent may be out of date"
+    tells them exactly what to check.
+    """
+    detail = str(err)
+    if "429" in detail or "rate limit" in detail.lower():
+        why = "the model was rate limited"
+    elif "content" in detail.lower() and "filter" in detail.lower():
+        why = "the content filter stopped the reasoning call"
+    else:
+        why = "the reasoning call failed"
+    return (
+        f"Written without deliberation or web research — {why}. "
+        "Anything here that depends on recent facts came from the model's "
+        "training data and may be out of date; check it before relying on it, "
+        "or generate again."
+    )
+
+
 async def _think_through(
     prompt: str,
     asked: str,
@@ -37,7 +60,7 @@ async def _think_through(
     images: list[str] | None = None,
     prior: ReasoningTrace | None = None,
     effort: str = "",
-) -> tuple[str, ReasoningTrace | None]:
+) -> tuple[str, ReasoningTrace | None, str]:
     """Ask the model, letting it think, and keep what it thought.
 
     Design's work is a sequence rather than a single question: write the
@@ -46,8 +69,17 @@ async def _think_through(
     continuation instead of a stranger meeting the document for the first
     time — the same reason an agent hands thinking back with a tool result.
 
-    Falls back to a plain completion on a deployment that cannot reason, so
-    the sequence still runs, just without the continuity.
+    Falls back to a plain completion on a deployment that cannot reason, or
+    when the reasoning call fails, so the sequence still runs — just without
+    the continuity, and without the research that rides on the same call.
+
+    The third return value is why it settled, empty when it did not have to.
+    That value exists because the fallback is invisible in its output: asked
+    for a brief on Angular's current release while rate limited, this returned
+    a perfectly well-formed document about Angular 18 — the version in the
+    training data, four majors behind, with nothing anywhere to say the
+    research had not happened. A degraded document that looks identical to a
+    good one is worse than a failed one.
     """
     from compass.common.config import get_settings
     from compass.common.gateway.azure_client import get_model_client
@@ -65,19 +97,26 @@ async def _think_through(
             # above searches nothing; one about a library's current release
             # goes and checks. Verified that a hosted search and a strict
             # json_schema coexist on this API before relying on it.
-            return await client.complete_reasoning(
+            text, trace = await client.complete_reasoning(
                 prompt, asked, max_tokens=max_tokens, deployment=deployment,
                 images=images, effort=wanted, prior=prior,
                 server_tools=True,
             )
+            return text, trace, ""
         except Exception as err:  # noqa: BLE001 — never lose the step over this
             logger.warning("design: reasoning call failed (%s); plain completion", err)
+            settled = _why_degraded(err)
+    else:
+        settled = (
+            f"{deployment} does not support extended reasoning, so this was "
+            "written without deliberation or web research."
+        )
 
     out = await client.complete_utility(
         prompt, asked, max_tokens=max_tokens, prefer_main=True,
         model=model, images=images, effort=wanted,
     )
-    return out, None
+    return out, None, settled
 
 
 class DesignCreate(BaseModel):
@@ -1402,7 +1441,10 @@ async def _repair_css(
         # The reply is a few rules, but the thinking that finds them is billed
         # against the same budget: measured at 8,128 reasoning tokens on a
         # 134KB prototype, which a cap of 8,000 truncated into an empty string.
-        out, thought = await _think_through(
+        # A degraded repair is a repair made without deliberation. It is not
+        # reported separately: the generation's own notice already tells the
+        # reader this document did not get the good path.
+        out, thought, _settled = await _think_through(
             CSS_REPAIR_PROMPT, asked, max_tokens=32_000, model=model, prior=prior
         )
     except Exception:  # noqa: BLE001
@@ -1452,7 +1494,7 @@ async def _repair(
     try:
         from compass.common.gateway.azure_client import get_model_client
 
-        out, thought = await _think_through(
+        out, thought, _settled = await _think_through(
             REPAIR_PROMPT,
             "The review found:\n- " + "\n- ".join(issues)
             + "\n\nThe document:\n\n```html\n" + html + "\n```",
@@ -1554,7 +1596,7 @@ async def design_generate(
         # A full design needs a large budget: on reasoning models the thinking
         # is billed against the same cap, so a small one returns nothing — and
         # a prototype of eight working screens is a lot of document.
-        out, made_it = await _think_through(
+        out, made_it, settled_for = await _think_through(
             DESIGN_SYSTEM_PROMPT,
             "\n\n".join(p for p in parts if p),
             max_tokens=64_000,
@@ -1661,6 +1703,9 @@ async def design_generate(
                 pass
 
     said = " ".join(x for x in (direction, notes) if x)
+    # First, because it changes how everything after it should be read.
+    if settled_for:
+        said = (settled_for + " " + said).strip()
     if cured:
         said = (said + " ").lstrip() + "Found and fixed: " + "; ".join(cured) + "."
     if issues:
@@ -1670,6 +1715,7 @@ async def design_generate(
         {
             "role": "assistant",
             "text": said or "Here it is — tell me what to change.",
+            "degraded": bool(settled_for),
             "steps": steps,
             "file": f"{project.get('name', 'Design')}.html",
         }
