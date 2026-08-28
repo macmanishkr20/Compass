@@ -34,6 +34,13 @@
                   </div>
                 }
                 <div class="cbubble">
+                  @if (m.serverActivity?.length) {
+                    <div class="csrv">
+                      @for (a of m.serverActivity!; track a) {
+                        <span class="csrv-item">{{ a }}</span>
+                      }
+                    </div>
+                  }
                   <app-markdown [text]="m.text || '…'" />
                   @if (m.sources?.length) {
                     <div class="wiq-sources">

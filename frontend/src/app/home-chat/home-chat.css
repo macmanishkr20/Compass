@@ -539,3 +539,19 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   .cthink.live .cthink-label { animation: none; }
   .cthink-caret { transition: none; }
 }
+
+/* Work Azure did inside the turn: code run, searches made. Sits above the
+   answer rather than below it, because it happened before the answer and
+   reading it afterwards would be reading it out of order. */
+.csrv {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 9px;
+}
+.csrv-item {
+  font-size: 0.74rem;
+  color: var(--faint);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px 8px;
+}

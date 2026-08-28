@@ -195,6 +195,39 @@ def check_server_tools() -> None:
        "and described in a line a reader can use")
 
 
+def check_execution_surfaces() -> None:
+    """Two ways to run code is an ambiguity; saying so is what resolves it.
+
+    Measured, not assumed. With the interpreter on and no guidance, "run this
+    code" on a Mac was answered `Linux ... /home/sandbox` — true, and leaving
+    a false impression. With the guidance the same request goes to bash on the
+    user's machine, and self-contained arithmetic still goes to the sandbox.
+    """
+    print("\nthe two places code can run are told apart")
+    import os
+
+    from compass.common.config import get_settings
+    from compass.common.gateway import hosted
+
+    ok(not hosted.where_code_runs(),
+       "with the interpreter off there is no note, so prompts are untouched")
+
+    was = get_settings().tools.code_interpreter
+    try:
+        get_settings().tools.code_interpreter = True
+        note = hosted.where_code_runs()
+        ok(bool(note), "with it on, the note appears")
+        ok("bash" in note and "code_interpreter" in note,
+           "and names both surfaces rather than only the new one")
+        ok("prefer `bash`" in note,
+           "the ambiguous case resolves to the user's own machine")
+        ok(any(t.get("type") == "code_interpreter"
+               for t in hosted.specs()), "and the tool is actually offered")
+    finally:
+        get_settings().tools.code_interpreter = was
+    ok(not hosted.where_code_runs(), "and the default is restored")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -434,6 +467,7 @@ def main() -> int:
     check_browsing()
     check_shelf()
     check_server_tools()
+    check_execution_surfaces()
     check_fetching()
 
     print()

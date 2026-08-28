@@ -128,6 +128,9 @@ async def query(
         notes = [
             threshold_guidance(settings.thinking.posture),
             answer_in(settings.thinking.response_language),
+            # Empty unless the hosted interpreter is on, so the default
+            # configuration's prompts stay byte-for-byte what they were.
+            hosted.where_code_runs(),
         ]
         prompt_text = "\n\n".join([system_prompt, *(n for n in notes if n)])
 

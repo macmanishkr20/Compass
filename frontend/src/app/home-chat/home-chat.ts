@@ -36,6 +36,11 @@ interface ChatMsg {
   at?: number; // epoch ms — shown as a relative age under the message
   atts?: UiAttachment[];
   sources?: WorkIqSource[];
+  /** What Azure did inside the turn that Compass did not do itself — code it
+   *  ran, pages it opened. Shown because a sandbox in another country
+   *  executing Python should not be the one thing on screen that leaves no
+   *  trace. Pages that were opened also become `sources`; this is the rest. */
+  serverActivity?: string[];
   /** The model's reasoning, when it reasoned. Arrives before the answer and
    *  is kept apart from it: this is the working, not the reply. A turn the
    *  model answered outright has none, which is normal. */
@@ -699,7 +704,18 @@ export class HomeChat {
         // sense the Work IQ strip already means, so it goes in the same place
         // rather than into a second surface that says the same thing.
         const urls = (ev['sources'] as string[]) ?? [];
-        if (!urls.length) break;
+        const detail = (ev['detail'] as string) ?? '';
+        // Anything without a page to cite — code execution, a bare query —
+        // still gets said, or it happens invisibly.
+        if (!urls.length) {
+          if (detail && this.currentAssistant) {
+            this.patch(this.currentAssistant.id, (m) => ({
+              ...m,
+              serverActivity: [...(m.serverActivity ?? []), detail],
+            }));
+          }
+          break;
+        }
         // Unlike Work IQ's, these arrive after the answer has begun: the
         // search happens inside the turn, not before it.
         const target = this.currentAssistant;

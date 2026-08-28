@@ -57,6 +57,41 @@ def specs() -> list[dict[str, Any]]:
     return offered
 
 
+#: Told to the model only when the interpreter is actually enabled. Two tools
+#: that both "run code" is an ambiguity the model resolves by guessing, and it
+#: guesses in a way that reads as correct: asked to run a snippet on a Mac it
+#: chose the sandbox, printed `Linux ... /home/sandbox`, and said nothing about
+#: where that came from. The answer was true and the impression it left was
+#: false. Naming the difference is what turns the guess into a choice.
+WHERE_CODE_RUNS = """\
+You have two ways to run code and they run in different places.
+
+`code_interpreter` runs Python in a temporary Linux container on Azure. It \
+cannot see the user's files, their repository, their installed packages or \
+their environment, and everything in it is discarded afterwards. Use it for \
+self-contained work — calculating, checking an algorithm, parsing data you \
+already have in the conversation.
+
+`bash` runs on the user's own machine, in their workspace. Use it for \
+anything that touches their project: their files, their tests, their \
+dependencies, their git history, anything whose answer depends on the state \
+of their machine.
+
+When a request could mean either, prefer `bash`, because that is the machine \
+the user is sitting at. When you use `code_interpreter` and where it ran \
+could change how the result should be read, say that it ran in a sandbox \
+rather than on their machine.\
+"""
+
+
+def where_code_runs() -> str:
+    """The note explaining the two execution surfaces, or "" when there is
+    only one. Empty is the default, and deliberately so: with the interpreter
+    off there is no ambiguity to resolve, and a system prompt should not carry
+    guidance about a tool that is not there."""
+    return WHERE_CODE_RUNS if get_settings().tools.code_interpreter else ""
+
+
 def describe(item: dict[str, Any]) -> str:
     """One line saying what the hosted tool did, for the activity surface.
 
