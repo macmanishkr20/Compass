@@ -120,7 +120,8 @@ def _render_pdf_pages(data: bytes) -> list[str]:
 
         pdf = pypdfium2.PdfDocument(io.BytesIO(data))
         out: list[str] = []
-        for index in range(min(len(pdf), PDF_MAX_PAGES)):
+        pages_to_draw = min(len(pdf), PDF_MAX_PAGES)
+        for index in range(pages_to_draw):
             page = pdf[index]
             # `scale` is relative to 72dpi. 2.0 is ~144dpi, which keeps small
             # print legible without producing an image the model will only
@@ -136,6 +137,11 @@ def _render_pdf_pages(data: bytes) -> list[str]:
             image.save(buffer, format="PNG", optimize=True)
             out.append("data:image/png;base64,"
                        + _b64.b64encode(buffer.getvalue()).decode())
+            page.close()
+        # Closed rather than left to the garbage collector: pypdfium2 holds a
+        # native handle and complains loudly at interpreter shutdown when one
+        # is still open.
+        pdf.close()
         return out
     except Exception:  # noqa: BLE001 — the text already went; this is a bonus
         return []

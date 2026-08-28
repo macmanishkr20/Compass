@@ -12,6 +12,7 @@ import platform
 import subprocess
 from pathlib import Path
 
+from compass.common import skills
 from compass.common.config import get_settings
 
 IDENTITY = """You are Compass, an agentic assistant operating inside a user's \
@@ -386,4 +387,10 @@ def build_system_prompt(*, role: str = "main", workspace_root: Path | None = Non
         memory = load_project_memory(workspace_root)
         if memory:
             parts.append(memory)
+        # Names and descriptions only. The bodies are read from disk on the
+        # turn they are wanted, which is the whole point of them being files.
+        # Empty when nothing is installed, so a workspace without skills has
+        # exactly the prompt it had before skills existed.
+        if installed := skills.block(workspace_root):
+            parts.append(installed)
     return "\n\n".join(parts)
