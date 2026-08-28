@@ -728,6 +728,35 @@ def check_design_audit_sees_sideways() -> None:
        "the measurement reaches the report")
 
 
+def check_documents_have_no_tweak_sheet() -> None:
+    """A document is printed. Live sliders after the conclusion are not.
+
+    The house style asks every design to end with a tweak sheet — a panel of
+    colour swatches, selects and sliders for retuning it. That earns its place
+    on something used on screen. On a document it is an extra page of widgets
+    after the last paragraph, and in print they cannot be moved at all.
+    """
+    print("\ndocuments are not asked for a tweak sheet")
+    from compass.design.skills import (
+        DESIGN_SYSTEM_PROMPT, NO_TWEAK_SHEET, system_prompt_for)
+
+    doc = system_prompt_for("document")
+    ok("tweak sheet" not in doc, "a document's brief does not mention one")
+    ok("application/json\" id=\"tweaks\"" not in doc,
+       "nor the JSON block that declares one")
+    ok(len(doc) < len(DESIGN_SYSTEM_PROMPT),
+       f"the brief is shorter by {len(DESIGN_SYSTEM_PROMPT) - len(doc):,} chars")
+    ok("Everything belongs inside the sheet" in doc,
+       "and the rest of the house style is untouched")
+
+    for other in ("slides", "mobile", "flier", "blank", "", None):
+        ok(system_prompt_for(other) == DESIGN_SYSTEM_PROMPT,
+           f"{other or '(none)'} still gets the house style whole")
+
+    ok(NO_TWEAK_SHEET == frozenset({"document"}),
+       "only the document is excluded, which is what was asked")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -971,6 +1000,7 @@ def main() -> int:
     check_execution_surfaces()
     check_reach()
     check_design_resilience()
+    check_documents_have_no_tweak_sheet()
     check_design_audit_sees_sideways()
     check_thinking_header_alignment()
     check_thinking_rule_colour()
