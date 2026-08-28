@@ -53,6 +53,23 @@ class ThinkingDelta(Event):
 
 
 @dataclass
+class ToolArguments(Event):
+    """A tool call's arguments arriving, before the call is complete.
+
+    Display only. The text is unvalidated and may be cut off mid-string, so
+    nothing may be executed from it — the call that runs is the finished one
+    that arrives afterwards. This exists so a large parameter, a file being
+    written or a document being composed, is visible while it happens instead
+    of after it.
+    """
+
+    tool_call_id: str = ""
+    tool_name: str = ""
+    #: Raw JSON text to append to whatever arrived before it.
+    delta: str = ""
+
+
+@dataclass
 class ServerToolUsed(Event):
     """Something Azure did inside the turn, rather than something Compass ran.
 
@@ -180,6 +197,7 @@ _TYPE_NAMES = {
     ThinkingDelta: "thinking_delta",
     ThinkingComplete: "thinking_complete",
     ServerToolUsed: "server_tool_used",
+    ToolArguments: "tool_arguments",
     AssistantMessage: "assistant_message",
     ToolCallStarted: "tool_call_started",
     ToolProgress: "tool_progress",

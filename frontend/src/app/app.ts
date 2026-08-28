@@ -3097,6 +3097,7 @@ export class App {
       (ev.type === 'text_delta' ||
         ev.type === 'tool_call_started' ||
         ev.type === 'server_tool_used' ||
+        ev.type === 'tool_arguments' ||
         ev.type === 'permission_request' ||
         ev.type === 'assistant_message')
     ) {
@@ -3188,18 +3189,63 @@ export class App {
         });
         break;
       }
+      case 'tool_arguments': {
+        // The call has not arrived yet, so this both creates the card and
+        // fills it. Whatever the model has written so far goes in `argsDraft`,
+        // which `tool_call_started` then supersedes with the real arguments.
+        const id = (ev['tool_call_id'] as string) ?? '';
+        if (!id) break;
+        const chunk = (ev['delta'] as string) ?? '';
+        const existing = this.timeline().some(
+          (it: TimelineItem) => it.kind === 'tool' && it.id === id,
+        );
+        if (existing) {
+          this.patch(id, (c) => ({
+            ...(c as ToolCardVM),
+            argsDraft: ((c as ToolCardVM).argsDraft ?? '') + chunk,
+          }));
+        } else {
+          const name = (ev['tool_name'] as string) ?? 'tool';
+          this.push({
+            kind: 'tool',
+            id,
+            name,
+            args: '',
+            argsDraft: chunk,
+            output: '',
+            status: 'running',
+            agentId,
+            isMcp: name.startsWith('mcp__'),
+          });
+        }
+        break;
+      }
       case 'tool_call_started': {
         const name = (ev['tool_name'] as string) ?? 'tool';
-        this.push({
-          kind: 'tool',
-          id: (ev['tool_call_id'] as string) ?? crypto.randomUUID(),
-          name,
-          args: JSON.stringify(ev['arguments'] ?? {}),
-          output: '',
-          status: 'running',
-          agentId,
-          isMcp: name.startsWith('mcp__'),
-        });
+        const callId = (ev['tool_call_id'] as string) ?? crypto.randomUUID();
+        const args = JSON.stringify(ev['arguments'] ?? {});
+        // Streaming the arguments already created this card. Filling it in is
+        // not the same as pushing another one: a second card for the same call
+        // would leave the half-written one on screen forever.
+        const already = this.timeline().some(
+          (it: TimelineItem) => it.kind === 'tool' && it.id === callId,
+        );
+        if (already) {
+          this.patch(callId, (c) => ({
+            ...(c as ToolCardVM), name, args, argsDraft: undefined,
+          }));
+        } else {
+          this.push({
+            kind: 'tool',
+            id: callId,
+            name,
+            args,
+            output: '',
+            status: 'running',
+            agentId,
+            isMcp: name.startsWith('mcp__'),
+          });
+        }
         break;
       }
       case 'tool_progress':

@@ -37,7 +37,11 @@ from compass.common.gateway.azure_client import (
     get_model_client,
 )
 from compass.common.gateway import hosted
-from compass.common.gateway.responses import REASONING_META_KEY, ThinkingDelta
+from compass.common.gateway.responses import (
+    REASONING_META_KEY,
+    ThinkingDelta,
+    ToolArgsDelta,
+)
 from compass.common.models import events
 from compass.common.models.messages import (
     Message,
@@ -166,8 +170,18 @@ async def query(
                     )
                 elif isinstance(item, StreamDelta):
                     yield events.TextDelta(text=item.text, agent_id=ctx.agent_id)
-                else:
+                elif isinstance(item, ToolArgsDelta):
+                    yield events.ToolArguments(
+                        tool_call_id=item.call_id,
+                        tool_name=item.name,
+                        delta=item.delta,
+                        agent_id=ctx.agent_id,
+                    )
+                elif isinstance(item, CompletionResult):
                     result = item
+                # Anything else is dropped rather than mistaken for the
+                # result: the bare `else` this replaces would have let a new
+                # stream item silently become the turn's outcome.
         except RefusedError as declined:
             # Nothing was generated, so there is no turn to keep. Saying so is
             # the whole point: without this the surface shows a stack trace

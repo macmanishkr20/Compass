@@ -3122,3 +3122,11 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   .cthink.live .cthink-label { animation: none; }
   .cthink-caret { transition: none; }
 }
+
+/* Arguments still being written. Dimmed because they are not yet a call: the
+   JSON is unvalidated, frequently cut off mid-string, and replaced wholesale
+   the moment the finished call arrives. */
+.args.drafting {
+  opacity: 0.62;
+  border-style: dashed;
+}

@@ -36,6 +36,7 @@ from compass.common.gateway.responses import (
     consume,
     parse_response,
     sse_events,
+    ToolArgsDelta,
 )
 
 logger = logging.getLogger("compass.gateway")
@@ -92,7 +93,7 @@ class CompletionResult:
 
 
 #: Reasoning arrives on its own channel, ahead of and separate from the answer.
-StreamItem = StreamDelta | ThinkingDelta | CompletionResult
+StreamItem = StreamDelta | ThinkingDelta | ToolArgsDelta | CompletionResult
 
 
 class ModelClient(Protocol):
@@ -363,9 +364,12 @@ class AzureModelClient:
                     raise _http_error(response.status_code, message, deployment, azure)
 
                 async for item in consume(sse_events(response.aiter_lines()), outcome):
-                    if isinstance(item, ThinkingDelta):
+                    # Each kind is named. The bare `else` this replaces would
+                    # have wrapped an argument fragment as answer text and put
+                    # raw tool JSON in front of the reader.
+                    if isinstance(item, (ThinkingDelta, ToolArgsDelta)):
                         yield item
-                    else:
+                    elif isinstance(item, str):
                         yield StreamDelta(text=item)
 
         yield CompletionResult(

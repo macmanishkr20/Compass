@@ -126,6 +126,11 @@ export interface ToolCardVM {
   durationMs?: number;
   agentId?: string | null;
   isMcp: boolean;
+  /** The call's arguments as the model writes them, before it has finished.
+   *  Unvalidated and often cut off mid-string — shown so a large parameter is
+   *  visible while it is produced, never parsed or acted on. Replaced by the
+   *  real `args` the moment the finished call arrives. */
+  argsDraft?: string;
 }
 
 export interface PermissionVM {

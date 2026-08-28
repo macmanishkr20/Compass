@@ -956,7 +956,7 @@
                 </span>
                 @if (t.agentId) { <span class="agent-tag">agent {{ t.agentId }}</span> }
               </header>
-              <pre class="args z-lift">{{ t.args }}</pre>
+              <pre class="args z-lift" [class.drafting]="!!t.argsDraft">{{ t.args || t.argsDraft }}</pre>
               @if (t.output) { <pre class="output">{{ t.output }}</pre> }
             </article>
             }

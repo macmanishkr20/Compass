@@ -288,6 +288,35 @@ def build_request(
 # --------------------------------------------------------------------------
 
 
+#: How much argument text to gather before passing it on. Small enough that
+#: it still reads as live, large enough that a big parameter does not turn
+#: into thousands of events.
+_ARG_FLUSH = 48
+
+
+@dataclass
+class ToolArgsDelta:
+    """A fragment of a tool call's arguments, as the model writes them.
+
+    Azure streams these — 239 of them for a one-kilobyte argument — and until
+    now Compass threw every one away and waited for the finished call. That is
+    the difference between watching a file being written and staring at a
+    spinner until it exists.
+
+    Display only, and that is not a detail. The fragments are not validated
+    and the accumulation is not guaranteed to be parseable: a turn that stops
+    at its output cap leaves the JSON cut off mid-string. Execution keeps
+    reading the completed item, which is the only version that is known to be
+    whole. Nothing downstream should ever run a tool from these.
+    """
+
+    #: The id the eventual tool call will carry, so a surface can match them up.
+    call_id: str
+    name: str
+    #: Raw JSON text, mid-string as often as not. Never parse a single one.
+    delta: str
+
+
 @dataclass
 class ResponsesOutcome:
     """Everything one streamed response produced, once it has finished."""
@@ -316,7 +345,7 @@ class ResponsesStreamError(RuntimeError):
 async def consume(
     events: AsyncIterator[dict[str, Any]],
     outcome: ResponsesOutcome,
-) -> AsyncIterator[ThinkingDelta | str]:
+) -> AsyncIterator[ThinkingDelta | ToolArgsDelta | str]:
     """Fold the event stream into `outcome`, yielding what should be shown live.
 
     Yields `ThinkingDelta` for reasoning and plain `str` for answer text, so a
@@ -325,9 +354,48 @@ async def consume(
     accumulated on `outcome` and read once the stream ends.
     """
     part_open = False
+    # item_id -> (call_id, name), learned from `output_item.added`, because the
+    # argument deltas carry only the item id.
+    forming: dict[str, tuple[str, str]] = {}
+    # item_id -> fragments not yet handed on. Coalesced because Azure emits a
+    # few characters at a time: one event per four characters would be twelve
+    # thousand events for a fifty-kilobyte file write, and no one can see the
+    # difference between that and a flush every fifty.
+    pending: dict[str, str] = {}
+
+    def flush(item_id: str) -> ToolArgsDelta | None:
+        text = pending.pop(item_id, "")
+        if not text or item_id not in forming:
+            return None
+        call_id, name = forming[item_id]
+        return ToolArgsDelta(call_id=call_id, name=name, delta=text)
 
     async for event in events:
         kind = event.get("type", "")
+
+        # ---- a tool call has started forming
+        if kind == "response.output_item.added":
+            item = event.get("item") or {}
+            if item.get("type") == "function_call":
+                forming[item.get("id") or ""] = (
+                    item.get("call_id") or item.get("id") or "",
+                    item.get("name") or "",
+                )
+            continue
+
+        # ---- its arguments, as they are written
+        if kind == "response.function_call_arguments.delta":
+            item_id = event.get("item_id") or ""
+            pending[item_id] = pending.get(item_id, "") + (event.get("delta") or "")
+            if len(pending[item_id]) >= _ARG_FLUSH:
+                if fragment := flush(item_id):
+                    yield fragment
+            continue
+
+        if kind == "response.function_call_arguments.done":
+            if fragment := flush(event.get("item_id") or ""):
+                yield fragment
+            continue
 
         # ---- reasoning, as it is produced
         if kind == "response.reasoning_summary_part.added":
@@ -363,6 +431,9 @@ async def consume(
                 # downstream is meant to execute this.
                 outcome.hosted.append(item)
             elif item.get("type") == "function_call":
+                # Whatever is still buffered, before the finished call lands.
+                if fragment := flush(item.get("id") or ""):
+                    yield fragment
                 outcome.tool_calls.append({
                     "id": item.get("call_id") or item.get("id") or "",
                     "name": item.get("name") or "",

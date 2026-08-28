@@ -300,6 +300,56 @@ def check_degraded_designs_say_so() -> None:
        "and the notice comes first, before the polish notes")
 
 
+async def check_argument_streaming() -> None:
+    """Tool arguments reach the surface while they are being written.
+
+    Azure emits `response.function_call_arguments.delta` — 239 of them for a
+    one-kilobyte argument — and Compass used to discard every one and wait for
+    the finished call. Fragments are display-only: unvalidated, and cut off
+    mid-string when a turn hits its cap, so nothing may be executed from them.
+    """
+    print("\ntool arguments stream while they are written")
+    from compass.common.gateway.responses import (
+        ResponsesOutcome, ToolArgsDelta, consume)
+
+    async def stream():
+        yield {"type": "response.output_item.added", "item": {
+            "type": "function_call", "id": "fc_1", "call_id": "call_1",
+            "name": "make_file", "arguments": ""}}
+        # Four characters at a time, as Azure actually sends them.
+        blob = '{"filename":"poem.txt","lines":["one","two","three","four"]}'
+        for i in range(0, len(blob), 4):
+            yield {"type": "response.function_call_arguments.delta",
+                   "item_id": "fc_1", "delta": blob[i:i + 4]}
+        yield {"type": "response.output_item.done", "item": {
+            "type": "function_call", "id": "fc_1", "call_id": "call_1",
+            "name": "make_file", "arguments": blob}}
+        yield {"type": "response.completed", "response": {"usage": {}}}
+
+    outcome = ResponsesOutcome()
+    fragments, text = [], ""
+    async for item in consume(stream(), outcome):
+        if isinstance(item, ToolArgsDelta):
+            fragments.append(item)
+        elif isinstance(item, str):
+            text += item
+
+    blob = '{"filename":"poem.txt","lines":["one","two","three","four"]}'
+    ok(bool(fragments), "fragments are produced at all")
+    ok("".join(f.delta for f in fragments) == blob,
+       "and they join back into exactly what was sent")
+    sent = -(-len(blob) // 4)  # events Azure would have emitted
+    ok(len(fragments) < sent // 3,
+       f"coalesced rather than passed straight through "
+       f"({len(fragments)} out of {sent} events)")
+    ok(all(f.call_id == "call_1" and f.name == "make_file" for f in fragments),
+       "each carries the call it belongs to")
+    ok(text == "", "and none of it is mistaken for answer text")
+    ok(len(outcome.tool_calls) == 1
+       and outcome.tool_calls[0]["arguments"] == blob,
+       "the call that actually runs is still the completed one")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -535,6 +585,7 @@ def main() -> int:
     check_request_shape()
     check_effort_ladder()
     asyncio.run(check_stream_folding())
+    asyncio.run(check_argument_streaming())
     asyncio.run(check_refusals())
     check_browsing()
     check_shelf()
