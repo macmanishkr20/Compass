@@ -29,6 +29,17 @@ MAX_TEXT_CHARS = 200_000  # per extracted file
 MAX_ZIP_ENTRIES = 300
 MAX_ZIP_TOTAL_CHARS = 400_000
 
+# PDF pages are rendered as well as read, so charts and scans are visible.
+# Capped because each page is an image and images are not cheap: a hundred-page
+# report rendered whole would cost more than the answer is worth, and the text
+# of every page still goes up regardless of how many were drawn.
+PDF_MAX_PAGES = 20
+#: Render scale relative to 72dpi. 2.0 is ~144dpi.
+PDF_RENDER_SCALE = 2.0
+#: Longest edge, in pixels. Past this the model downscales anyway, so sending
+#: more is paying to transmit detail that is discarded on arrival.
+PDF_MAX_EDGE = 1568
+
 # Extensions treated as text when pulled out of a ZIP (skip binaries/images).
 _TEXT_EXTS = {
     "txt", "md", "markdown", "rst", "log", "csv", "tsv", "json", "yaml", "yml",
@@ -79,6 +90,55 @@ def _extract_pdf(data: bytes) -> str:
         return _clip(text) if text.strip() else "[PDF had no extractable text]"
     except Exception as err:  # noqa: BLE001
         return f"[could not read PDF: {err}]"
+
+
+def _render_pdf_pages(data: bytes) -> list[str]:
+    """Each page as a PNG data URL, so the model can look at the document.
+
+    Text extraction alone cannot see a chart, a diagram, a signature or a
+    scan — and a scanned PDF extracts to nothing at all, which is how a
+    document full of content arrives as "[PDF had no extractable text]".
+    Anthropic's PDF support renders every page to an image and sends it
+    alongside the extracted text for exactly this reason.
+
+    Azure does not do it for us. Confirmed rather than assumed: a one-page PDF
+    whose only distinguishing content was a red line above a blue line went up
+    as `input_file`, was accepted, and the model answered "CANNOT SEE" when
+    asked the colours. Text is all it gets, which is all Compass was giving it
+    anyway.
+
+    Returns an empty list, quietly, when no rasteriser is installed. The text
+    path is unchanged and still runs, so a deployment without the optional
+    dependency behaves exactly as it did before rather than failing.
+    """
+    try:
+        import pypdfium2
+    except ImportError:
+        return []
+    try:
+        import base64 as _b64
+
+        pdf = pypdfium2.PdfDocument(io.BytesIO(data))
+        out: list[str] = []
+        for index in range(min(len(pdf), PDF_MAX_PAGES)):
+            page = pdf[index]
+            # `scale` is relative to 72dpi. 2.0 is ~144dpi, which keeps small
+            # print legible without producing an image the model will only
+            # downscale again.
+            image = page.render(scale=PDF_RENDER_SCALE).to_pil()
+            if max(image.size) > PDF_MAX_EDGE:
+                ratio = PDF_MAX_EDGE / max(image.size)
+                image = image.resize(
+                    (max(int(image.width * ratio), 1),
+                     max(int(image.height * ratio), 1))
+                )
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG", optimize=True)
+            out.append("data:image/png;base64,"
+                       + _b64.b64encode(buffer.getvalue()).decode())
+        return out
+    except Exception:  # noqa: BLE001 — the text already went; this is a bonus
+        return []
 
 
 def _extract_docx(data: bytes) -> str:
@@ -143,7 +203,9 @@ def process_attachment(att: dict) -> dict | None:
 
     data = _decode_data_url(data_url)
     if ext == "pdf" or mime == "application/pdf":
-        return {"kind": "text", "name": name, "text": _extract_pdf(data)}
+        # Both: the text for quoting and searching, the pages for looking at.
+        return {"kind": "text", "name": name, "text": _extract_pdf(data),
+                "page_images": _render_pdf_pages(data)}
     if ext == "docx" or "wordprocessingml" in mime:
         return {"kind": "text", "name": name, "text": _extract_docx(data)}
     if ext == "zip" or mime in ("application/zip", "application/x-zip-compressed"):
@@ -160,18 +222,28 @@ def build_user_message(text: str, raw_attachments: list[dict] | None) -> Message
         p for p in (process_attachment(a) for a in (raw_attachments or [])) if p
     ]
     text_files = [p for p in processed if p["kind"] == "text"]
-    images = [p for p in processed if p["kind"] == "image" and p.get("data_url")]
+    images = [p["data_url"] for p in processed
+              if p["kind"] == "image" and p.get("data_url")]
+    # Rendered PDF pages ride along with the uploaded images. They are the
+    # same thing to the model: pictures of something it was asked to read.
+    pages = [(p["name"], p.get("page_images") or []) for p in text_files]
 
     body = text or ""
     for f in text_files:
         body += f"\n\n--- Attached file: {f['name']} ---\n```\n{f.get('text', '')}\n```"
+    for name, rendered in pages:
+        if rendered:
+            body += (f"\n\n[{len(rendered)} page(s) of {name} are attached as "
+                     "images below, in order, so you can see anything the text "
+                     "extraction could not — charts, diagrams, layout, scans.]")
 
-    if not images:
+    rendered_all = [url for _, urls in pages for url in urls]
+    if not images and not rendered_all:
         return user_message(body)
 
     parts: list[dict[str, Any]] = [
         {"type": "text", "text": body or "(see the attached image)"}
     ]
-    for img in images:
-        parts.append({"type": "image_url", "image_url": {"url": img["data_url"]}})
+    for url in [*images, *rendered_all]:
+        parts.append({"type": "image_url", "image_url": {"url": url}})
     return Message(role="user", content=parts)  # type: ignore[arg-type]

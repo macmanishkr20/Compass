@@ -481,6 +481,73 @@ def check_budget_note() -> None:
        "and reaches the request as a system item, mid-conversation")
 
 
+def check_pdf_pages() -> None:
+    """A PDF is looked at, not only read.
+
+    Measured: a one-page PDF whose only distinguishing content was a red line
+    above a blue one went to Azure as `input_file`, was accepted, and the model
+    answered "CANNOT SEE" when asked the colours — Azure gives the model the
+    text and nothing else, which is what Compass was already doing. With the
+    pages rendered and sent as images the same question answers "Upper red,
+    lower blue."
+    """
+    print("\na PDF is looked at, not only read")
+    import base64
+    from compass.common.attachments import (
+        PDF_MAX_EDGE, PDF_MAX_PAGES, _render_pdf_pages, build_user_message)
+
+    try:
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.colors import blue, red
+    except ImportError:
+        print("   skip  reportlab is not installed, cannot build a probe PDF")
+        return
+
+    import io
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(400, 600))
+    c.setLineWidth(10)
+    c.setStrokeColor(red); c.line(80, 500, 320, 500)
+    c.setStrokeColor(blue); c.line(80, 400, 320, 400)
+    c.setFont("Helvetica", 16); c.drawString(80, 300, "Two lines above")
+    c.showPage(); c.save()
+    data = buf.getvalue()
+
+    att = [{"name": "probe.pdf", "mime": "application/pdf",
+            "data_url": "data:application/pdf;base64,"
+                        + base64.b64encode(data).decode()}]
+    message = build_user_message("what colour are the lines?", att)
+
+    try:
+        import pypdfium2  # noqa: F401
+    except ImportError:
+        # The dependency is optional on purpose: without it the old text-only
+        # path must still work, unchanged and without an error.
+        ok(_render_pdf_pages(data) == [],
+           "with no rasteriser nothing is rendered")
+        ok(isinstance(message.content, str),
+           "and the message is exactly the plain-text one it always was")
+        ok("Two lines above" in message.content,
+           "with the extracted text still in it")
+        return
+
+    pages = _render_pdf_pages(data)
+    ok(len(pages) == 1, f"the page is rendered ({len(pages)})")
+    ok(pages and pages[0].startswith("data:image/png;base64,"),
+       "as a PNG data URL the vision path already understands")
+    ok(not isinstance(message.content, str),
+       "so the message becomes multimodal rather than plain text")
+    kinds = [part["type"] for part in message.content]
+    ok(kinds == ["text", "image_url"],
+       f"text first, then the page ({kinds})")
+    ok("Two lines above" in message.content[0]["text"],
+       "the extracted text is still sent — the image is an addition, not a swap")
+    ok("attached as images below" in message.content[0]["text"],
+       "and the text says the pages are there, so they are not a surprise")
+    ok(PDF_MAX_PAGES == 20 and PDF_MAX_EDGE == 1568,
+       "with a page cap and an edge cap, because images are not cheap")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -723,6 +790,7 @@ def main() -> int:
     check_server_tools()
     check_execution_surfaces()
     check_reach()
+    check_pdf_pages()
     check_context_budget()
     check_budget_note()
     check_home_says_what_it_does()
