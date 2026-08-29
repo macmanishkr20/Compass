@@ -1190,6 +1190,40 @@ def check_reasoning_is_visible_by_default() -> None:
            "transcript is a trap once the thing is open by default")
 
 
+def check_narration_carries_no_chrome() -> None:
+    """Narration is text, and an action row is a sentence.
+
+    Two things marked Compass's transcript out from the one it is modelled on.
+    The mark was stamped beside every thinking block — and once reasoning
+    shows per step, that is a column of badges down a page of prose, because a
+    turn that only thinks is still a bubble. And an action row carried a
+    terminal glyph and a right-aligned step count beside a summary that
+    already said what happened.
+
+    Measured after: eight thinking blocks and zero avatars, seven action rows
+    with zero step counts and zero glyphs, the first reading "Read server.py,
+    searched the code" with the caret after the words.
+    """
+    print("\nnarration is text, and an action row is a sentence")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok("@if (b.role === 'assistant' && b.text) {" in html,
+       "the mark goes with what was said, not with every time it thought")
+    ok("activity-count" not in html,
+       "an action row carries no step count — the summary already counts")
+    ok("activity-ico" not in html,
+       "and no terminal glyph labelling it as machinery")
+    ok("activity-count" not in css and "activity-ico" not in css,
+       "with the rules for both removed rather than left dead")
+
+    head = section(html, '<button class="activity-head"', "</button>")
+    ok(head.index("activity-summary") < head.index("activity-caret"),
+       "the words come first and the caret follows them, as a phrase you click")
+    ok("activity-spin" in head,
+       "while a running group still shows that it is running")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1444,6 +1478,7 @@ def main() -> int:
     check_finished_background_tasks_are_findable()
     check_thinking_interleaves_with_work()
     check_reasoning_is_visible_by_default()
+    check_narration_carries_no_chrome()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

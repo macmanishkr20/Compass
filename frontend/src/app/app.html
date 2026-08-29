@@ -761,14 +761,16 @@
         @if (block.kind === 'activity') {
           <div class="activity" [class.open]="isActivityExpanded(block.id)" [class.running]="block.running">
             <button class="activity-head" (click)="toggleActivity(block.id)">
-              <svg class="activity-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
               @if (block.running) {
                 <span class="activity-spin"></span>
-              } @else {
-                <svg class="activity-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               }
               <span class="activity-summary">{{ block.summary }}</span>
-              <span class="activity-count">{{ block.count }} step{{ block.count === 1 ? '' : 's' }}</span>
+              <!-- The summary already names what happened — "Ran 2 commands",
+                   "Read server.py, searched the code". A right-aligned step
+                   count restates it, and the terminal glyph that used to sit
+                   here labelled the row as machinery. What is left is the
+                   sentence and the way to open it. -->
+              <svg class="activity-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
             @if (isActivityExpanded(block.id)) {
               <div class="activity-body">
@@ -814,7 +816,11 @@
             @let b = asBubble(item);
             <div class="row" [class.mine]="b.role === 'user'"
               [attr.id]="b.role === 'user' ? 'msg-' + b.id : null">
-              @if (b.role === 'assistant') {
+              <!-- The mark belongs to what Compass said, not to every time it
+                   thought. With reasoning shown per step, a turn that only
+                   thinks is still a bubble, and stamping the logo beside each
+                   one turns a page of narration into a column of badges. -->
+              @if (b.role === 'assistant' && b.text) {
                 <span class="avatar">
                   <app-compass-mark [size]="22" />
                 </span>
