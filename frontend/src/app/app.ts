@@ -642,6 +642,11 @@ export class App {
       group = [];
     };
     for (const it of this.timeline()) {
+      // Asking has its own card, and that card *is* the act. A row beside it
+      // saying a tool was used says nothing a reader wants and reveals
+      // machinery they have no use for — the question and the answer are the
+      // whole story.
+      if (it.kind === 'tool' && (it as ToolCardVM).name === 'ask_user') continue;
       // File writes/edits surface as their own "Edited file +N −M" row (like
       // Claude), not folded into the collapsed background-activity group.
       const isFileEdit =
@@ -835,7 +840,8 @@ export class App {
    *  app.ts", "Ran 2 commands", "Ran a command, used 2 tools". */
   private summarizeActivity(tools: ToolCardVM[]): string {
     if (!tools.length) return 'Working…';
-    let commands = 0, searches = 0, plans = 0, edits = 0, wrote = 0, delegated = 0, others = 0;
+    let commands = 0, searches = 0, plans = 0, edits = 0, wrote = 0, delegated = 0;
+    let fetched = 0, browsed = 0, shots = 0, consulted = 0, remembered = 0, others = 0;
     const reads: string[] = [];
     for (const t of tools) {
       const a = this.argObj(t);
@@ -847,7 +853,15 @@ export class App {
         case 'file_write': wrote++; break;
         case 'file_read': reads.push(this.baseName(String(a['path'] ?? a['file_path'] ?? 'a file'))); break;
         case 'agent': delegated++; break;
-        default: others++; break; // browser & anything else
+        // These used to land on "used a tool", which tells a reader nothing
+        // except that machinery exists. Each of them is an act with a plain
+        // name, so say the name.
+        case 'web_fetch': fetched++; break;
+        case 'browser': browsed++; break;
+        case 'screenshot': shots++; break;
+        case 'consult': consulted++; break;
+        case 'memory': remembered++; break;
+        default: others++; break;
       }
     }
     const parts: string[] = [];
@@ -859,6 +873,13 @@ export class App {
     if (edits) parts.push(edits === 1 ? 'edited a file' : `edited ${edits} files`);
     if (wrote) parts.push(wrote === 1 ? 'wrote a file' : `wrote ${wrote} files`);
     if (delegated) parts.push(delegated === 1 ? 'delegated to a subagent' : `delegated to ${delegated} subagents`);
+    if (fetched) parts.push(fetched === 1 ? 'read a page' : `read ${fetched} pages`);
+    if (browsed) parts.push('used the browser');
+    if (shots) parts.push(shots === 1 ? 'took a screenshot' : `took ${shots} screenshots`);
+    if (consulted) parts.push('asked for a second opinion');
+    if (remembered) parts.push('checked its memory');
+    // Whatever is left is genuinely unknown — an MCP tool from a server this
+    // build has never heard of. "Used a tool" is honest there.
     if (others) parts.push(others === 1 ? 'used a tool' : `used ${others} tools`);
     const s = parts.join(', ') || `used ${tools.length} tools`;
     return s.charAt(0).toUpperCase() + s.slice(1);
@@ -898,6 +919,16 @@ export class App {
         return 'Updated the plan';
       case 'agent':
         return 'Delegated to a subagent';
+      case 'web_fetch':
+        return s(a['url']) ? `Read ${s(a['url'])}` : 'Read a page';
+      case 'browser':
+        return s(a['url']) ? `Opened ${s(a['url'])}` : 'Used the browser';
+      case 'screenshot':
+        return 'Took a screenshot';
+      case 'consult':
+        return 'Asked for a second opinion';
+      case 'memory':
+        return 'Checked its memory';
       case 'browser':
         return this.browserStepLabel(a);
       default:

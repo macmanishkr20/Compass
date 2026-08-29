@@ -90,7 +90,13 @@ class AskUserTool(Tool):
         "conversation already answer — read those instead — and do not use it to "
         "hand back a decision you were asked to make. Asking costs a round trip "
         "and the reader's attention, so ask once, about the thing that actually "
-        "blocks you."
+        "blocks you.\n\n"
+        "Say why you are asking before you call this — one sentence, in your "
+        "own words, naming what made the choice theirs rather than yours. "
+        "\"Those two readings lead to materially different work, so I would "
+        "rather ask than guess\" tells the reader what they need before they "
+        "see the options. A question that arrives with no reason attached "
+        "reads as the agent giving up."
     )
     input_model = AskInput
 

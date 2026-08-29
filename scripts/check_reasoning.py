@@ -1049,6 +1049,47 @@ def check_answered_question_collapses() -> None:
        "and the answer reads first")
 
 
+def check_asking_shows_no_tool_row() -> None:
+    """Asking is not reported as machinery, and the rest have names.
+
+    A question produced a "Used a tool · 1 step" row beside its own card: two
+    representations of one act, and the row was the useless one — it named no
+    tool, said nothing a reader wants, and revealed that there was machinery
+    at all. The card is the act. Verified in a live transcript: thinking,
+    three named activity groups, then the question card with no row before it.
+
+    The same "used a tool" fallback was swallowing several other tools, so
+    they have plain names now. What is left on it is genuinely unknown — an
+    MCP tool from a server this build has never heard of — where saying so is
+    honest.
+    """
+    print("\nasking is not reported as machinery")
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+
+    ok("name === 'ask_user') continue;" in ts,
+       "a question produces no activity row of its own")
+    block = ts.split("private summarizeActivity")[1][:2600]
+    for tool, phrase in (("web_fetch", "read a page"),
+                         ("browser", "used the browser"),
+                         ("screenshot", "took a screenshot"),
+                         ("consult", "asked for a second opinion"),
+                         ("memory", "checked its memory")):
+        ok(f"case '{tool}'" in block, f"{tool} is counted by name")
+        ok(phrase in block, f"and reads as \u201c{phrase}\u201d")
+    ok("used a tool" in block,
+       "with the fallback kept for tools this build has never heard of")
+
+    labels = ts.split("stepLabel(t: ToolCardVM)")[1][:1600]
+    for tool in ("web_fetch", "browser", "screenshot", "consult", "memory"):
+        ok(f"case '{tool}'" in labels, f"and one step of {tool} has a label")
+
+    ask = (ROOT / "compass/common/tools/ask.py").read_text()
+    ok("Say why you are asking before you call this" in ask,
+       "the model is asked to say why in its own words first")
+    ok("reads as the agent giving up" in ask,
+       "and told what a reasonless question looks like from the outside")
+
+
 def check_interrupted_calls_do_not_brick_a_session() -> None:
     """An unanswered tool call must not kill the conversation.
 
@@ -1345,6 +1386,7 @@ def main() -> int:
     check_thinking_interleaves_with_work()
     check_asking_the_person()
     check_answered_question_collapses()
+    check_asking_shows_no_tool_row()
     check_interrupted_calls_do_not_brick_a_session()
     check_thinking_rule_colour()
     check_skills()
