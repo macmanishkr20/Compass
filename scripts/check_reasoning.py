@@ -634,20 +634,32 @@ def check_skills() -> None:
            "and a workspace without a skills directory adds nothing")
 
 
-def check_thinking_header_alignment() -> None:
-    """The token count sits at the right edge on both surfaces.
+def check_thinking_cost_is_a_hover() -> None:
+    """The thinking has no header, and its cost is a hover underneath it.
 
-    It always had `margin-left: auto`, and that was never the problem: an
-    assistant turn ending in tool calls has a thinking header and no answer
-    bubble, so the flex column shrink-wrapped to about 200px and the count
-    right-aligned inside *that* — which reads as glued to the label. The
-    wrapper has to span the row. Measured after the fix: header 836px in the
-    Code console and 673px in Home, count flush right in both, and the bubbles
-    unchanged at 649px and 12/92px respectively.
+    The header was the last piece of chrome on the narration: a caret, the
+    words "Thought about it", and the token count, stamped over every block on
+    a page where reasoning already shows by default. None of it was doing
+    work — the caret folded something nobody wanted folded, the label named
+    what the italic prose beneath it already was, and the count was a number
+    permanently on display for the rare moment somebody wants it.
+
+    So the block is now the prose alone, and the count moved below it on the
+    same bargain the copy and read-aloud actions strike: nothing at rest, and
+    there when the pointer is on the message. Measured in the page: eight
+    thinking blocks, zero headers, six footers reading "256 tokens used",
+    computed opacity 0 at rest and 0.75 with the row hovered.
+
+    The wrapper still has to span the row. That was the fix behind the old
+    check and it did not stop mattering: an assistant turn ending in tool
+    calls has no answer bubble, so without it the flex column shrink-wraps to
+    about 200px and takes the thinking block with it.
     """
-    print("\nthe thinking header's token count is right-aligned")
+    print("\nthe thinking carries no header, and its cost is a hover")
     code = (ROOT / "frontend/src/app/app.css").read_text()
     home = (ROOT / "frontend/src/app/home-chat/home-chat.css").read_text()
+    code_html = (ROOT / "frontend/src/app/app.html").read_text()
+    home_html = (ROOT / "frontend/src/app/home-chat/home-chat.html").read_text()
 
     ok(".bubble-wrap:not(.mine) { width: 100%; }" in code,
        "the Code console's assistant wrapper spans the row")
@@ -656,9 +668,32 @@ def check_thinking_header_alignment() -> None:
     ok("align-items: flex-start" in home.split(".cwrap:not(.mine)")[1][:80],
        "Home also keeps its bubbles shrink-wrapped, since .cbubble is "
        "max-width: 100% and would otherwise stretch with the column")
-    for name, css in (("app.css", code), ("home-chat.css", home)):
-        ok("margin-left: auto" in css.split(".cthink-cost")[1][:120],
-           f"{name} still right-aligns the count within the header")
+
+    gone = ("cthink-head", "cthink-caret", "cthink-cost", "cthink-label")
+    for name, text in (("app.html", code_html), ("app.css", code),
+                       ("home-chat.html", home_html),
+                       ("home-chat.css", home)):
+        for dead in gone:
+            ok(dead not in text,
+               f"{name}: no {dead} — removed, not left dead")
+
+    # The reveal, and the surface each one hangs off: the Code console's row
+    # is .row, Home's is .crow, and Home's span carries no .msg-act to
+    # inherit the behaviour from, so it needs its own rules.
+    for name, css, row in (("app.css", code, ".row"),
+                           ("home-chat.css", home, ".crow")):
+        rest = section(css, ".cthink-tokens {", "\n}")
+        ok("opacity: 0;" in rest, f"{name}: nothing at rest")
+        ok("font-style: normal" in rest,
+           f"{name}: and upright, so it is not read as more narration")
+        ok(f"{row}:hover .cthink-tokens {{ opacity: 0.75; }}" in css,
+           f"{name}: revealed when the pointer is on the message")
+
+    for name, html, prefix in (("app.html", code_html, "b"),
+                               ("home-chat.html", home_html, "m")):
+        foot = section(html, '<div class="cthink-foot">', "</div>")
+        ok(f"{{{{ {prefix}.thinkingTokens }}}} tokens used" in foot,
+           f"{name}: the number says what it is a number of")
 
 
 def check_thinking_rule_colour() -> None:
@@ -1157,26 +1192,35 @@ def check_reasoning_is_visible_by_default() -> None:
     none, italic, rgb(81,81,84), and no inner scroller. Folding still works:
     eight bodies, click, seven, aria-expanded false, click, eight.
 
-    The flag is named for the exception because the rule is that it shows —
-    undefined means visible, so nothing that builds a bubble has to remember
-    to open it, and a restored session is not silently different from a live
-    one.
+    There is no longer a flag at all. Folding went with the header that drove
+    it: a control that hides narration is only worth its weight if the
+    narration is noise, and if it were noise the answer would be to stop
+    showing it rather than to make every reader click. So the body is
+    unconditional, and a restored session cannot come back in a state a live
+    one never reaches.
     """
-    print("\nreasoning is visible by default, and still foldable")
+    print("\nreasoning is visible, with no state to get wrong")
     models = (ROOT / "frontend/src/app/models.ts").read_text()
-    ok("thinkingCollapsed?: boolean" in models,
-       "the flag is named for folding, not for opening")
     ok("thinkingOpen" not in models, "the old inverted flag is gone")
+    ok("thinkingCollapsed" not in models,
+       "and so is the one that replaced it — the body is unconditional")
 
     for page, prefix in (("frontend/src/app/app.html", "b"),
                          ("frontend/src/app/home-chat/home-chat.html", "m")):
         html = (ROOT / page).read_text()
         short = page.rsplit("/", 1)[-1]
-        ok(f"@if (!{prefix}.thinkingCollapsed) {{" in html,
-           f"{short}: the body shows unless folded")
-        ok(f'[attr.aria-expanded]="!{prefix}.thinkingCollapsed"' in html,
-           f"{short}: and says so to a screen reader")
-        ok("thinkingOpen" not in html, f"{short}: nothing left on the old flag")
+        ok(f'<div class="cthink-body"><app-markdown [text]="{prefix}.thinking!" />'
+           in html,
+           f"{short}: the narration renders with nothing gating it")
+        ok("thinkingOpen" not in html and "thinkingCollapsed" not in html,
+           f"{short}: nothing left on either flag")
+
+    for page in ("frontend/src/app/app.ts",
+                 "frontend/src/app/home-chat/home-chat.ts"):
+        src = (ROOT / page).read_text()
+        ok("toggleThinking" not in src,
+           f"{page.rsplit('/', 1)[-1]}: and no handler kept for a control "
+           "that is gone")
 
     for page in ("frontend/src/app/app.css",
                  "frontend/src/app/home-chat/home-chat.css"):
@@ -1469,7 +1513,7 @@ def main() -> int:
     check_design_resilience()
     check_tweaks_are_declared_not_drawn()
     check_design_audit_sees_sideways()
-    check_thinking_header_alignment()
+    check_thinking_cost_is_a_hover()
     check_tool_rows_are_readable()
     check_markdown_tables()
     check_prose_styling_is_reachable()

@@ -100,14 +100,6 @@ export interface ChatBubble {
   thinkingTokens?: number;
   /** Still streaming. */
   thinkingLive?: boolean;
-  /** Folded away by the reader.
-   *
-   *  Named for the exception rather than the rule, because the rule is that
-   *  reasoning is visible: it is narration between the actions it produced,
-   *  and a reader following what happened wants it in front of them. Undefined
-   *  therefore means shown, and nothing that builds a bubble has to remember
-   *  to open it. */
-  thinkingCollapsed?: boolean;
 }
 
 /** Attachment shown on a user bubble (mirror of attachments.ts UiAttachment). */

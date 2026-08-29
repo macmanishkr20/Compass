@@ -3585,13 +3585,6 @@ export class App {
 
   /** Show or hide a finished turn's reasoning. It collapses on its own once
    *  the answer starts, so what stays on screen is the answer. */
-  toggleThinking(b: ChatBubble): void {
-    this.patch(b.id, (x) => ({
-      ...(x as ChatBubble),
-      thinkingCollapsed: !(x as ChatBubble).thinkingCollapsed,
-    }));
-  }
-
   private bubble(
     role: 'user' | 'assistant',
     text: string,

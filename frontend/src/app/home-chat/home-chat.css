@@ -498,45 +498,9 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   .cthink.live { animation: none; border-left-color: var(--accent); }
 }
 
-.cthink-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 2px 0;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.78rem;
-  text-align: left;
-}
-.cthink-head:hover { color: var(--ink); }
 
-.cthink-caret {
-  flex: none;
-  transition: transform 0.15s ease;
-  opacity: 0.7;
-}
-.cthink-head[aria-expanded='true'] .cthink-caret { transform: rotate(90deg); }
 
-.cthink-label { letter-spacing: 0.01em; }
-.cthink.live .cthink-label {
-  /* A slow pulse, so a long think reads as working rather than stalled. */
-  animation: cthink-pulse 1.6s ease-in-out infinite;
-}
-@keyframes cthink-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
 
-.cthink-cost {
-  margin-left: auto;
-  color: var(--accent);
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-}
 
 .cthink-body {
   margin: 4px 0 2px;
@@ -556,10 +520,6 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   font-weight: 600;
   color: var(--ink);
 }
-@media (prefers-reduced-motion: reduce) {
-  .cthink.live .cthink-label { animation: none; }
-  .cthink-caret { transition: none; }
-}
 
 /* Work Azure did inside the turn: code run, searches made. Sits above the
    answer rather than below it, because it happened before the answer and
@@ -576,3 +536,28 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   border-radius: 7px;
   padding: 2px 8px;
 }
+
+/* What the thinking cost, under the thinking rather than over it, and only
+   when the pointer is on the message — the same bargain the copy and
+   read-aloud actions strike. The number matters when you go looking for it
+   and is clutter the rest of the time. */
+.cthink-foot {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  margin: 2px 0 0;
+}
+.cthink-tokens {
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--faint);
+  font-size: 0.68rem;
+  font-weight: 550;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+  cursor: default;
+}
+.crow:hover .cthink-tokens { opacity: 0.75; }

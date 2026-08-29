@@ -850,18 +850,18 @@
                     </div>
                   }
                   @if (b.role === 'assistant' && b.thinking) {
+                    <!-- No header. Reasoning is narration, and a label saying
+                         "Thought about it" above every passage of it is a
+                         caption on each paragraph of a story. What it cost is
+                         still worth knowing, so it sits underneath and comes
+                         out on hover, beside the other things you can do with
+                         a message rather than on top of the thing itself. -->
                     <div class="cthink" [class.live]="b.thinkingLive">
-                      <button class="cthink-head" type="button"
-                        (click)="toggleThinking(b)"
-                        [attr.aria-expanded]="!b.thinkingCollapsed">
-                        <svg class="cthink-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        <span class="cthink-label">{{ b.thinkingLive ? 'Thinking…' : 'Thought about it' }}</span>
-                        @if (b.thinkingTokens) {
-                          <span class="cthink-cost">{{ b.thinkingTokens }} tokens</span>
-                        }
-                      </button>
-                      @if (!b.thinkingCollapsed) {
-                        <div class="cthink-body"><app-markdown [text]="b.thinking!" /></div>
+                      <div class="cthink-body"><app-markdown [text]="b.thinking!" /></div>
+                      @if (b.thinkingTokens) {
+                        <div class="cthink-foot">
+                          <span class="msg-act cthink-tokens">{{ b.thinkingTokens }} tokens used</span>
+                        </div>
                       }
                     </div>
                   }

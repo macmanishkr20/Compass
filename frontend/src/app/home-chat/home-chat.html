@@ -18,18 +18,15 @@
             <div class="cwrap" [class.mine]="m.role === 'user'">
               @if (m.role === 'assistant') {
                 @if (m.thinking) {
+                  <!-- Same as the Code console: narration, then what it cost
+                       underneath on hover. A split between the two surfaces
+                       would be worse than either choice. -->
                   <div class="cthink" [class.live]="m.thinkingLive">
-                    <button class="cthink-head" type="button"
-                      (click)="toggleThinking(m)"
-                      [attr.aria-expanded]="!m.thinkingCollapsed">
-                      <svg class="cthink-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                      <span class="cthink-label">{{ m.thinkingLive ? 'Thinking…' : 'Thought about it' }}</span>
-                      @if (m.thinkingTokens) {
-                        <span class="cthink-cost">{{ m.thinkingTokens }} tokens</span>
-                      }
-                    </button>
-                    @if (!m.thinkingCollapsed) {
-                      <div class="cthink-body"><app-markdown [text]="m.thinking!" /></div>
+                    <div class="cthink-body"><app-markdown [text]="m.thinking!" /></div>
+                    @if (m.thinkingTokens) {
+                      <div class="cthink-foot">
+                        <span class="cthink-tokens">{{ m.thinkingTokens }} tokens used</span>
+                      </div>
                     }
                   </div>
                 }
