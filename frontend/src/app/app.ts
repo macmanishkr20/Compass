@@ -3588,7 +3588,7 @@ export class App {
   toggleThinking(b: ChatBubble): void {
     this.patch(b.id, (x) => ({
       ...(x as ChatBubble),
-      thinkingOpen: !(x as ChatBubble).thinkingOpen,
+      thinkingCollapsed: !(x as ChatBubble).thinkingCollapsed,
     }));
   }
 

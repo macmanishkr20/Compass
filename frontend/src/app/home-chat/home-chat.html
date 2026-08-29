@@ -21,14 +21,14 @@
                   <div class="cthink" [class.live]="m.thinkingLive">
                     <button class="cthink-head" type="button"
                       (click)="toggleThinking(m)"
-                      [attr.aria-expanded]="m.thinkingLive || m.thinkingOpen">
+                      [attr.aria-expanded]="!m.thinkingCollapsed">
                       <svg class="cthink-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                       <span class="cthink-label">{{ m.thinkingLive ? 'Thinking…' : 'Thought about it' }}</span>
                       @if (m.thinkingTokens) {
                         <span class="cthink-cost">{{ m.thinkingTokens }} tokens</span>
                       }
                     </button>
-                    @if (m.thinkingLive || m.thinkingOpen) {
+                    @if (!m.thinkingCollapsed) {
                       <div class="cthink-body"><app-markdown [text]="m.thinking!" /></div>
                     }
                   </div>

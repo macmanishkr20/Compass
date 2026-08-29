@@ -52,7 +52,8 @@ interface ChatMsg {
    *  the answer is what remains on screen. */
   thinkingLive?: boolean;
   /** The reader opened it back up. */
-  thinkingOpen?: boolean;
+  /** Folded away by the reader; undefined means shown. */
+  thinkingCollapsed?: boolean;
 }
 
 const FOLLOW_SLACK = 120; // px from the bottom that still counts as following
@@ -690,7 +691,7 @@ export class HomeChat {
   /** Show or hide a finished turn's reasoning. It collapses on its own once
    *  the answer starts, so what stays on screen is the answer. */
   toggleThinking(m: ChatMsg): void {
-    this.patch(m.id, (x) => ({ ...x, thinkingOpen: !x.thinkingOpen }));
+    this.patch(m.id, (x) => ({ ...x, thinkingCollapsed: !x.thinkingCollapsed }));
   }
 
   private onEvent(ev: CompassEvent): void {

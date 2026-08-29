@@ -1147,6 +1147,49 @@ def check_interrupted_calls_do_not_brick_a_session() -> None:
        "placed directly after the call it answers, before what came next")
 
 
+def check_reasoning_is_visible_by_default() -> None:
+    """Reasoning reads as narration between the actions, not behind a click.
+
+    It is the same collapsed styling as before — italic, muted, its own rule
+    down the left — but shown rather than hidden, so a transcript reads as
+    what the model thought and then what it did, in order. Measured in the
+    page: eight thinking blocks and eight visible bodies where there had been
+    none, italic, rgb(81,81,84), and no inner scroller. Folding still works:
+    eight bodies, click, seven, aria-expanded false, click, eight.
+
+    The flag is named for the exception because the rule is that it shows —
+    undefined means visible, so nothing that builds a bubble has to remember
+    to open it, and a restored session is not silently different from a live
+    one.
+    """
+    print("\nreasoning is visible by default, and still foldable")
+    models = (ROOT / "frontend/src/app/models.ts").read_text()
+    ok("thinkingCollapsed?: boolean" in models,
+       "the flag is named for folding, not for opening")
+    ok("thinkingOpen" not in models, "the old inverted flag is gone")
+
+    for page, prefix in (("frontend/src/app/app.html", "b"),
+                         ("frontend/src/app/home-chat/home-chat.html", "m")):
+        html = (ROOT / page).read_text()
+        short = page.rsplit("/", 1)[-1]
+        ok(f"@if (!{prefix}.thinkingCollapsed) {{" in html,
+           f"{short}: the body shows unless folded")
+        ok(f'[attr.aria-expanded]="!{prefix}.thinkingCollapsed"' in html,
+           f"{short}: and says so to a screen reader")
+        ok("thinkingOpen" not in html, f"{short}: nothing left on the old flag")
+
+    for page in ("frontend/src/app/app.css",
+                 "frontend/src/app/home-chat/home-chat.css"):
+        css = (ROOT / page).read_text()
+        short = page.rsplit("/", 1)[-1]
+        body = section(css, ".cthink-body {", "\n}")
+        ok("font-style: italic" in body, f"{short}: it reads as narration")
+        ok("var(--muted)" in body, f"{short}: set back from the answer")
+        ok("max-height" not in body,
+           f"{short}: with no inner scroller — a scrollbox inside a scrolling "
+           "transcript is a trap once the thing is open by default")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1400,6 +1443,7 @@ def main() -> int:
     check_shell_class_does_not_collide()
     check_finished_background_tasks_are_findable()
     check_thinking_interleaves_with_work()
+    check_reasoning_is_visible_by_default()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()
