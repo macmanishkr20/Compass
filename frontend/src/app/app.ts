@@ -1920,6 +1920,18 @@ export class App {
     if (this.bgOpen()) void this.refreshBgTasks();
     else this.bgExpanded.set(false);
   }
+
+  /** Open the panel on what has already finished.
+   *
+   *  Reached from the line in the chat that says how many tasks completed.
+   *  Someone clicking that wants to read the commands and their output, so
+   *  the Finished section is unfolded on the way in rather than left for a
+   *  second click. */
+  openFinishedTasks(): void {
+    this.bgOpen.set(true);
+    this.bgFinishedOpen.set(true);
+    void this.refreshBgTasks();
+  }
   async stopBgTask(t: BackgroundTask): Promise<void> {
     try {
       await this.api.stopBackgroundTask(t.id);

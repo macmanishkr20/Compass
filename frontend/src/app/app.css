@@ -2864,6 +2864,12 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   color: var(--accent); font-size: 1rem; line-height: 1;
   animation: spin 3.2s linear infinite;
 }
+/* The same line, once nothing is running: a tick rather than a spinner, and
+   quieter, because finished work should be findable without competing with
+   the conversation for attention. */
+.run-indicator.done { color: var(--faint); }
+.run-indicator.done:hover { color: var(--ink); }
+.run-tick { flex: none; color: var(--success); }
 
 /* Shell highlighting inside an expanded bash step. */
 .step-cmd.shellcmd .sh-prompt { color: var(--faint); user-select: none; }

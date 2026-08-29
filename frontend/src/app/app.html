@@ -1073,6 +1073,16 @@
           <span class="run-star">✳</span>
           {{ bgRunning().length }} running task{{ bgRunning().length === 1 ? '' : 's' }}
         </button>
+      } @else if (bgFinished().length) {
+        <!-- Work that has finished still happened. The running line vanished
+             the moment the last task ended, taking with it the only way back
+             to what those commands were and what they printed — the panel was
+             still there, but nothing in the conversation said so. -->
+        <button class="run-indicator done" (click)="openFinishedTasks()"
+          title="Show what these tasks ran and printed">
+          <svg class="run-tick" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><path d="M4 12.5l5.5 5.5L20 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          {{ bgFinished().length }} background task{{ bgFinished().length === 1 ? '' : 's' }} completed
+        </button>
       }
       <!-- Status block: repo · branch … diff · warn · Create PR -->
       <div class="cmp-status">

@@ -904,6 +904,39 @@ def check_shell_class_does_not_collide() -> None:
        "the application shell keeps its layout")
 
 
+def check_finished_background_tasks_are_findable() -> None:
+    """Work that finished in the background is still reachable from the chat.
+
+    The panel was complete — running list, per-task output, stop, clear — and
+    the only line in the conversation pointing at it was `@if
+    (bgRunning().length)`. The moment the last task ended that line vanished,
+    taking with it the way back to what those commands were and what they
+    printed. Measured with two finished tasks sitting in the backend: zero
+    indicators on the page. After: "2 background tasks completed", which opens
+    the panel on the Finished section, each task showing its command, exit
+    code and output.
+    """
+    print("\nfinished background work is still findable")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok("@else if (bgFinished().length)" in html,
+       "the chat says so when tasks have finished and none are running")
+    ok("background task{{ bgFinished().length === 1 ? '' : 's' }} completed" in html,
+       "in words, with the count")
+    ok('(click)="openFinishedTasks()"' in html, "and it is a way in")
+
+    ok("openFinishedTasks(): void" in ts, "which opens the panel")
+    ok("this.bgFinishedOpen.set(true)" in ts.split("openFinishedTasks")[1][:400],
+       "already unfolded on what finished, rather than needing a second click")
+    ok("this.bgOpen.set(true)" in ts.split("openFinishedTasks")[1][:400],
+       "and it only ever opens — clicking it must not close the thing it names")
+
+    ok(".run-indicator.done" in css,
+       "styled apart from the running line, quieter, since it is history")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1155,6 +1188,7 @@ def main() -> int:
     check_prose_styling_is_reachable()
     check_reopened_session_shows_its_work()
     check_shell_class_does_not_collide()
+    check_finished_background_tasks_are_findable()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()
