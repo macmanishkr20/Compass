@@ -937,6 +937,33 @@ def check_finished_background_tasks_are_findable() -> None:
        "styled apart from the running line, quieter, since it is history")
 
 
+def check_thinking_interleaves_with_work() -> None:
+    """Reasoning sits next to the action it produced, not hoisted above it.
+
+    The grouping that folds tool calls into "Ran 2 commands" must break on
+    anything that is not a tool, or a turn's thinking would be swallowed into
+    the group before it and the transcript would read as one block of thought
+    followed by one block of work. Verified in the page after the restore fix:
+    THINKING 960 / ACTIVITY Ran 2 commands / THINKING 832 / FILE / THINKING
+    128 / FILE.
+
+    How often it appears is the model's business, not the transcript's: on a
+    turn that answers a tool result gpt-5 frequently returns reasoning_tokens
+    0, and a turn that did not think has nothing to show.
+    """
+    print("\nthinking interleaves with the work it produced")
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    block = ts.split("readonly renderBlocks")[1][:1400]
+
+    ok("const isBackground =" in block,
+       "only tool work is foldable into a group")
+    ok("flush();" in block and "kind: 'single', item: it" in block,
+       "and anything else flushes the group and stands on its own — which is "
+       "what lets a thinking block separate one run of tools from the next")
+    ok("name === 'file_edit'" in block and "name === 'file_write'" in block,
+       "a file write stays its own row rather than folding in, as it should")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1189,6 +1216,7 @@ def main() -> int:
     check_reopened_session_shows_its_work()
     check_shell_class_does_not_collide()
     check_finished_background_tasks_are_findable()
+    check_thinking_interleaves_with_work()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()
