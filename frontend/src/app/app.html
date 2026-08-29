@@ -943,22 +943,28 @@
                 }
               </div>
             } @else {
-            <article appTilt [tiltMax]="5" class="card tool-card tilt-3d panel" [class.side]="t.agentId">
-              <header class="card-head">
-                <span class="ico ico-tool" [class]="'st-' + t.status">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 17l6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
-                <span class="tool-name">
+            <div class="toolrow" [class.open]="isActivityExpanded(t.id)" [class.side]="t.agentId">
+              <button class="toolrow-head" type="button" (click)="toggleActivity(t.id)"
+                [attr.aria-expanded]="isActivityExpanded(t.id)">
+                <svg class="toolrow-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="toolrow-name">
                   @if (t.isMcp) { <span class="mcp-tag">MCP</span> }{{ t.name }}
                 </span>
-                <span class="pill z-lift" [class]="'st-' + t.status">
-                  {{ t.status === 'running' ? 'running' : t.status === 'ok' ? (t.durationMs + ' ms') : 'error' }}
+                @if (toolSummary(t); as summary) {
+                  <span class="toolrow-what">{{ summary }}</span>
+                }
+                <span class="toolrow-state" [class]="'st-' + t.status">
+                  {{ t.status === 'running' ? '…' : t.status === 'ok' ? (t.durationMs + ' ms') : 'error' }}
                 </span>
                 @if (t.agentId) { <span class="agent-tag">agent {{ t.agentId }}</span> }
-              </header>
-              <pre class="args z-lift" [class.drafting]="!!t.argsDraft">{{ t.args || t.argsDraft }}</pre>
-              @if (t.output) { <pre class="output">{{ t.output }}</pre> }
-            </article>
+              </button>
+              @if (isActivityExpanded(t.id)) {
+                @if (toolArgsPretty(t); as pretty) {
+                  <pre class="toolrow-args">{{ pretty }}</pre>
+                }
+                @if (t.output) { <pre class="toolrow-out">{{ t.output }}</pre> }
+              }
+            </div>
             }
           }
 

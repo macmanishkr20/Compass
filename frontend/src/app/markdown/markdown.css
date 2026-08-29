@@ -144,4 +144,3 @@
 .artifact-sub { font-size: 0.74rem; color: var(--muted); }
 .artifact-open { color: var(--faint); flex-shrink: 0; }
 .artifact-card:hover .artifact-open { color: var(--accent); }
-

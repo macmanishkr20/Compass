@@ -763,6 +763,69 @@ def check_tweaks_are_declared_not_drawn() -> None:
        "there is one house style for every template again")
 
 
+def check_tool_rows_are_readable() -> None:
+    """A tool call reads as one line, not as its arguments JSON.
+
+    The card printed the raw arguments into the transcript, and while a call
+    was still streaming it printed the half-written JSON — so a file_write of
+    a page of HTML filled the chat with escaped markup before anything ran.
+    Caught live afterwards: mid-stream the row showed `file_write
+    ui-check-2.html` and no JSON at any point.
+    """
+    print("\na tool call reads as one line")
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok("toolSummary(t: ToolCardVM)" in ts,
+       "there is a summary for a tool call")
+    ok("t.args || t.argsDraft" in ts,
+       "which reads a half-streamed draft as happily as a finished call")
+    ok("case 'bash'" in ts and "case 'file_write'" in ts,
+       "and knows what matters per tool — the command, the file")
+
+    ok('<pre class="args z-lift"' not in html,
+       "the old always-open raw-args block is gone")
+    ok('class="toolrow"' in html, "replaced by a row")
+    ok("isActivityExpanded(t.id)" in html,
+       "that opens on click, like every other collapsed thing here")
+    ok("toolArgsPretty(t)" in html,
+       "and shows formatted arguments once opened, not the wire format")
+    ok(".toolrow-what" in css, "the summary is styled to one line")
+    ok("text-overflow: ellipsis" in css.split(".toolrow-what")[1][:260],
+       "and truncated rather than wrapped, or collapsing gains nothing")
+
+
+def check_markdown_tables() -> None:
+    """Tables render as tables, and the CSS can actually reach them.
+
+    The rules first went into markdown.css and did nothing: prose is bound
+    through [innerHTML], and Angular's emulated encapsulation scopes a
+    component's rules to elements it rendered itself, so `.md-table` was in
+    the CSSOM and matched nothing. Measured that way — rule present, table at
+    browser defaults — then moved global and measured again.
+    """
+    print("\nmarkdown tables render, and are styled")
+    md = (ROOT / "frontend/src/app/markdown/markdown.ts").read_text()
+    global_css = (ROOT / "frontend/src/styles.css").read_text()
+    scoped_css = (ROOT / "frontend/src/app/markdown/markdown.css").read_text()
+
+    ok("md-table" in md, "the renderer emits a table")
+    ok("isSep" in md and "isRow" in md,
+       "recognising a row only once its separator arrives")
+    ok("i = j - 1" in md,
+       "and consuming the whole block rather than one line at a time")
+    ok("alignOf" in md, "column alignment is honoured")
+
+    ok("md-table" in global_css,
+       "the styling is global, because [innerHTML] content is unreachable "
+       "from a component stylesheet")
+    ok("md-table" not in scoped_css,
+       "and is not left behind in the scoped one, where it did nothing")
+    ok("overflow-x: auto" in global_css.split(".md-table-wrap")[1][:200],
+       "a wide table scrolls inside itself rather than widening the chat")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1009,6 +1072,8 @@ def main() -> int:
     check_tweaks_are_declared_not_drawn()
     check_design_audit_sees_sideways()
     check_thinking_header_alignment()
+    check_tool_rows_are_readable()
+    check_markdown_tables()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()

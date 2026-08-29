@@ -3149,3 +3149,75 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   opacity: 0.62;
   border-style: dashed;
 }
+
+/* A tool call, as one line. It used to be a card that printed its whole
+   arguments JSON into the transcript — and while the call was still streaming,
+   the half-written JSON — so a file_write of a page of HTML filled the chat
+   with escaped markup before anything had run. What a reader wants is which
+   file, which command, which URL; the rest is there on click. */
+.toolrow {
+  margin: 2px 0;
+  border-left: 2px solid var(--accent-line);
+  padding-left: 10px;
+}
+.toolrow.side { opacity: 0.88; }
+.toolrow-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+}
+.toolrow-head:hover { color: var(--ink); }
+.toolrow-caret {
+  flex: none;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+.toolrow.open .toolrow-caret { transform: rotate(90deg); }
+.toolrow-name {
+  flex: none;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--ink);
+}
+/* The summary is the part worth reading, so it gets the room. One line: a
+   command that wrapped would defeat the point of collapsing it. */
+.toolrow-what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.74rem;
+  opacity: 0.85;
+}
+.toolrow-state {
+  flex: none;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.toolrow-state.st-error { color: var(--danger, #b4231d); opacity: 1; }
+.toolrow-args,
+.toolrow-out {
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  font-size: 0.73rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.toolrow-out { background: transparent; }

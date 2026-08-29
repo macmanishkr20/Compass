@@ -217,3 +217,41 @@ body {
   0%, 100% { border-left-color: var(--accent-line); }
   50%      { border-left-color: var(--accent); }
 }
+
+/* Markdown tables live here, not in markdown.css, for the same reason the
+   thinking-body overrides above do: the prose is bound through
+   [innerHTML], and Angular's emulated encapsulation scopes a component's
+   rules to elements it rendered itself. Injected markup carries no
+   _ngcontent attribute, so a scoped `.md-table` is in the stylesheet and
+   matches nothing — which is exactly how it behaved: rule present in the
+   CSSOM, table rendering at browser defaults. */
+/* Tables. Wrapped rather than allowed to widen the message: a table with six
+   columns of prose otherwise pushes the whole transcript sideways, and a
+   transcript that scrolls horizontally is worse than a table that does. */
+.md-table-wrap {
+  margin: 10px 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86em;
+}
+.md-table th,
+.md-table td {
+  padding: 7px 11px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.md-table th {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--bg-2);
+  white-space: nowrap;
+}
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table td { color: var(--muted); }
+.md-table code { white-space: nowrap; }

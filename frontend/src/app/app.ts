@@ -662,6 +662,64 @@ export class App {
   });
 
   /** Parse a file_edit/file_write tool into a Claude-style edit row + diff. */
+  /** A one-line, readable account of a tool call — the thing on the row.
+   *
+   *  The card used to print the raw arguments JSON into the transcript, and
+   *  while a call was still streaming it printed the half-written JSON. A
+   *  `file_write` of a page of HTML therefore filled the chat with escaped
+   *  markup before anything had even run. Nobody reads that; what they want
+   *  to know is which file, which command, which URL.
+   *
+   *  Reads a partial draft as happily as a finished call, because the point
+   *  is to say something useful while the call is still arriving. */
+  toolSummary(t: ToolCardVM): string {
+    const raw = t.args || t.argsDraft || '';
+    // Deliberately a regex and not JSON.parse: mid-stream the string is not
+    // valid JSON yet, and the first field is usually the one worth showing.
+    const field = (key: string): string => {
+      const m = new RegExp('"' + key + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"').exec(raw);
+      return m ? m[1].replace(/\\(.)/g, '$1') : '';
+    };
+    const tail = (p: string) => (p.split('/').pop() || p);
+    switch (t.name) {
+      case 'bash':
+      case 'bash_output': {
+        const c = field('command') || field('description');
+        return c ? c.replace(/\s+/g, ' ').slice(0, 120) : '';
+      }
+      case 'file_read':
+      case 'file_write':
+      case 'file_edit':
+        return tail(field('path') || field('file_path'));
+      case 'glob':
+      case 'grep':
+        return field('pattern') || field('query');
+      case 'web_fetch':
+      case 'browser':
+      case 'screenshot':
+        return field('url') || field('action');
+      case 'consult':
+        return field('question').slice(0, 120);
+      case 'find_tools':
+        return field('query');
+      default: {
+        const first = /"[^"]+"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+        return first ? first[1].replace(/\\(.)/g, '$1').slice(0, 120) : '';
+      }
+    }
+  }
+
+  /** Arguments as something a person would read, not a wire format. */
+  toolArgsPretty(t: ToolCardVM): string {
+    const raw = t.args || t.argsDraft || '';
+    if (!raw) return '';
+    try {
+      return JSON.stringify(JSON.parse(raw), null, 2);
+    } catch {
+      return raw; // still streaming, or not JSON at all
+    }
+  }
+
   fileEditInfo(
     t: ToolCardVM,
   ): { verb: string; file: string; adds: number; dels: number; diff: { type: 'add' | 'del'; text: string }[] } | null {
