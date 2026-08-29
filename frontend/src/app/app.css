@@ -1215,6 +1215,11 @@
   overflow-x: auto;
 }
 .step-out { margin-top: 8px; color: var(--muted); }
+/* The shell modifier is `shellcmd`, not `shell`. `.shell` is the application
+   frame — height: 100dvh and a 272px sidebar column — so a command block that
+   wore it inherited the whole page layout: the command sat 272px to the right
+   of its own $ prompt, in a box a screen tall. Two different things had the
+   same short name, and the generic one won. */
 
 /* While the group is still working: shimmer the summary text and sweep a soft
  * highlight across the collapsed bar, Claude-style. */
@@ -2861,10 +2866,10 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 
 /* Shell highlighting inside an expanded bash step. */
-.step-cmd.shell .sh-prompt { color: var(--faint); user-select: none; }
-.step-cmd.shell .sh-cmd { color: #6ea8fe; font-weight: 600; font-style: normal; }
-.step-cmd.shell .sh-str { color: #7ec87e; font-style: normal; }
-.step-cmd.shell .sh-flag { color: var(--muted); text-decoration: none; }
+.step-cmd.shellcmd .sh-prompt { color: var(--faint); user-select: none; }
+.step-cmd.shellcmd .sh-cmd { color: #6ea8fe; font-weight: 600; font-style: normal; }
+.step-cmd.shellcmd .sh-str { color: #7ec87e; font-style: normal; }
+.step-cmd.shellcmd .sh-flag { color: var(--muted); text-decoration: none; }
 
 /* Preview card "\u22ee" overflow menu. */
 .preview-more-wrap { position: relative; flex-shrink: 0; }

@@ -2543,6 +2543,17 @@ export class App {
     this.currentBubble = null;
     const t = await this.api.transcript(id);
     const items: TimelineItem[] = [];
+    // What each call returned, so a restored card can show its result. The
+    // results arrive as their own `tool` messages, keyed by call id.
+    const results = new Map<string, { output: string; failed: boolean }>();
+    for (const m of t.messages) {
+      if (m.role === 'tool' && m.tool_call_id) {
+        results.set(m.tool_call_id, {
+          output: this.msgText(m.content),
+          failed: !!m.is_error,
+        });
+      }
+    }
     for (const m of t.messages) {
       const meta = m.meta ?? {};
       const at = m.timestamp ? m.timestamp * 1000 : undefined;
@@ -2567,6 +2578,29 @@ export class App {
             ...this.bubble('assistant', text, false, undefined, at),
             thinking,
             thinkingTokens: (usage['reasoning_tokens'] as number) || undefined,
+          });
+        }
+        // The work itself. A reopened session used to show what the model
+        // thought and what it said, and nothing of what it did — no commands,
+        // no files written, no results. The transcript carried all of it; the
+        // restore simply never looked. Emitted in place so the grouping that
+        // folds them into "Ran 2 commands" applies here exactly as it does
+        // live.
+        for (const call of m.tool_calls ?? []) {
+          const name = call.function?.name || 'tool';
+          const done = results.get(call.id);
+          items.push({
+            kind: 'tool',
+            id: call.id,
+            name,
+            args: call.function?.arguments || '',
+            output: done?.output ?? '',
+            // A call with no stored result never finished — the turn was
+            // stopped, or the permission timed out. Saying "ok" would be a
+            // lie, and "running" would spin for ever on a dead session.
+            status: done ? (done.failed ? 'error' : 'ok') : 'error',
+            agentId: (meta['agent_id'] as string) || null,
+            isMcp: name.startsWith('mcp__'),
           });
         }
       }

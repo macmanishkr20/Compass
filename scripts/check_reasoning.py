@@ -854,6 +854,56 @@ def check_prose_styling_is_reachable() -> None:
        "and the rule uses it")
 
 
+def check_reopened_session_shows_its_work() -> None:
+    """A reopened session shows what was done, not only what was said.
+
+    The transcript carried it all along — assistant turns with tool_calls and
+    the tool results keyed by call id — and the restore read only text and
+    thinking. Measured on a real session: the API returned 10 messages with 5
+    tool calls and 3 results, and the page rendered zero activity groups, zero
+    tool cards, zero permission records. After: one group, "Ran 2 commands",
+    two steps, each expanding to its command and output.
+    """
+    print("\na reopened session shows its work")
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    api = (ROOT / "frontend/src/app/compass-api.service.ts").read_text()
+
+    ok("tool_calls?: Array<{" in api,
+       "the transcript type declares tool_calls, which it never did")
+    ok("tool_call_id?: string" in api and "is_error?: boolean" in api,
+       "and the fields that tie a result to its call")
+
+    ok("const results = new Map<string" in ts,
+       "the restore indexes the results by call id")
+    ok("for (const call of m.tool_calls ?? [])" in ts,
+       "and emits a card per call")
+    ok("done ? (done.failed ? 'error' : 'ok') : 'error'" in ts,
+       "a call with no stored result is not shown as succeeded, and not left "
+       "spinning for ever on a dead session")
+
+
+def check_shell_class_does_not_collide() -> None:
+    """`.shell` is the application frame. A command block must not wear it.
+
+    It did, as `class="step-cmd shell"`, and inherited the frame's layout:
+    height 100dvh and grid-template-columns 272px 1fr. Measured — the command
+    sat 297px to the right of its own $ prompt in a box a screen tall. After
+    the rename: display block, 40px tall, 7px after the prompt.
+    """
+    print("\nthe shell command block does not wear the app shell's class")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok('class="step-cmd shellcmd"' in html, "the block has its own modifier")
+    ok('class="step-cmd shell"' not in html, "and no longer the generic one")
+    ok(css.count(".step-cmd.shellcmd ") == 4,
+       "every rule that styled it followed the rename")
+    ok(".step-cmd.shell " not in css, "with none left on the old name")
+    # The frame itself is untouched — it is the thing that was right.
+    ok(".shell {" in css and "grid-template-columns: 272px 1fr" in css,
+       "the application shell keeps its layout")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1103,6 +1153,8 @@ def main() -> int:
     check_tool_rows_are_readable()
     check_markdown_tables()
     check_prose_styling_is_reachable()
+    check_reopened_session_shows_its_work()
+    check_shell_class_does_not_collide()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()

@@ -786,7 +786,7 @@
                         @if (isActivityExpanded('step-' + st.id)) {
                           <div class="step-body">
                             @if (st.name === 'bash') {
-                              <pre class="step-cmd shell"><span class="sh-prompt">$</span> <span [innerHTML]="shellHtml(stepDetail(st))"></span></pre>
+                              <pre class="step-cmd shellcmd"><span class="sh-prompt">$</span> <span [innerHTML]="shellHtml(stepDetail(st))"></span></pre>
                             } @else {
                               <pre class="step-cmd">{{ stepDetail(st) }}</pre>
                             }

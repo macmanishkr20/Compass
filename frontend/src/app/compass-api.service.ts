@@ -45,6 +45,17 @@ interface TranscriptResponse {
     content: string | null;
     timestamp?: number; // epoch seconds
     meta?: Record<string, unknown>;
+    /** The calls an assistant turn made. Present in the payload all along and
+     *  simply not declared here, which is why a reopened session used to show
+     *  the thinking and the prose and none of the work. */
+    tool_calls?: Array<{
+      id: string;
+      type?: string;
+      function?: { name?: string; arguments?: string };
+    }>;
+    /** On a `tool` message: which call this is the result of. */
+    tool_call_id?: string;
+    is_error?: boolean;
   }>;
 }
 
