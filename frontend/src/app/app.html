@@ -1300,9 +1300,55 @@
             @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
           </select>
         </label>
-        <button class="tb-icon" (click)="toggleWorkspacePanel()" title="Add workspace / context" aria-label="Add">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-        </button>
+        <!-- The + opens a menu, not the workspace panel. Adding a folder is one
+             of the things you can do from here, not the only one, and jumping
+             straight into a modal hid the other two. -->
+        <span class="tb-plus-wrap">
+          @if (plusMenuOpen()) {
+            <div class="ctx-menu panel plus-menu" (click)="$event.stopPropagation()" role="menu">
+              <button (click)="plusAddFiles()" role="menuitem">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8.5-8.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Add files or photos</span>
+                <span class="menu-key">{{ shortcutKey }}U</span>
+              </button>
+              <button (click)="plusAddFolder()" role="menuitem">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg>
+                <span>Add folder</span>
+              </button>
+              <span class="plus-sub-wrap">
+                <button (click)="$event.stopPropagation(); plusConnectorsOpen.set(!plusConnectorsOpen())"
+                  role="menuitem" [attr.aria-expanded]="plusConnectorsOpen()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg>
+                  <span>Connectors</span>
+                  <svg class="menu-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                @if (plusConnectorsOpen()) {
+                  <div class="ctx-menu panel plus-sub" (click)="$event.stopPropagation()" role="menu">
+                    @for (c of plusConnectors(); track c.name) {
+                      <button (click)="plusOpenConnectors()" role="menuitem">
+                        <i class="plus-dot" [class.on]="c.connected"></i>
+                        <span>{{ c.name }}</span>
+                        <span class="plus-conn-detail">{{ c.detail }}</span>
+                      </button>
+                    } @empty {
+                      <div class="plus-empty">Nothing connected yet.</div>
+                    }
+                    <div class="menu-sep"></div>
+                    <button (click)="plusOpenConnectors()" role="menuitem">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.3 4h3.4l.5 2.4 2.1 1.2 2.3-.8 1.7 2.9-1.8 1.6v2.4l1.8 1.6-1.7 2.9-2.3-.8-2.1 1.2-.5 2.4h-3.4l-.5-2.4-2.1-1.2-2.3.8-1.7-2.9L5.2 13.7v-2.4L3.4 9.7l1.7-2.9 2.3.8 2.1-1.2z" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.5"/></svg>
+                      <span>Manage connectors…</span>
+                    </button>
+                  </div>
+                }
+              </span>
+            </div>
+          }
+          <button class="tb-icon" (click)="$event.stopPropagation(); togglePlusMenu()"
+            title="Add files, a folder, or see connectors" aria-label="Add"
+            [attr.aria-expanded]="plusMenuOpen()" aria-haspopup="menu">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
+        </span>
         <button class="tb-icon" (click)="openAttachPicker()" title="Attach images or files" aria-label="Attach files">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.5l-8.5 8.5a5 5 0 01-7-7l9-9a3.5 3.5 0 015 5l-9 9a2 2 0 01-3-3l8.5-8.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>

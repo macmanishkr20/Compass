@@ -1654,6 +1654,60 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .ctx-menu button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
 .ctx-menu button svg { color: var(--muted); flex-shrink: 0; }
+
+/* ---- the composer's + menu -----------------------------------------------
+   Built on .ctx-menu so it is the same object as the repo and branch menus
+   rather than a second kind of menu that happens to look similar. */
+.tb-plus-wrap { position: relative; display: inline-flex; }
+.plus-menu { min-width: 236px; }
+/* The shortcut and the submenu caret both sit at the trailing edge. Pushed
+   there with margin rather than a spacer element, so the label keeps its
+   natural width and long connector names still truncate against it. */
+.menu-key {
+  margin-left: auto;
+  padding-left: 14px;
+  color: var(--faint);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.ctx-menu button svg.menu-caret { margin-left: auto; }
+
+/* The submenu opens beside the row, not below it: the menu already sits above
+   the composer, and a second downward panel would run off the window. */
+.plus-sub-wrap { position: relative; display: flex; }
+.plus-sub {
+  left: calc(100% + 6px);
+  /* Anchored to its row's bottom edge and growing upward, for the same reason
+     the parent menu does: this composer is at the foot of the window, and a
+     panel of eight connectors hung from the top of the row falls off the
+     screen. Measured before the change — its bottom sat past the viewport. */
+  top: auto;
+  bottom: -5px;
+  min-width: 250px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.plus-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  flex-shrink: 0;
+  /* The icon column is 15px wide in every other row; centring the dot in the
+     same width keeps the labels on one line down the whole menu. */
+  margin: 0 4px;
+}
+.plus-dot.on { background: var(--success); }
+.plus-conn-detail {
+  margin-left: auto;
+  padding-left: 14px;
+  max-width: 116px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--faint);
+  font-size: 0.74rem;
+}
+.plus-empty { padding: 8px 10px; color: var(--faint); font-size: 0.78rem; }
 .cmp-tokens { font-family: var(--mono); font-size: 0.72rem; color: var(--faint); white-space: nowrap; }
 .cmp-tokens i { font-style: normal; opacity: 0.5; margin: 0 5px; }
 .cmp-cost { color: var(--accent); font-weight: 700; }

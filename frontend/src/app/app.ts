@@ -2800,6 +2800,8 @@ export class App {
     this.routineMenuOpen.set(false);
     this.cbMenuOpen.set(false);
     this.cbViewMenuOpen.set(false);
+    this.plusMenuOpen.set(false);
+    this.plusConnectorsOpen.set(false);
   }
   onGlobalClick(): void {
     this.closeAllMenus();
@@ -2944,6 +2946,80 @@ export class App {
     } finally {
       this.workspaceBusy.set(null);
     }
+  }
+
+  // -- The composer's + menu -------------------------------------------------
+  //
+  // Three entries, because Compass has three things to put there. Claude Code
+  // also offers slash commands and plugins; Compass has neither — nothing
+  // reads "/" in the composer and there is no plugin loader — and a menu that
+  // lists what does not exist is worse than a shorter one that is true.
+
+  readonly plusMenuOpen = signal(false);
+  readonly plusConnectorsOpen = signal(false);
+  readonly plusConnectors = signal<
+    { name: string; detail: string; connected: boolean }[]
+  >([]);
+
+  /** ⌘ on a Mac, Ctrl everywhere else — the menu has to show the key that
+   *  actually works on the machine reading it. */
+  readonly shortcutKey =
+    typeof navigator !== 'undefined' && /Mac|iP(hone|ad)/.test(navigator.platform)
+      ? '⌘'
+      : 'Ctrl+';
+
+  togglePlusMenu(): void {
+    const opening = !this.plusMenuOpen();
+    this.closeAllMenus();
+    this.plusMenuOpen.set(opening);
+    if (opening) void this.loadPlusConnectors();
+  }
+
+  /** Fetched when the menu opens, not at startup: it is one request, and it
+   *  is wasted on every session where nobody touches the +. Failure is quiet
+   *  on purpose — the menu still opens, and the submenu says nothing is
+   *  listed rather than showing an error where a list should be. */
+  private async loadPlusConnectors(): Promise<void> {
+    if (this.plusConnectors().length) return;
+    try {
+      const info = await this.api.customize();
+      this.plusConnectors.set([...info.connectors, ...info.mcp_servers]);
+    } catch {
+      /* leave it empty; the submenu says so */
+    }
+  }
+
+  plusAddFiles(): void {
+    this.plusMenuOpen.set(false);
+    this.openAttachPicker();
+  }
+
+  /** Straight to the host's folder chooser, the way "Add folder" behaves in
+   *  the app this is modelled on — no modal in between.
+   *
+   *  The two failure modes are different and must not be conflated. A
+   *  cancelled chooser comes back 200 with an empty path, and cancelling
+   *  should do nothing at all; a host with no chooser at all comes back 422,
+   *  and there the workspace panel is the real fallback, since it accepts a
+   *  typed path. */
+  async plusAddFolder(): Promise<void> {
+    this.plusMenuOpen.set(false);
+    let path: string;
+    try {
+      path = (await this.api.pickFolder()).path || '';
+    } catch {
+      this.workspacePanelOpen.set(true);
+      return;
+    }
+    if (!path) return;
+    this.newFolderPath.set(path);
+    await this.addFolderPath();
+  }
+
+  plusOpenConnectors(): void {
+    this.plusMenuOpen.set(false);
+    this.plusConnectorsOpen.set(false);
+    void this.openCustomizeAt('connectors');
   }
 
   readonly newFolderPath = signal('');
@@ -3237,6 +3313,24 @@ export class App {
     if ((ev.metaKey || ev.ctrlKey) && (ev.key === 'k' || ev.key === 'K')) {
       ev.preventDefault();
       this.searchOpen() ? this.closeSearch() : this.openSearch();
+      return;
+    }
+    // ⌘U attaches, because the + menu says it does. Only on Code: the shortcut
+    // is advertised by that composer, and Home has its own picker.
+    if (
+      (ev.metaKey || ev.ctrlKey) &&
+      (ev.key === 'u' || ev.key === 'U') &&
+      this.section() === 'code'
+    ) {
+      ev.preventDefault();
+      this.plusMenuOpen.set(false);
+      this.openAttachPicker();
+      return;
+    }
+    if (ev.key === 'Escape' && this.plusMenuOpen()) {
+      ev.preventDefault();
+      this.plusMenuOpen.set(false);
+      this.plusConnectorsOpen.set(false);
       return;
     }
     const p = this.pendingPerm();

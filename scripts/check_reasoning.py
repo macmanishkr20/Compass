@@ -1289,6 +1289,69 @@ def check_narration_carries_no_chrome() -> None:
        "while a running group still shows that it is running")
 
 
+def check_plus_menu() -> None:
+    """The composer's + opens a menu, and every entry in it does something.
+
+    It used to open the workspace panel outright, which made adding a folder
+    the only thing the button could do and hid the other two. Now it is a
+    menu: attach, add a folder, connectors.
+
+    Three entries, not five. The app this is modelled on also offers slash
+    commands and plugins; Compass has neither — nothing reads "/" in the
+    composer and there is no plugin loader — and listing them would be a menu
+    advertising features that do not exist. The shortcut is held to the same
+    standard: the row says ⌘U, so ⌘U is bound, and bound only on Code, which
+    is the composer that shows it.
+
+    Measured in the page: three rows reading "Add files or photos ⌘U", "Add
+    folder" and "Connectors ›"; the submenu opens to the right with seven real
+    connectors and their live state, fully inside the viewport; Escape and an
+    outside click both dismiss; ⌘U fires the picker on Code and does nothing
+    on Home.
+    """
+    print("\nthe composer's + is a menu, and none of it is decoration")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    plus = section(html, '<span class="tb-plus-wrap">', "</span>\n        </span>")
+    ok("togglePlusMenu()" in plus and "toggleWorkspacePanel()" not in plus,
+       "the + opens the menu rather than jumping into the workspace panel")
+    for label in ("Add files or photos", "Add folder", "Connectors"):
+        ok(f"<span>{label}</span>" in plus, f"it offers {label!r}")
+    for absent in ("Slash commands", "Plugins"):
+        ok(absent not in plus,
+           f"and does not offer {absent!r}, which Compass does not have")
+
+    ok("{{ shortcutKey }}U" in plus,
+       "the shortcut is rendered from the platform, not hard-coded to ⌘")
+    ok("navigator.platform" in ts and "'Ctrl+'" in ts,
+       "so a non-Mac is told the key that actually works there")
+    key = section(ts, "(ev.key === 'u' || ev.key === 'U')", "return;")
+    ok("this.section() === 'code'" in key,
+       "⌘U is bound only on Code, the composer that advertises it")
+    ok("openAttachPicker()" in key, "and it does what the row says it does")
+
+    # The two ways picking a folder can fail are not the same failure.
+    folder = section(ts, "async plusAddFolder()", "\n  }")
+    ok("workspacePanelOpen.set(true)" in folder,
+       "no native chooser (422) falls back to the panel, which takes a path")
+    ok("if (!path) return;" in folder,
+       "but a cancelled chooser (200, empty path) does nothing at all")
+
+    ok("this.plusMenuOpen.set(false)"
+       in section(ts, "closeAllMenus(): void {", "\n  }"),
+       "an outside click closes it with every other menu")
+    ok("this.plusConnectorsOpen.set(false)"
+       in section(ts, "if (ev.key === 'Escape' && this.plusMenuOpen()) {", "}"),
+       "and so does Escape, submenu included")
+
+    sub = section(css, ".plus-sub {", "\n}")
+    ok("bottom: -5px" in sub and "top: auto" in sub,
+       "the submenu grows upward — this composer sits at the foot of the "
+       "window, and eight connectors hung downward fall off the screen")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1544,6 +1607,7 @@ def main() -> int:
     check_thinking_interleaves_with_work()
     check_reasoning_is_visible_by_default()
     check_narration_carries_no_chrome()
+    check_plus_menu()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()
