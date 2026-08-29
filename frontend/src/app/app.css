@@ -3243,7 +3243,6 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   border-radius: var(--radius);
   background: var(--surface);
 }
-.ask-card.settled { opacity: 0.75; }
 .ask-top { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
 .ask-chip {
   align-self: flex-start;
@@ -3269,8 +3268,6 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .ask-option:hover:not(:disabled) { border-color: var(--border-strong); }
 .ask-option.on { border-color: var(--accent); background: var(--accent-tint); }
-.ask-option.chosen { border-color: var(--accent); background: var(--accent-tint); }
-.ask-option:disabled { cursor: default; }
 .ask-option.other { cursor: default; }
 .ask-option-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .ask-label { font-size: 0.86rem; font-weight: 600; }
@@ -3310,9 +3307,30 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .ask-btn:disabled { opacity: 0.45; cursor: default; }
 .ask-btn:hover:not(:disabled) { filter: brightness(1.08); }
 
-.ask-verdict {
-  margin-top: 12px; padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 0.82rem; color: var(--accent-strong);
+
+/* An answered question, as the transcript keeps it. The options existed to
+   make the choice; once it is made they are noise, and what the conversation
+   needs to carry is what was asked and what was decided. The question sits
+   back in muted weight because it is context now, and the answer reads first
+   because it is the thing that matters later. */
+.ask-settled {
+  margin: 2px 0;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
-.ask-verdict.skipped { color: var(--faint); }
+.ask-settled-q {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+.ask-settled-a {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.ask-settled-a.skipped { color: var(--faint); font-weight: 400; }

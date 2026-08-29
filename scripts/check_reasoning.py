@@ -1019,6 +1019,36 @@ def check_asking_the_person() -> None:
        "answering a question nobody asked is refused, not silently accepted")
 
 
+def check_answered_question_collapses() -> None:
+    """Once answered, a question keeps only what was asked and what was chosen.
+
+    The options existed so the choice could be made. After it is made they are
+    noise in the transcript, and worse, they are noise that looks interactive.
+    Measured in the page after answering: zero options and zero buttons left,
+    the live card gone, the question in muted weight and the answer above it
+    in the reading order that matters later.
+    """
+    print("\nan answered question keeps the answer, not the options")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok("@if (q.answered) {" in html,
+       "an answered question renders a different thing entirely")
+    settled = html.split("@if (q.answered) {")[1][:900]
+    ok("ask-settled-q" in settled and "ask-settled-a" in settled,
+       "the question and the answer")
+    ok("ask-option" not in settled, "and not the options")
+    ok("ask-btn" not in settled, "nor anything still clickable")
+    ok("Skipped" in settled,
+       "a skipped question still says so rather than showing an empty answer")
+
+    ok(".ask-settled-q" in css and "var(--muted)" in
+       css.split(".ask-settled-q")[1][:200],
+       "the question sits back, being context now")
+    ok("font-weight: 600" in css.split(".ask-settled-a")[1][:220],
+       "and the answer reads first")
+
+
 def check_interrupted_calls_do_not_brick_a_session() -> None:
     """An unanswered tool call must not kill the conversation.
 
@@ -1314,6 +1344,7 @@ def main() -> int:
     check_finished_background_tasks_are_findable()
     check_thinking_interleaves_with_work()
     check_asking_the_person()
+    check_answered_question_collapses()
     check_interrupted_calls_do_not_brick_a_session()
     check_thinking_rule_colour()
     check_skills()

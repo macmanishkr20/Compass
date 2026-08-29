@@ -970,7 +970,23 @@
 
           @case ('question') {
             @let q = asQuestion(item);
-            <article class="card ask-card" [class.settled]="q.answered">
+            @if (q.answered) {
+              <!-- Once it is answered the options were scaffolding: what the
+                   transcript needs to carry is what was asked and what was
+                   decided. Everything else was for making the choice, and the
+                   choice is made. -->
+              <div class="ask-settled">
+                <p class="ask-settled-q">{{ q.question }}</p>
+                <p class="ask-settled-a" [class.skipped]="q.answered.skipped">
+                  @if (q.answered.skipped) {
+                    Skipped — Compass carried on with its own judgement
+                  } @else {
+                    {{ q.answered.chosen.length ? q.answered.chosen.join(', ') : q.answered.other }}
+                  }
+                </p>
+              </div>
+            } @else {
+            <article class="card ask-card">
               <header class="ask-top">
                 @if (q.header) { <span class="ask-chip">{{ q.header }}</span> }
                 <p class="ask-q">{{ q.question }}</p>
@@ -979,8 +995,6 @@
                 @for (o of q.options; track o.label; let i = $index) {
                   <button class="ask-option" type="button"
                     [class.on]="q.picked.includes(o.label)"
-                    [class.chosen]="q.answered?.chosen?.includes(o.label)"
-                    [disabled]="!!q.answered"
                     (click)="pickOption(q, o.label)">
                     <span class="ask-option-body">
                       <span class="ask-label">{{ o.label }}</span>
@@ -997,34 +1011,24 @@
                     <span class="ask-label">Other</span>
                     <input class="ask-other" type="text"
                       placeholder="Type your own answer here"
-                      [value]="q.answered ? (q.answered.other || '') : q.other"
-                      [disabled]="!!q.answered"
+                      [value]="q.other"
                       (input)="setOther(q, $any($event.target).value)" />
                   </span>
                   <span class="ask-num">{{ q.options.length + 1 }}</span>
                 </div>
               </div>
-              @if (!q.answered) {
-                <div class="ask-actions">
-                  @if (q.multiSelect) {
-                    <span class="ask-hint">Choose as many as apply</span>
-                  }
-                  <button class="ask-btn skip" type="button"
-                    (click)="answerQuestion(q, true)">Skip</button>
-                  <button class="ask-btn submit" type="button"
-                    [disabled]="!canSubmitQuestion(q)"
-                    (click)="answerQuestion(q)">Submit</button>
-                </div>
-              } @else {
-                <div class="ask-verdict" [class.skipped]="q.answered.skipped">
-                  @if (q.answered.skipped) {
-                    Skipped — Compass carried on with its own judgement
-                  } @else {
-                    ✓ {{ q.answered.chosen.length ? q.answered.chosen.join(', ') : q.answered.other }}
-                  }
-                </div>
-              }
+              <div class="ask-actions">
+                @if (q.multiSelect) {
+                  <span class="ask-hint">Choose as many as apply</span>
+                }
+                <button class="ask-btn skip" type="button"
+                  (click)="answerQuestion(q, true)">Skip</button>
+                <button class="ask-btn submit" type="button"
+                  [disabled]="!canSubmitQuestion(q)"
+                  (click)="answerQuestion(q)">Submit</button>
+              </div>
             </article>
+            }
           }
 
           @case ('permission') {
