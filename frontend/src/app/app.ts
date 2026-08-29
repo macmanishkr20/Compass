@@ -57,6 +57,7 @@ import {
   ToolCardVM,
   UsageVM,
   Workspace,
+  QuestionVM,
 } from './models';
 
 const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
@@ -672,6 +673,55 @@ export class App {
    *
    *  Reads a partial draft as happily as a finished call, because the point
    *  is to say something useful while the call is still arriving. */
+  asQuestion = (i: TimelineItem) => i as QuestionVM;
+
+  /** Tick or untick an option. Single-choice replaces; multi toggles. */
+  pickOption(q: QuestionVM, label: string): void {
+    if (q.answered) return;
+    this.patch(q.id, (it) => {
+      const cur = (it as QuestionVM).picked;
+      const picked = q.multiSelect
+        ? cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]
+        : [label];
+      return { ...(it as QuestionVM), picked };
+    });
+  }
+
+  setOther(q: QuestionVM, text: string): void {
+    if (q.answered) return;
+    this.patch(q.id, (it) => ({ ...(it as QuestionVM), other: text }));
+  }
+
+  /** Whether there is anything to send. Writing an answer counts. */
+  canSubmitQuestion(q: QuestionVM): boolean {
+    return !q.answered && (q.picked.length > 0 || q.other.trim().length > 0);
+  }
+
+  /** Send the answer, or decline it.
+   *
+   *  Skipping is a real choice and is sent as one: the model is told nobody
+   *  answered and to proceed on its own judgement, which is better than a
+   *  turn that waits out the timeout in silence. */
+  async answerQuestion(q: QuestionVM, skip = false): Promise<void> {
+    if (q.answered) return;
+    const sid = this.sessionId();
+    const chosen = skip ? [] : q.picked;
+    const other = skip ? '' : q.other.trim();
+    // Settle the card first: the answer travels on a different request from
+    // the turn that is waiting for it, and a card that stays live while that
+    // happens invites a second click.
+    this.patch(q.id, (it) => ({
+      ...(it as QuestionVM),
+      answered: { chosen, other, skipped: skip },
+    }));
+    if (!sid) return;
+    try {
+      await this.api.answerQuestion(sid, q.id, { chosen, other, skipped: skip });
+    } catch {
+      /* the turn times out on its own and is told nobody answered */
+    }
+  }
+
   toolSummary(t: ToolCardVM): string {
     const raw = t.args || t.argsDraft || '';
     // Deliberately a regex and not JSON.parse: mid-stream the string is not
@@ -3291,6 +3341,35 @@ export class App {
           agentId,
           isMcp: false,
         });
+        break;
+      }
+      case 'question_asked': {
+        this.thinking.set(false);
+        this.push({
+          kind: 'question',
+          id: (ev['request_id'] as string) ?? crypto.randomUUID(),
+          question: (ev['question'] as string) ?? '',
+          header: (ev['header'] as string) ?? '',
+          options: (ev['options'] as Array<{ label: string; description: string }>) ?? [],
+          multiSelect: !!ev['multi_select'],
+          agentId,
+          picked: [],
+          other: '',
+        });
+        break;
+      }
+      case 'question_answered': {
+        // Settles a card this client did not answer — a second window, or a
+        // reload mid-question. Harmless when it was this one: same values.
+        const id = (ev['request_id'] as string) ?? '';
+        this.patch(id, (it) => ({
+          ...(it as QuestionVM),
+          answered: {
+            chosen: (ev['chosen'] as string[]) ?? [],
+            other: (ev['other'] as string) ?? '',
+            skipped: !!ev['skipped'],
+          },
+        }));
         break;
       }
       case 'tool_arguments': {

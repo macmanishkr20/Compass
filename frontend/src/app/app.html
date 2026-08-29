@@ -968,6 +968,65 @@
             }
           }
 
+          @case ('question') {
+            @let q = asQuestion(item);
+            <article class="card ask-card" [class.settled]="q.answered">
+              <header class="ask-top">
+                @if (q.header) { <span class="ask-chip">{{ q.header }}</span> }
+                <p class="ask-q">{{ q.question }}</p>
+              </header>
+              <div class="ask-options">
+                @for (o of q.options; track o.label; let i = $index) {
+                  <button class="ask-option" type="button"
+                    [class.on]="q.picked.includes(o.label)"
+                    [class.chosen]="q.answered?.chosen?.includes(o.label)"
+                    [disabled]="!!q.answered"
+                    (click)="pickOption(q, o.label)">
+                    <span class="ask-option-body">
+                      <span class="ask-label">{{ o.label }}</span>
+                      <span class="ask-desc">{{ o.description }}</span>
+                    </span>
+                    <span class="ask-num">{{ i + 1 }}</span>
+                  </button>
+                }
+                <!-- Always offered, never one of the model's options: the
+                     point of asking is that the person may know something the
+                     options do not cover. -->
+                <div class="ask-option other" [class.on]="q.other.trim().length > 0">
+                  <span class="ask-option-body">
+                    <span class="ask-label">Other</span>
+                    <input class="ask-other" type="text"
+                      placeholder="Type your own answer here"
+                      [value]="q.answered ? (q.answered.other || '') : q.other"
+                      [disabled]="!!q.answered"
+                      (input)="setOther(q, $any($event.target).value)" />
+                  </span>
+                  <span class="ask-num">{{ q.options.length + 1 }}</span>
+                </div>
+              </div>
+              @if (!q.answered) {
+                <div class="ask-actions">
+                  @if (q.multiSelect) {
+                    <span class="ask-hint">Choose as many as apply</span>
+                  }
+                  <button class="ask-btn skip" type="button"
+                    (click)="answerQuestion(q, true)">Skip</button>
+                  <button class="ask-btn submit" type="button"
+                    [disabled]="!canSubmitQuestion(q)"
+                    (click)="answerQuestion(q)">Submit</button>
+                </div>
+              } @else {
+                <div class="ask-verdict" [class.skipped]="q.answered.skipped">
+                  @if (q.answered.skipped) {
+                    Skipped — Compass carried on with its own judgement
+                  } @else {
+                    ✓ {{ q.answered.chosen.length ? q.answered.chosen.join(', ') : q.answered.other }}
+                  }
+                </div>
+              }
+            </article>
+          }
+
           @case ('permission') {
             @let p = asPerm(item);
             <article class="card perm-card" [class.resolved]="p.resolved">

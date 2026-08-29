@@ -144,6 +144,23 @@ export interface PermissionVM {
   resolved?: PermissionBehavior;
 }
 
+/** A question the model put to the person, and how it was settled. */
+export interface QuestionVM {
+  kind: 'question';
+  id: string; // request_id
+  question: string;
+  header: string;
+  options: Array<{ label: string; description: string }>;
+  multiSelect: boolean;
+  agentId?: string | null;
+  /** Labels currently ticked. One at a time unless multiSelect. */
+  picked: string[];
+  /** What they are writing instead of picking. */
+  other: string;
+  /** Set once answered, so the card settles instead of staying live. */
+  answered?: { chosen: string[]; other: string; skipped: boolean };
+}
+
 export interface NoticeVM {
   kind: 'notice';
   id: string;
@@ -219,7 +236,8 @@ export type TimelineItem =
   | ToolCardVM
   | PermissionVM
   | NoticeVM
-  | PreviewCardVM;
+  | PreviewCardVM
+  | QuestionVM;
 
 export interface UsageVM {
   promptTokens: number;

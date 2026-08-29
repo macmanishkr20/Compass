@@ -53,6 +53,39 @@ class ThinkingDelta(Event):
 
 
 @dataclass
+class QuestionAsked(Event):
+    """The model has asked the person something and the turn is waiting.
+
+    The sibling of PermissionRequest: same seam, different act. That one asks
+    may I, this one asks which — and a surface should be free to render them
+    differently, because being asked to approve something and being asked to
+    decide something are not the same experience.
+    """
+
+    request_id: str = ""
+    question: str = ""
+    #: A short label for what is being decided, shown as a chip.
+    header: str = ""
+    #: Two to four {label, description} choices. "Other" is always available
+    #: and is never in this list.
+    options: list[dict[str, str]] = field(default_factory=list)
+    multi_select: bool = False
+
+
+@dataclass
+class QuestionAnswered(Event):
+    """How it was resolved, so the surface can settle the card."""
+
+    request_id: str = ""
+    #: Labels picked. Empty when skipped, unattended, or answered only in prose.
+    chosen: list[str] = field(default_factory=list)
+    #: What they wrote instead, if anything.
+    other: str = ""
+    #: True when nobody answered — skipped, timed out, or nothing watching.
+    skipped: bool = False
+
+
+@dataclass
 class ToolArguments(Event):
     """A tool call's arguments arriving, before the call is complete.
 
@@ -198,6 +231,8 @@ _TYPE_NAMES = {
     ThinkingComplete: "thinking_complete",
     ServerToolUsed: "server_tool_used",
     ToolArguments: "tool_arguments",
+    QuestionAsked: "question_asked",
+    QuestionAnswered: "question_answered",
     AssistantMessage: "assistant_message",
     ToolCallStarted: "tool_call_started",
     ToolProgress: "tool_progress",

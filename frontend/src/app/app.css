@@ -3232,3 +3232,87 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   word-break: break-word;
 }
 .toolrow-out { background: transparent; }
+
+/* A question the model put to the person. Deliberately not the permission
+   card: being asked to approve something and being asked to decide something
+   are different experiences, and the permission card's Deny/Allow vocabulary
+   would be wrong for a choice between designs. */
+.ask-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.ask-card.settled { opacity: 0.75; }
+.ask-top { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+.ask-chip {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.ask-q { margin: 0; font-size: 0.94rem; font-weight: 600; line-height: 1.4; color: var(--ink); }
+
+.ask-options { display: flex; flex-direction: column; gap: 6px; }
+.ask-option {
+  display: flex; align-items: flex-start; gap: 10px;
+  width: 100%; padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  cursor: pointer; text-align: left;
+  font: inherit; color: var(--ink);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.ask-option:hover:not(:disabled) { border-color: var(--border-strong); }
+.ask-option.on { border-color: var(--accent); background: var(--accent-tint); }
+.ask-option.chosen { border-color: var(--accent); background: var(--accent-tint); }
+.ask-option:disabled { cursor: default; }
+.ask-option.other { cursor: default; }
+.ask-option-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ask-label { font-size: 0.86rem; font-weight: 600; }
+.ask-desc { font-size: 0.79rem; line-height: 1.45; color: var(--muted); }
+/* The number is the keyboard shortcut's promise; it sits where the eye
+   already goes to count the options. */
+.ask-num {
+  flex: none;
+  min-width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface);
+  font-size: 0.7rem; color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.ask-other {
+  width: 100%; padding: 5px 8px;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface);
+  font: inherit; font-size: 0.82rem; color: var(--ink);
+}
+.ask-other:focus { outline: none; border-color: var(--accent); }
+
+.ask-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.ask-hint { flex: 1 1 auto; font-size: 0.76rem; color: var(--faint); }
+.ask-actions .ask-btn:first-of-type { margin-left: auto; }
+.ask-actions .ask-hint + .ask-btn { margin-left: 0; }
+.ask-btn {
+  padding: 6px 14px;
+  border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 0.82rem; cursor: pointer;
+}
+.ask-btn.submit {
+  background: var(--ink); color: var(--surface); border-color: var(--ink);
+}
+.ask-btn:disabled { opacity: 0.45; cursor: default; }
+.ask-btn:hover:not(:disabled) { filter: brightness(1.08); }
+
+.ask-verdict {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem; color: var(--accent-strong);
+}
+.ask-verdict.skipped { color: var(--faint); }

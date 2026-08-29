@@ -964,6 +964,102 @@ def check_thinking_interleaves_with_work() -> None:
        "a file write stays its own row rather than folding in, as it should")
 
 
+def check_asking_the_person() -> None:
+    """The model can put a decision to the person and wait for the answer.
+
+    Same seam as the permission gate — the loop stops on a future, a surface
+    renders it, an endpoint resolves it — but a different act, so it is a
+    different broker and a different card. Verified end to end in the browser:
+    the card showed a header chip, three numbered options and Other, Submit
+    was disabled until something was picked, choosing settled the card and the
+    turn resumed with "You picked CSS Modules."
+    """
+    print("\nthe model can ask, and wait for an answer")
+    from compass.common.tools.ask import (
+        MAX_OPTIONS, MIN_OPTIONS, AskUserTool, format_answer)
+    from compass.common.tools.base import QuestionBroker, Tool
+
+    tool = AskUserTool()
+    ok(tool.is_read_only(None), "asking changes nothing")  # type: ignore[arg-type]
+    ok(not tool.is_concurrency_safe(None),  # type: ignore[arg-type]
+       "and never runs beside another, or two questions race for one screen")
+    ok((MIN_OPTIONS, MAX_OPTIONS) == (2, 4),
+       "fewer than two is not a choice, more than four is a form")
+
+    payload = tool.wants_answer(tool.validate_input({
+        "question": "Which database?",
+        "header": "Database",
+        "options": [{"label": "Postgres", "description": "the usual"},
+                    {"label": "SQLite", "description": "no setup"}],
+    }))
+    ok(payload is not None, "a well-formed call produces a question")
+    ok(payload["header"] == "Database" and len(payload["options"]) == 2,
+       "carrying its header and options")
+    ok(Tool.wants_answer(tool, None) is None,  # type: ignore[arg-type]
+       "while the base hook answers None, so no other tool is affected")
+
+    # What the model is told back. The failure to avoid is a turn that treats
+    # silence as agreement, or one that stalls waiting for an answer that is
+    # never coming.
+    ok("Nobody answered" in format_answer(payload, None),
+       "a skipped question says nobody answered")
+    skipped = format_answer(payload, None)
+    ok("Do not ask it again" in skipped,
+       "and says not to ask again, so a declined question is not a loop")
+    ok("continue" in skipped,
+       "and to carry on, so the turn does not stall on an answer that is "
+       "never coming")
+    chose = format_answer(payload, {"chosen": ["Postgres"], "other": ""})
+    ok("They chose: Postgres." in chose, "a choice is reported plainly")
+    wrote = format_answer(payload, {"chosen": [], "other": "MariaDB"})
+    ok("They wrote: MariaDB" in wrote, "and so is an answer written instead")
+
+    broker = QuestionBroker()
+    ok(broker.answer("nope", {"chosen": []}) is False,
+       "answering a question nobody asked is refused, not silently accepted")
+
+
+def check_interrupted_calls_do_not_brick_a_session() -> None:
+    """An unanswered tool call must not kill the conversation.
+
+    Azure refuses a request whose history holds a function call with no
+    output — "No tool output found for function call call_…" — and since the
+    pair stays in the history, every later turn is refused too. Seen for real:
+    a turn killed while `ask_user` was waiting for a person left the session
+    unusable, every subsequent message failing with a 400.
+    """
+    print("\nan interrupted call does not brick the session")
+    from compass.common.agent.query_loop import with_missing_tool_results
+
+    healthy = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "a", "type": "function",
+             "function": {"name": "bash", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "a", "content": "done"},
+    ]
+    ok(with_missing_tool_results(healthy) == healthy,
+       "a conversation with nothing dangling is passed through untouched")
+
+    broken = healthy + [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "orphan", "type": "function",
+             "function": {"name": "ask_user", "arguments": "{}"}}]},
+        {"role": "user", "content": "next"},
+    ]
+    fixed = with_missing_tool_results(broken)
+    answered = {m["tool_call_id"] for m in fixed if m["role"] == "tool"}
+    ok(answered == {"a", "orphan"}, "every call has a result afterwards")
+    ok(len(fixed) == len(broken) + 1, "with exactly one added, not a sweep")
+    filler = next(m for m in fixed if m.get("tool_call_id") == "orphan")
+    ok("interrupted" in filler["content"],
+       "and the result says it was interrupted")
+    ok("Do not assume it succeeded" in filler["content"],
+       "rather than letting the model build on work that never happened")
+    ok(fixed.index(filler) == fixed.index(broken[-1]) - 1,
+       "placed directly after the call it answers, before what came next")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1217,6 +1313,8 @@ def main() -> int:
     check_shell_class_does_not_collide()
     check_finished_background_tasks_are_findable()
     check_thinking_interleaves_with_work()
+    check_asking_the_person()
+    check_interrupted_calls_do_not_brick_a_session()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()

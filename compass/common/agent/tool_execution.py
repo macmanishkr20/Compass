@@ -156,6 +156,54 @@ async def run_tool_use(
             yield item
         return
 
+    # Gate 6b: put a question to the person, when the tool is one that asks.
+    # Nothing runs: the answer *is* the result. Placed after validation so the
+    # question is known to be well-formed, and before the permission gate
+    # because asking needs no permission — it is the asking.
+    if (payload := tool.wants_answer(parsed)) is not None:
+        from compass.common.tools.ask import (
+            MAX_OPTIONS, MIN_OPTIONS, format_answer)
+
+        options = payload.get("options") or []
+        if not (MIN_OPTIONS <= len(options) <= MAX_OPTIONS):
+            # Back to the model as an ordinary error it can correct, rather
+            # than a question nobody can usefully answer.
+            async for item in finish(
+                f"a question needs between {MIN_OPTIONS} and {MAX_OPTIONS} "
+                f"options; {len(options)} were given. Work out the choices "
+                "first, then ask.",
+                is_error=True,
+            ):
+                yield item
+            return
+
+        request_id = str(uuid.uuid4())
+        if ctx.questions.policy == "interactive":
+            ctx.questions.create(request_id)
+        yield events.QuestionAsked(
+            request_id=request_id,
+            question=payload.get("question", ""),
+            header=payload.get("header", ""),
+            options=options,
+            multi_select=bool(payload.get("multi_select")),
+            agent_id=ctx.agent_id,
+        )
+        reply = await ctx.questions.wait(
+            request_id, timeout=get_settings().loop.permission_timeout_seconds
+        )
+        yield events.QuestionAnswered(
+            request_id=request_id,
+            chosen=[str(c) for c in ((reply or {}).get("chosen") or [])],
+            other=str((reply or {}).get("other") or ""),
+            skipped=reply is None,
+            agent_id=ctx.agent_id,
+        )
+        log_event("question_asked", tool_name=tool.name,
+                  answered=reply is not None)
+        async for item in finish(format_answer(payload, reply)):
+            yield item
+        return
+
     # Gate 7: ask the human (canUseTool seam)
     if verdict.behavior is Behavior.ASK:
         request_id = str(uuid.uuid4())

@@ -69,6 +69,46 @@ MAX_OUTPUT_RECOVERY_PROMPT = (
 OnMessage = Callable[[Message], None]
 
 
+def with_missing_tool_results(messages: list[dict]) -> list[dict]:
+    """Give every unanswered tool call a result, so the request is sendable.
+
+    A call with no matching result is refused outright — "No tool output found
+    for function call call_…" — and because the offending pair stays in the
+    history, every later turn in that session is refused too. One interrupted
+    call kills the conversation permanently.
+
+    Calls are left unanswered whenever a turn stops between making one and
+    recording its result: the client disconnects, the process is killed, or a
+    tool that was waiting for a person is abandoned. Repairing on the way out
+    rather than at teardown is deliberate — teardown is exactly the moment
+    that does not reliably get to run — and it also heals sessions that were
+    already broken before this existed.
+
+    The synthetic result says the call was interrupted rather than pretending
+    it succeeded. A model told a command ran when it did not will build on
+    something that never happened.
+    """
+    answered = {
+        m.get("tool_call_id") for m in messages if m.get("role") == "tool"
+    }
+    out: list[dict] = []
+    for entry in messages:
+        out.append(entry)
+        if entry.get("role") != "assistant":
+            continue
+        for call in entry.get("tool_calls") or []:
+            if call.get("id") in answered:
+                continue
+            out.append({
+                "role": "tool",
+                "tool_call_id": call.get("id"),
+                "content": "This call was interrupted before it finished and "
+                           "has no result. Do not assume it succeeded; run it "
+                           "again if the work still needs doing.",
+            })
+    return out
+
+
 async def query(
     messages: list[Message],
     ctx: ToolUseContext,
@@ -151,6 +191,8 @@ async def query(
             if message.role == "assistant" and message.meta.get(REASONING_META_KEY):
                 reasoning_by_index[len(api_messages)] = message.meta[REASONING_META_KEY]
             api_messages.append(message.to_openai())
+
+        api_messages = with_missing_tool_results(api_messages)
 
         # How much room is left, said out loud once it is worth saying. Sent
         # rather than stored: it describes this request, and a transcript full

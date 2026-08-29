@@ -137,6 +137,7 @@
   "POST /v1/sessions/{session_id}/messages",
   "POST /v1/sessions/{session_id}/messages/{message_uuid}/edit",
   "POST /v1/sessions/{session_id}/permissions/{request_id}",
+  "POST /v1/sessions/{session_id}/questions/{request_id}",
   "POST /v1/sessions/{session_id}/regenerate",
   "POST /v1/sessions/{session_id}/suggest",
   "POST /v1/speech",
@@ -147,7 +148,7 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "8be52c6cbcf29dd8",
+ "schema": "e9156f6c20b66f7b",
  "smoke": {
   "/": "200",
   "/docs": "200",

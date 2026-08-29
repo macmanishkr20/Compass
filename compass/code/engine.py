@@ -26,7 +26,7 @@ from compass.common.persistence.factory import get_transcript_store
 from compass.common.persistence.session_meta import SessionMeta, get_meta_store
 from compass.common.policy.hooks import HookEvent, get_hook_registry
 from compass.common.attachments import build_user_message
-from compass.common.tools.base import PermissionBroker, ToolUseContext
+from compass.common.tools.base import PermissionBroker, ToolUseContext, QuestionBroker
 from compass.code.tools.registry import get_all_tools
 from compass.common.tools.shelf import Shelf
 from compass.common.tools.shell_session import ShellState
@@ -37,6 +37,10 @@ class Session:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     messages: list[Message] = field(default_factory=list)
     broker: PermissionBroker = field(default_factory=PermissionBroker)
+    # Questions the model puts to the person. Owned by the session for the
+    # same reason the permission broker is: the answer arrives on a different
+    # request from the one that is waiting for it.
+    questions: QuestionBroker = field(default_factory=QuestionBroker)
     cost_tracker: CostTracker = field(default_factory=CostTracker)
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     permission_mode: str | None = None
@@ -70,6 +74,7 @@ class Session:
             tools=catalogue,
             shelf=self.shelf,
             broker=self.broker,
+            questions=self.questions,
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,
             permission_mode=self.permission_mode,

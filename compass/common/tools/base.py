@@ -109,6 +109,52 @@ class PermissionBroker:
             self._pending.pop(request_id, None)
 
 
+class QuestionBroker:
+    """Bridges a question the model wants answered to whoever is watching.
+
+    The same seam as PermissionBroker and for the same reason: the loop stops
+    on a future, a surface shows the question, and an endpoint resolves it.
+    Kept apart from permissions because they are different acts — one asks may
+    I, the other asks which — and a surface may well want to render them
+    differently, as claude.ai does.
+
+    `policy` is what to do when nobody is watching. A headless run cannot
+    answer, and the honest response there is to say so rather than to invent a
+    preference: `unattended` returns nothing and the model is told the question
+    went unanswered, so it proceeds on its own judgement instead of stalling.
+    """
+
+    def __init__(self, *, policy: str = "interactive") -> None:
+        self.policy = policy
+        self._pending: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
+
+    def create(self, request_id: str) -> None:
+        self._pending[request_id] = asyncio.get_running_loop().create_future()
+
+    def answer(self, request_id: str, reply: dict[str, Any] | None) -> bool:
+        """Resolve a pending question. `None` is a deliberate skip."""
+        future = self._pending.get(request_id)
+        if future is None or future.done():
+            return False
+        future.set_result(reply)
+        return True
+
+    async def wait(
+        self, request_id: str, timeout: float
+    ) -> dict[str, Any] | None:
+        """The chosen answer, or None for skipped, unattended or timed out."""
+        if self.policy != "interactive":
+            self._pending.pop(request_id, None)
+            return None
+        future = self._pending[request_id]
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._pending.pop(request_id, None)
+
+
 @dataclass
 class ToolUseContext:
     """Carried through the whole generator chain — port of ToolUseContext."""
@@ -139,6 +185,9 @@ class ToolUseContext:
     # owned by the Session so a tool found on one turn is still there on the
     # next. See compass.common.tools.shelf.
     shelf: Any = None
+    # Where a question to the person goes. Defaulted rather than required so
+    # every existing caller that builds a context keeps working untouched.
+    questions: QuestionBroker = field(default_factory=QuestionBroker)
     # persistent shell working directory (Shell.ts cwd-tracking analog); a `cd`
     # in one bash call is visible to the next. Owned by the Session so it
     # survives across turns.
@@ -194,6 +243,16 @@ class Tool(ABC):
             return self.is_read_only(inp)
         except Exception:  # noqa: BLE001 — conservative on predicate failure
             return False
+
+    def wants_answer(self, inp: BaseModel) -> dict[str, Any] | None:
+        """A question to put to the person, or None to just run.
+
+        Returning a payload makes the executor stop, show the question and
+        wait, exactly as it does for a permission — the tool itself never
+        runs. A hook rather than a name check in the executor, so asking is
+        something any tool could do rather than a special case for one.
+        """
+        return None
 
     def check_tool_permissions(
         self, inp: BaseModel, ctx: ToolUseContext

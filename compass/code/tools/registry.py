@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from compass.code.tools.agent import AgentTool
 from compass.common.tools.advisor import ConsultTool
+from compass.common.tools.ask import AskUserTool
 from compass.common.tools.web_fetch import WebFetchTool
 from compass.common.tools.base import Tool
 from compass.code.tools.bash import BashOutputTool, BashTool
@@ -31,6 +32,7 @@ def get_all_tools() -> list[Tool]:
         AgentTool(),
         ConsultTool(),
         WebFetchTool(),
+        AskUserTool(),
     ]
 
 

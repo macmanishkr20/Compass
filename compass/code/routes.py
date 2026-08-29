@@ -90,6 +90,22 @@ class ResolvePermissionRequest(BaseModel):
     behavior: str = Field(description="allow | deny")
 
 
+class AnswerQuestionRequest(BaseModel):
+    chosen: list[str] = Field(
+        default_factory=list,
+        description="Labels of the options picked. Empty when only writing an "
+                    "answer, or when skipping.",
+    )
+    other: str = Field(
+        default="", description="An answer written instead of picking one."
+    )
+    skipped: bool = Field(
+        default=False,
+        description="True to decline the question. The model is told nobody "
+                    "answered and to proceed on its own judgement.",
+    )
+
+
 class UpdateSessionRequest(BaseModel):
     title: str | None = None
     pinned: bool | None = None
@@ -305,6 +321,25 @@ async def delete_session(
     await engine.delete_session(session_id)
     sessions.pop(session_id, None)
     return {"deleted": session_id}
+
+
+@router.post("/v1/sessions/{session_id}/questions/{request_id}")
+async def answer_question(
+    session_id: str,
+    request_id: str,
+    body: AnswerQuestionRequest,
+    user: str = Depends(require_user),
+) -> dict:
+    """Answer a question the model asked. The waiting turn resumes."""
+    session = _get_session(session_id)
+    reply = (
+        None
+        if body.skipped or not (body.chosen or body.other.strip())
+        else {"chosen": body.chosen, "other": body.other}
+    )
+    if not session.questions.answer(request_id, reply):
+        raise HTTPException(status_code=404, detail="no pending question with that id")
+    return {"request_id": request_id, "answered": reply is not None}
 
 
 @router.post("/v1/sessions/{session_id}/permissions/{request_id}")

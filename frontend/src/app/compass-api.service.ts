@@ -759,6 +759,18 @@ export class CompassApiService {
     );
   }
 
+  /** Answer a question the model asked. The waiting turn resumes on the
+   *  server; nothing comes back but an acknowledgement. */
+  answerQuestion(
+    sessionId: string,
+    requestId: string,
+    body: { chosen: string[]; other: string; skipped: boolean },
+  ): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(`/v1/sessions/${sessionId}/questions/${requestId}`, body),
+    );
+  }
+
   resolvePermission(
     sessionId: string,
     requestId: string,
