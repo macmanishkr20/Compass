@@ -33,6 +33,22 @@ from compass.common.gateway.responses import (  # noqa: E402
 FAILURES: list[str] = []
 
 
+def section(text: str, start: str, end: str = "\n  });") -> str:
+    """The source between a marker and the end of its block.
+
+    Checks that read source used to slice a fixed number of characters after a
+    marker, which is a check that breaks when unrelated code grows above it.
+    One did: three lines added inside `renderBlocks` pushed what it was looking
+    for from offset 1390 to 1434, and a passing check started failing with
+    nothing wrong. Bounded by the block's own ending instead.
+    """
+    if start not in text:
+        return ""
+    rest = text.split(start, 1)[1]
+    cut = rest.find(end)
+    return rest if cut == -1 else rest[: cut + len(end)]
+
+
 def ok(condition: bool, what: str) -> None:
     print(f"   {'ok  ' if condition else 'FAIL'}  {what}")
     if not condition:
@@ -953,7 +969,7 @@ def check_thinking_interleaves_with_work() -> None:
     """
     print("\nthinking interleaves with the work it produced")
     ts = (ROOT / "frontend/src/app/app.ts").read_text()
-    block = ts.split("readonly renderBlocks")[1][:1400]
+    block = section(ts, "readonly renderBlocks")
 
     ok("const isBackground =" in block,
        "only tool work is foldable into a group")
@@ -1068,7 +1084,7 @@ def check_asking_shows_no_tool_row() -> None:
 
     ok("name === 'ask_user') continue;" in ts,
        "a question produces no activity row of its own")
-    block = ts.split("private summarizeActivity")[1][:2600]
+    block = section(ts, "private summarizeActivity", "\n  }")
     for tool, phrase in (("web_fetch", "read a page"),
                          ("browser", "used the browser"),
                          ("screenshot", "took a screenshot"),
@@ -1079,7 +1095,7 @@ def check_asking_shows_no_tool_row() -> None:
     ok("used a tool" in block,
        "with the fallback kept for tools this build has never heard of")
 
-    labels = ts.split("stepLabel(t: ToolCardVM)")[1][:1600]
+    labels = section(ts, "stepLabel(t: ToolCardVM)", "\n  }")
     for tool in ("web_fetch", "browser", "screenshot", "consult", "memory"):
         ok(f"case '{tool}'" in labels, f"and one step of {tool} has a label")
 
