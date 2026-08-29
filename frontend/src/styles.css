@@ -20,6 +20,10 @@
   --accent-strong: #A0740A;
   --accent-tint: rgba(184, 134, 11, 0.10);
   --accent-line: rgba(184, 134, 11, 0.26);
+  /* Inline code and other literal words, so a `--flag` or a filename is
+     visibly a thing you type rather than a thing you read. Kept clear of
+     the gold accent, which already means "Compass" everywhere else. */
+  --code-ink: #9C3B27;
 
   /* Semantic (separate from accent) */
   --success: #34C759;
@@ -55,6 +59,7 @@
   --accent-strong: #E6B45A;
   --accent-tint: rgba(217, 164, 65, 0.13);
   --accent-line: rgba(217, 164, 65, 0.30);
+  --code-ink: #E39A86;
 
   --success: #30D158;
   --success-tint: rgba(48, 209, 88, 0.15);
@@ -255,3 +260,43 @@ body {
 .md-table tbody tr:last-child td { border-bottom: 0; }
 .md-table td { color: var(--muted); }
 .md-table code { white-space: nowrap; }
+
+/* Prose. These lived in markdown.css and did nothing whatsoever: the
+   markdown is bound through [innerHTML], and Angular's emulated
+   encapsulation scopes a component's rules to elements it rendered
+   itself, so every one of them was in the stylesheet matching nothing.
+   Measured, not guessed — an inline <code> computed to plain ink on no
+   background in the browser's default monospace, with none of the font,
+   border or padding this file has always specified. What looked like
+   styling was the browser's defaults doing a passable job.
+
+   Anything here that targets the component's own template — code blocks,
+   artifact cards — stays in markdown.css, where scoping works. */
+.prose { line-height: 1.62; }
+.prose :first-child { margin-top: 0; }
+.prose :last-child { margin-bottom: 0; }
+.prose p { margin: 0 0 0.65em; }
+.prose h3, .prose h4, .prose h5, .prose h6 {
+  margin: 1em 0 0.45em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.prose h3 { font-size: 1.02rem; }
+.prose h4 { font-size: 0.94rem; }
+.prose h5, .prose h6 { font-size: 0.88rem; }
+.prose ul, .prose ol { margin: 0 0 0.65em; padding-left: 1.3em; }
+.prose li { margin: 0.2em 0; }
+.prose li::marker { color: var(--accent); }
+.prose a { color: var(--accent); text-underline-offset: 2px; }
+.prose strong { font-weight: 700; }
+.prose code {
+  color: var(--code-ink);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: color-mix(in oklab, var(--ink) 8%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.08em 0.36em;
+  white-space: nowrap;
+}

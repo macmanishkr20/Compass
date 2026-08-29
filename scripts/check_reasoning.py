@@ -826,6 +826,34 @@ def check_markdown_tables() -> None:
        "a wide table scrolls inside itself rather than widening the chat")
 
 
+def check_prose_styling_is_reachable() -> None:
+    """The markdown prose rules actually apply to the markdown.
+
+    All fourteen of them lived in markdown.css and did nothing: prose is bound
+    through [innerHTML], and Angular's emulated encapsulation scopes a
+    component's rules to elements it rendered itself. Measured in the browser
+    — an inline <code> computed to plain ink, no background, no border, and
+    the browser's default monospace, none of which that file asked for. What
+    looked like styling was the browser's defaults.
+    """
+    print("\nprose styling reaches the prose")
+    scoped = (ROOT / "frontend/src/app/markdown/markdown.css").read_text()
+    glob = (ROOT / "frontend/src/styles.css").read_text()
+
+    ok(".prose" not in scoped,
+       "no prose rule is left in the scoped sheet, where none of them worked")
+    for sel in (".prose p", ".prose code", ".prose ul", ".prose a"):
+        ok(sel in glob, f"{sel} is global now")
+    ok(".code-block" in scoped,
+       "and the component's own template keeps its scoped rules, which do work")
+
+    ok("--code-ink" in glob, "inline code has a colour of its own")
+    ok(glob.count("--code-ink:") == 2,
+       "defined for both themes, so dark mode is not an afterthought")
+    ok("color: var(--code-ink)" in glob.split(".prose code")[1][:200],
+       "and the rule uses it")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1074,6 +1102,7 @@ def main() -> int:
     check_thinking_header_alignment()
     check_tool_rows_are_readable()
     check_markdown_tables()
+    check_prose_styling_is_reachable()
     check_thinking_rule_colour()
     check_skills()
     check_pdf_pages()
