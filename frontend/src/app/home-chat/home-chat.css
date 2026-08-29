@@ -511,15 +511,12 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   /* No inner scroller. The reasoning is visible by default now, and a
      scrollbox nested inside a scrolling transcript is a trap: the wheel does
      the wrong thing depending on where the pointer happens to be, and the
-     reader cannot tell how much is hidden. It flows at its natural length and
-     folds away at the header when it is not wanted. */
+     reader cannot tell how much is hidden. It flows at its natural length. */
 }
 .cthink-body :is(p, ul, ol) { margin: 0 0 0.5em; }
-.cthink-body :is(h1, h2, h3, h4, strong) {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--ink);
-}
+/* The headings inside this block are styled in styles.css, not here — see the
+   note beside the same removal in app.css. Injected markup carries no
+   component attribute, so a rule written here matches nothing. */
 
 /* Work Azure did inside the turn: code run, searches made. Sits above the
    answer rather than below it, because it happened before the answer and

@@ -1232,6 +1232,27 @@ def check_reasoning_is_visible_by_default() -> None:
         ok("max-height" not in body,
            f"{short}: with no inner scroller — a scrollbox inside a scrolling "
            "transcript is a trap once the thing is open by default")
+        ok("h1, h2, h3, h4, strong" not in css,
+           f"{short}: and the headings are not styled here, where a rule "
+           "cannot reach [innerHTML] and would silently do nothing")
+
+    # The headings the model writes inside its own reasoning — in practice
+    # `**bold**`, not `#` — belong to the same voice as the thought around
+    # them. Measured on both surfaces, light and dark: identical colour,
+    # style and size to the narration, weight 600 against 400. Dark comes out
+    # rgb(185,185,192) for both, light rgb(81,81,84).
+    global_css = (ROOT / "frontend/src/styles.css").read_text()
+    heads = section(global_css, ".cthink-body .prose :is(", "\n}")
+    ok(".cthink-body .prose :is(" in global_css,
+       "the heading rule names .prose, so it outranks `.prose strong` on "
+       "specificity rather than on source order")
+    ok("font-style: inherit" in heads,
+       "a heading inside the reasoning is italic like the rest of it")
+    ok("color: var(--muted)" in heads,
+       "and the same faded colour, so it is set in the thought not on it")
+    ok("font-weight: 600" in heads,
+       "heavier only by enough to divide the text — 700 upright was what "
+       "made it read as a caption stamped on top")
 
 
 def check_narration_carries_no_chrome() -> None:

@@ -202,16 +202,37 @@ body {
 .lb-close:hover { background: rgba(255,255,255,0.22); }
 
 /* ---- headings inside a reasoning block ------------------------------------
-   The reasoning text is italic, because it reads as recalled thought rather
-   than as the answer sitting upright beneath it. The headings the model puts
-   in that thought stay upright, so they still divide it.
+   The whole block is one voice, so the headings are set in it rather than
+   against it: italic and muted like the thought around them, and heavier only
+   by enough to divide it. They used to be forced upright, which made each one
+   read as a caption stamped on the thinking instead of a line of it.
+
+   The weight is the reason this needs saying at all. Colour was never the
+   difference — these are already --muted, the same as the narration — but
+   `.prose strong` sets 700, and 700 upright against italic 400 reads as
+   darker even at an identical colour. Dropping to 600 and letting the italic
+   through is what actually closes the gap.
+
+   In practice the model writes these as `**bold**` rather than as `#`
+   headings, so `strong` is the case that matters; the rest are here so a
+   thought that does use a heading does not fall out of the voice.
+
+   `.prose` is in the selector to win, not to narrow. `:is()` contributes only
+   its most specific argument, so `.cthink-body :is(…, strong)` scores (0,1,1)
+   — a tie with `.prose strong`, which is declared later and therefore took
+   the weight. Naming the wrapper app-markdown always renders makes it (0,2,1)
+   and settles it on specificity rather than on which rule happens to sit
+   further down this file.
 
    This lives here rather than beside the rest of the thinking styles because
    the reasoning is rendered through app-markdown's [innerHTML], and injected
    markup carries no component scope attribute — a scoped rule cannot reach
    it. Everything else about the block is styled in its own component. */
-.cthink-body :is(h1, h2, h3, h4, h5, h6, strong, b) {
-  font-style: normal;
+.cthink-body .prose :is(h1, h2, h3, h4, h5, h6, strong, b) {
+  font-size: inherit;
+  font-style: inherit;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 /* The thinking block's left rule, while the thinking is still arriving.

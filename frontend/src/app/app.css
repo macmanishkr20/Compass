@@ -3111,15 +3111,15 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   /* No inner scroller. The reasoning is visible by default now, and a
      scrollbox nested inside a scrolling transcript is a trap: the wheel does
      the wrong thing depending on where the pointer happens to be, and the
-     reader cannot tell how much is hidden. It flows at its natural length and
-     folds away at the header when it is not wanted. */
+     reader cannot tell how much is hidden. It flows at its natural length. */
 }
 .cthink-body :is(p, ul, ol) { margin: 0 0 0.5em; }
-.cthink-body :is(h1, h2, h3, h4, strong) {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--ink);
-}
+/* The headings inside this block are styled in styles.css, not here. The
+   reasoning arrives through app-markdown's [innerHTML], and emulated
+   encapsulation puts this component's attribute on the last compound of a
+   selector — which injected markup does not carry, so a rule written here
+   matches nothing. A previous one set `color: var(--ink)` and had no effect
+   for exactly that reason. */
 
 /* Arguments still being written. Dimmed because they are not yet a call: the
    JSON is unvalidated, frequently cut off mid-string, and replaced wholesale
