@@ -81,11 +81,17 @@ async def node_types(user: str = Depends(require_user)) -> dict:
     disconnect, so a palette that needed a restart to show a node the user
     just connected would be lying.
     """
+    from compass.pipelines.nodes import connectors
+
     types = get_registry().all()
     return {
         "node_types": [t.summary() for t in types.values()],
         "capabilities": list(CAPABILITIES),
         "edge_conditions": list(EDGE_CONDITIONS),
+        # The connection kinds the built-in connectors expect, so the
+        # Connections panel can offer them rather than asking someone to
+        # guess a string that has to match exactly.
+        "connection_kinds": connectors.kinds(),
     }
 
 

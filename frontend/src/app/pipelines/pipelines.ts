@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CompassApiService } from '../compass-api.service';
 import {
+  ConnectionKind,
   NodeTypeInfo,
   PipelineConnection,
   PipelineEdge,
@@ -42,6 +43,9 @@ export class Pipelines {
   readonly pipelines = signal<PipelineSummary[]>([]);
   readonly nodeTypes = signal<NodeTypeInfo[]>([]);
   readonly connections = signal<PipelineConnection[]>([]);
+  /** The kinds the built-in connectors expect. Offered in the
+   *  Connections panel so the string matches without guessing. */
+  readonly connectionKinds = signal<ConnectionKind[]>([]);
 
   readonly open = signal<PipelineSummary | null>(null);
   readonly selectedId = signal('');
@@ -144,7 +148,7 @@ export class Pipelines {
 
   readonly palette = computed(() => {
     const term = this.paletteFilter().trim().toLowerCase();
-    const order = ['flow', 'connector', 'intelligence', 'code', 'module', 'tool', 'io'];
+    const order = ['flow', 'connector', 'mcp', 'intelligence', 'code', 'module', 'tool', 'io'];
     const groups = new Map<string, NodeTypeInfo[]>();
     for (const type of this.nodeTypes()) {
       if (term && !`${type.label} ${type.id} ${type.description}`.toLowerCase().includes(term)) {
@@ -183,6 +187,7 @@ export class Pipelines {
       ]);
       this.pipelines.set(list.pipelines);
       this.nodeTypes.set(cat.node_types);
+      this.connectionKinds.set(cat.connection_kinds ?? []);
       this.connections.set(conns.connections);
     } catch (err: unknown) {
       this.error.set(this.message(err));

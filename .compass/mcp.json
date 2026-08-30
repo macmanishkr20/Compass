@@ -1,0 +1,7 @@
+{
+  "sample": {
+    "type": "stdio",
+    "command": "python3",
+    "args": ["scripts/sample_mcp_server.py"]
+  }
+}

@@ -25,6 +25,7 @@ import {
   FileHit,
   MemoryEntry,
   NodeTypeInfo,
+  ConnectionKind,
   PipelineConnection,
   PipelineExport,
   PipelineProblem,
@@ -158,9 +159,14 @@ export class CompassApiService {
       this.http.get<{ pipelines: PipelineSummary[] }>('/v1/pipelines'),
     );
   }
-  pipelineNodeTypes(): Promise<{ node_types: NodeTypeInfo[] }> {
+  pipelineNodeTypes(): Promise<{
+    node_types: NodeTypeInfo[];
+    connection_kinds: ConnectionKind[];
+  }> {
     return firstValueFrom(
-      this.http.get<{ node_types: NodeTypeInfo[] }>('/v1/pipelines/node-types'),
+      this.http.get<{ node_types: NodeTypeInfo[]; connection_kinds: ConnectionKind[] }>(
+        '/v1/pipelines/node-types',
+      ),
     );
   }
   createPipeline(name: string): Promise<PipelineSummary> {

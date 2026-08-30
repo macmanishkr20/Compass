@@ -299,6 +299,15 @@ export interface PipelineExport {
   needs_host: { type: string; label: string; requires: string; connection: string }[];
 }
 
+/** A connection kind a built-in connector expects, with the caveat that
+ *  applies to it — some auth is a token that lasts, some expires hourly. */
+export interface ConnectionKind {
+  kind: string;
+  label: string;
+  auth: string;
+  note: string;
+}
+
 export interface PipelineConnection {
   id: string;
   kind: string;

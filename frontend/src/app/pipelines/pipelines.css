@@ -574,3 +574,17 @@
   .pl-files { flex-direction: column; }
   .pl-filelist { flex: 1 1 auto; width: 100%; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* The caveat that comes with a connection kind — a GitHub token lasts, an
+   OAuth access token does not. Said where the choice is made, rather than
+   discovered when a scheduled run starts failing. */
+.pl-kindnote {
+  margin: -6px 0 12px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+  color: var(--ink);
+  font-size: 0.79rem;
+  line-height: 1.5;
+  max-width: 72ch;
+}

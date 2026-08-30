@@ -25,6 +25,11 @@
           the nodes that need it. The secret is stored on the server and never
           sent back, so a pipeline can be shared without carrying credentials.
         </p>
+        @for (k of connectionKinds(); track k.kind) {
+          @if (k.kind === draft().kind && k.note) {
+            <p class="pl-kindnote">{{ k.note }}</p>
+          }
+        }
 
         @for (c of connections(); track c.id) {
           <div class="pl-conn">
@@ -41,8 +46,12 @@
         <div class="pl-connform">
           <input class="pl-input sm" type="text" placeholder="Name, e.g. Support inbox"
             [value]="draft().name" (input)="setDraft('name', $any($event.target).value)" />
-          <input class="pl-input sm" type="text" placeholder="Kind, e.g. rest"
-            [value]="draft().kind" (input)="setDraft('kind', $any($event.target).value)" />
+          <select class="pl-input sm" (change)="setDraft('kind', $any($event.target).value)">
+            @for (k of connectionKinds(); track k.kind) {
+              <option [value]="k.kind" [selected]="k.kind === draft().kind">{{ k.label }}</option>
+            }
+            <option value="rest" [selected]="draft().kind === 'rest'">Other (HTTP)</option>
+          </select>
           <select class="pl-input sm" (change)="setDraft('auth', $any($event.target).value)">
             @for (a of ['none', 'api_key', 'basic', 'oauth2', 'managed_identity']; track a) {
               <option [value]="a" [selected]="a === draft().auth">{{ a }}</option>

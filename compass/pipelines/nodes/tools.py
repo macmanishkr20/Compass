@@ -118,9 +118,25 @@ def _node_type(tool: Any, category: str) -> NodeType | None:
     # The first sentence is the palette blurb; tool descriptions are long
     # because they are written for a model, not for a menu.
     blurb = description.split(". ")[0][:200]
+
+    # An MCP tool arrives named `mcp__server__tool`, which is the wire name
+    # and reads badly in a palette. Split it back into the server it came
+    # from and the tool it is, so the id says where a node is from and the
+    # label says what it does — `mcp.sample.add`, "Add", from "sample".
+    node_id = f"{category}.{name}"
+    label = name.replace("_", " ").capitalize()
+    if category == "mcp" and name.startswith("mcp__"):
+        parts = name.split("__", 2)
+        if len(parts) == 3:
+            _, server, tool_name = parts
+            node_id = f"mcp.{server}.{tool_name}"
+            label = tool_name.replace("_", " ").capitalize()
+            blurb = blurb.removeprefix(f"[MCP:{server}]").strip()
+            blurb = f"{blurb} From the {server} MCP server.".strip()
+
     return NodeType(
-        id=f"tool.{name}",
-        label=name.replace("_", " ").capitalize(),
+        id=node_id,
+        label=label,
         category=category,
         description=blurb,
         handler=_handler_for(tool),
@@ -154,6 +170,12 @@ def mcp_provider() -> list[NodeType]:
     Live by design: a server connected after startup should appear in the
     palette without a restart, which is why the registry rebuilds rather than
     caching this.
+
+    Their own category rather than being folded in with connectors, because
+    the distinction is one a reader acts on: a built-in connector is Compass's
+    to fix, an MCP node belongs to a server someone else configured and can
+    disconnect. A palette that hid that would make a node vanishing look like
+    a Compass bug.
     """
     try:
         from compass.code.mcp.manager import get_mcp_manager
@@ -164,6 +186,6 @@ def mcp_provider() -> list[NodeType]:
         return []
     found: list[NodeType] = []
     for tool in tools:
-        if node_type := _node_type(tool, "connector"):
+        if node_type := _node_type(tool, "mcp"):
             found.append(node_type)
     return found
