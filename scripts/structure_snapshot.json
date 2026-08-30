@@ -142,6 +142,7 @@
   "POST /v1/pipeline-runs/{run_id}/cancel",
   "POST /v1/pipeline-runs/{run_id}/resume",
   "POST /v1/pipelines",
+  "POST /v1/pipelines/{pipeline_id}/nodes/{node_id}/run",
   "POST /v1/pipelines/{pipeline_id}/run",
   "POST /v1/pipelines/{pipeline_id}/validate",
   "POST /v1/routines",
@@ -164,7 +165,7 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "05e86f5a47784edc",
+ "schema": "19db253390d033da",
  "smoke": {
   "/": "200",
   "/docs": "200",

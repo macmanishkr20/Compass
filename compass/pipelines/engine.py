@@ -130,9 +130,25 @@ class PipelineEngine:
     # -- public API ---------------------------------------------------------
 
     async def start(self, pipeline: Pipeline, *, trigger: str = "manual",
-                    parameters: dict[str, Any] | None = None) -> PipelineRun:
-        """Create a run and drive it as far as it will go."""
+                    parameters: dict[str, Any] | None = None,
+                    mode: str = "live",
+                    only: str | None = None,
+                    seed: dict[str, Any] | None = None) -> PipelineRun:
+        """Create a run and drive it as far as it will go.
+
+        `mode="mock"` returns pinned or stubbed data instead of calling
+        anything, which is what lets a freshly built pipeline be shown working
+        before an account is connected — the moment someone is least willing
+        to authorize one, because they have not seen it work yet.
+
+        `only=` runs a single node and stops, with `seed` standing in for what
+        an upstream step would have produced. That is what a node's own
+        "Execute step" needs, and it deliberately shares the whole path with a
+        full run rather than being a second, simpler executor that would drift.
+        """
         settings = get_settings()
+        if mode not in ("live", "mock"):
+            raise ValueError(f"unknown run mode {mode!r}")
         if (trigger == "scheduled"
                 and settings.pipelines.require_manual_first_run
                 and not pipeline.proven_at):
@@ -140,7 +156,12 @@ class PipelineEngine:
                 "This pipeline has not completed a manual run yet, so it "
                 "cannot be scheduled. Run it once by hand first."
             )
-        run = await pstore.runs.create(pipeline, trigger, parameters or {})
+        # A mocked run proves nothing about credentials or the network, so it
+        # must never be what marks a pipeline ready to schedule.
+        run = await pstore.runs.create(pipeline, trigger, parameters or {},
+                                       mode=mode)
+        if only:
+            return await self._one(pipeline, run, only, seed or {})
         # Nodes switched off never execute; they are settled up front so the
         # branches hanging off them still resolve.
         for node in pipeline.nodes:
@@ -151,6 +172,33 @@ class PipelineEngine:
                 node_run.text = "Deactivated"
         await pstore.runs.save(run)
         return await self._drive(pipeline, run)
+
+    async def _one(self, pipeline: Pipeline, run: PipelineRun,
+                   node_id: str, seed: dict[str, Any]) -> PipelineRun:
+        """Run a single node, with `seed` standing in for its upstream.
+
+        Every other node is marked skipped rather than left pending, so the
+        log does not imply the rest of the graph is about to run.
+        """
+        node = next((n for n in pipeline.nodes if n.id == node_id), None)
+        if node is None:
+            raise ValueError(f"no node {node_id!r}")
+        for other in pipeline.nodes:
+            if other.id != node_id:
+                run.nodes[other.id].status = "skipped"
+                run.nodes[other.id].text = "Not part of this step run"
+        # The seed is presented as an upstream result under a reserved id, so
+        # `@nodes('input').data.x` reaches it and the node needs no rewriting
+        # to be run alone.
+        run.nodes.setdefault("input", pstore.NodeRun(node_id="input"))
+        run.nodes["input"].status = "done"
+        run.nodes["input"].output = dict(seed)
+        run.nodes["input"].text = "Supplied for this step run"
+        await self._run_node(pipeline, run, node)
+        run.status = "failed" if run.nodes[node_id].status == "failed" else "done"
+        run.finished_at = time.time()
+        await pstore.runs.save(run)
+        return run
 
     async def resume(self, run_id: str, answer: dict[str, Any] | None = None
                      ) -> PipelineRun | None:
@@ -235,8 +283,12 @@ class PipelineEngine:
             failed = any(n.status == "failed" for n in run.nodes.values())
             run.status = "failed" if failed else "done"
             run.finished_at = time.time()
-            # A manual run that succeeded is what unlocks scheduling.
-            if run.status == "done" and run.trigger == "manual":
+            # A manual run that succeeded is what unlocks scheduling — and it
+            # has to be a live one. A mocked run calls nothing, so treating it
+            # as proof would let a pipeline be scheduled on the strength of a
+            # run that never touched the thing it is supposed to touch.
+            if (run.status == "done" and run.trigger == "manual"
+                    and run.mode == "live"):
                 fresh = await pstore.pipelines.get(pipeline.id)
                 if fresh and not fresh.proven_at:
                     fresh.proven_at = time.time()
@@ -343,8 +395,12 @@ class PipelineEngine:
             node_run.finished_at = time.time()
             return
 
-        # Capability first, before anything is resolved or run.
-        if node_type.requires and node_type.requires not in pipeline.capabilities:
+        # Capability first, before anything is resolved or run — except in a
+        # mocked run, which calls nothing and so has nothing to be permitted.
+        # Checking it there would make verifying a pipeline require the very
+        # grants the verification exists to justify asking for.
+        if (run.mode != "mock" and node_type.requires
+                and node_type.requires not in pipeline.capabilities):
             node_run.status = "failed"
             node_run.error = (
                 f"This pipeline is not allowed to {node_type.requires}. "
@@ -391,6 +447,26 @@ class PipelineEngine:
         # still shows what it was asked to do. Recording it afterwards would
         # lose exactly the case the pane is most wanted for.
         node_run.input = {} if node.secure_input else dict(config)
+
+        # In mock mode the handler is never called. Substituting here rather
+        # than inside each handler is what makes it true of every node type,
+        # including ones contributed by a provider that knows nothing about
+        # mocking — which is the only way "touches nothing outside" can be a
+        # property of the run rather than a hope about its nodes.
+        # Control flow runs for real even in a mocked run. An `if` that took
+        # an arbitrary branch, or a loop fanning out over stubs, would make
+        # the mocked run a different graph from the live one — and a
+        # verification of a different graph verifies nothing.
+        if run.mode == "mock" and node_type.category != "flow":
+            mocked = self._mock_result(node, node_type)
+            node_run.status = "done"
+            node_run.output = {} if node.secure_output else dict(mocked.data)
+            node_run.text = mocked.text
+            node_run.port = mocked.port
+            node_run.finished_at = time.time()
+            if mocked.port == "each":
+                await self._run_loop(pipeline, run, node, node_run, mocked)
+            return
 
         ctx = NodeContext(
             run_id=run.id,
@@ -439,6 +515,39 @@ class PipelineEngine:
 
         node_run.status = "failed"
         node_run.finished_at = time.time()
+
+    def _mock_result(self, node: Node, node_type: Any) -> NodeResult:
+        """What a node returns when the run is not allowed to touch anything.
+
+        Pinned data first, because a person who took the trouble to paste a
+        real payload wants exactly that. Otherwise a stub shaped by the node
+        type's own output port: an empty object would verify the wiring and
+        nothing else, and the difference between "four nodes ran" and "four
+        nodes ran and produced plausible data" is most of the value of showing
+        someone a mocked run at all.
+
+        Control flow is never mocked. An `if` that always took the true branch
+        or a loop that fanned out over a stub would make a mocked run a
+        different graph from the live one, which defeats the point of running
+        it — so flow nodes execute for real, and only the leaves are stubbed.
+        """
+        if node.mock is not None:
+            return NodeResult(data=dict(node.mock), text="Pinned data",
+                              port="out")
+        kind = ""
+        if node_type is not None and node_type.outputs:
+            kind = node_type.outputs[0].kind
+        label = node.name or node.type
+        if kind == "items":
+            return NodeResult(
+                data={"items": [{"id": "mock-1"}, {"id": "mock-2"}],
+                      "count": 2},
+                text=f"{label}: two stub item(s)")
+        if kind == "text":
+            return NodeResult(data={"text": f"Mock output from {label}"},
+                              text=f"{label}: stub text")
+        return NodeResult(data={"mock": True, "from": node.id},
+                          text=f"{label}: stub result")
 
     # -- fan-out --------------------------------------------------------------
 

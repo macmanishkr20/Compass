@@ -76,6 +76,12 @@ class Node:
     #: what a node is allowed to do is the pipeline's capability set.
     secure_input: bool = False
     secure_output: bool = False
+    #: Pinned output. When set, a run in `mock` mode returns this instead of
+    #: calling anything — so a freshly built pipeline can be shown working
+    #: before a single account is connected, which is the moment someone is
+    #: least willing to authorize one. Kept on the node rather than on a run
+    #: because it is part of the design, not part of one execution.
+    mock: dict[str, Any] | None = None
     state: str = "active"  # active | deactivated
     #: When deactivated, what to pretend happened, so downstream branches
     #: still exercise while the node itself never runs.
@@ -181,6 +187,11 @@ class PipelineRun:
     #: Pinned, so editing a pipeline never rewrites the history of what ran.
     pipeline_version: int
     trigger: str = "manual"  # manual | scheduled | webhook | api
+    #: "live" calls the world; "mock" returns pinned or stubbed data and
+    #: touches nothing outside. Recorded on the run because a green mock run
+    #: and a green live run mean very different things, and a log that did
+    #: not say which is a log that misleads.
+    mode: str = "live"
     status: str = "running"  # running | waiting | done | failed | cancelled
     parameters: dict[str, Any] = field(default_factory=dict)
     variables: dict[str, Any] = field(default_factory=dict)
@@ -326,13 +337,15 @@ class RunStore(_JsonStore):
         super().__init__("pipeline_runs")
 
     async def create(self, pipeline: Pipeline, trigger: str,
-                     parameters: dict[str, Any]) -> PipelineRun:
+                     parameters: dict[str, Any],
+                     mode: str = "live") -> PipelineRun:
         run = PipelineRun(
             id=_new_id("run"),
             pipeline_id=pipeline.id,
             pipeline_name=pipeline.name,
             pipeline_version=pipeline.version,
             trigger=trigger,
+            mode=mode,
             parameters={**pipeline.parameters, **parameters},
             variables=dict(pipeline.variables),
             nodes={n.id: NodeRun(node_id=n.id) for n in pipeline.nodes},

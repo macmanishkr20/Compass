@@ -119,6 +119,11 @@
         }
       </span>
 
+      <button class="pl-btn ghost" type="button" (click)="runNow('mock')"
+        [disabled]="!!busy()"
+        title="Run with pinned or stubbed data — calls nothing, needs no capabilities">
+        Dry run
+      </button>
       <button class="pl-btn ghost" type="button" (click)="showExport()"
         title="Take this out as a diagram, a design note and a package">Export</button>
       <button class="pl-btn ghost" type="button" (click)="validate()">Check</button>
@@ -239,6 +244,9 @@
 
         @if (run(); as r) {
           <span class="pl-logs-status" [class]="'st-' + r.status">{{ r.status }}</span>
+          @if (r.mode === 'mock') {
+            <span class="pl-logs-mock" title="Nothing outside was called">dry run</span>
+          }
           @if (runMs() !== null) { <span class="pl-logs-ms">{{ runMs() }}ms</span> }
           @if (r.trigger) { <span class="pl-logs-trig">{{ r.trigger }}</span> }
           <span class="pl-sheet-spacer"></span>

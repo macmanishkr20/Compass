@@ -1601,6 +1601,77 @@ def check_run_log() -> None:
        "opening the log after a failure lands on the failure")
 
 
+def check_dry_run() -> None:
+    """A pipeline can be shown working before an account is connected.
+
+    This is the keystone of the builder plan rather than the chat, because
+    the thing that makes a freshly built pipeline persuasive is watching it
+    run — and without mocks the only way to demonstrate one is to ask someone
+    to authorize Outlook first, which is the moment they are least willing,
+    having not yet seen it work.
+
+    Four rules make a mocked run mean something.
+
+    Substitution happens in the walk, not in handlers, so it is true of every
+    node type including ones a provider contributed that know nothing about
+    mocking. Otherwise "touches nothing outside" is a hope about nodes rather
+    than a property of the run.
+
+    Control flow still executes. An `if` taking an arbitrary branch or a loop
+    fanning out over stubs would make the mocked run a different graph, and
+    verifying a different graph verifies nothing.
+
+    Capabilities are not checked, because a run that calls nothing has nothing
+    to be permitted — requiring the grants first would make verification need
+    exactly what it exists to justify asking for.
+
+    And a mocked run never marks a pipeline ready to schedule.
+
+    Measured: a graph with an ungranted network node fails live and passes
+    mocked; the If takes its real branch; the loop fans out over the real
+    items; pinned data is returned verbatim; proven_at stays null; and a
+    single-node run against a seed leaves every other node skipped.
+    """
+    print("\na dry run proves the shape without touching anything")
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    store = (ROOT / "compass/pipelines/store.py").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+
+    ok("mock: dict[str, Any] | None = None" in store,
+       "a node can be pinned with the output it should stand in for")
+    ok('mode: str = "live"' in store,
+       "and the run records which mode it was, since a green mock and a green "
+       "live run mean very different things")
+
+    ok('if run.mode == "mock" and node_type.category != "flow":' in engine,
+       "control flow runs for real — a mocked branch would be a different "
+       "graph, and verifying a different graph verifies nothing")
+    ok('run.mode != "mock" and node_type.requires' in engine,
+       "capabilities are not required for a run that calls nothing")
+    ok('and run.mode == "live"' in engine,
+       "and a mocked run never counts as the manual run that unlocks "
+       "scheduling")
+
+    stub = section(engine, "def _mock_result", "\n    # -- fan-out")
+    ok("if node.mock is not None:" in stub,
+       "pinned data wins over a stub — someone who pasted a real payload "
+       "wants exactly that")
+    ok('kind == "items"' in stub,
+       "and the stub is shaped by the node's declared output, because an "
+       "empty object verifies the wiring and nothing else")
+
+    one = section(engine, "async def _one", "\n    async def resume")
+    ok('run.nodes["input"]' in one,
+       "a single-step run presents its seed as an upstream result, so the "
+       "node needs no rewriting to run alone")
+    ok('status = "skipped"' in one,
+       "and every other node is skipped rather than left looking pending")
+
+    ok("runNow('mock')" in html, "the canvas offers a dry run")
+    ok('pl-logs-mock' in html,
+       "and the log says so, so a mocked pass is never mistaken for proof")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1861,6 +1932,7 @@ def main() -> int:
     check_pipeline_editor()
     check_fan_out()
     check_run_log()
+    check_dry_run()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

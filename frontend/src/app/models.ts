@@ -231,6 +231,8 @@ export interface PipelineNode {
   retry_interval_s: number;
   secure_input: boolean;
   secure_output: boolean;
+  /** Pinned output, returned instead of calling anything in a mocked run. */
+  mock: Record<string, unknown> | null;
   state: string;
   mark_as: string;
 }
@@ -280,6 +282,10 @@ export interface PipelineRun {
   pipeline_name: string;
   pipeline_version: number;
   trigger: string;
+  /** "live" called the world; "mock" touched nothing outside. Shown in the
+   *  log, because a green mock run and a green live run mean very different
+   *  things. */
+  mode: string;
   status: string;
   nodes: Record<string, PipelineNodeRun>;
   /** Loop bodies: the loop's node id, then one entry per item. A body node

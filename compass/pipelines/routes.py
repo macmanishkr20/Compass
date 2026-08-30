@@ -55,6 +55,17 @@ class PipelinePatch(BaseModel):
 class RunStart(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     trigger: str = "manual"
+    #: "live" calls the world; "mock" returns pinned or stubbed data and
+    #: touches nothing outside, which is how a pipeline is verified before
+    #: anyone connects an account to it.
+    mode: str = "live"
+
+
+class StepRun(BaseModel):
+    """Run one node on its own, with `seed` standing in for its upstream."""
+
+    seed: dict[str, Any] = Field(default_factory=dict)
+    mode: str = "live"
 
 
 class ResumeBody(BaseModel):
@@ -252,9 +263,33 @@ async def run_pipeline(pipeline_id: str, body: RunStart,
         raise HTTPException(status_code=404, detail="no such pipeline")
     try:
         run = await engine.start(pipeline, trigger=body.trigger,
-                                 parameters=body.parameters)
+                                 parameters=body.parameters, mode=body.mode)
     except PermissionError as err:
         raise HTTPException(status_code=409, detail=str(err))
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+    return run.to_dict()
+
+
+@router.post("/v1/pipelines/{pipeline_id}/nodes/{node_id}/run")
+async def run_node(pipeline_id: str, node_id: str, body: StepRun,
+                   user: str = Depends(require_user)) -> dict:
+    """Execute one step, for the node view's "Execute step".
+
+    Goes through the same walk as a full run rather than a simpler executor,
+    so a step cannot pass here and fail in a real run over a difference
+    between two implementations.
+    """
+    pipeline = await pstore.pipelines.get(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="no such pipeline")
+    try:
+        run = await engine.start(pipeline, trigger="manual", mode=body.mode,
+                                 only=node_id, seed=body.seed)
+    except PermissionError as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
     return run.to_dict()
 
 

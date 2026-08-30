@@ -194,9 +194,26 @@ export class CompassApiService {
       ),
     );
   }
-  runPipeline(id: string, parameters: Record<string, unknown> = {}): Promise<PipelineRun> {
+  runPipeline(
+    id: string,
+    parameters: Record<string, unknown> = {},
+    mode: 'live' | 'mock' = 'live',
+  ): Promise<PipelineRun> {
     return firstValueFrom(
-      this.http.post<PipelineRun>(`/v1/pipelines/${id}/run`, { parameters }),
+      this.http.post<PipelineRun>(`/v1/pipelines/${id}/run`, { parameters, mode }),
+    );
+  }
+  /** Run one step on its own, with `seed` standing in for its upstream. */
+  runPipelineNode(
+    id: string,
+    nodeId: string,
+    seed: Record<string, unknown> = {},
+    mode: 'live' | 'mock' = 'live',
+  ): Promise<PipelineRun> {
+    return firstValueFrom(
+      this.http.post<PipelineRun>(
+        `/v1/pipelines/${id}/nodes/${nodeId}/run`, { seed, mode },
+      ),
     );
   }
   pipelineRuns(id: string): Promise<{ runs: PipelineRun[] }> {

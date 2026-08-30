@@ -343,6 +343,7 @@ export class Pipelines {
       retry_interval_s: 30,
       secure_input: false,
       secure_output: false,
+      mock: null,
       state: 'active',
       mark_as: 'success',
     };
@@ -479,14 +480,19 @@ export class Pipelines {
     }
   }
 
-  async runNow(): Promise<void> {
+  /** A dry run calls nothing: every step outside the flow nodes returns
+   *  pinned or stubbed data. It is how a pipeline is shown working before
+   *  anyone connects an account, and it needs no capabilities granted. */
+  async runNow(mode: 'live' | 'mock' = 'live'): Promise<void> {
     const pipeline = this.open();
     if (!pipeline) return;
     if (this.dirty()) await this.save();
-    this.busy.set('Running…');
+    this.busy.set(mode === 'mock' ? 'Dry running…' : 'Running…');
     this.error.set('');
     try {
-      this.run.set(await this.api.runPipeline(pipeline.id));
+      this.run.set(await this.api.runPipeline(pipeline.id, {}, mode));
+      this.logsOpen.set(true);
+      this.logNodeId.set('');
     } catch (err: unknown) {
       this.error.set(this.message(err));
     } finally {

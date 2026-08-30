@@ -814,3 +814,16 @@
   gap: 14px;
 }
 @media (max-width: 900px) { .pl-iterlog-panes { grid-template-columns: 1fr; gap: 8px; } }
+
+/* A dry run is green in the same way a live run is, so it has to say which
+   it was — otherwise a mocked pass reads as proof the pipeline works. */
+.pl-logs-mock {
+  font-family: var(--mono);
+  font-size: 0.63rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 20px;
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+}
