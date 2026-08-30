@@ -1,0 +1,80 @@
+<div class="pl-root">
+
+  <header class="pl-head">
+    <div>
+      <h1 class="pl-title">Pipelines</h1>
+      <p class="pl-sub">Wire Compass's capabilities together and run them on a trigger.</p>
+    </div>
+    <button class="pl-refresh" type="button" (click)="refresh()" [disabled]="loading()">
+      {{ loading() ? 'Loading…' : 'Refresh' }}
+    </button>
+  </header>
+
+  @if (error()) {
+    <div class="pl-error">{{ error() }}</div>
+  }
+
+  <div class="pl-cols">
+
+    <section class="pl-panel">
+      <h2 class="pl-h2">Your pipelines</h2>
+
+      <div class="pl-new">
+        <input class="pl-input" type="text" placeholder="Name a new pipeline…"
+          [value]="newName()" (input)="newName.set($any($event.target).value)"
+          (keydown.enter)="create()" />
+        <button class="pl-btn" type="button" (click)="create()" [disabled]="!newName().trim()">
+          Create
+        </button>
+      </div>
+
+      @for (p of pipelines(); track p.id) {
+        <button class="pl-row" type="button" (click)="select(p)"
+          [class.on]="selected()?.id === p.id">
+          <span class="pl-row-name">{{ p.name }}</span>
+          <span class="pl-row-meta">
+            {{ p.nodes.length }} node{{ p.nodes.length === 1 ? '' : 's' }}
+            · v{{ p.version }}
+            @if (!p.proven_at) { <span class="pl-tag">not yet run</span> }
+          </span>
+        </button>
+      } @empty {
+        <p class="pl-empty">
+          Nothing here yet. A pipeline is a graph of nodes — name one above to start.
+        </p>
+      }
+    </section>
+
+    <section class="pl-panel">
+      <h2 class="pl-h2">
+        Available nodes
+        <span class="pl-count">{{ nodeTypes().length }}</span>
+      </h2>
+      <p class="pl-note">
+        Read from the server's own catalogue. Connect an MCP server and its tools
+        appear here without a rebuild.
+      </p>
+
+      @for (group of categories(); track group.name) {
+        <div class="pl-group">
+          <h3 class="pl-group-name">{{ group.name }}</h3>
+          @for (t of group.types; track t.id) {
+            <div class="pl-node" [title]="t.description">
+              <span class="pl-node-label">{{ t.label }}</span>
+              @if (t.requires) { <span class="pl-req">needs {{ t.requires }}</span> }
+            </div>
+          }
+        </div>
+      } @empty {
+        <p class="pl-empty">No node types were returned.</p>
+      }
+    </section>
+
+  </div>
+
+  <p class="pl-scaffold">
+    Scaffold. The engine, node registry, connections and run history are in
+    place; the canvas is next.
+  </p>
+
+</div>

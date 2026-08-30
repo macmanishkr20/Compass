@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from compass.common.auth import router as auth_router
+from compass.common.config import get_settings
 from compass.code.routes import engine
 from compass.code.routes import router as code_router
 from compass.common.routes import router as common_router
@@ -106,3 +107,14 @@ async def ui() -> FileResponse:
 app.include_router(common_router)
 app.include_router(code_router)
 app.include_router(design_router)
+
+# Pipelines is opt-in and mounted last, so the paths every other module
+# matches are unchanged whether it is on or off. The import is inside the
+# conditional rather than at the top of the file on purpose: a module that is
+# switched off should cost nothing at all, and "nothing" includes import time
+# and anything its imports would start.
+if get_settings().pipelines.enabled:
+    from compass.pipelines.routes import router as pipelines_router
+
+    app.include_router(pipelines_router)
+    logger.info("Pipelines enabled")

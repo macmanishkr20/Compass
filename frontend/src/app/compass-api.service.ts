@@ -24,6 +24,8 @@ import {
   FileEntry,
   FileHit,
   MemoryEntry,
+  NodeTypeInfo,
+  PipelineSummary,
   Recap,
   PermissionBehavior,
   Routine,
@@ -143,6 +145,39 @@ export class CompassApiService {
 
   pickFolder(): Promise<{ path: string }> {
     return firstValueFrom(this.http.post<{ path: string }>('/v1/pick-folder', {}));
+  }
+
+  // -- Pipelines. These endpoints exist only when the module is enabled, so
+  // they are called from the section itself rather than at startup.
+  pipelines(): Promise<{ pipelines: PipelineSummary[] }> {
+    return firstValueFrom(
+      this.http.get<{ pipelines: PipelineSummary[] }>('/v1/pipelines'),
+    );
+  }
+  pipelineNodeTypes(): Promise<{ node_types: NodeTypeInfo[] }> {
+    return firstValueFrom(
+      this.http.get<{ node_types: NodeTypeInfo[] }>('/v1/pipelines/node-types'),
+    );
+  }
+  createPipeline(name: string): Promise<PipelineSummary> {
+    return firstValueFrom(
+      this.http.post<PipelineSummary>('/v1/pipelines', { name }),
+    );
+  }
+  runPipeline(id: string, parameters: Record<string, unknown> = {}): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(`/v1/pipelines/${id}/run`, { parameters }),
+    );
+  }
+  pipelineRuns(id: string): Promise<{ runs: unknown[] }> {
+    return firstValueFrom(
+      this.http.get<{ runs: unknown[] }>(`/v1/pipelines/${id}/runs`),
+    );
+  }
+  resumePipelineRun(runId: string, answer: Record<string, unknown>): Promise<unknown> {
+    return firstValueFrom(
+      this.http.post(`/v1/pipeline-runs/${runId}/resume`, { answer }),
+    );
   }
   revealWorkspace(id: string): Promise<{ opened: string }> {
     return firstValueFrom(this.http.post<{ opened: string }>(`/v1/workspaces/${id}/reveal`, {}));

@@ -23,6 +23,7 @@ import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Design } from './design/design';
+import { Pipelines } from './pipelines/pipelines';
 import { Lightbox } from './lightbox/lightbox';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
@@ -112,6 +113,7 @@ function scrolledUp(el: HTMLElement): boolean {
     ArtifactPanel,
     HomeChat,
     Design,
+    Pipelines,
     Lightbox,
   ],
   templateUrl: './app.html',
@@ -177,7 +179,7 @@ export class App {
   // Home is a separate, tool-free surface (HomeChat) and Design its own
   // canvas surface; neither shares state with the console. All three are
   // switched via the top-bar control.
-  readonly section = signal<'home' | 'code' | 'design'>('home');
+  readonly section = signal<'home' | 'code' | 'design' | 'pipelines'>('home');
   enterHome(): void {
     this.section.set('home');
     // Background tasks & the browser are Code-only surfaces — close them so
@@ -196,6 +198,19 @@ export class App {
   enterDesign(): void {
     this.section.set('design');
     this.designSeen.set(true);
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
+  }
+
+  /** The Pipelines section, which only exists when the server mounted it.
+   *  Guarded here as well as in the template: the nav entry is the only way
+   *  in today, but a section that can be reached when its routes are absent
+   *  is a bug waiting for the next entry point. */
+  enterPipelines(): void {
+    if (!this.health()?.pipelines) return;
+    this.section.set('pipelines');
     this.bgOpen.set(false);
     this.bgExpanded.set(false);
     this.browserOpen.set(false);

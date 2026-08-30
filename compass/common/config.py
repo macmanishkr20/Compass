@@ -350,6 +350,36 @@ class LoopSettings(BaseModel):
     tool_timeout_seconds: float = 300.0
 
 
+class PipelineSettings(BaseModel):
+    """The Pipelines module, which is off unless someone turns it on.
+
+    Off is the honest default for a module still being built: with `enabled`
+    false nothing is imported, no routes are mounted, no scheduler runs and
+    the section does not appear in the UI — Compass is byte-for-byte what it
+    was before the package existed. That is also what makes the flag testable
+    rather than decorative, since the route table is compared against a
+    recorded snapshot and any leakage shows up there.
+
+    `secrets_backend` is separate from the module's own switch because the
+    choice it makes is not reversible for free: a connection's credential is
+    stored behind a reference, and moving the store later is a migration.
+    """
+
+    enabled: bool = False
+    #: "local" keeps secrets in an encrypted file under the data directory;
+    #: "keyvault" uses the vault named by `key_vault_url`. The indirection
+    #: matters more than the choice — see compass/pipelines/secrets.py.
+    secrets_backend: str = "local"
+    #: A ceiling on one run's nodes, so a cycle or a runaway fan-out cannot
+    #: spin forever. Fabric caps a pipeline at 120 activities; this counts
+    #: executions instead, because fan-out multiplies them.
+    max_node_runs: int = 500
+    #: A pipeline may not be scheduled until it has succeeded once by hand.
+    #: Cheap, and it catches the class of mistake that only shows up when
+    #: nobody is watching.
+    require_manual_first_run: bool = True
+
+
 class PermissionRule(BaseModel):
     """One allow/ask/deny rule, e.g. {"tool": "bash", "pattern": "git *", "action": "allow"}."""
 
@@ -372,6 +402,7 @@ class Settings(BaseModel):
     key_vault_url: str = ""
     thinking: ThinkingSettings = Field(default_factory=ThinkingSettings)
     tools: ToolSettings = Field(default_factory=ToolSettings)
+    pipelines: PipelineSettings = Field(default_factory=PipelineSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -628,6 +659,13 @@ def get_settings() -> Settings:
     settings.mcp_servers_inline = os.environ.get(
         "COMPASS_MCP_SERVERS", settings.mcp_servers_inline
     )
+
+    pipelines = settings.pipelines
+    if (flag := os.environ.get("COMPASS_PIPELINES", "").strip().lower()):
+        pipelines.enabled = flag in ("1", "true", "yes", "on")
+    pipelines.secrets_backend = os.environ.get(
+        "COMPASS_PIPELINES_SECRETS", pipelines.secrets_backend
+    ).lower()
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

@@ -14,6 +14,10 @@ export interface HealthInfo {
   tts_voices: string[];
   mcp_servers: Record<string, string>;
   mcp_tools: string[];
+  /** Whether the Pipelines module is mounted. The nav reads this rather than
+   *  assuming: with the flag off there are no pipeline routes, so an entry
+   *  leading to them would be a link to nothing. */
+  pipelines?: boolean;
   workspace: string;
 }
 
@@ -190,6 +194,38 @@ export interface CustomizeInfo {
   mcp_servers: { name: string; detail: string; connected: boolean }[];
   mcp_tools: string[];
   routines: { name: string; detail: string }[];
+}
+
+/** One node type as the server describes it.
+ *
+ *  `config_schema` is JSON Schema and is what the settings pane renders from,
+ *  which is why the frontend never needs to know what a node actually does —
+ *  a type added by a provider arrives fully described. */
+export interface NodeTypeInfo {
+  id: string;
+  label: string;
+  category: string;
+  description: string;
+  icon: string;
+  config_schema: Record<string, unknown>;
+  connection_kind: string;
+  inputs: { name: string; kind: string; label: string }[];
+  outputs: { name: string; kind: string; label: string }[];
+  /** A capability the pipeline must hold before this node may run. */
+  requires: string;
+}
+
+export interface PipelineSummary {
+  id: string;
+  name: string;
+  nodes: unknown[];
+  edges: unknown[];
+  capabilities: string[];
+  enabled: boolean;
+  version: number;
+  /** Set once a manual run has succeeded; scheduling is refused until then. */
+  proven_at: number | null;
+  updated_at: number;
 }
 
 /** "How you've been working with Compass" — the Settings → Reflect recap. */

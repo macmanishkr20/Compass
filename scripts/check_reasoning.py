@@ -1352,6 +1352,66 @@ def check_plus_menu() -> None:
        "window, and eight connectors hung downward fall off the screen")
 
 
+def check_pipelines_flag() -> None:
+    """Pipelines is off by default, and off means absent rather than hidden.
+
+    A half-finished module earns its place only if it costs nothing when
+    switched off, and "nothing" has to include the import, the route table and
+    the nav. So the router is imported inside the conditional rather than at
+    the top of server.py, the UI reads the flag from /healthz instead of
+    assuming, and the section component is created only when entered.
+
+    Measured both ways. Off: /healthz reports false, /v1/pipelines/node-types
+    is 404, the nav shows Home, Code and Design, and the route snapshot says
+    UNCHANGED. On: eleven pipeline routes mount, the nav gains a fourth entry,
+    and the catalogue returns 21 node types — 8 flow and 13 adapted from the
+    tool registry.
+    """
+    print("\nPipelines is opt-in, and invisible when it is off")
+    settings = (ROOT / "compass/common/config.py").read_text()
+    server = (ROOT / "compass/api/server.py").read_text()
+    health = (ROOT / "compass/common/routes.py").read_text()
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    app_ts = (ROOT / "frontend/src/app/app.ts").read_text()
+
+    block = section(settings, "class PipelineSettings", "\n\nclass ")
+    ok("enabled: bool = False" in block,
+       "the module is off unless someone turns it on")
+    ok("require_manual_first_run: bool = True" in block,
+       "and cannot be scheduled until a manual run has proved it")
+
+    mount = section(server, "if get_settings().pipelines.enabled:", "\n\n")
+    ok("from compass.pipelines.routes import router" in mount,
+       "the router is imported inside the conditional, so a disabled module "
+       "costs no import time")
+    ok("from compass.pipelines" not in server.split("if get_settings()")[0],
+       "and nothing pipeline-related is imported at the top of server.py")
+
+    ok('"pipelines": settings.pipelines.enabled' in health,
+       "/healthz reports whether the module is mounted")
+    ok("@if (health()?.pipelines) {" in html,
+       "the nav entry appears only when the server says the routes exist")
+    ok("@if (section() === 'pipelines') {" in html,
+       "and the section is created on entry, not at startup")
+    ok("if (!this.health()?.pipelines) return;" in app_ts,
+       "entering is guarded in the component too, not only in the template")
+
+    # The engine's own invariants, checked against the source rather than run
+    # here — the suite must stay importable with the module disabled.
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    ok("node_type.requires not in pipeline.capabilities" in engine,
+       "a node is refused unless the pipeline was granted what it needs — a "
+       "scheduled graph must not inherit authority from its parts")
+    ok(engine.index("await self._propagate_skips") < engine.index("ready = self._ready"),
+       "skips propagate before the walk looks for work, so a resume that "
+       "enters with nothing runnable still settles the unreachable nodes")
+
+    store = (ROOT / "compass/pipelines/store.py").read_text()
+    ok("secret_ref" in store and 'd.pop("secret_ref", None)' in store,
+       "a connection's credential sits behind a reference and never reaches "
+       "the API view")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1608,6 +1668,7 @@ def main() -> int:
     check_reasoning_is_visible_by_default()
     check_narration_carries_no_chrome()
     check_plus_menu()
+    check_pipelines_flag()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

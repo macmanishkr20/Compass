@@ -50,6 +50,11 @@ async def healthz() -> dict:
         "tts_voices": _tts_voices(),
         "mcp_servers": manager.status,
         "mcp_tools": [t.name for t in manager.tools],
+        # Whether the Pipelines section exists at all. The UI reads this
+        # rather than assuming, so a build with the module off shows three
+        # sections and never a nav entry leading to routes that are not
+        # mounted.
+        "pipelines": settings.pipelines.enabled,
         "workspace": str(settings.workspace_root),
     }
 

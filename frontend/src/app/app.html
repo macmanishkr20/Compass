@@ -633,6 +633,20 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.6 5.6L21 9.4l-4.5 4.3 1.1 6.3L12 17l-5.6 3 1.1-6.3L3 9.4l6.4-.8z" stroke-linejoin="round"/></svg>
           Design
         </button>
+        <!-- Only when the module is actually mounted. The server decides;
+             the nav does not guess, so a build with Pipelines off shows the
+             three sections it has always shown. -->
+        @if (health()?.pipelines) {
+          <button type="button" role="tab" [attr.aria-selected]="section() === 'pipelines'"
+            (click)="enterPipelines()"
+            [style.background]="section() === 'pipelines' ? 'var(--surface)' : 'transparent'"
+            [style.color]="section() === 'pipelines' ? 'var(--ink)' : 'var(--muted)'"
+            [style.font-weight]="section() === 'pipelines' ? 600 : 400"
+            style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="12" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.6 6H12a3 3 0 013 3v.4M8.6 18H12a3 3 0 003-3v-.4" stroke-linecap="round"/></svg>
+            Pipelines
+          </button>
+        }
       </div>
       <div class="topbar-title">
         <span class="crumb">{{ section() === 'home' ? 'Compass Chat' : section() === 'design' ? 'Compass Design' : (capFirst(activeCard()?.title) || 'New conversation') }}</span>
@@ -735,6 +749,13 @@
     @if (designSeen()) {
       <app-design [style.display]="section() === 'design' ? null : 'none'"
         (customize)="openCustomizeAt($event)" />
+    }
+
+    <!-- Created only when the section is entered, so a build with Pipelines
+         off never instantiates it and never calls endpoints that are not
+         mounted. -->
+    @if (section() === 'pipelines') {
+      <app-pipelines />
     }
 
     @if (section() === 'code' && view() === 'chat') {

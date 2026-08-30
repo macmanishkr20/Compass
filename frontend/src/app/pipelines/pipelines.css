@@ -1,0 +1,177 @@
+/* The Pipelines section. Uses the app's own tokens throughout, so it follows
+   light and dark without a second set of rules. */
+
+.pl-root {
+  height: 100%;
+  overflow-y: auto;
+  padding: 26px 30px 60px;
+  font-family: var(--sans);
+  color: var(--ink);
+}
+
+.pl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.pl-title { margin: 0 0 4px; font-size: 1.5rem; font-weight: 600; letter-spacing: -0.01em; }
+.pl-sub { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+.pl-refresh {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 7px 13px;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pl-refresh:hover:not(:disabled) { background: var(--bg-2); }
+.pl-refresh:disabled { opacity: 0.55; cursor: default; }
+
+.pl-error {
+  border: 1px solid color-mix(in oklab, var(--danger, #A8452F) 40%, transparent);
+  background: color-mix(in oklab, var(--danger, #A8452F) 10%, transparent);
+  color: var(--danger, #A8452F);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 0.86rem;
+  margin-bottom: 18px;
+}
+
+.pl-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 860px) { .pl-cols { grid-template-columns: 1fr; } }
+
+.pl-panel {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 17px 19px 19px;
+}
+.pl-h2 {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pl-count {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--bg-2);
+  border-radius: 20px;
+  padding: 1px 8px;
+  letter-spacing: 0;
+}
+.pl-note { margin: 0 0 14px; font-size: 0.8rem; color: var(--muted); line-height: 1.5; }
+
+.pl-new { display: flex; gap: 8px; margin: 12px 0 14px; }
+.pl-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+}
+.pl-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pl-btn {
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-family: var(--sans);
+  font-size: 0.83rem;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pl-btn:disabled { opacity: 0.5; cursor: default; }
+
+.pl-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: none;
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: pointer;
+  font-family: var(--sans);
+  color: var(--ink);
+}
+.pl-row:hover { background: var(--bg-2); }
+.pl-row.on { background: var(--bg-2); border-color: var(--border); }
+.pl-row-name { display: block; font-size: 0.9rem; font-weight: 500; }
+.pl-row-meta {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.pl-tag {
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 20px;
+  padding: 0 7px;
+  margin-left: 6px;
+  font-size: 0.7rem;
+}
+
+.pl-empty { color: var(--faint); font-size: 0.85rem; line-height: 1.55; margin: 4px 0 0; }
+
+.pl-group { margin-top: 14px; }
+.pl-group-name {
+  margin: 0 0 7px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 500;
+}
+.pl-node {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-2);
+  margin-bottom: 5px;
+}
+.pl-node-label { font-size: 0.84rem; }
+.pl-req {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.pl-scaffold {
+  margin: 26px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--faint);
+  max-width: 62ch;
+}
