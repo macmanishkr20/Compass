@@ -924,3 +924,69 @@
 }
 .pl-ndv-pane.mid .pl-ndv-edit { background: var(--surface); }
 .pl-ndv-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* -- builder panel --------------------------------------------------------- */
+
+.pl-work.with-chat { grid-template-columns: 200px minmax(0, 1fr) 300px 290px; }
+@media (max-width: 1400px) {
+  .pl-work.with-chat { grid-template-columns: 180px minmax(0, 1fr) 300px; }
+  .pl-work.with-chat .pl-side { display: none; }
+}
+
+.pl-chat {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 11px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.pl-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px 6px;
+  flex-shrink: 0;
+}
+.pl-chat-head .pl-side-h { margin: 0; }
+.pl-chat-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pl-msg-you {
+  margin: 0;
+  padding: 8px 11px;
+  background: var(--bg-2);
+  border-radius: 10px;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+/* Steps read as narration, not as a log of tool names: what happened to the
+   graph, in the reader's terms. */
+.pl-msg-step {
+  margin: 0 0 3px;
+  font-size: 0.77rem;
+  color: var(--muted);
+  line-height: 1.45;
+  font-style: italic;
+}
+.pl-msg-step.live { color: var(--accent); }
+.pl-msg-said { font-size: 0.83rem; line-height: 1.55; }
+
+.pl-chat-ask {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pl-chat-ask .pl-ndv-edit { margin-top: 0; font-family: var(--sans); font-size: 0.82rem; }
+.pl-btn.on { background: var(--bg-2); border-color: var(--accent); color: var(--accent); }

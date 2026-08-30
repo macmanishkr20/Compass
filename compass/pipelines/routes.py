@@ -18,6 +18,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.common.auth import require_user
@@ -66,6 +67,14 @@ class StepRun(BaseModel):
 
     seed: dict[str, Any] = Field(default_factory=dict)
     mode: str = "live"
+
+
+class BuildMessage(BaseModel):
+    """One turn of the builder conversation."""
+
+    content: str = Field(min_length=1, max_length=8000)
+    effort: str = "medium"
+    model: str = ""
 
 
 class ResumeBody(BaseModel):
@@ -380,3 +389,49 @@ async def delete_connection(connection_id: str,
     if conn and conn.secret_ref:
         await get_secret_store().delete(conn.secret_ref)
     return {"deleted": await pstore.connections.delete(connection_id)}
+
+
+# --------------------------------------------------------------------------- builder
+
+#: One live builder session per pipeline. Held in memory rather than stored:
+#: a conversation about a graph is worth keeping only while the graph is open,
+#: and the graph itself — the thing that matters — is persisted at every edit.
+_sessions: dict[str, Any] = {}
+
+
+@router.post("/v1/pipelines/{pipeline_id}/build")
+async def build(pipeline_id: str, body: BuildMessage,
+                user: str = Depends(require_user)) -> StreamingResponse:
+    """Describe a change; the graph on the canvas changes.
+
+    Streams the same events the Code console renders — thinking, tool calls,
+    text — because it is the same loop with a different tool set. The canvas
+    is refreshed by the client when the turn ends: every edit was already
+    written to the store as it happened, so there is nothing to apply.
+    """
+    from compass.code.routes import _sse
+    from compass.code.routes import engine as code_engine
+    from compass.pipelines.builder import build_session
+
+    pipeline = await pstore.pipelines.get(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="no such pipeline")
+
+    session = _sessions.get(pipeline_id)
+    if session is None:
+        session = build_session(pipeline_id, model=body.model,
+                                effort=body.effort)
+        _sessions[pipeline_id] = session
+    if session.turn_lock.locked():
+        raise HTTPException(status_code=409,
+                            detail="the builder is already working")
+    session.effort = body.effort or session.effort
+    return _sse(code_engine.ask(session, body.content))
+
+
+@router.delete("/v1/pipelines/{pipeline_id}/build")
+async def reset_build(pipeline_id: str,
+                      user: str = Depends(require_user)) -> dict:
+    """Forget the conversation, keep the graph."""
+    _sessions.pop(pipeline_id, None)
+    return {"cleared": True}

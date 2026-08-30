@@ -933,6 +933,29 @@ export class CompassApiService {
     );
   }
 
+  /** Ask the builder to change the pipeline. Streams the same events the
+   *  Code console renders, because it is the same loop with a different tool
+   *  set — every edit is already written to the store as it happens, so the
+   *  canvas only needs refreshing when the turn ends. */
+  async streamBuild(
+    pipelineId: string,
+    content: string,
+    onEvent: (event: CompassEvent) => void,
+    effort = 'medium',
+  ): Promise<void> {
+    return this.streamPost(
+      `/v1/pipelines/${pipelineId}/build`,
+      { content, effort },
+      onEvent,
+    );
+  }
+
+  resetBuild(pipelineId: string): Promise<{ cleared: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ cleared: boolean }>(`/v1/pipelines/${pipelineId}/build`),
+    );
+  }
+
   /** Re-run the last user turn, discarding the previous answer. */
   async streamRegenerate(
     sessionId: string,

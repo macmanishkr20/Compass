@@ -119,6 +119,10 @@
         }
       </span>
 
+      <button class="pl-btn ghost" type="button" (click)="toggleChat()"
+        [class.on]="chatOpen()" title="Describe a change and let it build">
+        Builder
+      </button>
       <button class="pl-btn ghost" type="button" (click)="runNow('mock')"
         [disabled]="!!busy()"
         title="Run with pinned or stubbed data — calls nothing, needs no capabilities">
@@ -153,7 +157,7 @@
       </div>
     }
 
-    <div class="pl-work">
+    <div class="pl-work" [class.with-chat]="chatOpen()">
 
       <aside class="pl-palette">
         <input class="pl-input sm" type="text" placeholder="Search nodes…"
@@ -188,6 +192,53 @@
           (removeEdge)="removeEdge($event)"
           (openNode)="openDetail($event)" />
       </div>
+
+      @if (chatOpen()) {
+        <aside class="pl-chat">
+          <header class="pl-chat-head">
+            <h3 class="pl-side-h">Builder</h3>
+            <span class="pl-sheet-spacer"></span>
+            <button class="pl-logs-clear" type="button" (click)="clearChat()">Clear</button>
+          </header>
+
+          <div class="pl-chat-log">
+            @for (m of chat(); track $index) {
+              <div class="pl-msg" [class]="'from-' + m.role">
+                @if (m.role === 'you') {
+                  <p class="pl-msg-you">{{ m.text }}</p>
+                } @else {
+                  @for (s of m.steps; track $index) {
+                    <p class="pl-msg-step">{{ s }}</p>
+                  }
+                  @if (m.text) {
+                    <div class="pl-msg-said"><app-markdown [text]="m.text" /></div>
+                  }
+                }
+              </div>
+            } @empty {
+              <p class="pl-empty sm">
+                Describe what this pipeline should do and it will build it on
+                the canvas — picking steps from the palette, wiring them, and
+                dry running the result. It cannot grant capabilities or make
+                connections; it will tell you which are needed.
+              </p>
+            }
+            @if (building()) { <p class="pl-msg-step live">Working…</p> }
+          </div>
+
+          <div class="pl-chat-ask">
+            <textarea class="pl-ndv-edit" rows="3"
+              placeholder="Read new invoices and record each one…"
+              [value]="chatDraft()"
+              (input)="chatDraft.set($any($event.target).value)"
+              (keydown.enter)="$event.preventDefault(); sendToBuilder()"></textarea>
+            <button class="pl-btn" type="button" (click)="sendToBuilder()"
+              [disabled]="building() || !chatDraft().trim()">
+              {{ building() ? 'Building…' : 'Send' }}
+            </button>
+          </div>
+        </aside>
+      }
 
       <aside class="pl-side">
         @if (selectedNode(); as n) {

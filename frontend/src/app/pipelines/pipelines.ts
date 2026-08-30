@@ -537,6 +537,132 @@ export class Pipelines {
     }
   }
 
+  // -- the builder ----------------------------------------------------------
+  //
+  // A conversation that edits the graph you are looking at. Every edit is
+  // written to the store as the model makes it, so the canvas is refreshed
+  // when the turn ends rather than reconstructed from what was said — a plan
+  // you have to apply is a different, worse product.
+
+  readonly chatOpen = signal(false);
+  readonly chatDraft = signal('');
+  readonly building = signal(false);
+  readonly chat = signal<
+    { role: 'you' | 'builder'; text: string; steps: string[] }[]
+  >([]);
+
+  toggleChat(): void {
+    this.chatOpen.set(!this.chatOpen());
+  }
+
+  async sendToBuilder(): Promise<void> {
+    const pipeline = this.open();
+    const text = this.chatDraft().trim();
+    if (!pipeline || !text || this.building()) return;
+    if (this.dirty()) await this.save();
+
+    this.chatDraft.set('');
+    this.chat.update((c) => [...c, { role: 'you', text, steps: [] }]);
+    // The reply is appended now and filled in as it streams, so the steps
+    // appear while the work happens rather than all at once at the end.
+    this.chat.update((c) => [...c, { role: 'builder', text: '', steps: [] }]);
+    this.building.set(true);
+    this.error.set('');
+
+    const patch = (fn: (last: { text: string; steps: string[] }) => void) => {
+      this.chat.update((c) => {
+        const copy = [...c];
+        const last = { ...copy[copy.length - 1] };
+        fn(last);
+        copy[copy.length - 1] = last;
+        return copy;
+      });
+    };
+
+    try {
+      await this.api.streamBuild(pipeline.id, text, (ev) => {
+        switch (ev.type) {
+          case 'tool_call_started':
+            patch((l) => {
+              l.steps = [...l.steps, this.describeStep(ev)];
+            });
+            break;
+          case 'text_delta':
+            patch((l) => {
+              l.text += String(ev['text'] ?? '');
+            });
+            break;
+          case 'assistant_message':
+            patch((l) => {
+              l.text = String(ev['text'] ?? l.text);
+            });
+            break;
+          case 'error':
+            this.error.set(String(ev['message'] ?? 'The builder stopped.'));
+            break;
+        }
+      });
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.building.set(false);
+      // The graph changed underneath us while the model worked.
+      await this.reloadGraph();
+    }
+  }
+
+  /** A tool call as a line of narration. The tool's own name is Compass's
+   *  business — what the reader wants is what happened to their graph. */
+  private describeStep(ev: Record<string, unknown>): string {
+    const name = String(ev['tool_name'] ?? '');
+    const args = (ev['arguments'] ?? {}) as Record<string, unknown>;
+    switch (name) {
+      case 'pipeline_node_types':
+        return args['search'] ? `Looking for ${args['search']} steps` : 'Reading the catalogue';
+      case 'pipeline_describe_node_type':
+        return `Checking what ${args['type_id']} takes`;
+      case 'pipeline_read':
+        return 'Reading the current graph';
+      case 'pipeline_add_node':
+        return `Adding ${args['name'] || args['type_id']}`;
+      case 'pipeline_connect':
+        return `Wiring ${args['source']} to ${args['target']}`;
+      case 'pipeline_set_config':
+        return `Configuring ${args['node_id']}`;
+      case 'pipeline_remove_node':
+        return `Removing ${args['node_id']}`;
+      case 'pipeline_validate':
+        return 'Checking the graph';
+      case 'pipeline_dry_run':
+        return 'Dry running it';
+      case 'pipeline_needed_connections':
+        return 'Working out what still needs connecting';
+      case 'ask_user':
+        return 'Asking you something';
+      default:
+        return name || 'Working';
+    }
+  }
+
+  /** Re-read the graph the builder just changed, keeping the view put. */
+  private async reloadGraph(): Promise<void> {
+    const current = this.open();
+    if (!current) return;
+    try {
+      const fresh = await this.api.getPipeline(current.id);
+      this.open.set(fresh);
+      this.dirty.set(false);
+    } catch {
+      /* leave what is on screen; the next action will surface the problem */
+    }
+  }
+
+  async clearChat(): Promise<void> {
+    const pipeline = this.open();
+    this.chat.set([]);
+    if (pipeline) await this.api.resetBuild(pipeline.id).catch(() => undefined);
+  }
+
   // -- node details ---------------------------------------------------------
   //
   // The three-pane view: what came in, what the node is set to, what came out.

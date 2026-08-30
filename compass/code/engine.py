@@ -53,6 +53,13 @@ class Session:
     # Which held-back tools have been found by searching. Owned here rather
     # than rebuilt per turn: a tool found once should stay found.
     shelf: "Shelf | None" = None
+    #: Run this session with a different tool set and prompt. Both default to
+    #: None, which is the Code agent exactly as it was — these exist so the
+    #: Pipelines builder can borrow the loop without inheriting a workspace
+    #: agent's tools, which would let it edit files while it means to edit a
+    #: graph.
+    tool_override: list | None = None
+    prompt_override: str | None = None
 
     def make_context(self) -> ToolUseContext:
         from compass.code.mcp.manager import get_mcp_manager
@@ -60,7 +67,9 @@ class Session:
 
         if self.workspace_root is not None:
             self.shell_state.root = str(self.workspace_root)
-        catalogue, shelf = attach([*get_all_tools(), *get_mcp_manager().tools])
+        base = (self.tool_override if self.tool_override is not None
+                else [*get_all_tools(), *get_mcp_manager().tools])
+        catalogue, shelf = attach(base)
         if self.shelf is None:
             self.shelf = shelf
         else:
@@ -197,7 +206,7 @@ class QueryEngine:
         from compass.common.memory import GLOBAL_SCOPE, memory_prompt
 
         mem = await memory_prompt(session.workspace_id or GLOBAL_SCOPE)
-        base_prompt = build_system_prompt(
+        base_prompt = session.prompt_override or build_system_prompt(
             role="main", workspace_root=session.workspace_root
         )
         try:

@@ -1681,6 +1681,74 @@ def check_dry_run() -> None:
        "and the log says so, so a mocked pass is never mistaken for proof")
 
 
+def check_builder() -> None:
+    """Describe a change; the graph changes. And it stays in its lane.
+
+    The builder borrows the Code loop rather than growing a second one — two
+    places where streaming, tool errors and interruption all have to be right
+    would drift. Two additive fields on Session do it, both defaulting to
+    None, so Code is byte-identical; the prompt snapshot proves that.
+
+    The search bug this found is worth keeping in mind. The first live run
+    made twenty tool calls, every one a read, and built nothing: searching
+    "loop" returned zero, because the node is `flow.foreach` labelled "For
+    each" and the match was a naive substring. It hunted synonyms fifteen
+    times and gave up. Four fixes — words rather than substring, a match in
+    the name outranking one in prose, a short synonym list where the wording
+    genuinely misses the obvious word, and no dead end: a search that matches
+    nothing returns the whole catalogue.
+
+    Measured after: "loop over items" → For each, "send an email" → Gmail
+    send, "branch on a condition" → If condition, "run a shell command" →
+    Bash, each first. And a live build called node_types, describe_node_type,
+    read, add_node twice, connect, validate, dry_run, needed_connections —
+    the discipline the prompt asks for, in that order.
+    """
+    print("\nthe builder edits the graph, and cannot exceed it")
+    engine = (ROOT / "compass/code/engine.py").read_text()
+    builder = (ROOT / "compass/pipelines/builder.py").read_text()
+    tools = (ROOT / "compass/pipelines/tools.py").read_text()
+
+    ok("tool_override: list | None = None" in engine
+       and "prompt_override: str | None = None" in engine,
+       "the Code session takes an override for tools and prompt, both "
+       "defaulting to None so the Code agent is untouched")
+    ok("self.tool_override if self.tool_override is not None" in engine,
+       "and the builder gets its own tools rather than a workspace agent's")
+
+    ok("session.workspace_root = None" in builder,
+       "the builder claims no workspace, because it has no file tools and a "
+       "root would be a claim about access it does not have")
+    ok("effort: str = \"medium\"" in builder,
+       "medium by default — building is many small decisions, and minimal "
+       "produces the plausible graph assembled without reading a schema")
+
+    # The evaluated string, not the source: the prompt uses line
+    # continuations, so "Never invent" is split across lines in the file and
+    # a source slice would miss it — which it did, on the first run of this.
+    from compass.pipelines.builder import SYSTEM_PROMPT as prompt
+    ok("Never invent a node type" in prompt,
+       "it is told to pick from the catalogue")
+    ok("pipeline_dry_run" in prompt and "have not dry run" in prompt,
+       "and to dry run before saying it is done")
+    ok("only a person grants it" in prompt,
+       "capabilities are explicitly not its to grant")
+
+    ok("_word_score" in tools and "return 3" in tools,
+       "a search word in a node's name outranks one in its prose — without "
+       "it, 'loop' found a GitHub lister whose blurb mentions items")
+    ok("The whole catalogue, so " in tools,
+       "and a search that matches nothing has no dead end: it returns "
+       "everything, which is what stopped the hunting")
+    ok("def __init__(self, pipeline_id: str)" in tools,
+       "every tool is bound to one pipeline, so the builder for one graph "
+       "cannot reach another")
+    ok("Full JSON Schema" in tools,
+       "settings are checked for unknown and missing keys but not types, "
+       "because an expression is a string where the schema says integer and "
+       "expressions are what a pipeline is made of")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1942,6 +2010,7 @@ def main() -> int:
     check_fan_out()
     check_run_log()
     check_dry_run()
+    check_builder()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

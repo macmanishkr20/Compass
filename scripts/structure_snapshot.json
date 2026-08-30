@@ -45,6 +45,7 @@
   "DELETE /v1/memory/{entry_id}",
   "DELETE /v1/pipeline-connections/{connection_id}",
   "DELETE /v1/pipelines/{pipeline_id}",
+  "DELETE /v1/pipelines/{pipeline_id}/build",
   "DELETE /v1/routines/{routine_id}",
   "DELETE /v1/sessions/{session_id}",
   "DELETE /v1/workspaces/{workspace_id}",
@@ -142,6 +143,7 @@
   "POST /v1/pipeline-runs/{run_id}/cancel",
   "POST /v1/pipeline-runs/{run_id}/resume",
   "POST /v1/pipelines",
+  "POST /v1/pipelines/{pipeline_id}/build",
   "POST /v1/pipelines/{pipeline_id}/nodes/{node_id}/run",
   "POST /v1/pipelines/{pipeline_id}/run",
   "POST /v1/pipelines/{pipeline_id}/validate",
@@ -165,7 +167,7 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "19db253390d033da",
+ "schema": "ba8a9a4a824c8e1f",
  "smoke": {
   "/": "200",
   "/docs": "200",
