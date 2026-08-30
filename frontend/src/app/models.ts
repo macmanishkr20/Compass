@@ -262,11 +262,16 @@ export interface PipelineSummary {
 export interface PipelineNodeRun {
   node_id: string;
   status: string;
+  /** The settings the node actually ran with, after expressions resolved.
+   *  Empty when the node asked to keep its input out of the log. */
+  input: Record<string, unknown>;
   output: Record<string, unknown>;
   text: string;
   port: string;
   error: string;
   attempts: number;
+  started_at: number | null;
+  finished_at: number | null;
 }
 
 export interface PipelineRun {

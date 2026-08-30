@@ -387,6 +387,11 @@ class PipelineEngine:
             node_run.finished_at = time.time()
             return
 
+        # Recorded before the handler runs, so a node that fails or times out
+        # still shows what it was asked to do. Recording it afterwards would
+        # lose exactly the case the pane is most wanted for.
+        node_run.input = {} if node.secure_input else dict(config)
+
         ctx = NodeContext(
             run_id=run.id,
             node_id=node.id,

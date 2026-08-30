@@ -213,16 +213,6 @@
               }
             </section>
           }
-        } @else if (run(); as r) {
-          <h3 class="pl-side-h">Run · {{ r.status }}</h3>
-          @for (n of runNodes(); track n.node_id) {
-            <div class="pl-runrow" [class]="'st-' + n.status">
-              <span class="pl-runname">{{ n.label }}</span>
-              <span class="pl-runstatus">{{ n.status }}</span>
-              @if (n.error) { <span class="pl-runerr">{{ n.error }}</span> }
-              @else if (n.text) { <span class="pl-runtext">{{ n.text }}</span> }
-            </div>
-          }
         } @else {
           <p class="pl-empty sm">
             Select a node to configure it, or add one from the palette.
@@ -233,6 +223,117 @@
       </aside>
 
     </div>
+
+    <!-- The run log, docked under the canvas. Read while looking at the
+         graph, which is why it is here rather than in the side panel. -->
+    <section class="pl-logs" [class.shut]="!logsOpen()">
+      <header class="pl-logs-head">
+        <button class="pl-logs-toggle" type="button" (click)="logsOpen.set(!logsOpen())"
+          [attr.aria-expanded]="logsOpen()">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2.4" aria-hidden="true" [style.transform]="logsOpen() ? 'rotate(90deg)' : ''">
+            <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Logs</span>
+        </button>
+
+        @if (run(); as r) {
+          <span class="pl-logs-status" [class]="'st-' + r.status">{{ r.status }}</span>
+          @if (runMs() !== null) { <span class="pl-logs-ms">{{ runMs() }}ms</span> }
+          @if (r.trigger) { <span class="pl-logs-trig">{{ r.trigger }}</span> }
+          <span class="pl-sheet-spacer"></span>
+          <button class="pl-logs-clear" type="button" (click)="clearRun()">Clear execution</button>
+        }
+      </header>
+
+      @if (logsOpen()) {
+        <div class="pl-logs-body">
+          @if (run()) {
+            <ul class="pl-loglist">
+              @for (row of logRows(); track row.run.node_id) {
+                <li>
+                  <button type="button" class="pl-logitem"
+                    [class.on]="logSelected()?.run?.node_id === row.run.node_id"
+                    [class]="'st-' + row.run.status"
+                    (click)="logNodeId.set(row.run.node_id)">
+                    <i class="pl-logdot"></i>
+                    <span class="pl-logname">{{ row.label }}</span>
+                    @if (row.looped) { <i class="pl-logloop" title="Ran once per item">loop</i> }
+                    @if (row.ms !== null) { <span class="pl-logms">{{ row.ms }}ms</span> }
+                  </button>
+                </li>
+              } @empty {
+                <li><p class="pl-empty sm">No steps ran.</p></li>
+              }
+            </ul>
+
+            @if (logIterations().length) {
+              <!-- A loop body node ran once per item, so one pair of panes
+                   would have to pick an item and hide the rest. -->
+              <div class="pl-iterlog">
+                @for (it of logIterations(); track it.index) {
+                  <div class="pl-iterlog-row" [class]="'st-' + it.run.status">
+                    <span class="pl-iterlog-n">{{ it.index + 1 }}</span>
+                    <div class="pl-iterlog-panes">
+                      <div>
+                        <h4 class="pl-pane-h">Input</h4>
+                        @if (isEmpty(it.run.input)) {
+                          <p class="pl-pane-none">Nothing recorded.</p>
+                        } @else {
+                          <pre class="pl-pane-code">{{ asJson(it.run.input) }}</pre>
+                        }
+                      </div>
+                      <div>
+                        <h4 class="pl-pane-h">Output</h4>
+                        @if (it.run.error) {
+                          <pre class="pl-pane-code err">{{ it.run.error }}</pre>
+                        } @else if (isEmpty(it.run.output)) {
+                          <p class="pl-pane-none">{{ it.run.text || 'No output.' }}</p>
+                        } @else {
+                          <pre class="pl-pane-code">{{ asJson(it.run.output) }}</pre>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else if (logSelected(); as sel) {
+              <div class="pl-panes">
+                <div class="pl-pane">
+                  <h4 class="pl-pane-h">Input</h4>
+                  @if (isEmpty(sel.run.input)) {
+                    <p class="pl-pane-none">
+                      Nothing recorded. Either the step takes no settings, or it
+                      was told to keep its input out of the log.
+                    </p>
+                  } @else {
+                    <pre class="pl-pane-code">{{ asJson(sel.run.input) }}</pre>
+                  }
+                </div>
+                <div class="pl-pane">
+                  <h4 class="pl-pane-h">Output</h4>
+                  @if (sel.run.error) {
+                    <pre class="pl-pane-code err">{{ sel.run.error }}</pre>
+                  } @else if (isEmpty(sel.run.output)) {
+                    <p class="pl-pane-none">
+                      {{ sel.run.text || 'No output.' }}
+                    </p>
+                  } @else {
+                    @if (sel.run.text) { <p class="pl-pane-text">{{ sel.run.text }}</p> }
+                    <pre class="pl-pane-code">{{ asJson(sel.run.output) }}</pre>
+                  }
+                </div>
+              </div>
+            }
+          } @else {
+            <p class="pl-logs-empty">
+              Nothing to display yet. Run the pipeline to see what each step
+              received and produced.
+            </p>
+          }
+        </div>
+      }
+    </section>
   </div>
 }
 

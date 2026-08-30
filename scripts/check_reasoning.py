@@ -1537,6 +1537,70 @@ def check_fan_out() -> None:
        "drawn, rather than lagging a round trip")
 
 
+def check_run_log() -> None:
+    """A run says what each step received, not only what it produced.
+
+    The log is docked under the canvas rather than put in the side panel,
+    because it answers a different question: the side panel is about the node
+    you are editing, the log is about the run that happened, and you read it
+    while looking at the graph.
+
+    One thing the plan for this got wrong, and it is the interesting part.
+    "Every field is already stored" was true of output, timing and error but
+    not of input — `NodeRun` had nowhere to record what a node was asked to
+    do. So the input pane had nothing to show, and `secure_input` had been a
+    field that governed nothing since the scaffold.
+
+    What is recorded is the *resolved* config, after expressions ran. That is
+    the whole value: a node fails far more often because a reference resolved
+    to something unexpected than because its handler is wrong, and the
+    resolved value is the only place that shows. Measured on a loop —
+    `@item()` appearing as alpha, beta and gamma across three items.
+
+    Recorded before the handler runs, so a node that fails or times out still
+    shows what it was attempting.
+    """
+    print("\na run log that shows what each step was asked to do")
+    store = (ROOT / "compass/pipelines/store.py").read_text()
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+
+    node_run = section(store, "class NodeRun:", "\n\n@dataclass")
+    ok("input: dict[str, Any]" in node_run,
+       "a node run records its input, not only its output")
+
+    ok("node_run.input = {} if node.secure_input else dict(config)" in engine,
+       "and it is the resolved config, so an expression shows as the value "
+       "it became")
+    before = engine.index("node_run.input =")
+    after = engine.index("node_type.handler(config, ctx)")
+    ok(before < after,
+       "recorded before the handler runs, so a failure still shows what it "
+       "was attempting")
+    ok("secure_input" in engine,
+       "and a node that asked to stay out of the log is honoured — the flag "
+       "governed nothing until now")
+
+    ok('class="pl-logs"' in html, "the log is docked under the canvas")
+    ok("logRows = computed" in ts and "(a.started_at ?? 0) - (b.started_at ?? 0)"
+       in ts,
+       "ordered by when each step ran, since a branch and a fan-out both make "
+       "graph order a lie about what happened when")
+    ok(".filter((n) => n.status !== 'pending')" in ts,
+       "and a step that never started is left out rather than shown as about "
+       "to run")
+
+    ok("logIterations = computed" in ts,
+       "a loop body node shows one pair of panes per item")
+    ok("pl-iterlog" in html,
+       "because its entry in the run is only a rollup — without this the "
+       "pane would say 'nothing recorded' about a node that ran three times")
+
+    ok("rows.find((r) => r.run.status === 'failed')" in ts,
+       "opening the log after a failure lands on the failure")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1796,6 +1860,7 @@ def main() -> int:
     check_pipelines_flag()
     check_pipeline_editor()
     check_fan_out()
+    check_run_log()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

@@ -157,6 +157,13 @@ class NodeRun:
     node_id: str
     status: str = "pending"
     # pending | running | waiting | done | failed | skipped | inactive
+    #: The settings this node actually ran with — after expressions were
+    #: resolved, so `@nodes('x').data.id` appears as the value it became.
+    #: That difference is the whole reason to record it: a node fails far
+    #: more often because a reference resolved to something unexpected than
+    #: because the handler is wrong, and the resolved value is the only place
+    #: that shows. Emptied when the node asks for `secure_input`.
+    input: dict[str, Any] = field(default_factory=dict)
     output: dict[str, Any] = field(default_factory=dict)
     text: str = ""
     port: str = "out"

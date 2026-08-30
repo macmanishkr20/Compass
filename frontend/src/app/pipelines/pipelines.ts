@@ -146,6 +146,98 @@ export class Pipelines {
     }));
   });
 
+  // -- the run log ----------------------------------------------------------
+  //
+  // Docked under the canvas rather than in the side panel, because it answers
+  // a different question. The side panel is about the node you are editing;
+  // the log is about the run that just happened, and you read it while
+  // looking at the graph rather than instead of it.
+
+  readonly logsOpen = signal(true);
+  readonly logNodeId = signal('');
+
+  /** Node runs in the order they happened, which is what a log is.
+   *
+   *  Sorted by when each started rather than by graph position: a fan-out and
+   *  a branch both make graph order a lie about what actually ran when. Nodes
+   *  that never started are dropped — "pending" after a run has finished means
+   *  unreachable, and the canvas already says so. */
+  readonly logRows = computed(() => {
+    const current = this.run();
+    if (!current) return [];
+    const names = new Map(
+      this.open()?.nodes.map((n) => [n.id, n.name || n.type]) ?? [],
+    );
+    const body = this.loopBody();
+    return Object.values(current.nodes)
+      .filter((n) => n.status !== 'pending')
+      .sort((a, b) => (a.started_at ?? 0) - (b.started_at ?? 0))
+      .map((n) => ({
+        run: n,
+        label: names.get(n.node_id) ?? n.node_id,
+        looped: body.has(n.node_id),
+        ms:
+          n.started_at && n.finished_at
+            ? Math.max(0, Math.round((n.finished_at - n.started_at) * 1000))
+            : null,
+      }));
+  });
+
+  /** Defaults to the first failure, then the first row: opening the log after
+   *  something went wrong should land on what went wrong. */
+  readonly logSelected = computed(() => {
+    const rows = this.logRows();
+    if (!rows.length) return null;
+    const chosen = rows.find((r) => r.run.node_id === this.logNodeId());
+    return chosen ?? rows.find((r) => r.run.status === 'failed') ?? rows[0];
+  });
+
+  /**
+   * A loop body node's per-item states, for the log panes.
+   *
+   * Its entry in `run.nodes` is only a rollup — status and a "2/3 item(s)"
+   * line — because the canvas draws one box per node however many times it
+   * ran. The real inputs and outputs are one per item, and without this the
+   * pane would say "nothing recorded" about a node that ran three times with
+   * three different inputs, which is worse than saying nothing at all.
+   */
+  readonly logIterations = computed(() => {
+    const current = this.run();
+    const selected = this.logSelected();
+    if (!current || !selected || !selected.looped) return [];
+    const nodeId = selected.run.node_id;
+    for (const states of Object.values(current.iterations ?? {})) {
+      if (!states.length || !(nodeId in states[0])) continue;
+      return states.map((s, index) => ({ index, run: s[nodeId] }));
+    }
+    return [];
+  });
+
+  readonly runMs = computed(() => {
+    const current = this.run();
+    if (!current?.finished_at) return null;
+    return Math.max(0, Math.round((current.finished_at - current.started_at) * 1000));
+  });
+
+  /** Pretty-printed, because a run's payload is read, not parsed. */
+  asJson(value: unknown): string {
+    if (value === undefined || value === null) return '';
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+
+  isEmpty(value: Record<string, unknown> | undefined): boolean {
+    return !value || Object.keys(value).length === 0;
+  }
+
+  clearRun(): void {
+    this.run.set(null);
+    this.logNodeId.set('');
+  }
+
   readonly palette = computed(() => {
     const term = this.paletteFilter().trim().toLowerCase();
     const order = ['flow', 'connector', 'mcp', 'intelligence', 'code', 'module', 'tool', 'io'];
@@ -426,15 +518,6 @@ export class Pipelines {
       }
     }
     return 'Waiting';
-  });
-
-  readonly runNodes = computed(() => {
-    const current = this.run();
-    if (!current) return [];
-    const names = new Map(this.open()?.nodes.map((n) => [n.id, n.name || n.type]) ?? []);
-    return Object.values(current.nodes)
-      .filter((n) => n.status !== 'pending')
-      .map((n) => ({ ...n, label: names.get(n.node_id) ?? n.node_id }));
   });
 
   async deletePipeline(id: string, ev: Event): Promise<void> {
