@@ -89,7 +89,15 @@ async def _set_variable(config: dict[str, Any], ctx: NodeContext) -> NodeResult:
     """
     name = str(config.get("name") or "").strip()
     if not name:
-        return NodeResult(text="No variable name given", data={})
+        # Raise rather than return. A node that reports "done" while doing
+        # nothing sends the run down the success branch and fails later
+        # somewhere else — the downstream expression is what breaks, and the
+        # error names the wrong node. Failing here says what is actually
+        # wrong and where.
+        raise ValueError(
+            "Set variable has no name, so there is nothing to write. Give it "
+            "the name of the variable to set."
+        )
     ctx.variables[name] = config.get("value")
     return NodeResult(data={"name": name, "value": config.get("value")},
                       text=f"Set {name}")

@@ -25,6 +25,8 @@ import {
   FileHit,
   MemoryEntry,
   NodeTypeInfo,
+  PipelineProblem,
+  PipelineRun,
   PipelineSummary,
   Recap,
   PermissionBehavior,
@@ -164,19 +166,46 @@ export class CompassApiService {
       this.http.post<PipelineSummary>('/v1/pipelines', { name }),
     );
   }
-  runPipeline(id: string, parameters: Record<string, unknown> = {}): Promise<unknown> {
+  getPipeline(id: string): Promise<PipelineSummary> {
+    return firstValueFrom(this.http.get<PipelineSummary>(`/v1/pipelines/${id}`));
+  }
+  savePipeline(id: string, patch: Partial<PipelineSummary>): Promise<PipelineSummary> {
     return firstValueFrom(
-      this.http.post(`/v1/pipelines/${id}/run`, { parameters }),
+      this.http.patch<PipelineSummary>(`/v1/pipelines/${id}`, patch),
     );
   }
-  pipelineRuns(id: string): Promise<{ runs: unknown[] }> {
+  deletePipeline(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(
-      this.http.get<{ runs: unknown[] }>(`/v1/pipelines/${id}/runs`),
+      this.http.delete<{ deleted: boolean }>(`/v1/pipelines/${id}`),
     );
   }
-  resumePipelineRun(runId: string, answer: Record<string, unknown>): Promise<unknown> {
+  validatePipeline(id: string): Promise<{ ok: boolean; problems: PipelineProblem[] }> {
     return firstValueFrom(
-      this.http.post(`/v1/pipeline-runs/${runId}/resume`, { answer }),
+      this.http.post<{ ok: boolean; problems: PipelineProblem[] }>(
+        `/v1/pipelines/${id}/validate`, {},
+      ),
+    );
+  }
+  runPipeline(id: string, parameters: Record<string, unknown> = {}): Promise<PipelineRun> {
+    return firstValueFrom(
+      this.http.post<PipelineRun>(`/v1/pipelines/${id}/run`, { parameters }),
+    );
+  }
+  pipelineRuns(id: string): Promise<{ runs: PipelineRun[] }> {
+    return firstValueFrom(
+      this.http.get<{ runs: PipelineRun[] }>(`/v1/pipelines/${id}/runs`),
+    );
+  }
+  resumePipelineRun(runId: string, answer: Record<string, unknown>): Promise<PipelineRun> {
+    return firstValueFrom(
+      this.http.post<PipelineRun>(`/v1/pipeline-runs/${runId}/resume`, { answer }),
+    );
+  }
+  pipelineConnections(): Promise<{ connections: { id: string; name: string; kind: string }[] }> {
+    return firstValueFrom(
+      this.http.get<{ connections: { id: string; name: string; kind: string }[] }>(
+        '/v1/pipeline-connections',
+      ),
     );
   }
   revealWorkspace(id: string): Promise<{ opened: string }> {

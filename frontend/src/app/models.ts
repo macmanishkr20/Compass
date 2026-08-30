@@ -215,17 +215,76 @@ export interface NodeTypeInfo {
   requires: string;
 }
 
+/** One node, mirroring compass/pipelines/store.py. The common fields are the
+ *  ones every node needs whatever it does — a timeout, a retry policy, a way
+ *  to keep a payload out of the log, and a way to switch it off. */
+export interface PipelineNode {
+  id: string;
+  type: string;
+  name: string;
+  description: string;
+  config: Record<string, unknown>;
+  connection_id: string;
+  position: { x: number; y: number };
+  timeout_s: number;
+  retries: number;
+  retry_interval_s: number;
+  secure_input: boolean;
+  secure_output: boolean;
+  state: string;
+  mark_as: string;
+}
+
+/** An edge carries the outcome it follows, so failure handling is what an
+ *  arrow already is rather than a separate mechanism. */
+export interface PipelineEdge {
+  source: string;
+  target: string;
+  when: 'success' | 'failure' | 'completion' | 'skip';
+  port: string;
+}
+
 export interface PipelineSummary {
   id: string;
   name: string;
-  nodes: unknown[];
-  edges: unknown[];
+  nodes: PipelineNode[];
+  edges: PipelineEdge[];
+  parameters: Record<string, unknown>;
+  variables: Record<string, unknown>;
   capabilities: string[];
   enabled: boolean;
   version: number;
   /** Set once a manual run has succeeded; scheduling is refused until then. */
   proven_at: number | null;
   updated_at: number;
+}
+
+export interface PipelineNodeRun {
+  node_id: string;
+  status: string;
+  output: Record<string, unknown>;
+  text: string;
+  port: string;
+  error: string;
+  attempts: number;
+}
+
+export interface PipelineRun {
+  id: string;
+  pipeline_id: string;
+  pipeline_name: string;
+  pipeline_version: number;
+  trigger: string;
+  status: string;
+  nodes: Record<string, PipelineNodeRun>;
+  waiting_on: string;
+  started_at: number;
+  finished_at: number | null;
+}
+
+export interface PipelineProblem {
+  node: string;
+  problem: string;
 }
 
 /** "How you've been working with Compass" — the Settings → Reflect recap. */

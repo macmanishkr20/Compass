@@ -1,0 +1,147 @@
+<div class="in-root">
+
+  <header class="in-head">
+    <span class="in-kind">{{ type()?.category || 'node' }}</span>
+    <input class="in-name" type="text" [value]="node().name"
+      placeholder="Name this step"
+      (input)="patch.emit({ name: asInput($event).value })" />
+    @if (type()?.description) {
+      <p class="in-desc">{{ type()?.description }}</p>
+    }
+  </header>
+
+  @if (type()?.requires) {
+    <p class="in-req">
+      Needs the <code>{{ type()?.requires }}</code> capability, granted on the
+      pipeline rather than here.
+    </p>
+  }
+
+  @if (type()?.connection_kind) {
+    <label class="in-field">
+      <span class="in-label">Connection</span>
+      <select class="in-control"
+        (change)="patch.emit({ connection_id: asInput($event).value })">
+        <option value="">Choose a {{ type()?.connection_kind }} connection…</option>
+        @for (c of connections(); track c.id) {
+          <option [value]="c.id" [selected]="c.id === node().connection_id">{{ c.name }}</option>
+        }
+      </select>
+    </label>
+  }
+
+  <!-- Generated from the node type's schema. Nothing below knows what this
+       node does. -->
+  <section class="in-section">
+    <h3 class="in-h3">Settings</h3>
+    @for (f of fields(); track f.key) {
+      <label class="in-field">
+        <span class="in-label">
+          {{ f.title }}
+          @if (f.required) { <i class="in-star" title="Required">*</i> }
+        </span>
+
+        @switch (f.control) {
+          @case ('checkbox') {
+            <input class="in-check" type="checkbox" [checked]="!!valueOf(f.key)"
+              (change)="setConfig(f.key, asInput($event).checked)" />
+          }
+          @case ('select') {
+            <select class="in-control" (change)="setConfig(f.key, asInput($event).value)">
+              @for (o of f.options; track o) {
+                <option [value]="o" [selected]="o === valueOf(f.key)">{{ o }}</option>
+              }
+            </select>
+          }
+          @case ('number') {
+            <input class="in-control" type="text" inputmode="decimal"
+              [value]="displayOf(f.key)" [placeholder]="'number, or an expression'"
+              (input)="setNumber(f.key, asInput($event).value)" />
+          }
+          @case ('json') {
+            <textarea class="in-control in-area" rows="3"
+              [value]="displayOf(f.key)"
+              placeholder="JSON, or @nodes('id').data.items"
+              (input)="setJson(f.key, asInput($event).value)"></textarea>
+          }
+          @case ('textarea') {
+            <textarea class="in-control in-area" rows="3"
+              [value]="displayOf(f.key)" [placeholder]="f.placeholder"
+              (input)="setConfig(f.key, asInput($event).value)"></textarea>
+          }
+          @default {
+            <input class="in-control" type="text"
+              [value]="displayOf(f.key)" [placeholder]="f.placeholder"
+              (input)="setConfig(f.key, asInput($event).value)" />
+          }
+        }
+
+        @if (f.description) { <span class="in-hint">{{ f.description }}</span> }
+      </label>
+    } @empty {
+      <p class="in-none">This node has nothing to configure.</p>
+    }
+  </section>
+
+  <!-- The frame every node shares, whatever it does. -->
+  <section class="in-section">
+    <h3 class="in-h3">General</h3>
+
+    <label class="in-field">
+      <span class="in-label">Description</span>
+      <input class="in-control" type="text" [value]="node().description"
+        (input)="patch.emit({ description: asInput($event).value })" />
+    </label>
+
+    <div class="in-pair">
+      <label class="in-field">
+        <span class="in-label">Timeout (seconds)</span>
+        <input class="in-control" type="number" min="1" [value]="node().timeout_s"
+          (input)="patch.emit({ timeout_s: +asInput($event).value })" />
+      </label>
+      <label class="in-field">
+        <span class="in-label">Retries</span>
+        <input class="in-control" type="number" min="0" [value]="node().retries"
+          (input)="patch.emit({ retries: +asInput($event).value })" />
+      </label>
+    </div>
+
+    <label class="in-field">
+      <span class="in-label">Retry interval (seconds)</span>
+      <input class="in-control" type="number" min="0" [value]="node().retry_interval_s"
+        (input)="patch.emit({ retry_interval_s: +asInput($event).value })" />
+    </label>
+
+    <label class="in-row">
+      <input type="checkbox" [checked]="node().secure_input"
+        (change)="patch.emit({ secure_input: asInput($event).checked })" />
+      <span>Keep input out of the run log</span>
+    </label>
+    <label class="in-row">
+      <input type="checkbox" [checked]="node().secure_output"
+        (change)="patch.emit({ secure_output: asInput($event).checked })" />
+      <span>Keep output out of the run log</span>
+    </label>
+
+    <label class="in-row">
+      <input type="checkbox" [checked]="node().state === 'deactivated'"
+        (change)="patch.emit({ state: asInput($event).checked ? 'deactivated' : 'active' })" />
+      <span>Deactivate — skip this step without deleting it</span>
+    </label>
+    @if (node().state === 'deactivated') {
+      <label class="in-field">
+        <span class="in-label">While deactivated, pretend it</span>
+        <select class="in-control" (change)="patch.emit({ mark_as: asInput($event).value })">
+          @for (o of ['success', 'failure', 'skip']; track o) {
+            <option [value]="o" [selected]="o === node().mark_as">{{ o }}</option>
+          }
+        </select>
+        <span class="in-hint">So the branches hanging off it still exercise.</span>
+      </label>
+    }
+  </section>
+
+  <button class="in-delete" type="button" (click)="remove.emit(node().id)">
+    Delete this node
+  </button>
+</div>

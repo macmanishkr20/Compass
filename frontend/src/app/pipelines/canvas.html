@@ -1,0 +1,80 @@
+<div class="cv-wrap">
+
+  <div class="cv-tools">
+    <button type="button" (click)="zoomBy(1.15)" title="Zoom in" aria-label="Zoom in">+</button>
+    <button type="button" (click)="zoomBy(0.87)" title="Zoom out" aria-label="Zoom out">−</button>
+    <button type="button" class="cv-reset" (click)="resetView()">{{ (scale() * 100).toFixed(0) }}%</button>
+  </div>
+
+  <div #surface class="cv-surface" (pointerdown)="startPan($event)" (wheel)="onWheel($event)">
+    <div class="cv-space" [style.transform]="transform()"
+      [style.width.px]="extent().w" [style.height.px]="extent().h">
+
+      <!-- Edges under the nodes, sharing the same transformed space so the
+           two never drift apart. -->
+      <svg class="cv-edges" [attr.width]="extent().w" [attr.height]="extent().h"
+        [attr.viewBox]="'0 0 ' + extent().w + ' ' + extent().h" aria-hidden="true">
+        <defs>
+          <marker id="cv-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+          </marker>
+        </defs>
+        @for (w of wires(); track w.key) {
+          <g class="cv-wire" [class]="'when-' + w.when">
+            <path class="cv-wire-hit" [attr.d]="w.d" (click)="removeEdge.emit(w.edge)">
+              <title>{{ w.when }} — click to remove</title>
+            </path>
+            <path class="cv-wire-line" [attr.d]="w.d" marker-end="url(#cv-arrow)" />
+            @if (w.when !== 'success') {
+              <text class="cv-wire-tag" [attr.x]="w.midX" [attr.y]="w.midY - 6">{{ w.when }}</text>
+            }
+          </g>
+        }
+        @if (linkWire()) {
+          <path class="cv-linking" [attr.d]="linkWire()" />
+        }
+      </svg>
+
+      @for (n of nodes(); track n.id) {
+        <div class="cv-node" [attr.data-node-id]="n.id"
+          [class.sel]="selectedId() === n.id"
+          [class.unknown]="isUnknown(n)"
+          [class]="'st-' + (statusFor(n) || 'idle')"
+          [style.left.px]="n.position.x" [style.top.px]="n.position.y"
+          [style.width.px]="190" [style.height.px]="62"
+          (pointerdown)="startDrag($event, n)">
+
+          @if (hasInput(n)) { <i class="cv-in" aria-hidden="true"></i> }
+
+          <span class="cv-kind">{{ kindFor(n) || 'node' }}</span>
+          <span class="cv-label">{{ labelFor(n) }}</span>
+
+          @if (statusFor(n)) {
+            <span class="cv-status">{{ statusFor(n) }}</span>
+          }
+          @if (isUnknown(n)) {
+            <span class="cv-status warn" title="No provider offers this type right now">unavailable</span>
+          }
+
+          @for (p of outputsOf(n); track p.name; let i = $index; let c = $count) {
+            <button type="button" class="cv-out" [attr.data-port]="p.name"
+              [style.top.px]="(62 / (c + 1)) * (i + 1) - 6"
+              (pointerdown)="startLink($event, n, p.name)"
+              [title]="'Drag from ' + p.label + ' to another node'"
+              [attr.aria-label]="'Connect from ' + p.label">
+              @if (c > 1) { <span class="cv-out-tag">{{ p.label }}</span> }
+            </button>
+          }
+        </div>
+      }
+    </div>
+  </div>
+
+  @if (nodes().length === 0) {
+    <p class="cv-empty">
+      Empty canvas. Add a node from the palette, then drag from its right-hand
+      port onto another node to connect them.
+    </p>
+  }
+</div>

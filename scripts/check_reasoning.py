@@ -1353,21 +1353,22 @@ def check_plus_menu() -> None:
 
 
 def check_pipelines_flag() -> None:
-    """Pipelines is off by default, and off means absent rather than hidden.
+    """Pipelines is on by default, and switching it off removes it entirely.
 
-    A half-finished module earns its place only if it costs nothing when
-    switched off, and "nothing" has to include the import, the route table and
-    the nav. So the router is imported inside the conditional rather than at
-    the top of server.py, the UI reads the flag from /healthz instead of
-    assuming, and the section component is created only when entered.
+    The flag is worth keeping now that it defaults on, because "off" has to
+    keep meaning absent rather than hidden: the import, the route table and
+    the nav all have to go. So the router is imported inside the conditional
+    rather than at the top of server.py, the UI reads the flag from /healthz
+    instead of assuming, and the section component is created only when
+    entered.
 
-    Measured both ways. Off: /healthz reports false, /v1/pipelines/node-types
-    is 404, the nav shows Home, Code and Design, and the route snapshot says
-    UNCHANGED. On: eleven pipeline routes mount, the nav gains a fourth entry,
-    and the catalogue returns 21 node types — 8 flow and 13 adapted from the
-    tool registry.
+    Measured both ways. With COMPASS_PIPELINES=0: /healthz reports false,
+    /v1/pipelines/node-types is 404, and the nav shows Home, Code and Design.
+    Default: eleven pipeline routes mount, the nav gains a fourth entry, and
+    the catalogue returns 21 node types — 8 flow and 13 adapted from the tool
+    registry.
     """
-    print("\nPipelines is opt-in, and invisible when it is off")
+    print("\nPipelines is on by default, and vanishes entirely when off")
     settings = (ROOT / "compass/common/config.py").read_text()
     server = (ROOT / "compass/api/server.py").read_text()
     health = (ROOT / "compass/common/routes.py").read_text()
@@ -1375,10 +1376,11 @@ def check_pipelines_flag() -> None:
     app_ts = (ROOT / "frontend/src/app/app.ts").read_text()
 
     block = section(settings, "class PipelineSettings", "\n\nclass ")
-    ok("enabled: bool = False" in block,
-       "the module is off unless someone turns it on")
+    ok("enabled: bool = True" in block, "the module ships on")
     ok("require_manual_first_run: bool = True" in block,
-       "and cannot be scheduled until a manual run has proved it")
+       "and a pipeline cannot be scheduled until a manual run has proved it")
+    ok('os.environ.get("COMPASS_PIPELINES"' in settings,
+       "and the switch still exists, so a deployment can remove it")
 
     mount = section(server, "if get_settings().pipelines.enabled:", "\n\n")
     ok("from compass.pipelines.routes import router" in mount,
@@ -1410,6 +1412,62 @@ def check_pipelines_flag() -> None:
     ok("secret_ref" in store and 'd.pop("secret_ref", None)' in store,
        "a connection's credential sits behind a reference and never reaches "
        "the API view")
+
+
+def check_pipeline_editor() -> None:
+    """The canvas draws the graph, and the inspector is generated, not written.
+
+    The settings pane reads `config_schema` and renders a control per
+    property, so a node type contributed by a provider — a connector, an MCP
+    server that just connected — arrives with a working form and no frontend
+    change. Hand-writing a form per node type would cap the catalogue at
+    whatever the frontend had been taught, which is the thing the registry
+    exists to avoid.
+
+    The config-merge rule is here because the bug it prevents is invisible.
+    An input signal updates on change detection rather than synchronously, so
+    an inspector that rebuilds the whole config from `this.node()` has two
+    edits in one cycle read the same stale object, and the second silently
+    discards the first. Measured before the fix: setting a name and a value
+    together saved only the value, and the run then failed one node
+    downstream with an error naming the wrong node.
+
+    Measured after: three nodes placed from the palette, wired by dragging a
+    port onto a node, one dragged to a new position, both fields kept, and a
+    run that finished with the If node reporting port=true.
+    """
+    print("\nthe pipeline editor draws the graph and generates its forms")
+    canvas = (ROOT / "frontend/src/app/pipelines/canvas.ts").read_text()
+    inspector = (ROOT / "frontend/src/app/pipelines/inspector.ts").read_text()
+    parent = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    ins_html = (ROOT / "frontend/src/app/pipelines/inspector.html").read_text()
+
+    ok("config_schema" in inspector and "properties" in inspector,
+       "the settings form is generated from the node type's JSON Schema")
+    ok("in-name" in ins_html and "Deactivate" in ins_html,
+       "and sits beside the frame every node shares, whatever it does")
+
+    set_config = section(inspector, "setConfig(key: string", "\n  }")
+    ok("{ [key]: value }" in set_config,
+       "an edit emits only the key that changed")
+    ok("...(this.node().config" not in set_config,
+       "and never a config rebuilt from a signal that has not updated yet")
+    patch = section(parent, "patchNode(patch:", "\n  }")
+    ok("config: { ...n.config" in patch,
+       "the parent merges, so two edits in one cycle cannot clobber each other")
+
+    ok("private toGraph(ev: PointerEvent)" in canvas,
+       "pointer positions are converted to graph coordinates")
+    ok("/ this.scale()" in section(canvas, "private toGraph", "\n  }"),
+       "through the zoom, so a drag does not drift once the canvas is scaled")
+    ok("data-node-id" in canvas and "elementFromPoint" in canvas,
+       "a wire lands on whatever node is under the pointer, read from the "
+       "DOM rather than from hover state the two could disagree about")
+
+    delete_node = section(parent, "deleteNode(id: string)", "\n  }")
+    ok("e.source !== id && e.target !== id" in delete_node,
+       "deleting a node takes its edges with it, rather than leaving the "
+       "validator to report wires to something that is gone")
 
 
 def check_fetching() -> None:
@@ -1669,6 +1727,7 @@ def main() -> int:
     check_narration_carries_no_chrome()
     check_plus_menu()
     check_pipelines_flag()
+    check_pipeline_editor()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

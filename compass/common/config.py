@@ -351,21 +351,22 @@ class LoopSettings(BaseModel):
 
 
 class PipelineSettings(BaseModel):
-    """The Pipelines module, which is off unless someone turns it on.
+    """The Pipelines module, on by default and switchable off.
 
-    Off is the honest default for a module still being built: with `enabled`
-    false nothing is imported, no routes are mounted, no scheduler runs and
-    the section does not appear in the UI — Compass is byte-for-byte what it
-    was before the package existed. That is also what makes the flag testable
-    rather than decorative, since the route table is compared against a
-    recorded snapshot and any leakage shows up there.
+    The switch still matters even now that it defaults on. `COMPASS_PIPELINES=0`
+    removes the module completely rather than hiding it: nothing is imported,
+    no routes are mounted, and the section does not appear in the UI, leaving
+    Compass byte-for-byte what it was before the package existed. That is a
+    real escape hatch for a deployment that does not want it, and it is
+    testable rather than decorative because the route table is compared
+    against a recorded snapshot in both states.
 
     `secrets_backend` is separate from the module's own switch because the
     choice it makes is not reversible for free: a connection's credential is
     stored behind a reference, and moving the store later is a migration.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     #: "local" keeps secrets in an encrypted file under the data directory;
     #: "keyvault" uses the vault named by `key_vault_url`. The indirection
     #: matters more than the choice — see compass/pipelines/secrets.py.
