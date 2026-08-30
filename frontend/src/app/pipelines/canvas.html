@@ -40,6 +40,7 @@
         <div class="cv-node" [attr.data-node-id]="n.id"
           [class.sel]="selectedId() === n.id"
           [class.unknown]="isUnknown(n)"
+          [class.looped]="loopedFor(n)"
           [class]="'st-' + (statusFor(n) || 'idle')"
           [style.left.px]="n.position.x" [style.top.px]="n.position.y"
           [style.width.px]="190" [style.height.px]="62"
@@ -47,10 +48,17 @@
 
           @if (hasInput(n)) { <i class="cv-in" aria-hidden="true"></i> }
 
-          <span class="cv-kind">{{ kindFor(n) || 'node' }}</span>
+          <span class="cv-kind">
+            {{ kindFor(n) || 'node' }}
+            <!-- A looped node ran once per item, not once. Saying so on the
+                 box stops its status being read as "this happened once". -->
+            @if (loopedFor(n)) { <i class="cv-loop" title="Runs once per item">loop</i> }
+          </span>
           <span class="cv-label">{{ labelFor(n) }}</span>
 
-          @if (statusFor(n)) {
+          @if (noteFor(n)) {
+            <span class="cv-status">{{ noteFor(n) }}</span>
+          } @else if (statusFor(n)) {
             <span class="cv-status">{{ statusFor(n) }}</span>
           }
           @if (isUnknown(n)) {

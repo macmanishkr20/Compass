@@ -178,6 +178,12 @@ class PipelineRun:
     parameters: dict[str, Any] = field(default_factory=dict)
     variables: dict[str, Any] = field(default_factory=dict)
     nodes: dict[str, NodeRun] = field(default_factory=dict)
+    #: Loop bodies, kept apart from `nodes` because a node inside a For each
+    #: has one state per item rather than one state. Keyed by the loop's node
+    #: id; each entry is that iteration's node states, in item order. The
+    #: canvas still shows one box per node — it summarises across the list —
+    #: while the run panel can open a single iteration.
+    iterations: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     #: The token a waiting node is parked on, so /resume can find it.
     waiting_on: str = ""
     started_at: float = field(default_factory=_now)

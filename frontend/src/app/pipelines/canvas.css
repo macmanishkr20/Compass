@@ -106,7 +106,22 @@
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--faint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
+
+/* Marks a node that runs once per item. Worth its own affordance because it
+   changes how the box's status reads. */
+.cv-loop {
+  font-style: normal;
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 20px;
+  padding: 0 5px;
+  letter-spacing: 0.06em;
+}
+.cv-node.looped { border-style: dashed; }
 .cv-label {
   font-size: 0.85rem;
   font-weight: 500;

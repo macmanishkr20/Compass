@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import asdict
 from typing import Any
 
 from compass.common.config import get_settings
@@ -82,6 +83,42 @@ def _port_matches(edge: Edge, source: pstore.NodeRun) -> bool:
     engine follows the matching edges, without knowing that If exists.
     """
     return edge.port == (source.port or "out")
+
+
+def loop_body(pipeline: Pipeline, loop_id: str) -> list[str]:
+    """The nodes that belong inside a For each, in no particular order.
+
+    Fabric makes ForEach a container and you drop activities into it. Compass
+    infers the body from the wiring instead, because a container needs a
+    canvas that can nest — dragging a node *into* a box — and that is a much
+    larger piece of UI than a loop is worth right now.
+
+    The rule: everything reachable from the loop's `each` port, minus anything
+    reachable from its `out` port. The subtraction is what makes it
+    unambiguous. `out` fires once, after the loop, so whatever hangs off it is
+    "after", and a node reachable both ways is after — being downstream of the
+    join wins over being downstream of the body.
+
+    A node reachable from `each` but with no path back to the loop is still in
+    the body; it simply runs once per item and contributes nothing to the
+    join. That is the honest reading of what the author drew.
+    """
+    outgoing: dict[str, list[tuple[str, str]]] = {}
+    for edge in pipeline.edges:
+        outgoing.setdefault(edge.source, []).append((edge.target, edge.port))
+
+    def reach(start_ports: set[str]) -> set[str]:
+        seen: set[str] = set()
+        stack = [t for t, p in outgoing.get(loop_id, ()) if p in start_ports]
+        while stack:
+            node_id = stack.pop()
+            if node_id in seen or node_id == loop_id:
+                continue
+            seen.add(node_id)
+            stack.extend(t for t, _ in outgoing.get(node_id, ()))
+        return seen
+
+    return sorted(reach({"each"}) - reach({"out"}))
 
 
 class PipelineEngine:
@@ -207,11 +244,28 @@ class PipelineEngine:
         await pstore.runs.save(run)
         return run
 
+    def _in_a_loop(self, pipeline: Pipeline) -> set[str]:
+        """Every node that belongs to some loop's body.
+
+        The outer walk must leave these alone: they are run by the loop, once
+        per item, and a body node picked up by the outer walk would run an
+        extra time with no item in scope.
+        """
+        owned: set[str] = set()
+        for node in pipeline.nodes:
+            node_type = get_registry().get(node.type)
+            if node_type and any(p.name == "each" for p in node_type.outputs):
+                owned.update(loop_body(pipeline, node.id))
+        return owned
+
     def _ready(self, pipeline: Pipeline, run: PipelineRun) -> list[Node]:
         """Every pending node whose incoming edges are all satisfied."""
         by_id = {n.id: n for n in pipeline.nodes}
+        inside = self._in_a_loop(pipeline)
         ready: list[Node] = []
         for node in pipeline.nodes:
+            if node.id in inside:
+                continue
             node_run = run.nodes.get(node.id)
             if not node_run or node_run.status != "pending":
                 continue
@@ -242,10 +296,13 @@ class PipelineEngine:
         and leaving it pending would stall the walk forever waiting for a
         turn that is not coming.
         """
+        inside = self._in_a_loop(pipeline)
         changed = True
         while changed:
             changed = False
             for node in pipeline.nodes:
+                if node.id in inside:
+                    continue  # the loop settles its own body
                 node_run = run.nodes.get(node.id)
                 if not node_run or node_run.status != "pending":
                     continue
@@ -265,8 +322,18 @@ class PipelineEngine:
     # -- one node -----------------------------------------------------------
 
     async def _run_node(self, pipeline: Pipeline, run: PipelineRun,
-                        node: Node) -> None:
-        node_run = run.nodes[node.id]
+                        node: Node, *,
+                        states: dict[str, pstore.NodeRun] | None = None,
+                        item: Any = None, index: int | None = None) -> None:
+        """Run one node against a state map.
+
+        `states` is the run's own for an ordinary node, or one iteration's for
+        a node inside a loop body. Passing it rather than reading `run.nodes`
+        is what keeps an iteration isolated: item three failing must not mark
+        the node failed for items four and five.
+        """
+        scope = states if states is not None else run.nodes
+        node_run = scope[node.id]
         node_type = get_registry().get(node.type)
         node_run.started_at = time.time()
 
@@ -288,16 +355,29 @@ class PipelineEngine:
 
         node_run.status = "running"
 
+        # A node inside a loop can name both its siblings in this iteration
+        # and anything that finished before the loop began. Siblings are
+        # merged second so an id that appears in both resolves to this
+        # iteration's value, which is the one the author means.
+        visible = {
+            nid: {"data": nr.output, "text": nr.text}
+            for nid, nr in run.nodes.items()
+            if nr.status in ("done", "inactive")
+        }
+        if states is not None:
+            visible.update({
+                nid: {"data": nr.output, "text": nr.text}
+                for nid, nr in states.items()
+                if nr.status in ("done", "inactive")
+            })
         resolver = Resolver(
             parameters=run.parameters,
             variables=run.variables,
-            nodes={
-                nid: {"data": nr.output, "text": nr.text}
-                for nid, nr in run.nodes.items()
-                if nr.status in ("done", "inactive")
-            },
+            nodes=visible,
             run={"id": run.id, "trigger": run.trigger,
                  "started_at": run.started_at},
+            item=item,
+            index=index,
         )
         try:
             config = resolver.config(node.config)
@@ -342,12 +422,164 @@ class PipelineEngine:
                 node_run.port = result.port
                 node_run.error = ""
                 node_run.finished_at = time.time()
+                # A loop runs its body here rather than leaving the outer walk
+                # to do it: only one place can schedule the copies, hold the
+                # per-item state and join them, and splitting that across the
+                # walk and the handler would put half the loop in each.
+                if result.port == "each":
+                    await self._run_loop(pipeline, run, node, node_run, result)
                 return
             if attempt < attempts:
                 await asyncio.sleep(max(0, node.retry_interval_s))
 
         node_run.status = "failed"
         node_run.finished_at = time.time()
+
+    # -- fan-out --------------------------------------------------------------
+
+    async def _run_loop(self, pipeline: Pipeline, run: PipelineRun,
+                        node: Node, node_run: pstore.NodeRun,
+                        result: NodeResult) -> None:
+        """Run the loop's body once per item, then hand the results to `out`.
+
+        Iterations are sequential. Running them at once would be faster and is
+        the wrong default here: a body typically contains exactly the nodes
+        that are not safe to parallelise — a shell command, a file write, an
+        agent turn — and a loop over fifty messages firing fifty agent turns
+        at a deployment with a per-minute token quota is a way to turn one
+        mistake into a rate limit. Parallelism belongs on the loop as a
+        setting, once there is a reason to want it.
+
+        The body is isolated per item. Each iteration gets its own node
+        states, so a node that fails on item three does not mark itself failed
+        for items four and five, and `@item()` resolves to that iteration's
+        item rather than to whatever ran last.
+        """
+        body = loop_body(pipeline, node.id)
+        items = list(result.data.get("items") or [])
+        if not body:
+            node_run.text += " (nothing is wired to the 'each' port)"
+            node_run.output = {**node_run.output, "results": []}
+            node_run.port = "out"
+            return
+
+        by_id = {n.id: n for n in pipeline.nodes}
+        scoped_edges = [
+            e for e in pipeline.edges
+            if e.source in body and e.target in body
+        ]
+        entry = [
+            e.target for e in pipeline.edges
+            if e.source == node.id and e.port == "each" and e.target in body
+        ]
+
+        iterations: list[dict[str, Any]] = []
+        results: list[Any] = []
+        failures = 0
+
+        for index, item in enumerate(items):
+            states: dict[str, pstore.NodeRun] = {
+                nid: pstore.NodeRun(node_id=nid) for nid in body
+            }
+            await self._walk_body(
+                pipeline, run, by_id, body, scoped_edges, entry, states,
+                item=item, index=index,
+            )
+            iterations.append({nid: asdict(nr) for nid, nr in states.items()})
+            if any(nr.status == "failed" for nr in states.values()):
+                failures += 1
+            # The join carries what the body's leaves produced — the nodes
+            # nothing else in the body depends on, which is what "the result
+            # of this iteration" means without asking the author to nominate
+            # one.
+            leaves = [
+                nid for nid in body
+                if not any(e.source == nid for e in scoped_edges)
+            ]
+            results.append({nid: states[nid].output for nid in leaves})
+
+        run.iterations[node.id] = iterations
+        self._summarise_body(run, body, iterations, len(items))
+        node_run.output = {
+            **node_run.output,
+            "results": results,
+            "failed_items": failures,
+        }
+        node_run.text = (
+            f"Ran {len(items)} item(s)"
+            + (f", {failures} failed" if failures else "")
+        )
+        # Whatever happened inside, the loop itself is done and the graph
+        # continues past it. A body failure is visible on the loop and in the
+        # iteration list; making the loop fail would strand every "after the
+        # loop" step on one bad item, which is rarely what anyone wants.
+        node_run.port = "out"
+
+    def _summarise_body(self, run: PipelineRun, body: list[str],
+                        iterations: list[dict[str, Any]], total: int) -> None:
+        """Roll each body node's iterations up into its one canvas box.
+
+        The canvas draws one box per node, not one per item, so a body node
+        needs a single status. Failure wins over success: a node that failed
+        on any item is worth showing as failed, because the alternative is a
+        green graph with a failure hidden one click away.
+        """
+        for nid in body:
+            states = [it.get(nid, {}) for it in iterations]
+            statuses = [s.get("status", "pending") for s in states]
+            summary = run.nodes.get(nid)
+            if summary is None:
+                continue
+            failed = sum(1 for s in statuses if s == "failed")
+            done = sum(1 for s in statuses if s == "done")
+            summary.status = (
+                "failed" if failed else "done" if done else "skipped"
+            )
+            summary.text = (
+                f"{done}/{total} item(s)"
+                + (f", {failed} failed" if failed else "")
+            )
+            summary.error = next(
+                (s.get("error", "") for s in states if s.get("error")), ""
+            )
+            summary.finished_at = time.time()
+
+    async def _walk_body(self, pipeline: Pipeline, run: PipelineRun,
+                         by_id: dict[str, Node], body: list[str],
+                         edges: list[Edge], entry: list[str],
+                         states: dict[str, pstore.NodeRun],
+                         *, item: Any, index: int) -> None:
+        """One iteration: the same ready-set walk, over the body only."""
+        budget = len(body) + 1
+        while budget > 0:
+            budget -= 1
+            ready: list[Node] = []
+            for nid in body:
+                state = states[nid]
+                if state.status != "pending":
+                    continue
+                incoming = [e for e in edges if e.target == nid]
+                if not incoming:
+                    # An entry node has its edge from the loop itself, which
+                    # is outside the body and always satisfied by the time we
+                    # are here.
+                    if nid in entry:
+                        ready.append(by_id[nid])
+                    continue
+                verdicts = [_edge_satisfied(e, states[e.source]) for e in incoming]
+                if any(v is None for v in verdicts):
+                    continue
+                if any(verdicts):
+                    ready.append(by_id[nid])
+                elif all(v is False for v in verdicts):
+                    state.status = "skipped"
+                    state.text = "Not reached"
+            if not ready:
+                break
+            for node in ready:
+                await self._run_node(
+                    pipeline, run, node, states=states, item=item, index=index,
+                )
 
     def _connection_resolver(self, connection_id: str):
         """Fetches a connection with its secret, at the moment it is used.

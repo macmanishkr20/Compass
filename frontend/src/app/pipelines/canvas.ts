@@ -60,6 +60,11 @@ export class PipelineCanvas {
   readonly types = input.required<Map<string, NodeTypeInfo>>();
   /** node id -> run status, so a running graph shows its progress in place. */
   readonly statuses = input<Record<string, string>>({});
+  /** node id -> the summary line a loop body node carries ("2/3 item(s)"). */
+  readonly notes = input<Record<string, string>>({});
+  /** Nodes inside some loop's body. Marked on the canvas because it changes
+   *  what a box means: it ran once per item, not once. */
+  readonly inLoop = input<Set<string>>(new Set<string>());
   readonly selectedId = input<string>('');
 
   readonly select = output<string>();
@@ -266,6 +271,16 @@ export class PipelineCanvas {
 
   statusFor(node: PipelineNode): string {
     return this.statuses()[node.id] ?? '';
+  }
+
+  /** The per-item line for a loop body node, preferred over the bare status:
+   *  "2/3 item(s), 1 failed" says more than "failed". */
+  noteFor(node: PipelineNode): string {
+    return this.notes()[node.id] ?? '';
+  }
+
+  loopedFor(node: PipelineNode): boolean {
+    return this.inLoop().has(node.id);
   }
 
   /** A missing type is worth showing rather than hiding: it means a provider

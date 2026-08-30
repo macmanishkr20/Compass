@@ -7,10 +7,57 @@
         <h1 class="pl-title">Pipelines</h1>
         <p class="pl-sub">Wire Compass's capabilities together and run them on a trigger.</p>
       </div>
-      <button class="pl-refresh" type="button" (click)="refresh()" [disabled]="loading()">
-        {{ loading() ? 'Loading…' : 'Refresh' }}
-      </button>
+      <div class="pl-headbtns">
+        <button class="pl-refresh" type="button" (click)="connectionsOpen.set(!connectionsOpen())">
+          Connections <span class="pl-count">{{ connections().length }}</span>
+        </button>
+        <button class="pl-refresh" type="button" (click)="refresh()" [disabled]="loading()">
+          {{ loading() ? 'Loading…' : 'Refresh' }}
+        </button>
+      </div>
     </header>
+
+    @if (connectionsOpen()) {
+      <section class="pl-conns">
+        <h2 class="pl-h2">Connections</h2>
+        <p class="pl-note">
+          An endpoint and how to authenticate to it, kept once and referenced by
+          the nodes that need it. The secret is stored on the server and never
+          sent back, so a pipeline can be shared without carrying credentials.
+        </p>
+
+        @for (c of connections(); track c.id) {
+          <div class="pl-conn">
+            <span class="pl-conn-name">{{ c.name }}</span>
+            <span class="pl-conn-kind">{{ c.kind }} · {{ c.auth }}</span>
+            @if (c.has_secret) { <span class="pl-conn-key" title="A credential is stored">key held</span> }
+            <button class="pl-conn-del" type="button" (click)="deleteConnection(c.id)"
+              title="Delete this connection">✕</button>
+          </div>
+        } @empty {
+          <p class="pl-empty sm">No connections yet.</p>
+        }
+
+        <div class="pl-connform">
+          <input class="pl-input sm" type="text" placeholder="Name, e.g. Support inbox"
+            [value]="draft().name" (input)="setDraft('name', $any($event.target).value)" />
+          <input class="pl-input sm" type="text" placeholder="Kind, e.g. rest"
+            [value]="draft().kind" (input)="setDraft('kind', $any($event.target).value)" />
+          <select class="pl-input sm" (change)="setDraft('auth', $any($event.target).value)">
+            @for (a of ['none', 'api_key', 'basic', 'oauth2', 'managed_identity']; track a) {
+              <option [value]="a" [selected]="a === draft().auth">{{ a }}</option>
+            }
+          </select>
+          <input class="pl-input sm" type="text" placeholder="Endpoint (optional)"
+            [value]="draft().endpoint" (input)="setDraft('endpoint', $any($event.target).value)" />
+          <input class="pl-input sm" type="password" placeholder="Secret — stored, never returned"
+            autocomplete="off"
+            [value]="draft().secret" (input)="setDraft('secret', $any($event.target).value)" />
+          <button class="pl-btn" type="button" (click)="addConnection()"
+            [disabled]="!draft().name.trim() || !!busy()">Add</button>
+        </div>
+      </section>
+    }
 
     @if (error()) { <div class="pl-error">{{ error() }}</div> }
 
@@ -116,6 +163,8 @@
           [edges]="open()!.edges"
           [types]="typeMap()"
           [statuses]="statuses()"
+          [notes]="notes()"
+          [inLoop]="loopBody()"
           [selectedId]="selectedId()"
           (select)="selectedId.set($event)"
           (moveNode)="moveNode($event)"
@@ -131,6 +180,28 @@
             [connections]="connections()"
             (patch)="patchNode($event)"
             (remove)="deleteNode($event)" />
+
+          <!-- A loop's iterations, where the per-item detail actually is. The
+               canvas can only show one box per node, so this is the only place
+               item three's failure is legible. -->
+          @if (selectedIterations().length) {
+            <section class="pl-iters">
+              <h3 class="pl-side-h">Items · {{ selectedIterations().length }}</h3>
+              @for (it of selectedIterations(); track it.index) {
+                <div class="pl-iter">
+                  <span class="pl-iter-n">{{ it.index + 1 }}</span>
+                  <div class="pl-iter-body">
+                    @for (n of it.nodes; track n.node_id) {
+                      <div class="pl-iter-row" [class]="'st-' + n.status">
+                        <span class="pl-iter-status">{{ n.status }}</span>
+                        <span class="pl-iter-text">{{ n.error || n.text }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              }
+            </section>
+          }
         } @else if (run(); as r) {
           <h3 class="pl-side-h">Run · {{ r.status }}</h3>
           @for (n of runNodes(); track n.node_id) {

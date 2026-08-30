@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CompassApiService } from '../compass-api.service';
 import {
   NodeTypeInfo,
+  PipelineConnection,
   PipelineEdge,
   PipelineNode,
   PipelineProblem,
@@ -38,7 +39,7 @@ export class Pipelines {
   readonly error = signal('');
   readonly pipelines = signal<PipelineSummary[]>([]);
   readonly nodeTypes = signal<NodeTypeInfo[]>([]);
-  readonly connections = signal<{ id: string; name: string; kind: string }[]>([]);
+  readonly connections = signal<PipelineConnection[]>([]);
 
   readonly open = signal<PipelineSummary | null>(null);
   readonly selectedId = signal('');
@@ -70,6 +71,73 @@ export class Pipelines {
       out[id] = nodeRun.status;
     }
     return out;
+  });
+
+  /** The per-item line a loop body node carries after a run. */
+  readonly notes = computed<Record<string, string>>(() => {
+    const current = this.run();
+    const body = this.loopBody();
+    if (!current) return {};
+    const out: Record<string, string> = {};
+    for (const [id, nodeRun] of Object.entries(current.nodes)) {
+      if (body.has(id) && nodeRun.text) out[id] = nodeRun.text;
+    }
+    return out;
+  });
+
+  /**
+   * Every node inside some loop's body, by the same rule the engine uses:
+   * reachable from a loop's `each` port, minus anything reachable from its
+   * `out` port.
+   *
+   * Computed here rather than fetched because the canvas has to show it while
+   * someone is still drawing — before any save, and with no run to ask about.
+   * The duplication is real and deliberate; the alternative is a round trip
+   * on every edge drawn, which would make the marker lag the wire that caused
+   * it. The engine remains the authority: this only decides what is drawn.
+   */
+  readonly loopBody = computed<Set<string>>(() => {
+    const pipeline = this.open();
+    if (!pipeline) return new Set<string>();
+    const types = this.typeMap();
+    const out = new Set<string>();
+
+    const reach = (loopId: string, ports: Set<string>): Set<string> => {
+      const seen = new Set<string>();
+      const stack = pipeline.edges
+        .filter((e) => e.source === loopId && ports.has(e.port))
+        .map((e) => e.target);
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (id === loopId || seen.has(id)) continue;
+        seen.add(id);
+        for (const e of pipeline.edges) if (e.source === id) stack.push(e.target);
+      }
+      return seen;
+    };
+
+    for (const node of pipeline.nodes) {
+      const type = types.get(node.type);
+      if (!type?.outputs?.some((p) => p.name === 'each')) continue;
+      const after = reach(node.id, new Set(['out']));
+      for (const id of reach(node.id, new Set(['each']))) {
+        if (!after.has(id)) out.add(id);
+      }
+    }
+    return out;
+  });
+
+  /** Iterations of the loop currently selected, for the run panel. */
+  readonly selectedIterations = computed(() => {
+    const current = this.run();
+    const id = this.selectedId();
+    if (!current || !id) return [];
+    const iterations = current.iterations?.[id];
+    if (!iterations) return [];
+    return iterations.map((states, index) => ({
+      index,
+      nodes: Object.values(states),
+    }));
   });
 
   readonly palette = computed(() => {
@@ -368,6 +436,54 @@ export class Pipelines {
       await this.api.deletePipeline(id);
       this.pipelines.update((all) => all.filter((p) => p.id !== id));
       if (this.open()?.id === id) this.open.set(null);
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    }
+  }
+
+  // -- connections ----------------------------------------------------------
+  //
+  // A connection is a separate object holding an endpoint and how to
+  // authenticate to it; the credential goes to the server once and is stored
+  // behind a reference, never returned. That is what lets a pipeline be
+  // exported and shared without leaking, and makes revoking access one
+  // delete rather than a search across every graph.
+
+  readonly connectionsOpen = signal(false);
+  readonly draft = signal({ kind: 'rest', name: '', auth: 'none', endpoint: '', secret: '' });
+
+  setDraft(key: 'kind' | 'name' | 'auth' | 'endpoint' | 'secret', value: string): void {
+    this.draft.update((d) => ({ ...d, [key]: value }));
+  }
+
+  async addConnection(): Promise<void> {
+    const d = this.draft();
+    if (!d.name.trim() || !d.kind.trim()) return;
+    this.busy.set('Saving…');
+    try {
+      await this.api.createConnection({
+        kind: d.kind.trim(),
+        name: d.name.trim(),
+        auth: d.auth,
+        config: d.endpoint ? { endpoint: d.endpoint.trim() } : {},
+        secret: d.secret,
+      });
+      // Cleared rather than kept: the secret is write-only and holding it in
+      // a signal after the round trip serves nothing.
+      this.draft.set({ kind: 'rest', name: '', auth: 'none', endpoint: '', secret: '' });
+      const list = await this.api.pipelineConnections();
+      this.connections.set(list.connections);
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set('');
+    }
+  }
+
+  async deleteConnection(id: string): Promise<void> {
+    try {
+      await this.api.deleteConnection(id);
+      this.connections.update((all) => all.filter((c) => c.id !== id));
     } catch (err: unknown) {
       this.error.set(this.message(err));
     }

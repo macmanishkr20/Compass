@@ -277,9 +277,22 @@ export interface PipelineRun {
   trigger: string;
   status: string;
   nodes: Record<string, PipelineNodeRun>;
+  /** Loop bodies: the loop's node id, then one entry per item. A body node
+   *  has one state per item, so it cannot live in `nodes` — the canvas
+   *  summarises across these, and the run panel opens a single item. */
+  iterations: Record<string, Record<string, PipelineNodeRun>[]>;
   waiting_on: string;
   started_at: number;
   finished_at: number | null;
+}
+
+export interface PipelineConnection {
+  id: string;
+  kind: string;
+  name: string;
+  auth: string;
+  config: Record<string, unknown>;
+  has_secret: boolean;
 }
 
 export interface PipelineProblem {

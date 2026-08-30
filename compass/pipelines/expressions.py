@@ -48,6 +48,10 @@ _PARAM = re.compile(r"^pipeline\(\)\.parameters\.(.+)$")
 _VAR = re.compile(r"^variables\(\s*'([^']*)'\s*\)$")
 _NODE = re.compile(r"^nodes\(\s*'([^']*)'\s*\)(?:\.(.+))?$")
 _RUN = re.compile(r"^run\(\)\.(id|trigger|started_at)$")
+#: Inside a loop body: the item this iteration is for, and its position.
+#: `@item()` alone is the whole item, `@item().field` reaches into it.
+_ITEM = re.compile(r"^item\(\)(?:\.(.+))?$")
+_INDEX = re.compile(r"^index\(\)$")
 
 
 class ExpressionError(ValueError):
@@ -86,12 +90,19 @@ class Resolver:
         variables: dict[str, Any],
         nodes: dict[str, dict[str, Any]],
         run: dict[str, Any] | None = None,
+        item: Any = None,
+        index: int | None = None,
     ) -> None:
         self.parameters = parameters
         self.variables = variables
         #: node id -> {"data": {...}, "text": "..."}
         self.nodes = nodes
         self.run = run or {}
+        #: Set only inside a loop body. `None` for index rather than 0 is what
+        #: lets `@item()` outside a loop be an error the author can act on,
+        #: instead of silently resolving to the first item of nothing.
+        self.item = item
+        self.index = index
 
     def reference(self, expr: str) -> Any:
         expr = expr.strip()
@@ -112,6 +123,18 @@ class Resolver:
                     f"node {node_id!r} has not produced a result yet"
                 )
             return _walk(self.nodes[node_id], path)
+        if match := _ITEM.match(expr):
+            if self.index is None:
+                raise ExpressionError(
+                    "@item() is only available inside a For each body — this "
+                    "node is not downstream of a loop's 'each' port"
+                )
+            return _walk(self.item, match.group(1) or "")
+        if _INDEX.match(expr):
+            if self.index is None:
+                raise ExpressionError("@index() is only available inside a "
+                                      "For each body")
+            return self.index
         if match := _RUN.match(expr):
             return self.run.get(match.group(1), "")
         raise ExpressionError(f"unrecognised expression: {expr}")

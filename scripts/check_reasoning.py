@@ -1470,6 +1470,73 @@ def check_pipeline_editor() -> None:
        "validator to report wires to something that is gone")
 
 
+def check_fan_out() -> None:
+    """A For each runs its body once per item, isolated, and rolls up.
+
+    Fan-out is what stops a pipeline being a straight line: without it a graph
+    processes exactly one thing, which rules out most of what anyone wants —
+    every message, every file, every row.
+
+    The body is inferred from the wiring rather than being a container you
+    drop nodes into. Fabric nests activities inside a ForEach; that needs a
+    canvas which can nest, and the rule here gets the same result from edges:
+    everything reachable from `each`, minus anything reachable from `out`. The
+    subtraction is what makes it unambiguous, since `out` fires once, after,
+    so whatever hangs off it is "after".
+
+    Iterations are sequential and isolated. Sequential because a body usually
+    holds exactly the nodes that are unsafe to parallelise, and fifty agent
+    turns at once against a per-minute token quota turns one mistake into a
+    rate limit. Isolated because item three failing must not mark the node
+    failed for items four and five.
+
+    Measured: body inferred as the two wired nodes with the after-node
+    excluded; @item() resolving to alpha, beta, gamma in turn and @index() to
+    0, 1, 2; a partial failure leaving ['done', 'failed', 'done'] and the
+    canvas box reading "2/3 item(s), 1 failed"; the node after the loop
+    running once; and @item() outside a loop refused rather than silently null.
+    """
+    print("\na For each fans out, and the failures stay where they happened")
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    expr = (ROOT / "compass/pipelines/expressions.py").read_text()
+    canvas = (ROOT / "frontend/src/app/pipelines/canvas.ts").read_text()
+    parent = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+
+    body = section(engine, "def loop_body(", "\n\nclass ")
+    ok('reach({"each"}) - reach({"out"})' in body,
+       "the body is everything off 'each' minus everything off 'out'")
+
+    ok("_in_a_loop" in engine and "if node.id in inside:" in engine,
+       "the outer walk leaves body nodes alone, so they do not also run once "
+       "with no item in scope")
+
+    run_loop = section(engine, "async def _run_loop", "\n    def _summarise_body")
+    ok("for index, item in enumerate(items)" in run_loop,
+       "iterations are sequential")
+    ok("pstore.NodeRun(node_id=nid) for nid in body" in run_loop,
+       "and each gets its own node states, so one bad item does not mark the "
+       "node failed for the rest")
+    ok('node_run.port = "out"' in run_loop,
+       "the graph continues past the loop even when an item failed — the "
+       "alternative strands every after-the-loop step on one bad item")
+
+    summarise = section(engine, "def _summarise_body", "\n    async def _walk_body")
+    ok('"failed" if failed else "done" if done else "skipped"' in summarise,
+       "failure wins in the rollup, so a green graph never hides a failure "
+       "one click away")
+
+    ok("@item() is only available inside" in expr,
+       "@item() outside a loop is refused with a reason, not resolved to null")
+    ok("_INDEX" in expr, "and @index() gives the position")
+
+    ok("readonly inLoop" in canvas and "loopedFor" in canvas,
+       "the canvas marks a node that runs once per item, because that "
+       "changes what its status means")
+    ok("readonly loopBody = computed" in parent,
+       "computed on the client so the marker keeps up with the wire being "
+       "drawn, rather than lagging a round trip")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -1728,6 +1795,7 @@ def main() -> int:
     check_plus_menu()
     check_pipelines_flag()
     check_pipeline_editor()
+    check_fan_out()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

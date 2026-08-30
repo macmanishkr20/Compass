@@ -25,6 +25,7 @@ import {
   FileHit,
   MemoryEntry,
   NodeTypeInfo,
+  PipelineConnection,
   PipelineProblem,
   PipelineRun,
   PipelineSummary,
@@ -201,11 +202,27 @@ export class CompassApiService {
       this.http.post<PipelineRun>(`/v1/pipeline-runs/${runId}/resume`, { answer }),
     );
   }
-  pipelineConnections(): Promise<{ connections: { id: string; name: string; kind: string }[] }> {
+  pipelineConnections(): Promise<{ connections: PipelineConnection[] }> {
     return firstValueFrom(
-      this.http.get<{ connections: { id: string; name: string; kind: string }[] }>(
-        '/v1/pipeline-connections',
-      ),
+      this.http.get<{ connections: PipelineConnection[] }>('/v1/pipeline-connections'),
+    );
+  }
+  /** The secret travels once, on the way in. It is stored behind a reference
+   *  and never comes back out of the API. */
+  createConnection(body: {
+    kind: string;
+    name: string;
+    auth: string;
+    config: Record<string, unknown>;
+    secret: string;
+  }): Promise<PipelineConnection> {
+    return firstValueFrom(
+      this.http.post<PipelineConnection>('/v1/pipeline-connections', body),
+    );
+  }
+  deleteConnection(id: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ deleted: boolean }>(`/v1/pipeline-connections/${id}`),
     );
   }
   revealWorkspace(id: string): Promise<{ opened: string }> {
