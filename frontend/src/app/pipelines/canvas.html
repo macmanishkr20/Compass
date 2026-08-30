@@ -44,7 +44,8 @@
           [class]="'st-' + (statusFor(n) || 'idle')"
           [style.left.px]="n.position.x" [style.top.px]="n.position.y"
           [style.width.px]="190" [style.height.px]="62"
-          (pointerdown)="startDrag($event, n)">
+          (pointerdown)="startDrag($event, n)"
+          (dblclick)="openNode.emit(n.id)">
 
           @if (hasInput(n)) { <i class="cv-in" aria-hidden="true"></i> }
 

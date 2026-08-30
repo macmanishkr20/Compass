@@ -185,7 +185,8 @@
           (select)="selectedId.set($event)"
           (moveNode)="moveNode($event)"
           (connect)="connect($event)"
-          (removeEdge)="removeEdge($event)" />
+          (removeEdge)="removeEdge($event)"
+          (openNode)="openDetail($event)" />
       </div>
 
       <aside class="pl-side">
@@ -342,6 +343,94 @@
         </div>
       }
     </section>
+  </div>
+}
+
+<!-- One node, on its own: what came in, what it is set to, what came out.
+     The middle pane is the same inspector as the side panel — the two outer
+     panes are what a single-node run made possible. -->
+@if (detailNode(); as n) {
+  <div class="pl-modal" (click)="closeDetail()">
+    <div class="pl-ndv" (click)="$event.stopPropagation()">
+
+      <header class="pl-ndv-head">
+        <span class="pl-ndv-kind">{{ detailType()?.category || 'node' }}</span>
+        <span class="pl-ndv-title">{{ n.name || n.type }}</span>
+        <span class="pl-sheet-spacer"></span>
+        <button class="pl-btn ghost" type="button" (click)="runStep('mock')"
+          [disabled]="!!busy()" title="Run this step with pinned or stubbed data">
+          Dry step
+        </button>
+        <button class="pl-btn" type="button" (click)="runStep('live')" [disabled]="!!busy()">
+          {{ busy() || 'Execute step' }}
+        </button>
+        <button class="pl-sheet-x" type="button" (click)="closeDetail()" aria-label="Close">✕</button>
+      </header>
+
+      @if (seedError()) { <p class="pl-ndv-err">{{ seedError() }}</p> }
+
+      <div class="pl-ndv-body">
+
+        <div class="pl-ndv-pane">
+          <h4 class="pl-pane-h">Input</h4>
+          @if (detailRun()?.input && !isEmpty(detailRun()!.input)) {
+            <pre class="pl-pane-code">{{ asJson(detailRun()!.input) }}</pre>
+          } @else {
+            <p class="pl-pane-none">Nothing recorded yet.</p>
+          }
+          <h4 class="pl-pane-h sep">Stand in for upstream</h4>
+          <p class="pl-pane-none">
+            JSON reachable as <code>&#64;nodes('input').data</code>, so this step
+            can be tried without running the ones before it.
+          </p>
+          <textarea class="pl-ndv-edit" rows="5" placeholder='{ "id": "abc" }'
+            [value]="seedText()" (input)="seedText.set($any($event.target).value)"></textarea>
+        </div>
+
+        <div class="pl-ndv-pane mid">
+          <app-pipeline-inspector
+            [node]="n"
+            [type]="detailType()"
+            [connections]="connections()"
+            (patch)="patchNode($event)"
+            (remove)="deleteNode($event); closeDetail()" />
+        </div>
+
+        <div class="pl-ndv-pane">
+          <h4 class="pl-pane-h">Output</h4>
+          @if (detailRun(); as dr) {
+            @if (dr.error) {
+              <pre class="pl-pane-code err">{{ dr.error }}</pre>
+            } @else if (isEmpty(dr.output)) {
+              <p class="pl-pane-none">{{ dr.text || 'No output.' }}</p>
+            } @else {
+              @if (dr.text) { <p class="pl-pane-text">{{ dr.text }}</p> }
+              <pre class="pl-pane-code">{{ asJson(dr.output) }}</pre>
+            }
+          } @else {
+            <p class="pl-pane-none">
+              No output yet. Execute the step, or pin data below so a dry run
+              has something to return.
+            </p>
+          }
+
+          <h4 class="pl-pane-h sep">
+            Pinned data
+            @if (detailRun() && !isEmpty(detailRun()!.output)) {
+              <button class="pl-ndv-pin" type="button" (click)="pinLastOutput()">
+                use last output
+              </button>
+            }
+          </h4>
+          <p class="pl-pane-none">
+            Returned instead of calling anything when the pipeline is dry run.
+          </p>
+          <textarea class="pl-ndv-edit" rows="5" placeholder="Not pinned"
+            [value]="mockText()" (input)="mockText.set($any($event.target).value)"
+            (blur)="saveMock()"></textarea>
+        </div>
+      </div>
+    </div>
   </div>
 }
 

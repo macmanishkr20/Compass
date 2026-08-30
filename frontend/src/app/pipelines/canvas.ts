@@ -71,6 +71,10 @@ export class PipelineCanvas {
   readonly moveNode = output<{ id: string; x: number; y: number }>();
   readonly connect = output<{ source: string; port: string; target: string }>();
   readonly removeEdge = output<PipelineEdge>();
+  /** Double-click opens the node's own view. Single click selects, because
+   *  selecting is what you do while wiring and opening is what you do when
+   *  you have stopped. */
+  readonly openNode = output<string>();
 
   private readonly surface = viewChild<ElementRef<HTMLElement>>('surface');
 

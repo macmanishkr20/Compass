@@ -1668,6 +1668,15 @@ def check_dry_run() -> None:
        "and every other node is skipped rather than left looking pending")
 
     ok("runNow('mock')" in html, "the canvas offers a dry run")
+    ok("pl-ndv" in html and "app-pipeline-inspector" in section(
+        html, 'class="pl-ndv"', "<!-- Export"),
+       "and a node's own view puts input and output around the same "
+       "inspector the side panel uses, rather than a second one to keep in "
+       "step with it")
+    ok("(dblclick)=\"openNode.emit(n.id)\""
+       in (ROOT / "frontend/src/app/pipelines/canvas.html").read_text(),
+       "opened by double-click — single click selects, which is what you do "
+       "while wiring")
     ok('pl-logs-mock' in html,
        "and the log says so, so a mocked pass is never mistaken for proof")
 

@@ -537,6 +537,116 @@ export class Pipelines {
     }
   }
 
+  // -- node details ---------------------------------------------------------
+  //
+  // The three-pane view: what came in, what the node is set to, what came out.
+  // The middle pane is the inspector that already exists — this adds the two
+  // outer panes, which only became possible once a single node could be run
+  // on its own.
+
+  readonly detailId = signal('');
+  /** Result of the last "Execute step", kept apart from the pipeline run so
+   *  trying one node does not overwrite the record of the last full run. */
+  readonly stepRun = signal<PipelineRun | null>(null);
+  readonly seedText = signal('');
+  readonly mockText = signal('');
+  readonly seedError = signal('');
+
+  readonly detailNode = computed<PipelineNode | null>(
+    () => this.open()?.nodes.find((n) => n.id === this.detailId()) ?? null,
+  );
+
+  readonly detailType = computed<NodeTypeInfo | undefined>(() => {
+    const node = this.detailNode();
+    return node ? this.typeMap().get(node.type) : undefined;
+  });
+
+  /** The node's last recorded run: the step run if one was just done, else
+   *  its part of the last full run. */
+  readonly detailRun = computed(() => {
+    const id = this.detailId();
+    if (!id) return null;
+    return this.stepRun()?.nodes?.[id] ?? this.run()?.nodes?.[id] ?? null;
+  });
+
+  openDetail(id: string): void {
+    this.detailId.set(id);
+    this.selectedId.set(id);
+    this.stepRun.set(null);
+    this.seedError.set('');
+    this.seedText.set('');
+    const node = this.open()?.nodes.find((n) => n.id === id);
+    this.mockText.set(node?.mock ? JSON.stringify(node.mock, null, 2) : '');
+  }
+
+  closeDetail(): void {
+    this.detailId.set('');
+    this.stepRun.set(null);
+  }
+
+  /** Runs this node alone. `live` calls the world; `mock` returns its pinned
+   *  or stubbed data, which is how a step is tried before it can work. */
+  async runStep(mode: 'live' | 'mock'): Promise<void> {
+    const pipeline = this.open();
+    const node = this.detailNode();
+    if (!pipeline || !node) return;
+
+    let seed: Record<string, unknown> = {};
+    const text = this.seedText().trim();
+    if (text) {
+      try {
+        seed = JSON.parse(text);
+      } catch {
+        this.seedError.set('That is not valid JSON.');
+        return;
+      }
+    }
+    this.seedError.set('');
+    if (this.dirty()) await this.save();
+    this.busy.set('Running step…');
+    try {
+      this.stepRun.set(
+        await this.api.runPipelineNode(pipeline.id, node.id, seed, mode),
+      );
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set('');
+    }
+  }
+
+  /** Pins output so a dry run returns it instead of a stub. Taking it from
+   *  the last real run is the common case — you ran it once, and now you want
+   *  that payload every time without calling out again. */
+  pinLastOutput(): void {
+    const last = this.detailRun();
+    if (!last || this.isEmpty(last.output)) return;
+    this.mockText.set(JSON.stringify(last.output, null, 2));
+    this.saveMock();
+  }
+
+  saveMock(): void {
+    const id = this.detailId();
+    const text = this.mockText().trim();
+    if (!text) {
+      this.patchNodeById(id, { mock: null });
+      return;
+    }
+    try {
+      this.patchNodeById(id, { mock: JSON.parse(text) });
+      this.seedError.set('');
+    } catch {
+      this.seedError.set('Pinned data must be valid JSON.');
+    }
+  }
+
+  private patchNodeById(id: string, patch: Partial<PipelineNode>): void {
+    this.mutate((p) => ({
+      ...p,
+      nodes: p.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+    }));
+  }
+
   // -- export ---------------------------------------------------------------
   //
   // A pipeline drawn here is a design, and scheduling is only one thing you
