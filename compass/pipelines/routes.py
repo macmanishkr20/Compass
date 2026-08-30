@@ -259,6 +259,25 @@ async def list_runs(pipeline_id: str, limit: int = 50,
     return {"runs": [r.to_dict() for r in items]}
 
 
+@router.get("/v1/pipelines/{pipeline_id}/export")
+async def export_pipeline(pipeline_id: str,
+                          user: str = Depends(require_user)) -> dict:
+    """The pipeline as a diagram, an architecture note and a Python package.
+
+    A pipeline is a design, and a design is worth more if it can leave. This
+    is the whole bundle in one response rather than a file at a time: it is
+    small, the caller almost always wants all of it, and a zip would make the
+    contents unreadable in the browser, which is where most of it gets looked
+    at first.
+    """
+    pipeline = await pstore.pipelines.get(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="No such pipeline")
+    from compass.pipelines import export as pexport
+
+    return pexport.bundle(pipeline)
+
+
 @router.get("/v1/pipeline-runs/{run_id}")
 async def get_run(run_id: str, user: str = Depends(require_user)) -> dict:
     run = await pstore.runs.get(run_id)

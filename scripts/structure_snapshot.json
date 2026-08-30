@@ -80,6 +80,7 @@
   "GET /v1/pipelines",
   "GET /v1/pipelines/node-types",
   "GET /v1/pipelines/{pipeline_id}",
+  "GET /v1/pipelines/{pipeline_id}/export",
   "GET /v1/pipelines/{pipeline_id}/runs",
   "GET /v1/recap",
   "GET /v1/routine-runs/recent",
@@ -163,7 +164,7 @@
   "POST /v1/workspaces/{workspace_id}/terminal",
   "WS /v1/browser/ws"
  ],
- "schema": "9a1b973399c75953",
+ "schema": "c09f44e3917570f1",
  "smoke": {
   "/": "200",
   "/docs": "200",

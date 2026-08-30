@@ -26,6 +26,7 @@ import {
   MemoryEntry,
   NodeTypeInfo,
   PipelineConnection,
+  PipelineExport,
   PipelineProblem,
   PipelineRun,
   PipelineSummary,
@@ -200,6 +201,11 @@ export class CompassApiService {
   resumePipelineRun(runId: string, answer: Record<string, unknown>): Promise<PipelineRun> {
     return firstValueFrom(
       this.http.post<PipelineRun>(`/v1/pipeline-runs/${runId}/resume`, { answer }),
+    );
+  }
+  exportPipeline(id: string): Promise<PipelineExport> {
+    return firstValueFrom(
+      this.http.get<PipelineExport>(`/v1/pipelines/${id}/export`),
     );
   }
   pipelineConnections(): Promise<{ connections: PipelineConnection[] }> {

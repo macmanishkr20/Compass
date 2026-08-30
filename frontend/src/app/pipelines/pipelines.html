@@ -110,6 +110,8 @@
         }
       </span>
 
+      <button class="pl-btn ghost" type="button" (click)="showExport()"
+        title="Take this out as a diagram, a design note and a package">Export</button>
       <button class="pl-btn ghost" type="button" (click)="validate()">Check</button>
       <button class="pl-btn ghost" type="button" (click)="save()" [disabled]="!dirty() || !!busy()">
         Save
@@ -221,6 +223,91 @@
         }
       </aside>
 
+    </div>
+  </div>
+}
+
+<!-- Export. Scheduling is one way to use a pipeline; taking it somewhere else
+     is the other, and for a design that is meant to be implemented elsewhere
+     it is the only one that matters. -->
+@if (exported(); as ex) {
+  <div class="pl-modal" (click)="closeExport()">
+    <div class="pl-sheet" (click)="$event.stopPropagation()">
+
+      <header class="pl-sheet-head">
+        <div>
+          <h2 class="pl-sheet-title">{{ ex.name }}</h2>
+          <p class="pl-sheet-sub">
+            A diagram, an architecture note, and an installable Python package
+            with no third-party dependencies.
+          </p>
+        </div>
+        <button class="pl-sheet-x" type="button" (click)="closeExport()" aria-label="Close">✕</button>
+      </header>
+
+      @if (ex.needs_host.length) {
+        <p class="pl-needs">
+          {{ ex.needs_host.length }} step type(s) could not be exported as
+          working code — they needed Compass's workspace, model access or a
+          stored credential. Each is a named stub that raises until you register
+          one, so nothing fails quietly.
+        </p>
+      }
+
+      <div class="pl-tabs" role="tablist">
+        @for (t of ['architecture', 'diagram', 'files']; track t) {
+          <button type="button" role="tab" class="pl-tab"
+            [class.on]="exportTab() === t"
+            [attr.aria-selected]="exportTab() === t"
+            (click)="exportTab.set($any(t))">{{ t }}</button>
+        }
+        <span class="pl-sheet-spacer"></span>
+        <button class="pl-btn ghost" type="button" (click)="copyAll()">
+          {{ copied() === 'all' ? 'Copied' : 'Copy all files' }}
+        </button>
+      </div>
+
+      <div class="pl-sheet-body">
+        @switch (exportTab()) {
+          @case ('architecture') {
+            <div class="pl-doc"><app-markdown [text]="ex.architecture" /></div>
+          }
+          @case ('diagram') {
+            <p class="pl-note">
+              Mermaid, so it renders where a design actually gets read — a
+              README, a wiki, a pull request. Conditions are drawn on the
+              arrows and a loop body gets its own box.
+            </p>
+            <div class="pl-codewrap">
+              <button class="pl-copy" type="button" (click)="copy(ex.mermaid, 'diagram')">
+                {{ copied() === 'diagram' ? 'Copied' : 'Copy' }}
+              </button>
+              <pre class="pl-code">{{ ex.mermaid }}</pre>
+            </div>
+          }
+          @case ('files') {
+            <div class="pl-files">
+              <ul class="pl-filelist">
+                @for (f of ex.files; track f.path) {
+                  <li>
+                    <button type="button" class="pl-fileitem"
+                      [class.on]="(currentFile()?.path || '') === f.path"
+                      (click)="exportFile.set(f.path)">{{ f.path }}</button>
+                  </li>
+                }
+              </ul>
+              @if (currentFile(); as f) {
+                <div class="pl-codewrap grow">
+                  <button class="pl-copy" type="button" (click)="copy(f.content, f.path)">
+                    {{ copied() === f.path ? 'Copied' : 'Copy' }}
+                  </button>
+                  <pre class="pl-code">{{ f.content }}</pre>
+                </div>
+              }
+            </div>
+          }
+        }
+      </div>
     </div>
   </div>
 }

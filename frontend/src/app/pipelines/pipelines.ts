@@ -4,6 +4,7 @@ import {
   NodeTypeInfo,
   PipelineConnection,
   PipelineEdge,
+  PipelineExport,
   PipelineNode,
   PipelineProblem,
   PipelineRun,
@@ -11,6 +12,7 @@ import {
 } from '../models';
 import { NODE_H, NODE_W, PipelineCanvas } from './canvas';
 import { PipelineInspector } from './inspector';
+import { Markdown } from '../markdown/markdown';
 
 /**
  * The Pipelines section: list, palette, canvas, properties, runs.
@@ -29,7 +31,7 @@ import { PipelineInspector } from './inspector';
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './pipelines.html',
   styleUrl: './pipelines.css',
-  imports: [PipelineCanvas, PipelineInspector],
+  imports: [PipelineCanvas, PipelineInspector, Markdown],
 })
 export class Pipelines {
   private readonly api = inject(CompassApiService);
@@ -439,6 +441,67 @@ export class Pipelines {
     } catch (err: unknown) {
       this.error.set(this.message(err));
     }
+  }
+
+  // -- export ---------------------------------------------------------------
+  //
+  // A pipeline drawn here is a design, and scheduling is only one thing you
+  // might do with it. Export is the other: take the graph out as a diagram,
+  // an architecture note, and a package another application can import.
+
+  readonly exported = signal<PipelineExport | null>(null);
+  readonly exportTab = signal<'architecture' | 'diagram' | 'files'>('architecture');
+  readonly exportFile = signal('');
+  readonly copied = signal('');
+
+  readonly currentFile = computed(() => {
+    const bundle = this.exported();
+    if (!bundle) return null;
+    return bundle.files.find((f) => f.path === this.exportFile()) ?? bundle.files[0] ?? null;
+  });
+
+  async showExport(): Promise<void> {
+    const pipeline = this.open();
+    if (!pipeline) return;
+    if (this.dirty()) await this.save();
+    this.busy.set('Exporting…');
+    try {
+      const bundle = await this.api.exportPipeline(pipeline.id);
+      this.exported.set(bundle);
+      this.exportTab.set('architecture');
+      this.exportFile.set(bundle.files[0]?.path ?? '');
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set('');
+    }
+  }
+
+  closeExport(): void {
+    this.exported.set(null);
+  }
+
+  /** Copy rather than download: the export is read before it is used, and a
+   *  browser download of a many-file package would be a zip nobody opens. */
+  async copy(text: string, label: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.copied.set(label);
+      setTimeout(() => this.copied.set(''), 1600);
+    } catch {
+      this.error.set('The browser would not allow copying.');
+    }
+  }
+
+  copyAll(): void {
+    const bundle = this.exported();
+    if (!bundle) return;
+    // One paste that reconstructs the tree: each file under a path header, so
+    // it can be pasted into a chat, a ticket, or an agent that writes files.
+    const text = bundle.files
+      .map((f) => `----- ${f.path} -----\n${f.content}`)
+      .join('\n');
+    void this.copy(text, 'all');
   }
 
   // -- connections ----------------------------------------------------------

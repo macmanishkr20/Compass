@@ -286,6 +286,19 @@ export interface PipelineRun {
   finished_at: number | null;
 }
 
+/** What `GET /v1/pipelines/{id}/export` returns: the pipeline as something
+ *  that can leave — a diagram, an architecture note, and a runnable package. */
+export interface PipelineExport {
+  name: string;
+  package: string;
+  mermaid: string;
+  architecture: string;
+  files: { path: string; content: string }[];
+  /** Node types that could not be exported as working code. Each is a named
+   *  stub in the package that raises until the host registers one. */
+  needs_host: { type: string; label: string; requires: string; connection: string }[];
+}
+
 export interface PipelineConnection {
   id: string;
   kind: string;
