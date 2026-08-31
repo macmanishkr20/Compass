@@ -2047,6 +2047,52 @@ def check_editor_layout() -> None:
        "so the inspector is never lifted out of the grid")
 
 
+def check_banners_and_one_run() -> None:
+    """A report you have read can be put away, and one verb has one button.
+
+    Validation results and errors both persisted until something else changed
+    them, so a report you had read and acted on sat at the top of the editor
+    as noise. Both dismiss now.
+
+    They also named nodes by id — "n_1_786 needs a gmail connection" — which
+    is right for an API and useless to a reader, who then has to work out
+    which box that is. The name is used instead, and clicking it selects the
+    node, so the report and the fix are not two separate hunts.
+
+    And Run existed twice: in the toolbar and on the canvas, doing the same
+    thing. The canvas one went. The toolbar keeps it beside Dry run, which is
+    the same verb in another mode — a person choosing between live and dry
+    should not have to look in two places.
+
+    Measured: four problems reading "Find “project details” emails needs …"
+    rather than an id, a dismiss button beside the list rather than under it,
+    and exactly one Run button in the editor.
+    """
+    print("\na report can be put away, and one verb has one button")
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    canvas = (ROOT / "frontend/src/app/pipelines/canvas.html").read_text()
+    css = (ROOT / "frontend/src/app/pipelines/pipelines.css").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+
+    ok('(click)="problems.set([])"' in html, "validation results dismiss")
+    ok("error.set('')" in html, "and so do errors")
+    ok("namedProblems" in ts and "names.get(p.node) || p.node" in ts,
+       "a problem names the node as the canvas does, not by id")
+    ok('(click)="showProblemNode(p.node)"' in html,
+       "and clicking it selects that node, so the report and the fix are one "
+       "hunt rather than two")
+
+    ok("flex-direction: row;" in section(css, ".pl-problems, .pl-error {", "\n}"),
+       "the banner lays out in a row explicitly — .pl-problems is declared "
+       "column above, and a later `display: flex` inherits that, which put "
+       "the dismiss under the list")
+
+    ok("Execute pipeline" not in canvas,
+       "the canvas no longer duplicates Run")
+    ok(html.count(">Run<") + html.count("|| 'Run'") == 1,
+       "which leaves one Run, beside Dry run — the same verb in another mode")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2315,6 +2361,7 @@ def main() -> int:
     check_builder_feedback()
     check_tidy()
     check_editor_layout()
+    check_banners_and_one_run()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

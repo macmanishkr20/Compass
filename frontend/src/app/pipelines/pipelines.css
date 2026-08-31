@@ -1118,3 +1118,48 @@
 
 /* The picker slides in from the right, so the overlay must not centre it. */
 .pl-modal:has(.pl-picker) { padding: 0; place-items: stretch; }
+
+/* A banner you can put away. Validation results and errors both persist
+   until something changes them, and a report you have read and acted on is
+   just noise occupying the top of the editor. */
+.pl-problems, .pl-error {
+  /* Row, explicitly: .pl-problems is declared column further up, and a later
+     rule that only sets `display: flex` inherits that direction — which put
+     the dismiss button underneath the list instead of beside it. */
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+}
+.pl-problems-list { display: flex; flex-direction: column; gap: 4px; }
+.pl-problems-list { flex: 1 1 auto; min-width: 0; }
+.pl-dismiss {
+  flex-shrink: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 0.78rem;
+}
+.pl-dismiss:hover { background: color-mix(in oklab, var(--ink) 8%, transparent); color: var(--ink); }
+
+/* The node a problem is about, named as it is on the canvas and clickable —
+   the report and the fix should not be two separate hunts. */
+.pl-problem-node {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--ink) 30%, transparent);
+  text-underline-offset: 2px;
+}
+.pl-problem-node:hover { color: var(--accent); }

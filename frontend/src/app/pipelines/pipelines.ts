@@ -60,6 +60,21 @@ export class Pipelines {
   readonly selectedId = signal('');
   readonly dirty = signal(false);
   readonly problems = signal<PipelineProblem[]>([]);
+
+  /** Problems with the node named as it is on the canvas.
+   *
+   *  The server reports the node id, which is right for an API and useless to
+   *  a reader: "n_1_786 needs a gmail connection" means finding which box
+   *  that is before you can act on it. */
+  readonly namedProblems = computed(() => {
+    const names = new Map(
+      this.open()?.nodes.map((n) => [n.id, n.name || n.type]) ?? [],
+    );
+    return this.problems().map((p) => ({
+      ...p,
+      label: names.get(p.node) || p.node || 'This pipeline',
+    }));
+  });
   readonly run = signal<PipelineRun | null>(null);
   readonly newName = signal('');
   readonly paletteFilter = signal('');
@@ -505,6 +520,13 @@ export class Pipelines {
   /** A dry run calls nothing: every step outside the flow nodes returns
    *  pinned or stubbed data. It is how a pipeline is shown working before
    *  anyone connects an account, and it needs no capabilities granted. */
+  /** Jump to the node a problem is about. */
+  showProblemNode(nodeId: string): void {
+    if (this.open()?.nodes.some((n) => n.id === nodeId)) {
+      this.selectedId.set(nodeId);
+    }
+  }
+
   async runNow(mode: 'live' | 'mock' = 'live'): Promise<void> {
     const pipeline = this.open();
     if (!pipeline) return;

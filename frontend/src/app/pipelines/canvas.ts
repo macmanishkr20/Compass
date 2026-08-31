@@ -87,7 +87,6 @@ export class PipelineCanvas {
   /** The two things worth doing on an empty canvas. */
   readonly addFirst = output<void>();
   readonly buildWithAI = output<void>();
-  readonly runAll = output<void>();
 
   private readonly surface = viewChild<ElementRef<HTMLElement>>('surface');
 

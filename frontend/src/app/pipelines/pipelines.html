@@ -137,7 +137,13 @@
       </button>
     </header>
 
-    @if (error()) { <div class="pl-error">{{ error() }}</div> }
+    @if (error()) {
+      <div class="pl-error">
+        <span class="pl-problems-list">{{ error() }}</span>
+        <button class="pl-dismiss" type="button" (click)="error.set('')"
+          aria-label="Dismiss">✕</button>
+      </div>
+    }
 
     @if (setupTodo().length || missingCapabilities().length) {
       <div class="pl-setup-bar">
@@ -162,9 +168,18 @@
 
     @if (problems().length) {
       <div class="pl-problems">
-        @for (p of problems(); track p.node + p.problem) {
-          <div class="pl-problem"><code>{{ p.node || 'graph' }}</code> {{ p.problem }}</div>
-        }
+        <div class="pl-problems-list">
+          @for (p of namedProblems(); track p.node + p.problem) {
+            <div class="pl-problem">
+              <button type="button" class="pl-problem-node"
+                (click)="showProblemNode(p.node)"
+                [title]="p.node ? 'Show this step' : ''">{{ p.label }}</button>
+              {{ p.problem }}
+            </div>
+          }
+        </div>
+        <button class="pl-dismiss" type="button" (click)="problems.set([])"
+          aria-label="Dismiss">✕</button>
       </div>
     }
 
@@ -239,7 +254,6 @@
           (addAfter)="openPicker($event)"
           (addFirst)="openPicker(null)"
           (buildWithAI)="focusBuilder()"
-          (runAll)="runNow()"
           [counts]="itemCounts()" />
       </div>
 
