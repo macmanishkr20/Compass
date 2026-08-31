@@ -119,10 +119,6 @@
         }
       </span>
 
-      <button class="pl-btn ghost" type="button" (click)="toggleChat()"
-        [class.on]="chatOpen()" title="Describe a change and let it build">
-        Builder
-      </button>
       <button class="pl-btn ghost" type="button" (click)="runNow('mock')"
         [disabled]="!!busy()"
         title="Run with pinned or stubbed data — calls nothing, needs no capabilities">
@@ -180,24 +176,50 @@
       </div>
     }
 
-    <div class="pl-work" [class.with-chat]="chatOpen()">
+    <div class="pl-work" [class.inspecting]="!!selectedNode()">
 
-      <aside class="pl-palette">
-        <input class="pl-input sm" type="text" placeholder="Search nodes…"
-          [value]="paletteFilter()" (input)="paletteFilter.set($any($event.target).value)" />
-        @for (g of palette(); track g.name) {
-          <div class="pl-pgroup">
-            <h3 class="pl-pgroup-name">{{ g.name }}</h3>
-            @for (t of g.types; track t.id) {
-              <button class="pl-ptype" type="button" (click)="addNode(t)" [title]="t.description">
-                <span>{{ t.label }}</span>
-                @if (t.requires) { <i class="pl-preq">{{ t.requires }}</i> }
-              </button>
-            }
-          </div>
-        } @empty {
-          <p class="pl-empty sm">No nodes match.</p>
-        }
+      <aside class="pl-chat">
+        <header class="pl-chat-head">
+          <h3 class="pl-side-h">Builder</h3>
+          <span class="pl-sheet-spacer"></span>
+          <button class="pl-logs-clear" type="button" (click)="clearChat()">Clear</button>
+        </header>
+
+        <div class="pl-chat-log">
+          @for (m of chat(); track $index) {
+            <div class="pl-msg" [class]="'from-' + m.role">
+              @if (m.role === 'you') {
+                <p class="pl-msg-you">{{ m.text }}</p>
+              } @else {
+                @for (s of m.steps; track $index) {
+                  <p class="pl-msg-step">{{ s }}</p>
+                }
+                @if (m.text) {
+                  <div class="pl-msg-said"><app-markdown [text]="m.text" /></div>
+                }
+              }
+            </div>
+          } @empty {
+            <p class="pl-empty sm">
+              Describe what this pipeline should do and it will build it on
+                the canvas — choosing steps, wiring them, and dry running the
+                result. It cannot grant capabilities or make connections; it
+                will tell you which are needed.</p>
+          }
+          @if (building()) { <p class="pl-msg-step live">Working…</p> }
+        </div>
+
+        <div class="pl-chat-ask">
+          <textarea class="pl-ndv-edit" rows="3"
+            placeholder="Read new invoices and record each one…"
+            [value]="chatDraft()"
+            (input)="chatDraft.set($any($event.target).value)"
+            (keydown.enter)="$event.preventDefault(); sendToBuilder()"></textarea>
+          <button class="pl-btn" type="button" (click)="sendToBuilder()"
+            [disabled]="building() || !chatDraft().trim()">
+            {{ building() ? 'Building…' : 'Send' }}
+          </button>
+        </div>
       </aside>
 
       <div class="pl-canvas">
@@ -216,60 +238,13 @@
           (openNode)="openDetail($event)"
           (addAfter)="openPicker($event)"
           (addFirst)="openPicker(null)"
-          (buildWithAI)="chatOpen.set(true)"
+          (buildWithAI)="focusBuilder()"
           (runAll)="runNow()"
           [counts]="itemCounts()" />
       </div>
 
-      @if (chatOpen()) {
-        <aside class="pl-chat">
-          <header class="pl-chat-head">
-            <h3 class="pl-side-h">Builder</h3>
-            <span class="pl-sheet-spacer"></span>
-            <button class="pl-logs-clear" type="button" (click)="clearChat()">Clear</button>
-          </header>
-
-          <div class="pl-chat-log">
-            @for (m of chat(); track $index) {
-              <div class="pl-msg" [class]="'from-' + m.role">
-                @if (m.role === 'you') {
-                  <p class="pl-msg-you">{{ m.text }}</p>
-                } @else {
-                  @for (s of m.steps; track $index) {
-                    <p class="pl-msg-step">{{ s }}</p>
-                  }
-                  @if (m.text) {
-                    <div class="pl-msg-said"><app-markdown [text]="m.text" /></div>
-                  }
-                }
-              </div>
-            } @empty {
-              <p class="pl-empty sm">
-                Describe what this pipeline should do and it will build it on
-                the canvas — picking steps from the palette, wiring them, and
-                dry running the result. It cannot grant capabilities or make
-                connections; it will tell you which are needed.
-              </p>
-            }
-            @if (building()) { <p class="pl-msg-step live">Working…</p> }
-          </div>
-
-          <div class="pl-chat-ask">
-            <textarea class="pl-ndv-edit" rows="3"
-              placeholder="Read new invoices and record each one…"
-              [value]="chatDraft()"
-              (input)="chatDraft.set($any($event.target).value)"
-              (keydown.enter)="$event.preventDefault(); sendToBuilder()"></textarea>
-            <button class="pl-btn" type="button" (click)="sendToBuilder()"
-              [disabled]="building() || !chatDraft().trim()">
-              {{ building() ? 'Building…' : 'Send' }}
-            </button>
-          </div>
-        </aside>
-      }
-
-      <aside class="pl-side">
-        @if (selectedNode(); as n) {
+      @if (selectedNode(); as n) {
+        <aside class="pl-side">
           <app-pipeline-inspector
             [node]="n"
             [type]="selectedType()"
@@ -298,14 +273,8 @@
               }
             </section>
           }
-        } @else {
-          <p class="pl-empty sm">
-            Select a node to configure it, or add one from the palette.
-            Drag a node's right-hand port onto another to connect them; click a
-            wire to remove it.
-          </p>
-        }
-      </aside>
+        </aside>
+      }
 
     </div>
 

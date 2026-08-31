@@ -1994,6 +1994,51 @@ def check_tidy() -> None:
        "mismatch in the first place")
 
 
+def check_editor_layout() -> None:
+    """Three columns, and only one of them is always there.
+
+    The palette and the picker were the same catalogue twice — one cramped
+    list of labels, one panel with room to say what each step does and what it
+    needs. Keeping both meant maintaining two ways to add a node and choosing
+    between them every time. The one that survived is the one that can
+    explain itself, and it wires what it adds.
+
+    The inspector was permanent furniture showing "Select a node to configure
+    it" whenever nothing was selected — a column of instructions occupying
+    space the canvas wanted. It now appears with a selection and leaves with
+    it.
+
+    The builder took the fixed left column, because it is the thing you use
+    while looking at the canvas rather than the thing you open to answer one
+    question.
+
+    Measured at 1500px: 320px + 1102px with nothing selected; 320px + 792px +
+    300px with a node selected; and back again on deselect.
+    """
+    print("\nthe editor keeps only what is always useful")
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    css = (ROOT / "frontend/src/app/pipelines/pipelines.css").read_text()
+
+    ok('class="pl-palette"' not in html,
+       "the palette is gone — it was the picker's catalogue, twice")
+    ok('class="pl-picker"' in html,
+       "and the picker remains, which has room to describe a step")
+
+    work = section(html, '<div class="pl-work"', ">")
+    ok("inspecting" in work,
+       "the column count follows whether a node is selected")
+    ok('@if (selectedNode(); as n) {\n        <aside class="pl-side">' in html,
+       "so the inspector arrives with a selection rather than sitting there "
+       "telling you to make one")
+
+    ok('grid-template-columns: 320px minmax(0, 1fr);' in css,
+       "the builder holds a fixed column")
+    ok(".pl-work.inspecting { grid-template-columns: 320px minmax(0, 1fr) 300px; }"
+       in css, "and the inspector takes a third only while it is wanted")
+    ok("toggleChat" not in html,
+       "with no toggle for a panel the layout now depends on")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2261,6 +2306,7 @@ def main() -> int:
     check_expression_toggle()
     check_builder_feedback()
     check_tidy()
+    check_editor_layout()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

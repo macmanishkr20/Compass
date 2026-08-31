@@ -817,15 +817,17 @@ export class Pipelines {
   // when the turn ends rather than reconstructed from what was said — a plan
   // you have to apply is a different, worse product.
 
-  readonly chatOpen = signal(false);
   readonly chatDraft = signal('');
   readonly building = signal(false);
   readonly chat = signal<
     { role: 'you' | 'builder'; text: string; steps: string[] }[]
   >([]);
 
-  toggleChat(): void {
-    this.chatOpen.set(!this.chatOpen());
+  /** The Builder is always on screen now, so "Build with AI" puts the cursor
+   *  in it rather than revealing it. */
+  focusBuilder(): void {
+    const box = document.querySelector<HTMLTextAreaElement>('.pl-chat-ask textarea');
+    box?.focus();
   }
 
   async sendToBuilder(): Promise<void> {
@@ -967,7 +969,6 @@ export class Pipelines {
     const failed = this.stepRun()?.nodes?.[nodeId] ?? this.run()?.nodes?.[nodeId];
     if (!pipeline || !node || !failed) return;
 
-    this.chatOpen.set(true);
     this.detailId.set('');
     this.chatDraft.set(
       [
