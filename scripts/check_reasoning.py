@@ -1907,6 +1907,51 @@ def check_expression_toggle() -> None:
        "the two agree about what a field holds")
 
 
+def check_builder_feedback() -> None:
+    """The canvas updates while the builder works, and errors name themselves.
+
+    Two faults found by using it rather than by reading it.
+
+    The panel's whole claim is that edits appear on the canvas as they happen.
+    They did not: the graph was re-read only when the turn ended, so "Adding
+    Start" sat over an empty canvas and everything arrived at once at the
+    finish — a plan being applied rather than a graph being built. It now
+    re-reads after each mutating tool, and only those: the read-only ones
+    would cost a round trip for nothing.
+
+    And a failure said "Could not reach the pipelines service" whatever
+    happened, because the only shape it understood was an HttpClient error
+    with a parsed body. The streaming fetch throws a plain Error, so a 404
+    from a server that had answered was reported as a network fault, sending
+    the reader looking for something that was not there. Status is carried out
+    of the fetch and read back, and a 404 says the likely truth: the backend
+    is running older code than the page.
+
+    Measured: three Set variable nodes appeared on the canvas while the
+    builder was still working, and a stale server produced the restart
+    message instead of the network one.
+    """
+    print("\nthe canvas keeps up, and a failure says what it was")
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    api = (ROOT / "frontend/src/app/compass-api.service.ts").read_text()
+
+    ok("const MUTATING = new Set([" in ts,
+       "the tools that change the graph are named")
+    ok("MUTATING.has(String(ev['tool_name'] ?? ''))" in ts,
+       "and the canvas re-reads when one finishes, rather than at the end of "
+       "the turn — otherwise the panel claims a live canvas and shows a plan")
+
+    ok("`${res.status} ${(await res.text()) || res.statusText}`" in api,
+       "the streaming fetch carries the status out with it")
+    msg = section(ts, "private message(err: unknown)", "\n  }")
+    ok("status === 404" in msg,
+       "and a 404 says the server is probably older than the page, which is "
+       "the actual cause and a one-line fix")
+    ok("if (detail) return detail;" in msg,
+       "a parsed API detail still wins, since it is the most specific thing "
+       "available")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2172,6 +2217,7 @@ def main() -> int:
     check_setup_and_fix()
     check_canvas_affordances()
     check_expression_toggle()
+    check_builder_feedback()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

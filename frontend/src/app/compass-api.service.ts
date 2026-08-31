@@ -982,7 +982,10 @@ export class CompassApiService {
       throw new Error('authentication required');
     }
     if (!res.ok || !res.body) {
-      throw new Error((await res.text()) || res.statusText);
+      // Carry the status. Without it a caller can only say something generic,
+      // and "could not reach the service" is a poor description of a 404 from
+      // a service that answered.
+      throw new Error(`${res.status} ${(await res.text()) || res.statusText}`);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

@@ -12,6 +12,15 @@ import {
   PipelineSummary,
 } from '../models';
 import { NODE_H, NODE_W, PipelineCanvas } from './canvas';
+
+/** Builder tools that change the graph, so the canvas is worth re-reading
+ *  the moment one finishes. The read-only ones would only cost a round trip. */
+const MUTATING = new Set([
+  'pipeline_add_node',
+  'pipeline_connect',
+  'pipeline_set_config',
+  'pipeline_remove_node',
+]);
 import { PipelineInspector } from './inspector';
 import { Markdown } from '../markdown/markdown';
 
@@ -800,6 +809,16 @@ export class Pipelines {
               l.text = String(ev['text'] ?? l.text);
             });
             break;
+          case 'tool_result':
+            // Refresh as edits land, not only when the turn ends. The whole
+            // claim of this panel is that the canvas updates while you watch;
+            // without this it showed "Adding Start" over an empty canvas and
+            // caught up at the end, which is a plan being applied rather than
+            // a graph being built.
+            if (MUTATING.has(String(ev['tool_name'] ?? ''))) {
+              void this.reloadGraph();
+            }
+            break;
           case 'error':
             this.error.set(String(ev['message'] ?? 'The builder stopped.'));
             break;
@@ -1136,8 +1155,39 @@ export class Pipelines {
     }
   }
 
+  /**
+   * The most specific thing that can be said about a failure.
+   *
+   * Three shapes reach here: an HttpClient error with a parsed body, a plain
+   * Error thrown by the streaming fetch carrying "<status> <body>", and
+   * everything else. The old version understood only the first and answered
+   * "Could not reach the pipelines service" to all of them — which described
+   * a 404 from a service that had answered, and sent the reader hunting a
+   * network fault that was not there.
+   */
   private message(err: unknown): string {
     const detail = (err as { error?: { detail?: string } })?.error?.detail;
-    return detail || 'Could not reach the pipelines service.';
+    if (detail) return detail;
+
+    const raw = (err as { message?: string })?.message ?? '';
+    const status = Number(raw.match(/^(\d{3})\s/)?.[1] ?? 0);
+    let body = raw.replace(/^\d{3}\s/, '').trim();
+    try {
+      const parsed = JSON.parse(body);
+      body = String(parsed?.detail ?? body);
+    } catch {
+      /* not JSON; the text is what there is */
+    }
+
+    // A 404 on an endpoint the client knows about means the server does not
+    // have it — almost always a backend running older code than the page.
+    // Saying so turns a dead end into one instruction.
+    if (status === 404) {
+      return 'The server does not have this endpoint. It is probably running '
+        + 'an older build than this page — restart the backend and try again.';
+    }
+    if (status === 409) return body || 'Something else is already running.';
+    if (status) return body ? `${status}: ${body}` : `Request failed (${status}).`;
+    return body || 'Could not reach the pipelines service.';
   }
 }
