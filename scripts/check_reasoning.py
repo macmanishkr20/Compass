@@ -2037,6 +2037,14 @@ def check_editor_layout() -> None:
        in css, "and the inspector takes a third only while it is wanted")
     ok("toggleChat" not in html,
        "with no toggle for a panel the layout now depends on")
+    ok(".pl-work.inspecting { grid-template-columns: 240px minmax(0, 1fr) 260px; }"
+       in css,
+       "a narrow window keeps all three columns and lets the canvas take the "
+       "loss — floating the inspector hid the node being edited behind the "
+       "panel editing it, and a canvas can be panned where a covered node "
+       "cannot")
+    ok("position: absolute" not in section(css, ".pl-work.inspecting", "\n}"),
+       "so the inspector is never lifted out of the grid")
 
 
 def check_fetching() -> None:
