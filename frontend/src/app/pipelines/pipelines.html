@@ -141,6 +141,27 @@
 
     @if (error()) { <div class="pl-error">{{ error() }}</div> }
 
+    @if (setupTodo().length || missingCapabilities().length) {
+      <div class="pl-setup-bar">
+        <span class="pl-setup-txt">
+          @if (setupTodo().length) {
+            Needs {{ setupTodo().length }}
+            connection{{ setupTodo().length === 1 ? '' : 's' }} before it can run
+            for real{{ missingCapabilities().length ? ', and ' : '.' }}
+          }
+          @if (missingCapabilities().length) {
+            {{ setupTodo().length ? '' : 'Needs ' }}the
+            {{ missingCapabilities().join(', ') }}
+            capabilit{{ missingCapabilities().length === 1 ? 'y' : 'ies' }},
+            which only you can grant.
+          }
+        </span>
+        @if (setupTodo().length) {
+          <button class="pl-btn" type="button" (click)="openSetup()">Set up</button>
+        }
+      </div>
+    }
+
     @if (problems().length) {
       <div class="pl-problems">
         @for (p of problems(); track p.node + p.problem) {
@@ -374,6 +395,8 @@
                   <h4 class="pl-pane-h">Output</h4>
                   @if (sel.run.error) {
                     <pre class="pl-pane-code err">{{ sel.run.error }}</pre>
+                    <button class="pl-fix" type="button"
+                      (click)="fixWithAI(sel.run.node_id)">Fix with AI</button>
                   } @else if (isEmpty(sel.run.output)) {
                     <p class="pl-pane-none">
                       {{ sel.run.text || 'No output.' }}
@@ -394,6 +417,55 @@
         </div>
       }
     </section>
+  </div>
+}
+
+<!-- Setting up what the graph needs, one connection at a time. The
+     stepper exists because a list of four missing connections is a chore and
+     a sequence of one is a task. -->
+@if (setupOpen() && currentStep(); as step) {
+  <div class="pl-modal" (click)="closeSetup()">
+    <div class="pl-step" (click)="$event.stopPropagation()">
+      <header class="pl-step-head">
+        <span class="pl-step-count">
+          {{ setupStep() + 1 }} of {{ setupTodo().length }}
+        </span>
+        <span class="pl-ndv-title">Connect {{ step.label }}</span>
+        <span class="pl-sheet-spacer"></span>
+        <button class="pl-sheet-x" type="button" (click)="closeSetup()" aria-label="Close">✕</button>
+      </header>
+
+      <div class="pl-step-body">
+        <p class="pl-pane-none">
+          Used by {{ step.nodes.join(', ') }}.
+        </p>
+        @if (step.note) { <p class="pl-kindnote">{{ step.note }}</p> }
+
+        <label class="pl-step-field">
+          <span class="in-label">Name</span>
+          <input class="pl-input sm" type="text"
+            [value]="draft().name" (input)="setDraft('name', $any($event.target).value)" />
+        </label>
+        <label class="pl-step-field">
+          <span class="in-label">Endpoint (optional)</span>
+          <input class="pl-input sm" type="text"
+            [value]="draft().endpoint" (input)="setDraft('endpoint', $any($event.target).value)" />
+        </label>
+        <label class="pl-step-field">
+          <span class="in-label">Secret — stored on the server, never sent back</span>
+          <input class="pl-input sm" type="password" autocomplete="off"
+            [value]="draft().secret" (input)="setDraft('secret', $any($event.target).value)" />
+        </label>
+      </div>
+
+      <footer class="pl-step-foot">
+        <button class="pl-btn ghost" type="button" (click)="skipStep()">Skip for now</button>
+        <button class="pl-btn" type="button" (click)="connectStep()"
+          [disabled]="!draft().name.trim() || !!busy()">
+          {{ busy() || 'Connect' }}
+        </button>
+      </footer>
+    </div>
   </div>
 }
 

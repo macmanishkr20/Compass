@@ -537,6 +537,126 @@ export class Pipelines {
     }
   }
 
+  // -- credential setup -----------------------------------------------------
+  //
+  // After a graph exists, the question is what it still needs before it can
+  // run for real. Computed on the client from the node types, the connection
+  // kinds and the connections that exist — all three are already here, and a
+  // round trip would only make the banner lag the node someone just added.
+
+  readonly setupOpen = signal(false);
+  readonly setupStep = signal(0);
+
+  readonly neededSetup = computed(() => {
+    const pipeline = this.open();
+    if (!pipeline) return [];
+    const types = this.typeMap();
+    const kinds = new Map(this.connectionKinds().map((k) => [k.kind, k]));
+    const have = new Set(this.connections().map((c) => c.kind));
+
+    const byKind = new Map<string, string[]>();
+    for (const node of pipeline.nodes) {
+      const kind = types.get(node.type)?.connection_kind;
+      if (!kind) continue;
+      byKind.set(kind, [...(byKind.get(kind) ?? []), node.name || node.id]);
+    }
+    return [...byKind.entries()].map(([kind, nodes]) => ({
+      kind,
+      label: kinds.get(kind)?.label ?? kind,
+      note: kinds.get(kind)?.note ?? '',
+      auth: kinds.get(kind)?.auth ?? 'none',
+      nodes,
+      have: have.has(kind),
+    }));
+  });
+
+  /** Only the ones still missing — what the banner counts and the stepper
+   *  walks. A kind that already has a connection is not a step. */
+  readonly setupTodo = computed(() => this.neededSetup().filter((s) => !s.have));
+
+  /** Capabilities the graph needs that nobody has granted. Surfaced beside
+   *  the connections because they are the other thing that stops a pipeline
+   *  running, and the builder is deliberately not allowed to grant them. */
+  readonly missingCapabilities = computed(() => {
+    const pipeline = this.open();
+    if (!pipeline) return [];
+    const types = this.typeMap();
+    const needed = new Set<string>();
+    for (const node of pipeline.nodes) {
+      const requires = types.get(node.type)?.requires;
+      if (requires && !pipeline.capabilities.includes(requires)) {
+        needed.add(requires);
+      }
+    }
+    return [...needed].sort();
+  });
+
+  openSetup(): void {
+    this.setupStep.set(0);
+    this.setupOpen.set(true);
+    this.primeDraftForStep();
+  }
+
+  closeSetup(): void {
+    this.setupOpen.set(false);
+  }
+
+  readonly currentStep = computed(() => this.setupTodo()[this.setupStep()] ?? null);
+
+  /** Fills the connection form with the kind this step is about, so the
+   *  stepper is not a form you have to re-answer a question in front of. */
+  private primeDraftForStep(): void {
+    const step = this.setupTodo()[this.setupStep()];
+    if (!step) return;
+    this.draft.set({
+      kind: step.kind,
+      name: `${step.label} connection`,
+      auth: step.auth,
+      endpoint: '',
+      secret: '',
+    });
+  }
+
+  async connectStep(): Promise<void> {
+    const made = await this.addConnection();
+    // Attach it to the nodes that were waiting for one. Creating a connection
+    // and leaving every node still saying "choose a connection" defeats the
+    // point of a stepper — its whole job is to leave the pipeline runnable.
+    // Only nodes with none are filled: a node someone deliberately pointed at
+    // a different connection keeps it.
+    if (made) this.attachConnection(made);
+    // The list refreshed, so this kind is no longer a step; the index stays
+    // put and now points at whatever was next.
+    if (this.setupStep() >= this.setupTodo().length) {
+      this.setupOpen.set(false);
+      return;
+    }
+    this.primeDraftForStep();
+  }
+
+  private attachConnection(made: PipelineConnection): void {
+    const types = this.typeMap();
+    this.mutate((p) => ({
+      ...p,
+      nodes: p.nodes.map((n) =>
+        !n.connection_id && types.get(n.type)?.connection_kind === made.kind
+          ? { ...n, connection_id: made.id }
+          : n,
+      ),
+    }));
+    void this.save();
+  }
+
+  skipStep(): void {
+    const next = this.setupStep() + 1;
+    if (next >= this.setupTodo().length) {
+      this.setupOpen.set(false);
+      return;
+    }
+    this.setupStep.set(next);
+    this.primeDraftForStep();
+  }
+
   // -- the builder ----------------------------------------------------------
   //
   // A conversation that edits the graph you are looking at. Every edit is
@@ -603,7 +723,12 @@ export class Pipelines {
         }
       });
     } catch (err: unknown) {
-      this.error.set(this.message(err));
+      // An `error` event during the stream already said what went wrong —
+      // a rate limit, a refusal — and it is more specific than anything
+      // recoverable from the thrown value. Overwriting it turned "exceeded
+      // rate limit" into "could not reach the pipelines service", which sent
+      // the reader looking for a network fault that was not there.
+      if (!this.error()) this.error.set(this.message(err));
     } finally {
       this.building.set(false);
       // The graph changed underneath us while the model worked.
@@ -656,6 +781,50 @@ export class Pipelines {
       /* leave what is on screen; the next action will surface the problem */
     }
   }
+
+  /**
+   * Hand a failed step back to the builder.
+   *
+   * The message carries what the builder would otherwise have to go and read:
+   * which node, its type, the settings it actually ran with, and the error in
+   * full. Sending only "fix it" makes the model spend two tool calls
+   * rediscovering what the screen already knows.
+   *
+   * The settings are the *resolved* ones from the run, which is the point —
+   * a failure is usually an expression that resolved to something
+   * unexpected, and the literal it became is what identifies it.
+   */
+  async fixWithAI(nodeId: string): Promise<void> {
+    const pipeline = this.open();
+    const node = pipeline?.nodes.find((n) => n.id === nodeId);
+    const failed = this.stepRun()?.nodes?.[nodeId] ?? this.run()?.nodes?.[nodeId];
+    if (!pipeline || !node || !failed) return;
+
+    this.chatOpen.set(true);
+    this.detailId.set('');
+    this.chatDraft.set(
+      [
+        `The step "${node.name || node.id}" (${node.id}, type ${node.type}) failed.`,
+        '',
+        `Error: ${failed.error || 'no message'}`,
+        '',
+        `It ran with these settings, after expressions resolved:`,
+        this.asJson(failed.input) || '{}',
+        '',
+        'Work out why and fix it. If the cause is a missing connection or a '
+          + 'capability the pipeline does not hold, say so instead of working '
+          + 'around it.',
+      ].join('\n'),
+    );
+    await this.sendToBuilder();
+  }
+
+  /** Whether a step failed, for the button that offers to fix it. */
+  failedNodes = computed(() => {
+    const current = this.run();
+    if (!current) return [];
+    return Object.values(current.nodes).filter((n) => n.status === 'failed');
+  });
 
   async clearChat(): Promise<void> {
     const pipeline = this.open();
@@ -849,12 +1018,13 @@ export class Pipelines {
     this.draft.update((d) => ({ ...d, [key]: value }));
   }
 
-  async addConnection(): Promise<void> {
+  async addConnection(): Promise<PipelineConnection | null> {
     const d = this.draft();
-    if (!d.name.trim() || !d.kind.trim()) return;
+    if (!d.name.trim() || !d.kind.trim()) return null;
     this.busy.set('Saving…');
+    let made: PipelineConnection | null = null;
     try {
-      await this.api.createConnection({
+      made = await this.api.createConnection({
         kind: d.kind.trim(),
         name: d.name.trim(),
         auth: d.auth,
@@ -871,6 +1041,7 @@ export class Pipelines {
     } finally {
       this.busy.set('');
     }
+    return made;
   }
 
   async deleteConnection(id: string): Promise<void> {

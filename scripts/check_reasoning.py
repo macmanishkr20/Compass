@@ -1749,6 +1749,64 @@ def check_builder() -> None:
        "expressions are what a pipeline is made of")
 
 
+def check_setup_and_fix() -> None:
+    """What still stands between a graph and a real run, and fixing a failure.
+
+    Two small things resting on everything before them.
+
+    The banner counts what is missing — connections the graph needs and
+    capabilities nobody granted — computed on the client from the node types,
+    the connection kinds and the connections that exist. All three are already
+    there, and a round trip would make the banner lag the node someone just
+    added.
+
+    The stepper attaches what it creates. Making a connection and leaving
+    every node still saying "choose a connection" defeats the point of a
+    stepper, whose whole job is to leave the pipeline runnable — caught in the
+    browser, where the node still read "Choose a github connection…" after the
+    step said it was done. Only nodes with none are filled, so a node
+    deliberately pointed elsewhere keeps its choice.
+
+    Fix with AI hands over what the screen already knows: the node, its type,
+    the error in full, and the settings it actually ran with — resolved, since
+    a failure is usually an expression that became something unexpected.
+    Sending "fix it" alone would spend two tool calls rediscovering that.
+
+    Measured end to end: a GitHub node with a bad token, run live, produced a
+    real 401; the log showed FAILED with the resolved input beside the error;
+    Fix with AI opened the builder carrying all four pieces.
+    """
+    print("\nthe gap to a real run is named, and a failure can be handed back")
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+
+    ok("readonly setupTodo = computed" in ts and "missingCapabilities" in ts,
+       "the banner counts missing connections and ungranted capabilities")
+    ok("which only you can grant" in html,
+       "and says the capability is not the builder's to grant")
+
+    step = section(ts, "async connectStep()", "\n  private attachConnection")
+    ok("this.attachConnection(made)" in step,
+       "the stepper attaches the connection it just made")
+    attach = section(ts, "private attachConnection", "\n  skipStep()")
+    ok("!n.connection_id" in attach,
+       "to the nodes that had none, leaving a deliberate choice alone")
+
+    fix = section(ts, "async fixWithAI", "\n  /** Whether a step failed")
+    ok("failed.input" in fix,
+       "Fix with AI sends the settings the step actually ran with")
+    ok("failed.error" in fix, "and the error in full")
+    ok("say so instead of working" in fix,
+       "and tells it to name a missing connection rather than route around it")
+    ok('class="pl-fix"' in html,
+       "offered where the failure is read, not in a separate hunt")
+
+    send = section(ts, "async sendToBuilder", "\n  /** A tool call as a line")
+    ok("if (!this.error())" in send,
+       "a stream error is not overwritten by a generic one — that turned "
+       "'exceeded rate limit' into 'could not reach the pipelines service'")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2011,6 +2069,7 @@ def main() -> int:
     check_run_log()
     check_dry_run()
     check_builder()
+    check_setup_and_fix()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

@@ -990,3 +990,63 @@
 }
 .pl-chat-ask .pl-ndv-edit { margin-top: 0; font-family: var(--sans); font-size: 0.82rem; }
 .pl-btn.on { background: var(--bg-2); border-color: var(--accent); color: var(--accent); }
+
+/* -- what still stands between this graph and a real run ------------------- */
+
+.pl-setup-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  background: color-mix(in oklab, var(--accent) 9%, transparent);
+  border-radius: 9px;
+  padding: 9px 12px;
+  flex-shrink: 0;
+}
+.pl-setup-txt { flex: 1 1 auto; font-size: 0.83rem; line-height: 1.5; }
+
+.pl-step {
+  width: min(520px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+.pl-step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pl-step-count {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.pl-step-body { padding: 14px 16px 4px; display: flex; flex-direction: column; gap: 12px; }
+.pl-step-field { display: flex; flex-direction: column; gap: 4px; }
+.pl-step-field .in-label { font-size: 0.76rem; font-weight: 500; color: var(--muted); }
+.pl-step-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+/* Offered where the failure is read, so fixing it is not a separate hunt. */
+.pl-fix {
+  margin-top: 9px;
+  border: 1px solid color-mix(in oklab, var(--accent) 45%, transparent);
+  background: none;
+  color: var(--accent);
+  border-radius: 7px;
+  padding: 4px 11px;
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+.pl-fix:hover { background: color-mix(in oklab, var(--accent) 12%, transparent); }
