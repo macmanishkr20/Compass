@@ -126,3 +126,31 @@
   cursor: pointer;
 }
 .in-delete:hover { background: color-mix(in oklab, var(--danger, #A8452F) 10%, transparent); }
+
+/* Fixed / Expression, per field. Small and quiet: it is a mode switch, not
+   an action, and it sits with the label rather than with the control. */
+.in-label { display: flex; align-items: center; gap: 8px; }
+.in-mode {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.in-mode button {
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-size: 0.63rem;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.in-mode button:hover { color: var(--ink); }
+.in-mode button.on {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.in-expr { font-family: var(--mono); font-size: 0.77rem; }

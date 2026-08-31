@@ -1860,6 +1860,53 @@ def check_canvas_affordances() -> None:
     ok('class="pl-picker"' in parent, "the picker is a panel, searchable")
 
 
+def check_expression_toggle() -> None:
+    """Any field can hold an expression, and now it says so.
+
+    Compass's fields have always accepted expressions — the placeholder hinted
+    at it and nothing else did. A per-field Fixed/Expression toggle makes the
+    capability visible, and makes it reachable on the controls where a
+    placeholder cannot appear: a checkbox, a select, a number box.
+
+    The mode is remembered rather than re-derived from the value. A value
+    starting with `@` is obviously an expression, but an empty field is
+    neither, and someone who has just switched has not typed yet.
+
+    The part worth the code is that the toggle is non-destructive. Switching a
+    field holding `@nodes('x').data.n` to Fixed has to put something in a
+    number box, and quietly discarding what someone wrote is the worst of the
+    options — so each mode's last value is stashed and restored.
+
+    Measured in the browser: a loop's items at ["alpha","beta","gamma"],
+    switched to Expression (seeded "@"), typed
+    @nodes('fetch').data.items, switched back — the list returned — and
+    forward again — the expression returned. Neither was lost.
+    """
+    print("\nany field can hold an expression, and the pane says so")
+    ts = (ROOT / "frontend/src/app/pipelines/inspector.ts").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/inspector.html").read_text()
+
+    ok("in-mode" in html and ">Fixed<" in html and ">Expression<" in html,
+       "every generated field carries the toggle")
+    ok("modeOf(f.key) === 'expression'" in html,
+       "and expression mode replaces the typed control, so a checkbox or a "
+       "select can hold one too")
+
+    mode = section(ts, "setMode(key: string", "\n  }")
+    ok("this.stash.update" in mode,
+       "the value being left behind is stashed")
+    ok("if (kept !== undefined)" in mode,
+       "and the value for the mode being entered is restored — a toggle that "
+       "discarded the expression someone wrote would be worse than no toggle")
+    ok("mode === 'expression' ? '@' : undefined" in mode,
+       "with nothing stashed, Expression is seeded and Fixed is cleared "
+       "rather than showing an expression as though it were a value")
+
+    ok("startsWith('@')" in ts,
+       "the pane tests for an expression the same way the resolver does, so "
+       "the two agree about what a field holds")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2124,6 +2171,7 @@ def main() -> int:
     check_builder()
     check_setup_and_fix()
     check_canvas_affordances()
+    check_expression_toggle()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

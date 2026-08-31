@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { NodeTypeInfo, PipelineNode } from '../models';
 
 /**
@@ -45,6 +52,55 @@ export class PipelineInspector {
   readonly remove = output<string>();
 
   readonly tab = input<'general' | 'settings'>('settings');
+
+  /**
+   * Per-field Fixed/Expression, and what each mode last held.
+   *
+   * A field's mode is normally obvious from its value — a string starting
+   * with `@` is an expression — but not always: an empty field is neither,
+   * and someone who has just switched to Expression has not typed anything
+   * yet. So the choice is remembered rather than re-derived.
+   *
+   * The stash is what makes the toggle non-destructive. Switching a field
+   * that holds `@nodes('x').data.n` to Fixed has to put *something* in a
+   * number box, and quietly discarding the expression someone wrote is the
+   * worst of the options. Each mode's last value is kept, so toggling back
+   * and forth loses neither.
+   */
+  private readonly modes = signal<Record<string, 'fixed' | 'expression'>>({});
+  private readonly stash = signal<Record<string, { fixed?: unknown; expression?: unknown }>>({});
+
+  /** An expression is a string that starts with `@` — the same test the
+   *  resolver applies on the server, so the pane and the engine agree about
+   *  what this field is. */
+  isExpression(value: unknown): boolean {
+    return typeof value === 'string' && value.trim().startsWith('@');
+  }
+
+  modeOf(key: string): 'fixed' | 'expression' {
+    const chosen = this.modes()[key];
+    if (chosen) return chosen;
+    return this.isExpression(this.valueOf(key)) ? 'expression' : 'fixed';
+  }
+
+  setMode(key: string, mode: 'fixed' | 'expression'): void {
+    const from = this.modeOf(key);
+    if (from === mode) return;
+    const current = this.valueOf(key);
+    this.stash.update((s) => ({ ...s, [key]: { ...s[key], [from]: current } }));
+    this.modes.update((m) => ({ ...m, [key]: mode }));
+
+    const kept = this.stash()[key]?.[mode];
+    if (kept !== undefined) {
+      this.setConfig(key, kept);
+      return;
+    }
+    // Nothing stashed for the mode being entered. Going to Expression seeds
+    // the `@` so the field is already the shape it needs to be; going to
+    // Fixed clears, because a literal control cannot represent an expression
+    // and showing one as if it were a value would be a lie about the state.
+    this.setConfig(key, mode === 'expression' ? '@' : undefined);
+  }
 
   /** The schema turned into a list of controls. */
   readonly fields = computed<Field[]>(() => {

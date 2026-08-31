@@ -39,7 +39,27 @@
         <span class="in-label">
           {{ f.title }}
           @if (f.required) { <i class="in-star" title="Required">*</i> }
+          <!-- Any field can hold an expression instead of a value. The toggle
+               makes that visible; without it, the only way to discover it was
+               the placeholder text. -->
+          <span class="in-mode" role="group" [attr.aria-label]="f.title + ' value mode'">
+            <button type="button" [class.on]="modeOf(f.key) === 'fixed'"
+              (click)="setMode(f.key, 'fixed')">Fixed</button>
+            <button type="button" [class.on]="modeOf(f.key) === 'expression'"
+              (click)="setMode(f.key, 'expression')">Expression</button>
+          </span>
         </span>
+
+        @if (modeOf(f.key) === 'expression') {
+          <input class="in-control in-expr" type="text"
+            [value]="displayOf(f.key)"
+            placeholder="@nodes('id').data.field"
+            (input)="setConfig(f.key, asInput($event).value)" />
+          <span class="in-hint">
+            &#64;pipeline().parameters.x · &#64;variables('v') ·
+            &#64;nodes('id').data.field · inside a loop &#64;item() and &#64;index()
+          </span>
+        } @else {
 
         @switch (f.control) {
           @case ('checkbox') {
@@ -76,6 +96,7 @@
           }
         }
 
+        }
         @if (f.description) { <span class="in-hint">{{ f.description }}</span> }
       </label>
     } @empty {
