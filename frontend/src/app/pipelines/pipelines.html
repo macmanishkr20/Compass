@@ -130,6 +130,8 @@
       </button>
       <button class="pl-btn ghost" type="button" (click)="showExport()"
         title="Take this out as a diagram, a design note and a package">Export</button>
+      <button class="pl-btn ghost" type="button" (click)="tidy()"
+        title="Lay the steps out left to right in the order they run">Tidy</button>
       <button class="pl-btn ghost" type="button" (click)="validate()">Check</button>
       <button class="pl-btn ghost" type="button" (click)="save()" [disabled]="!dirty() || !!busy()">
         Save

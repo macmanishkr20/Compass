@@ -1952,6 +1952,48 @@ def check_builder_feedback() -> None:
        "available")
 
 
+def check_tidy() -> None:
+    """The layout tells the truth about the order things run in.
+
+    Found by a reader asking where the first arrow came from. The graph was
+    correctly formed — one root, no dangling edges, no cycle — and looked
+    broken: the builder had created a Gmail search first and wired it third,
+    so it sat at x=190 while the step feeding it sat at x=710. The wire ran
+    right to left and entered from off-screen, which reads as an arrow from
+    nothing.
+
+    A graph that is correct and looks broken is worse than one that looks
+    broken and is, because the reader goes hunting a fault that is not there.
+    Positions are assigned as nodes are added, and the builder's creation
+    order is not its execution order — so the layout has to be derived from
+    the wiring rather than from the order things arrived.
+
+    Rank is longest-path from a root, not shortest: a node must sit right of
+    *every* step feeding it, or one of its wires still points backwards.
+
+    Measured on the pipeline that prompted the question — before: Find(190),
+    Start(450), Wait(710); after: Start(40), Wait(300), Find(560), and the
+    order on screen is the order it runs.
+    """
+    print("\nthe layout tells the truth about the order")
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+
+    tidy = section(ts, "  tidy(): void {", "\n  // -- the step picker")
+    ok("Math.max(...preds.map((p) => resolve(p, seen) + 1))" in tidy,
+       "rank is the longest path from a root, so a node sits right of every "
+       "step that feeds it — shortest path still leaves wires pointing back")
+    ok("if (seen.has(id)) return 0;" in tidy,
+       "and a cycle stops rather than recursing forever")
+    ok("at.get(n.id) ?? n.position" in tidy,
+       "a node the walk never reached keeps its place rather than vanishing")
+
+    ok("(click)=\"tidy()\"" in html, "it is offered as a button")
+    ok("this.tidy();" in section(ts, "async sendToBuilder", "  /** A tool call"),
+       "and runs after a build, since the builder is what produces the "
+       "mismatch in the first place")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2218,6 +2260,7 @@ def main() -> int:
     check_canvas_affordances()
     check_expression_toggle()
     check_builder_feedback()
+    check_tidy()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

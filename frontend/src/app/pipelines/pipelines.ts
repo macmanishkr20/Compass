@@ -573,6 +573,67 @@ export class Pipelines {
     return out;
   });
 
+  /**
+   * Lay the graph out left to right in the order it actually runs.
+   *
+   * Positions are assigned as nodes are added, which assumes the order they
+   * were created is the order they run. The builder breaks that assumption
+   * routinely: it added a Gmail search first and wired it third, so the wire
+   * ran right-to-left and entered the node from off-screen — a graph that was
+   * correctly formed and looked broken, which is worse than one that looks
+   * broken and is.
+   *
+   * Rank is longest-path from a root, not shortest: a node must sit to the
+   * right of *every* step that feeds it, or one of its wires still points
+   * backwards. Anything unreachable (a cycle, an orphan) keeps its rank at
+   * the end rather than being dropped, since a node you cannot see is worse
+   * than one in an odd place.
+   */
+  tidy(): void {
+    const pipeline = this.open();
+    if (!pipeline || !pipeline.nodes.length) return;
+
+    const incoming = new Map<string, string[]>();
+    for (const n of pipeline.nodes) incoming.set(n.id, []);
+    for (const e of pipeline.edges) {
+      if (incoming.has(e.target)) incoming.get(e.target)!.push(e.source);
+    }
+
+    const rank = new Map<string, number>();
+    const resolve = (id: string, seen: Set<string>): number => {
+      if (rank.has(id)) return rank.get(id)!;
+      // A cycle has no longest path; stop rather than recurse forever.
+      if (seen.has(id)) return 0;
+      seen.add(id);
+      const preds = incoming.get(id) ?? [];
+      const r = preds.length
+        ? Math.max(...preds.map((p) => resolve(p, seen) + 1))
+        : 0;
+      rank.set(id, r);
+      return r;
+    };
+    for (const n of pipeline.nodes) resolve(n.id, new Set());
+
+    const byRank = new Map<number, string[]>();
+    for (const n of pipeline.nodes) {
+      const r = rank.get(n.id) ?? 0;
+      byRank.set(r, [...(byRank.get(r) ?? []), n.id]);
+    }
+
+    const at = new Map<string, { x: number; y: number }>();
+    for (const [r, ids] of byRank) {
+      ids.forEach((id, i) => {
+        at.set(id, { x: 40 + r * (NODE_W + 70), y: 40 + i * (NODE_H + 34) });
+      });
+    }
+
+    this.mutate((pl) => ({
+      ...pl,
+      nodes: pl.nodes.map((n) => ({ ...n, position: at.get(n.id) ?? n.position })),
+    }));
+    void this.save();
+  }
+
   // -- the step picker ------------------------------------------------------
   //
   // Opened from a node's + or from the empty canvas. Adding from here wires
@@ -835,6 +896,10 @@ export class Pipelines {
       this.building.set(false);
       // The graph changed underneath us while the model worked.
       await this.reloadGraph();
+      // And lay it out: the builder creates nodes in the order it thinks of
+      // them and wires them in the order they run, which are not the same
+      // order and leave wires pointing backwards.
+      this.tidy();
     }
   }
 
