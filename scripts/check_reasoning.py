@@ -1807,6 +1807,59 @@ def check_setup_and_fix() -> None:
        "'exceeded rate limit' into 'could not reach the pipelines service'")
 
 
+def check_canvas_affordances() -> None:
+    """The canvas offers the next move rather than describing it.
+
+    Taken from watching the tool this is modelled on: an empty canvas there
+    is two clickable cards, not a sentence pointing elsewhere, and a node
+    carries a + that adds the next step already wired.
+
+    That last one is the difference that matters. Adding from the palette and
+    then dragging the wire is two acts for one intention, and the wire is the
+    half people forget — a graph of unconnected nodes looks built and runs
+    nothing. Adding from the node wires as it lands.
+
+    A followed step is placed beside its source rather than at the far right
+    of the whole graph, because following a branch would otherwise throw the
+    new node past everything and drag its wire across the canvas.
+
+    Item counts on the wires are the other borrowing. A step that yields three
+    feeding one that yields none is a failure on an edge, and the edge is
+    where it should show.
+
+    Measured: empty canvas reading "Add first step…" or "Build with AI";
+    picking Start then the node's + then For each produced two nodes and one
+    wire without touching the palette; a run put "3 items" on both wires
+    leaving a loop over three.
+    """
+    print("\nthe canvas offers the next move")
+    html = (ROOT / "frontend/src/app/pipelines/canvas.html").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    parent = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+
+    ok("Add first step…" in html and "Build with AI" in html,
+       "an empty canvas is two things you can click, not a hint")
+    ok('class="cv-add"' in html,
+       "and a node carries a + for the step that follows it")
+    ok("cv-wire-items" in html, "wires carry how many items went down them")
+
+    pick = section(ts, "pickStep(type: NodeTypeInfo)", "\n  // -- credential")
+    ok("this.connect({ source: after.source" in pick,
+       "a step added after a node is wired as it lands — the wire is the "
+       "half people forget, and a graph of unwired nodes runs nothing")
+
+    add = section(ts, "addNode(type: NodeTypeInfo", "\n  moveNode(")
+    ok("source.position.x + NODE_W" in add,
+       "and placed beside its source, not at the far right of the graph")
+
+    ok("What happens next?" in ts,
+       "the picker asks what follows, in those words")
+    ok("How should this start?" in ts,
+       "and asks a different question on an empty canvas, since Compass has "
+       "no trigger/step split in its catalogue to promise one")
+    ok('class="pl-picker"' in parent, "the picker is a panel, searchable")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2070,6 +2123,7 @@ def main() -> int:
     check_dry_run()
     check_builder()
     check_setup_and_fix()
+    check_canvas_affordances()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

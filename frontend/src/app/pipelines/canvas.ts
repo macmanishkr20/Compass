@@ -40,6 +40,8 @@ interface Wire {
   when: string;
   midX: number;
   midY: number;
+  /** "2 items" once a run has been through here. */
+  items: string;
   edge: PipelineEdge;
 }
 
@@ -62,6 +64,10 @@ export class PipelineCanvas {
   readonly statuses = input<Record<string, string>>({});
   /** node id -> the summary line a loop body node carries ("2/3 item(s)"). */
   readonly notes = input<Record<string, string>>({});
+  /** node id -> how many items it produced, drawn on the wires leaving it.
+   *  A graph where one step yields three and the next yields none is a graph
+   *  whose failure is on an edge, and this is where it shows. */
+  readonly counts = input<Record<string, number>>({});
   /** Nodes inside some loop's body. Marked on the canvas because it changes
    *  what a box means: it ran once per item, not once. */
   readonly inLoop = input<Set<string>>(new Set<string>());
@@ -75,6 +81,13 @@ export class PipelineCanvas {
    *  selecting is what you do while wiring and opening is what you do when
    *  you have stopped. */
   readonly openNode = output<string>();
+  /** The + on a node's trailing edge: add the next step and wire it, rather
+   *  than adding from the palette and then drawing the wire yourself. */
+  readonly addAfter = output<{ source: string; port: string }>();
+  /** The two things worth doing on an empty canvas. */
+  readonly addFirst = output<void>();
+  readonly buildWithAI = output<void>();
+  readonly runAll = output<void>();
 
   private readonly surface = viewChild<ElementRef<HTMLElement>>('surface');
 
@@ -135,12 +148,14 @@ export class PipelineCanvas {
       const index = Math.max(0, ports.findIndex((p) => p.name === (edge.port || 'out')));
       const a = this.outPort(source, index, ports.length || 1);
       const b = this.inPort(target);
+      const count = this.counts()[edge.source];
       out.push({
         key: `${edge.source}:${edge.port}->${edge.target}:${edge.when}`,
         d: this.curve(a, b),
         when: edge.when,
         midX: (a.x + b.x) / 2,
         midY: (a.y + b.y) / 2,
+        items: count === undefined ? '' : `${count} item${count === 1 ? '' : 's'}`,
         edge,
       });
     }

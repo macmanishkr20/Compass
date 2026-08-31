@@ -29,6 +29,10 @@
             @if (w.when !== 'success') {
               <text class="cv-wire-tag" [attr.x]="w.midX" [attr.y]="w.midY - 6">{{ w.when }}</text>
             }
+            @if (w.items) {
+              <text class="cv-wire-items" [attr.x]="w.midX"
+                [attr.y]="w.when !== 'success' ? w.midY + 12 : w.midY - 6">{{ w.items }}</text>
+            }
           </g>
         }
         @if (linkWire()) {
@@ -74,6 +78,15 @@
               [attr.aria-label]="'Connect from ' + p.label">
               @if (c > 1) { <span class="cv-out-tag">{{ p.label }}</span> }
             </button>
+            <!-- Adding the next step from here wires it as it lands. Going to
+                 the palette and then drawing the wire is two acts for one
+                 intention. -->
+            <button type="button" class="cv-add"
+              [style.top.px]="(62 / (c + 1)) * (i + 1) - 8"
+              (pointerdown)="$event.stopPropagation()"
+              (click)="$event.stopPropagation(); addAfter.emit({ source: n.id, port: p.name })"
+              [title]="'Add the step after ' + p.label"
+              [attr.aria-label]="'Add a step after ' + p.label">+</button>
           }
         </div>
       }
@@ -81,9 +94,18 @@
   </div>
 
   @if (nodes().length === 0) {
-    <p class="cv-empty">
-      Empty canvas. Add a node from the palette, then drag from its right-hand
-      port onto another node to connect them.
-    </p>
+    <div class="cv-start">
+      <button type="button" class="cv-start-card" (click)="addFirst.emit()">
+        <span class="cv-start-mark">+</span>
+        <span class="cv-start-label">Add first step…</span>
+      </button>
+      <span class="cv-start-or">or</span>
+      <button type="button" class="cv-start-card ai" (click)="buildWithAI.emit()">
+        <span class="cv-start-mark">✦</span>
+        <span class="cv-start-label">Build with AI</span>
+      </button>
+    </div>
+  } @else {
+    <button type="button" class="cv-run" (click)="runAll.emit()">Execute pipeline</button>
   }
 </div>

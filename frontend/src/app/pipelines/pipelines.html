@@ -211,7 +211,12 @@
           (moveNode)="moveNode($event)"
           (connect)="connect($event)"
           (removeEdge)="removeEdge($event)"
-          (openNode)="openDetail($event)" />
+          (openNode)="openDetail($event)"
+          (addAfter)="openPicker($event)"
+          (addFirst)="openPicker(null)"
+          (buildWithAI)="chatOpen.set(true)"
+          (runAll)="runNow()"
+          [counts]="itemCounts()" />
       </div>
 
       @if (chatOpen()) {
@@ -417,6 +422,52 @@
         </div>
       }
     </section>
+  </div>
+}
+
+<!-- The step picker. Same catalogue as the palette, asked as a question,
+     and wiring what it adds. -->
+@if (pickerOpen()) {
+  <div class="pl-modal" (click)="closePicker()">
+    <aside class="pl-picker" (click)="$event.stopPropagation()">
+      <header class="pl-picker-head">
+        <h2 class="pl-picker-title">{{ pickerTitle() }}</h2>
+        <p class="pl-picker-sub">
+          @if (pickerFor()) {
+            It will be wired from the step you added it after.
+          } @else {
+            The first step of this pipeline.
+          }
+        </p>
+        <input class="pl-input sm" type="text" placeholder="Search steps…"
+          [value]="pickerFilter()"
+          (input)="pickerFilter.set($any($event.target).value)" />
+      </header>
+
+      <div class="pl-picker-list">
+        @for (g of pickerGroups(); track g.name) {
+          <div class="pl-pgroup">
+            <h3 class="pl-pgroup-name">{{ g.name }}</h3>
+            @for (t of g.types; track t.id) {
+              <button class="pl-pick" type="button" (click)="pickStep(t)">
+                <span class="pl-pick-label">{{ t.label }}</span>
+                @if (t.description) {
+                  <span class="pl-pick-desc">{{ t.description }}</span>
+                }
+                <span class="pl-pick-tags">
+                  @if (t.connection_kind) {
+                    <i class="pl-pick-tag">needs a {{ t.connection_kind }} connection</i>
+                  }
+                  @if (t.requires) { <i class="pl-pick-tag">{{ t.requires }}</i> }
+                </span>
+              </button>
+            }
+          </div>
+        } @empty {
+          <p class="pl-empty sm">Nothing matches. Clear the search to see everything.</p>
+        }
+      </div>
+    </aside>
   </div>
 }
 

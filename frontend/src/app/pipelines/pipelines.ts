@@ -324,11 +324,19 @@ export class Pipelines {
 
   /** Adds a node just right of the rightmost one, so a new step lands where
    *  the eye already is rather than on top of an existing node. */
-  addNode(type: NodeTypeInfo): void {
+  addNode(type: NodeTypeInfo, after?: { source: string; port: string }): void {
     const pipeline = this.open();
     if (!pipeline) return;
+    // A step added after a particular node belongs beside that node, not at
+    // the far right of the whole graph — otherwise following a branch throws
+    // the new node past everything else and the wire crosses the canvas.
+    const source = after && pipeline.nodes.find((n) => n.id === after.source);
     const right = pipeline.nodes.reduce((max, n) => Math.max(max, n.position.x), -1);
-    const column = right < 0 ? 40 : right + NODE_W + 70;
+    const column = source
+      ? source.position.x + NODE_W + 70
+      : right < 0
+        ? 40
+        : right + NODE_W + 70;
     const stacked = pipeline.nodes.filter((n) => n.position.x === column).length;
     const node: PipelineNode = {
       id: `n_${Math.random().toString(36).slice(2, 9)}`,
@@ -337,7 +345,12 @@ export class Pipelines {
       description: '',
       config: {},
       connection_id: '',
-      position: { x: column, y: 40 + stacked * (NODE_H + 26) },
+      position: {
+        x: column,
+        y: source && !stacked
+          ? source.position.y
+          : 40 + stacked * (NODE_H + 26),
+      },
       timeout_s: 43200,
       retries: 0,
       retry_interval_s: 30,
@@ -535,6 +548,76 @@ export class Pipelines {
     } catch (err: unknown) {
       this.error.set(this.message(err));
     }
+  }
+
+  /** node id -> how many items it produced, for the labels on the wires. */
+  readonly itemCounts = computed<Record<string, number>>(() => {
+    const current = this.run();
+    if (!current) return {};
+    const out: Record<string, number> = {};
+    for (const [id, nodeRun] of Object.entries(current.nodes)) {
+      const data = nodeRun.output ?? {};
+      const items = data['items'];
+      if (Array.isArray(items)) out[id] = items.length;
+      else if (typeof data['count'] === 'number') out[id] = data['count'] as number;
+    }
+    return out;
+  });
+
+  // -- the step picker ------------------------------------------------------
+  //
+  // Opened from a node's + or from the empty canvas. Adding from here wires
+  // the new step as it lands, which is the difference that matters: picking
+  // from the palette and then drawing the wire is two acts for one intention,
+  // and the wire is the half people forget.
+
+  readonly pickerFor = signal<{ source: string; port: string } | null>(null);
+  readonly pickerOpen = signal(false);
+  readonly pickerFilter = signal('');
+
+  /** "What happens next?" when it follows something; the opening question
+   *  when the canvas is empty. Compass has no trigger/step distinction in the
+   *  catalogue, so the empty-canvas wording asks about the first step rather
+   *  than promising a trigger picker that does not exist. */
+  readonly pickerTitle = computed(() =>
+    this.pickerFor() ? 'What happens next?' : 'How should this start?',
+  );
+
+  readonly pickerGroups = computed(() => {
+    const term = this.pickerFilter().trim().toLowerCase();
+    const groups = this.palette();
+    if (!term) return groups;
+    return groups
+      .map((g) => ({
+        name: g.name,
+        types: g.types.filter((t) =>
+          `${t.label} ${t.id} ${t.description}`.toLowerCase().includes(term),
+        ),
+      }))
+      .filter((g) => g.types.length);
+  });
+
+  openPicker(after: { source: string; port: string } | null): void {
+    this.pickerFor.set(after);
+    this.pickerFilter.set('');
+    this.pickerOpen.set(true);
+  }
+
+  closePicker(): void {
+    this.pickerOpen.set(false);
+  }
+
+  /** Adds the chosen type and, when it followed something, wires it. */
+  pickStep(type: NodeTypeInfo): void {
+    const after = this.pickerFor();
+    this.addNode(type, after ?? undefined);
+    if (after) {
+      const added = this.open()?.nodes.at(-1);
+      if (added) {
+        this.connect({ source: after.source, port: after.port, target: added.id });
+      }
+    }
+    this.pickerOpen.set(false);
   }
 
   // -- credential setup -----------------------------------------------------
