@@ -2123,6 +2123,42 @@ def check_topbar_mark() -> None:
        "change between sections")
 
 
+def check_profile_menu() -> None:
+    """The profile is in the corner, and offers nothing that cannot work.
+
+    It used to sit at the foot of the sidebar — which Design and Pipelines
+    hide, so in two of the four sections it could not be reached at all. The
+    top-right corner is present everywhere.
+
+    Two of its items act on the workspace the Code console has open: "Open in
+    VS Code" and "Open in new window". Design and Pipelines have no workspace,
+    so both are hidden there. An item that cannot do anything is worse than
+    one that is absent, because you have to click it to find out.
+
+    One control, not two: the sidebar's own button went with the move, rather
+    than being left to open a menu that now appears somewhere else.
+
+    Measured: six items in Home, four in Design and Pipelines, and the button
+    within 40px of the window's right edge.
+    """
+    print("\nthe profile is reachable everywhere, and honest about what it can do")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    ok('class="topbar-user"' in html, "the profile sits in the topbar")
+    ok("side-user-btn" not in html,
+       "and the sidebar's copy went with it — one menu, one control")
+    ok(".topbar-user-menu" in css and "right: 0;" in section(
+        css, ".topbar-user-menu {", "\n}"),
+       "the menu hangs from the corner it belongs to")
+
+    gated = html.count("@if (section() !== 'design' && section() !== 'pipelines') {")
+    ok(gated >= 2,
+       "both workspace items are hidden where there is no workspace")
+    ok("openInVsCode()" in html and "openAppWindow()" in html,
+       "and still offered where there is one")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2393,6 +2429,7 @@ def main() -> int:
     check_editor_layout()
     check_banners_and_one_run()
     check_topbar_mark()
+    check_profile_menu()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

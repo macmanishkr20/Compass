@@ -492,50 +492,6 @@
       </div>
     </div>
 
-    <div class="side-foot">
-      <div class="side-user">
-        @if (userMenuOpen()) {
-          <div class="user-menu panel side-user-menu" role="menu">
-            <button class="user-menu-item" role="menuitem" (click)="openInVsCode()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
-              Open in VS Code
-            </button>
-            @if (section() === 'code') {
-              <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
-                Open Compass browser
-              </button>
-            }
-            <button class="user-menu-item" role="menuitem" (click)="openCustomize()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke-linecap="round"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
-              Customize
-            </button>
-            <button class="user-menu-item" role="menuitem" (click)="openReflect()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" stroke-linecap="round"/></svg>
-              Reflect
-            </button>
-            <button class="user-menu-item" role="menuitem" (click)="openMemory()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v2a3 3 0 003 3h1V3zM12 3a4 4 0 014 4v1a3 3 0 010 6v2a3 3 0 01-3 3h-1" stroke-linejoin="round"/></svg>
-              Memory
-            </button>
-            <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Open in new window
-            </button>
-            <div class="menu-sep"></div>
-            <button class="user-menu-item" role="menuitem" (click)="signOut()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Log out
-            </button>
-          </div>
-        }
-        <button class="side-user-btn" (click)="$event.stopPropagation(); userMenuOpen.set(!userMenuOpen())" [class.open]="userMenuOpen()">
-          <span class="side-user-av">{{ auth.initials() }}</span>
-          <span class="side-user-name">{{ auth.user()?.username || 'Guest' }}</span>
-          <svg class="side-user-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
-    </div>
   </aside>
 
   <!-- one conversation row: normal / renaming / grouping, plus its menu -->
@@ -740,6 +696,60 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z" stroke-linejoin="round"/></svg>
           }
         </button>
+
+        <!-- The profile lived at the foot of the sidebar, which Design and
+             Pipelines hide — so in two of four sections it could not be
+             reached at all. The corner is present everywhere. -->
+        <div class="topbar-user">
+          <button class="topbar-user-btn" [class.on]="userMenuOpen()"
+            (click)="$event.stopPropagation(); userMenuOpen.set(!userMenuOpen())"
+            [attr.aria-expanded]="userMenuOpen()" aria-haspopup="menu"
+            [attr.aria-label]="'Account: ' + (auth.user()?.username || 'Guest')">
+            <span class="topbar-user-av">{{ auth.initials() }}</span>
+          </button>
+          @if (userMenuOpen()) {
+          <div class="user-menu panel topbar-user-menu" role="menu">
+            <!-- Both act on the workspace the Code console has open, and
+                 Design and Pipelines have none — an item that cannot do
+                 anything is worse than one that is absent. -->
+            @if (section() !== 'design' && section() !== 'pipelines') {
+              <button class="user-menu-item" role="menuitem" (click)="openInVsCode()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3l4 2v14l-4 2-9-7-4 3-2-1V6l2-1 4 3zm0 4.5L11 12l6 4.5z" stroke-linejoin="round"/></svg>
+                Open in VS Code
+              </button>
+            }
+            @if (section() === 'code') {
+              <button class="user-menu-item" role="menuitem" (click)="toggleBrowser()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+                Open Compass browser
+              </button>
+            }
+            <button class="user-menu-item" role="menuitem" (click)="openCustomize()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke-linecap="round"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+              Customize
+            </button>
+            <button class="user-menu-item" role="menuitem" (click)="openReflect()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" stroke-linecap="round"/></svg>
+              Reflect
+            </button>
+            <button class="user-menu-item" role="menuitem" (click)="openMemory()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3a4 4 0 00-4 4v1a3 3 0 000 6v2a3 3 0 003 3h1V3zM12 3a4 4 0 014 4v1a3 3 0 010 6v2a3 3 0 01-3 3h-1" stroke-linejoin="round"/></svg>
+              Memory
+            </button>
+            @if (section() !== 'design' && section() !== 'pipelines') {
+              <button class="user-menu-item" role="menuitem" (click)="openAppWindow()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Open in new window
+              </button>
+            }
+            <div class="menu-sep"></div>
+            <button class="user-menu-item" role="menuitem" (click)="signOut()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Log out
+            </button>
+          </div>
+          }
+        </div>
 
       </div>
     </header>

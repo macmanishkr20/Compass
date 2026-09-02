@@ -3391,3 +3391,47 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   height: 30px;
   flex-shrink: 0;
 }
+
+/* -- profile, top right ---------------------------------------------------- */
+
+.topbar-user { position: relative; display: inline-flex; flex-shrink: 0; }
+.topbar-user-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.topbar-user-btn:hover, .topbar-user-btn.on { border-color: var(--border); }
+.topbar-user-av {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-family: var(--sans);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Hangs from the corner it belongs to, rather than rising from a sidebar
+   foot that no longer exists. */
+.topbar-user-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 80;
+  min-width: 214px;
+  padding: 5px;
+  border-radius: 11px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
