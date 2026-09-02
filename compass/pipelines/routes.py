@@ -422,6 +422,14 @@ async def build(pipeline_id: str, body: BuildMessage,
         session = build_session(pipeline_id, model=body.model,
                                 effort=body.effort)
         _sessions[pipeline_id] = session
+        # Tag the transcript so it is not listed as a Code conversation. The
+        # builder borrows that loop, which persists every turn the same way —
+        # without this, asking a pipeline to add a step puts "Add a Wait step"
+        # in the Code console's history.
+        meta = await code_engine.ensure_meta(session.id)
+        meta.pipeline_id = pipeline_id
+        meta.title = f"⚙ {pipeline.name}"
+        await code_engine.meta.upsert(meta)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409,
                             detail="the builder is already working")

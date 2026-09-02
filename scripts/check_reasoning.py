@@ -2159,6 +2159,55 @@ def check_profile_menu() -> None:
        "and still offered where there is one")
 
 
+def check_sections_stay_separate() -> None:
+    """Four sections, four sets of conversations, no bleed between them.
+
+    Spotted from a screenshot: standing in Pipelines, the topbar showed the
+    title of a Code conversation. The expression was a chain of ternaries
+    handling Home and Design, so every other section fell through to the Code
+    console's active card — one section wearing another's label. It is a
+    switch with a branch per section now, which cannot develop that fault
+    when a fifth is added.
+
+    Looking for more of the same found a worse one. The builder borrows the
+    Code loop, which persists every turn through the same store — so
+    "Add three Set variable steps" and "say hi and stop" were sitting in the
+    Code console's conversation list. A builder session is now marked with
+    its pipeline id and filtered out of that list.
+
+    Filtered on the server rather than in the client, which is where the
+    equivalent routine filter lives: a client-side rule is one caller away
+    from being wrong, and the API should not hand out another module's
+    transcripts to anyone who asks.
+
+    Measured: 112 conversations before a builder turn and 112 after; and the
+    four titles reading Compass Chat, New conversation, Compass Pipelines,
+    Compass Design.
+    """
+    print("\nthe four sections keep their conversations to themselves")
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    meta = (ROOT / "compass/common/persistence/session_meta.py").read_text()
+    routes = (ROOT / "compass/code/routes.py").read_text()
+    proutes = (ROOT / "compass/pipelines/routes.py").read_text()
+
+    title = section(ts, "readonly sectionTitle = computed", "\n  });")
+    for name in ("'home'", "'design'", "'pipelines'"):
+        ok(f"case {name}:" in title, f"the topbar names {name} itself")
+    ok("switch (this.section())" in title,
+       "as a switch, so a new section cannot silently inherit Code's title")
+    ok("sectionTitle()" in html, "and the template asks for it")
+
+    ok("pipeline_id: str = \"\"" in meta,
+       "a builder session is marked with the pipeline it belongs to")
+    ok("if meta.pipeline_id:\n            continue" in routes,
+       "and excluded from the Code conversation list on the server, where "
+       "every caller sees the same answer")
+    ok("meta.pipeline_id = pipeline_id" in proutes,
+       "the mark is set when the builder session is created, not after its "
+       "first turn has already been filed")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2430,6 +2479,7 @@ def main() -> int:
     check_banners_and_one_run()
     check_topbar_mark()
     check_profile_menu()
+    check_sections_stay_separate()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

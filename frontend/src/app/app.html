@@ -615,7 +615,11 @@
         }
       </div>
       <div class="topbar-title">
-        <span class="crumb">{{ section() === 'home' ? 'Compass Chat' : section() === 'design' ? 'Compass Design' : (capFirst(activeCard()?.title) || 'New conversation') }}</span>
+        <!-- Only Code has a conversation to name here. The others fell
+             through to the Code console's active card, so standing in
+             Pipelines showed the title of whatever was last discussed in
+             Code — one section wearing another's label. -->
+        <span class="crumb">{{ sectionTitle() }}</span>
       </div>
 
 

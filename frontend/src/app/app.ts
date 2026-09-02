@@ -133,6 +133,26 @@ export class App {
   // Compass Collab — sibling apps launched from the sidebar.
   readonly collabApps = COLLAB_APPS;
 
+  /** What the topbar calls the thing you are looking at.
+   *
+   *  Written as a switch rather than a chain of ternaries because the chain
+   *  had a fall-through: every section that was not Home or Design ended up
+   *  showing the Code console's active conversation, so Pipelines displayed a
+   *  title from another module. A switch with a branch per section cannot
+   *  develop that fault when a fifth one is added. */
+  readonly sectionTitle = computed(() => {
+    switch (this.section()) {
+      case 'home':
+        return 'Compass Chat';
+      case 'design':
+        return 'Compass Design';
+      case 'pipelines':
+        return 'Compass Pipelines';
+      default:
+        return this.capFirst(this.activeCard()?.title) || 'New conversation';
+    }
+  });
+
   // In-app browser ("Compass's own browser", like Claude's preview pane).
   readonly browserOpen = signal(false);
   readonly browserAddr = signal('');

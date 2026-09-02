@@ -398,6 +398,12 @@ async def list_sessions(
         meta = metas.get(sid) or SessionMeta(id=sid)
         if not include_archived and meta.archived:
             continue
+        # A Pipelines builder session is not a Code conversation. It is
+        # filtered here rather than in the client so that every caller gets
+        # the same list — the routine filter lives in the frontend and is one
+        # client away from being wrong.
+        if meta.pipeline_id:
+            continue
         cards.append(meta.to_dict())
     cards.sort(key=lambda c: c["updated_at"], reverse=True)
     return {"sessions": cards}
