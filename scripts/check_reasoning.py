@@ -2093,6 +2093,36 @@ def check_banners_and_one_run() -> None:
        "which leaves one Run, beside Dry run — the same verb in another mode")
 
 
+def check_topbar_mark() -> None:
+    """The corner that has no sidebar shows the mark, not a magnifier.
+
+    Design and Pipelines hide the conversation sidebar, so the top-left
+    corner is the first thing on screen in those two — and it held a button
+    for searching conversations, which is the one thing neither section has.
+
+    The mark identifies the app there instead. Search is not lost: it was
+    always on ⌘K, and the two sections that own conversations keep the
+    button.
+
+    Measured: mark present and button absent in Design and Pipelines, the
+    reverse in Home.
+    """
+    print("\nthe sidebar-less corner carries the mark")
+    html = (ROOT / "frontend/src/app/app.html").read_text()
+    css = (ROOT / "frontend/src/app/app.css").read_text()
+
+    block = section(html, "@if (section() === 'design' || section() === 'pipelines') {",
+                    "      }")
+    ok("app-compass-mark" in block,
+       "Design and Pipelines show the mark")
+    ok("Search conversations" in html,
+       "and the sections that have conversations keep the search button")
+    ok("openSearch" in html, "search itself is still reachable")
+    ok(".topbar-mark" in css,
+       "sized to the button it stands in for, so the row's rhythm does not "
+       "change between sections")
+
+
 def check_fetching() -> None:
     """web_fetch refuses the addresses that turn a fetch into an escalation."""
     print("\nfetching refuses what it should")
@@ -2362,6 +2392,7 @@ def main() -> int:
     check_tidy()
     check_editor_layout()
     check_banners_and_one_run()
+    check_topbar_mark()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

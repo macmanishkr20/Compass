@@ -3381,3 +3381,13 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   cursor: default;
 }
 .row:hover .cthink-tokens { opacity: 0.75; }
+
+/* The mark standing where the search button does elsewhere, so the row's
+   rhythm does not change between sections. */
+.topbar-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+}
