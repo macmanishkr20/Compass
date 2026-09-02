@@ -2203,9 +2203,59 @@ def check_sections_stay_separate() -> None:
     ok("if meta.pipeline_id:\n            continue" in routes,
        "and excluded from the Code conversation list on the server, where "
        "every caller sees the same answer")
-    ok("meta.pipeline_id = pipeline_id" in proutes,
+    ok("meta.pipeline_id = pipeline.id" in proutes,
        "the mark is set when the builder session is created, not after its "
        "first turn has already been filed")
+
+
+def check_builder_history() -> None:
+    """The record of how a pipeline was built outlives the tab.
+
+    The transcript was always written — the builder borrows the Code loop,
+    which persists every turn — but nothing read it back, and the live session
+    lived in a dict that a restart emptied. So reopening a pipeline showed an
+    empty Builder panel and started a new conversation, abandoning the one
+    that explained how the graph on screen came to exist. The canvas records
+    what was decided; only the conversation says why.
+
+    Three parts. The session is found again by the pipeline id already on its
+    metadata, so a restart reattaches instead of starting over — and the two
+    things that make it a builder are put back, since `resume` rebuilds a
+    plain Code session and would otherwise hand file tools and a repository
+    prompt to a conversation about a graph.
+
+    Clear deletes the transcript too. Dropping only the in-memory session
+    would look like it worked and bring the conversation back on reload.
+
+    Measured across a real restart: two messages retrieved, a further turn
+    continuing the same conversation to four, none of it appearing in the
+    Code conversation list, and the panel showing all four on open.
+    """
+    print("\nthe builder conversation outlives the tab")
+    routes = (ROOT / "compass/pipelines/routes.py").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+
+    ok("async def _find_builder_session" in routes,
+       "the session is found by the pipeline id on its metadata")
+    resume = section(routes, "async def _builder_session", "\n\n@router")
+    ok("code_engine.resume(existing" in resume,
+       "so a restart reattaches rather than starting a new conversation")
+    ok("session.tool_override = builder_tools" in resume
+       and "session.prompt_override = SYSTEM_PROMPT" in resume,
+       "and the resumed session is made a builder again — `resume` rebuilds a "
+       "plain Code session, which would carry file tools into a conversation "
+       "about a graph")
+
+    hist = section(routes, "async def build_history", "\n\n\n")
+    ok('role not in ("user", "assistant")' in hist,
+       "the history is the conversation, not the tool traffic under it")
+
+    reset = section(routes, "async def reset_build", "return {\"cleared\"")
+    ok("store.delete(session_id)" in reset,
+       "Clear forgets the transcript too, or it would come back on reload")
+
+    ok("private async loadChat" in ts and "await this.loadChat(full.id);" in ts,
+       "and opening a pipeline reads it back")
 
 
 def check_fetching() -> None:
@@ -2480,6 +2530,7 @@ def main() -> int:
     check_topbar_mark()
     check_profile_menu()
     check_sections_stay_separate()
+    check_builder_history()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()

@@ -320,6 +320,7 @@ export class Pipelines {
       this.run.set(null);
       this.problems.set([]);
       this.dirty.set(false);
+      await this.loadChat(full.id);
     } catch (err: unknown) {
       this.error.set(this.message(err));
     }
@@ -1015,6 +1016,30 @@ export class Pipelines {
     if (!current) return [];
     return Object.values(current.nodes).filter((n) => n.status === 'failed');
   });
+
+  /** Reads back the builder conversation for this pipeline.
+   *
+   *  The transcript was always persisted — it is the same store the Code loop
+   *  writes to — but nothing fetched it, so opening a pipeline showed an
+   *  empty panel and the record of how the graph was built was invisible.
+   *  The canvas shows what was decided; only this says why. */
+  private async loadChat(pipelineId: string): Promise<void> {
+    this.chat.set([]);
+    try {
+      const history = await this.api.buildHistory(pipelineId);
+      this.chat.set(
+        history.messages.map((m) => ({
+          role: m.role === 'user' ? ('you' as const) : ('builder' as const),
+          text: m.text,
+          // Steps are live narration of one turn, not part of the record —
+          // replaying them would suggest work happening now.
+          steps: [],
+        })),
+      );
+    } catch {
+      /* an empty panel is a fair fallback; the next turn still works */
+    }
+  }
 
   async clearChat(): Promise<void> {
     const pipeline = this.open();

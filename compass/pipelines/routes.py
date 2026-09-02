@@ -419,17 +419,8 @@ async def build(pipeline_id: str, body: BuildMessage,
 
     session = _sessions.get(pipeline_id)
     if session is None:
-        session = build_session(pipeline_id, model=body.model,
-                                effort=body.effort)
+        session = await _builder_session(pipeline, body.model, body.effort)
         _sessions[pipeline_id] = session
-        # Tag the transcript so it is not listed as a Code conversation. The
-        # builder borrows that loop, which persists every turn the same way —
-        # without this, asking a pipeline to add a step puts "Add a Wait step"
-        # in the Code console's history.
-        meta = await code_engine.ensure_meta(session.id)
-        meta.pipeline_id = pipeline_id
-        meta.title = f"⚙ {pipeline.name}"
-        await code_engine.meta.upsert(meta)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409,
                             detail="the builder is already working")
@@ -437,9 +428,89 @@ async def build(pipeline_id: str, body: BuildMessage,
     return _sse(code_engine.ask(session, body.content))
 
 
+async def _find_builder_session(pipeline_id: str) -> str:
+    """The session id this pipeline's builder has been using, if any."""
+    from compass.code.routes import engine as code_engine
+
+    for meta in await code_engine.meta.list_all():
+        if meta.pipeline_id == pipeline_id:
+            return meta.id
+    return ""
+
+
+async def _builder_session(pipeline, model: str, effort: str):
+    """The builder's session, resumed where one exists.
+
+    In-memory sessions do not survive a restart, and starting a fresh one
+    would abandon the conversation that explains how the graph on screen came
+    to be — which is the reason to keep it at all. The transcript is already
+    on disk; this reattaches to it.
+    """
+    from compass.code.routes import engine as code_engine
+    from compass.pipelines.builder import build_session, SYSTEM_PROMPT
+    from compass.pipelines.tools import builder_tools
+
+    existing = await _find_builder_session(pipeline.id)
+    if existing:
+        session = await code_engine.resume(existing, permission_mode="bypass")
+        # `resume` rebuilds a plain Code session, so the two things that make
+        # it a builder have to be put back or it would carry file tools and a
+        # repository prompt into a conversation about a graph.
+        session.tool_override = builder_tools(pipeline.id)
+        session.prompt_override = SYSTEM_PROMPT
+        session.workspace_root = None
+        session.effort = effort or session.effort
+        return session
+
+    session = build_session(pipeline.id, model=model, effort=effort)
+    # Tag the transcript so it is not listed as a Code conversation, and so
+    # it can be found again after a restart.
+    meta = await code_engine.ensure_meta(session.id)
+    meta.pipeline_id = pipeline.id
+    meta.title = f"⚙ {pipeline.name}"
+    await code_engine.meta.upsert(meta)
+    return session
+
+
+@router.get("/v1/pipelines/{pipeline_id}/build")
+async def build_history(pipeline_id: str,
+                        user: str = Depends(require_user)) -> dict:
+    """The builder conversation for this pipeline.
+
+    Kept because it is the record of how the graph came to look the way it
+    does — the questions asked, the assumptions stated, the steps rejected.
+    A canvas shows what was decided and never why.
+    """
+    from compass.code.routes import engine as code_engine
+
+    session_id = await _find_builder_session(pipeline_id)
+    if not session_id:
+        return {"session_id": "", "messages": []}
+    messages = await code_engine.store.load(session_id)
+    out = []
+    for message in messages:
+        role = getattr(message, "role", "")
+        if role not in ("user", "assistant"):
+            continue  # tool traffic is the machinery, not the conversation
+        content = getattr(message, "content", "") or ""
+        if not isinstance(content, str) or not content.strip():
+            continue
+        out.append({"role": role, "text": content})
+    return {"session_id": session_id, "messages": out}
+
+
 @router.delete("/v1/pipelines/{pipeline_id}/build")
 async def reset_build(pipeline_id: str,
                       user: str = Depends(require_user)) -> dict:
     """Forget the conversation, keep the graph."""
+    from compass.code.routes import engine as code_engine
+
     _sessions.pop(pipeline_id, None)
+    # Forget the transcript as well. Dropping only the in-memory session would
+    # make Clear look like it worked and then bring the conversation back on
+    # the next reload.
+    session_id = await _find_builder_session(pipeline_id)
+    if session_id:
+        await code_engine.store.delete(session_id)
+        await code_engine.meta.delete(session_id)
     return {"cleared": True}

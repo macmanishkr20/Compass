@@ -950,6 +950,20 @@ export class CompassApiService {
     );
   }
 
+  /** The builder conversation for a pipeline, so opening one shows how it
+   *  came to look the way it does rather than an empty panel. */
+  buildHistory(pipelineId: string): Promise<{
+    session_id: string;
+    messages: { role: 'user' | 'assistant'; text: string }[];
+  }> {
+    return firstValueFrom(
+      this.http.get<{
+        session_id: string;
+        messages: { role: 'user' | 'assistant'; text: string }[];
+      }>(`/v1/pipelines/${pipelineId}/build`),
+    );
+  }
+
   resetBuild(pipelineId: string): Promise<{ cleared: boolean }> {
     return firstValueFrom(
       this.http.delete<{ cleared: boolean }>(`/v1/pipelines/${pipelineId}/build`),
