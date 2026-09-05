@@ -131,6 +131,12 @@ class NodeType:
     #: False for anything that must not run beside a sibling. Mirrors the
     #: tool contract's own predicate, which is where most of these come from.
     concurrency_safe: bool = True
+    #: What this node produces when the run is not allowed to touch anything.
+    #: Declared per type so a mocked Gmail step yields a message with a
+    #: sender, a subject and a snippet rather than {"id": "mock-1"} — the
+    #: difference between proving the wiring and showing someone their
+    #: pipeline working before they have connected an account.
+    sample: dict[str, Any] | None = None
 
     def summary(self) -> dict[str, Any]:
         """The palette/inspector view of this type, for the API."""
@@ -147,6 +153,10 @@ class NodeType:
             "outputs": [{"name": p.name, "kind": p.kind, "label": p.label}
                         for p in self.outputs],
             "requires": self.requires,
+            # Exposed so the inspector can offer "use sample data" on a node
+            # that has one — the escape hatch has to be visible at the moment
+            # someone discovers they need an account they do not have.
+            "sample": self.sample,
         }
 
 

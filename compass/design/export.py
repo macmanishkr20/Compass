@@ -63,8 +63,36 @@ async def _render(html: str, width: int, height: int, *, scale: float = 1):
     except ImportError as err:  # pragma: no cover - host without Playwright
         raise RuntimeError(_NO_PLAYWRIGHT) from err
 
-    pw = await async_playwright().start()
-    browser = await pw.chromium.launch(args=["--no-sandbox"])
+    # Two failures past the import, and both are ordinary on Windows where
+    # nobody has run the install step. They arrive as generic exceptions, so
+    # without this they reach the route as "export failed: <driver noise>" and
+    # the person is left reading a stack trace to learn they need one command.
+    try:
+        pw = await async_playwright().start()
+    except NotImplementedError as err:
+        # Playwright drives a subprocess, and asyncio on Windows can only do
+        # that on the Proactor loop. A server started under the Selector loop
+        # raises this, and nothing in the message says why.
+        raise RuntimeError(
+            "This server cannot start a browser: on Windows, Playwright needs "
+            "asyncio's Proactor event loop. Start Compass without a uvloop/"
+            "selector override, or export as HTML or ZIP, which need no "
+            "browser."
+        ) from err
+    try:
+        browser = await pw.chromium.launch(args=["--no-sandbox"])
+    except Exception as err:  # noqa: BLE001 — one answer for every launch fault
+        await pw.stop()
+        detail = str(err)
+        if "Executable doesn" in detail or "playwright install" in detail:
+            raise RuntimeError(
+                "Playwright is installed but its Chromium is not. Run "
+                "`playwright install chromium` on the server host. HTML and "
+                "ZIP export still work meanwhile — they need no browser."
+            ) from err
+        raise RuntimeError(
+            f"Could not start Chromium for the export: {detail[:300]}"
+        ) from err
     page = await browser.new_page(
         viewport={"width": width, "height": height}, device_scale_factor=scale
     )

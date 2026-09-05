@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from compass.common.agent.steering import steer
 from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
+from compass.common.ownership import owned, owner_for, visible_to
 from compass.home.engine import ChatEngine, ChatSession
 from compass.common.models.events import ErrorEvent
 
@@ -99,6 +100,7 @@ async def create_chat_session(
     body: CreateChatRequest, user: str = Depends(require_user)
 ) -> dict:
     if body.resume and body.session_id and await chat_engine.store.exists(body.session_id):
+        await _owned_chat(body.session_id, user)
         session = await chat_engine.resume(
             body.session_id, effort=body.effort, model=body.model
         )
@@ -106,6 +108,8 @@ async def create_chat_session(
         session = ChatSession(effort=body.effort, model=body.model)
         if body.session_id:
             session.id = body.session_id
+        if stamp := owner_for(user):
+            await chat_engine.store.set_meta(session.id, owner=stamp)
     chat_sessions[session.id] = session
     return {
         "session_id": session.id,
@@ -121,10 +125,18 @@ def _get_chat_session(session_id: str) -> ChatSession:
     return session
 
 
+async def _owned_chat(session_id: str, user: str) -> None:
+    """Refuse a thread this user does not own, reported as unknown so a
+    guessed id learns nothing."""
+    if not visible_to(user, await chat_engine.store.owner_of(session_id)):
+        raise HTTPException(status_code=404, detail="unknown chat session")
+
+
 @router.post("/sessions/{session_id}/messages")
 async def send_chat_message(
     session_id: str, body: ChatMessageRequest, user: str = Depends(require_user)
 ) -> StreamingResponse:
+    await _owned_chat(session_id, user)
     session = _get_chat_session(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -150,6 +162,7 @@ class ChatEditRequest(BaseModel):
 async def regenerate_chat(
     session_id: str, body: ChatRegenRequest, user: str = Depends(require_user)
 ) -> StreamingResponse:
+    await _owned_chat(session_id, user)
     session = _get_chat_session(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -160,6 +173,7 @@ async def regenerate_chat(
 async def edit_chat(
     session_id: str, body: ChatEditRequest, user: str = Depends(require_user)
 ) -> StreamingResponse:
+    await _owned_chat(session_id, user)
     session = _get_chat_session(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -168,6 +182,7 @@ async def edit_chat(
 
 @router.post("/sessions/{session_id}/abort")
 async def abort_chat_turn(session_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_chat(session_id, user)
     session = _get_chat_session(session_id)
     chat_engine.abort(session)
     return {"aborted": True}
@@ -175,6 +190,7 @@ async def abort_chat_turn(session_id: str, user: str = Depends(require_user)) ->
 
 @router.get("/sessions/{session_id}/transcript")
 async def chat_transcript(session_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_chat(session_id, user)
     if not await chat_engine.store.exists(session_id):
         raise HTTPException(status_code=404, detail="unknown chat session")
     messages = await chat_engine.store.load(session_id)
@@ -257,7 +273,7 @@ async def voice_session(user: str = Depends(require_user)) -> dict:
 @router.get("/sessions")
 async def list_chat_sessions(user: str = Depends(require_user)) -> dict:
     """Home conversation cards (id, title, timestamps), most-recent first."""
-    return {"sessions": await chat_engine.store.list_cards()}
+    return {"sessions": owned(await chat_engine.store.list_cards(), user)}
 
 
 class ChatForkRequest(BaseModel):
@@ -269,6 +285,7 @@ async def fork_chat(
     session_id: str, body: ChatForkRequest, user: str = Depends(require_user)
 ) -> dict:
     """Branch a Home thread at a message into a new conversation."""
+    await _owned_chat(session_id, user)
     if not await chat_engine.store.exists(session_id):
         raise HTTPException(status_code=404, detail="unknown chat session")
     return {"session_id": await chat_engine.fork(session_id, body.index)}
@@ -284,12 +301,14 @@ async def patch_chat_session(
     session_id: str, body: ChatPatchRequest, user: str = Depends(require_user)
 ) -> dict:
     """Rename or star (pin) a Home chat — persisted to the chat meta index."""
+    await _owned_chat(session_id, user)
     await chat_engine.store.set_meta(session_id, title=body.title, pinned=body.pinned)
     return {"ok": True}
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_chat_session(session_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_chat(session_id, user)
     await chat_engine.store.delete(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}

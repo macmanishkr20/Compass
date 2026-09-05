@@ -17,9 +17,14 @@
     </p>
   }
 
+  <!-- The credential, in the node that needs it. n8n puts it at the top of a
+       node's own parameters rather than on a separate page, and the reason is
+       the moment: this is where a person discovers they need an account, so
+       this is where signing in has to be. The two ways past that wall — sign
+       in, or run on sample data — are offered together. -->
   @if (type()?.connection_kind) {
     <label class="in-field">
-      <span class="in-label">Connection</span>
+      <span class="in-label">Credential</span>
       <select class="in-control"
         (change)="patch.emit({ connection_id: asInput($event).value })">
         <option value="">Choose a {{ type()?.connection_kind }} connection…</option>
@@ -28,6 +33,62 @@
         }
       </select>
     </label>
+
+    @if (chosen(); as conn) {
+      <div class="in-cred">
+        @if (conn.expired) {
+          <span class="in-cred-state bad">access expired</span>
+        } @else if (conn.signed_in) {
+          <span class="in-cred-state good">signed in</span>
+        } @else if (conn.needs_sign_in) {
+          <span class="in-cred-state warn">not signed in</span>
+        }
+        @if (conn.needs_sign_in || conn.expired) {
+          <button class="in-cred-btn" type="button" (click)="signIn.emit(conn)"
+            [disabled]="!conn.configured"
+            [title]="conn.configured
+              ? 'Authorize this account'
+              : 'Add a client id and secret on the Connections panel first'">
+            Sign in
+          </button>
+        }
+        <button class="in-cred-btn" type="button" (click)="testConnection.emit(conn)">
+          Test
+        </button>
+      </div>
+    } @else {
+      <p class="in-cred-none">
+        No credential chosen, so this step cannot call anything yet.
+      </p>
+    }
+  }
+
+  <!-- Pinned data, offered whether or not a credential exists. n8n allows
+       this and the recording is the argument for it: that whole workflow
+       finished in 162ms with the Gmail trigger reporting 1ms, because it was
+       running on pinned data rather than reading a mailbox. Having an account
+       connected is not a reason to call it on every iteration while you work
+       on the four steps after it. -->
+  @if (type()?.sample || node().mock) {
+    <div class="in-pin" [class.on]="!!node().mock">
+      @if (node().mock) {
+        <span class="in-pin-state">pinned</span>
+        <span class="in-pin-text">
+          This step returns saved data and calls nothing when you press Run.
+          A scheduled run ignores this and calls for real.
+        </span>
+        <button class="in-cred-btn" type="button"
+          (click)="patch.emit({ mock: null })">Use live data</button>
+      } @else {
+        <span class="in-pin-text">
+          Run this step on sample data instead of calling out — useful while
+          you build the steps after it.
+        </span>
+        <button class="in-cred-btn" type="button" (click)="useSample.emit()">
+          Pin sample data
+        </button>
+      }
+    </div>
   }
 
   <!-- Generated from the node type's schema. Nothing below knows what this

@@ -14,12 +14,17 @@ exportable and shareable: the graph holds a connection id, never a token.
 
 A word on authentication, because the honest version matters more than the
 convenient one. GitHub takes a personal access token, which is a value you
-paste once and which keeps working — that connector is complete. Gmail and
-Microsoft Graph take OAuth access tokens, which expire in about an hour.
-Compass has no OAuth flow yet, so those connectors work with a token you
-paste and stop working when it expires. That is a real limitation and it is
-stated on the node rather than discovered at three in the morning; the fix is
-an authorization flow with refresh, which is its own piece of work.
+paste once and which keeps working. Gmail and Microsoft Graph take OAuth
+access tokens, which expire in about an hour — so `oauth.py` runs the
+authorization-code flow and renews them from a refresh token at the moment of
+each call, which is what makes a scheduled pipeline survive the night.
+
+What that flow cannot do is skip registration. The one-click "Sign in with
+Google" in n8n's own demos is n8n *Cloud*, which operates a Google-verified
+OAuth application; their documentation says self-hosted users must register an
+app and supply a client id and secret, and Compass is self-hosted. So the
+first setup asks for those two values, once, and `credentials.py` reads a
+registered Compass application from the environment if there is ever one.
 
 MCP is the other route to a connector and often the better one: a server that
 speaks Gmail becomes node types through `tools.mcp_provider` with no code
@@ -73,6 +78,12 @@ class Operation:
     #: Where the useful list lives in the response, so a fan-out can be wired
     #: straight onto it — "messages", "value", "" for the whole body.
     items_at: str = ""
+    #: What a mocked run returns for this operation. Shaped like the real
+    #: response, because the point of a mocked run is to show the graph doing
+    #: its job before an account is connected — and a downstream expression
+    #: like @nodes('x').data.items[0].subject has to resolve against it or
+    #: the mocked run proves less than it appears to.
+    sample: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -139,9 +150,9 @@ CONNECTORS: tuple[Connector, ...] = (
         label="Gmail",
         base_url="https://gmail.googleapis.com/gmail/v1",
         auth="bearer",
-        note="Needs an OAuth access token, which expires in about an hour. "
-             "Compass has no authorization flow yet, so paste a current token "
-             "and expect to replace it.",
+        note="Sign in on the connection and Compass keeps the access token "
+             "renewed from its refresh token, so a scheduled pipeline does "
+             "not stop working overnight.",
         operations=(
             Operation(
                 id="list_messages", label="Gmail · list messages",
@@ -149,6 +160,10 @@ CONNECTORS: tuple[Connector, ...] = (
                 description="Message ids matching a query. Gmail returns ids "
                             "only — follow with 'get message' to read one.",
                 items_at="messages",
+                sample={"messages": [
+                    {"id": "18f2a9c1b7e40a11", "threadId": "18f2a9c1b7e40a11"},
+                    {"id": "18f2a7d4c0193b02", "threadId": "18f2a7d4c0193b02"},
+                ], "resultSizeEstimate": 2},
                 fields=(
                     Field("q", "query", "Search",
                           description="Gmail search syntax, e.g. "
@@ -161,6 +176,21 @@ CONNECTORS: tuple[Connector, ...] = (
                 id="get_message", label="Gmail · get message", method="GET",
                 path="/users/me/messages/{id}",
                 description="One message in full.",
+                sample={
+                    "id": "18f2a9c1b7e40a11",
+                    "threadId": "18f2a9c1b7e40a11",
+                    "labelIds": ["INBOX", "UNREAD"],
+                    "snippet": "Your September invoice is ready. The total "
+                               "due is 1,240.00 and payment is expected by "
+                               "the 30th.",
+                    "payload": {"headers": [
+                        {"name": "From",
+                         "value": "Billing <billing@example.com>"},
+                        {"name": "To", "value": "you@example.com"},
+                        {"name": "Subject", "value": "Invoice INV-2043 is ready"},
+                        {"name": "Date", "value": "Tue, 2 Sep 2026 09:14:02 +0000"},
+                    ]},
+                },
                 fields=(
                     Field("id", "path", "Message id", required=True,
                           description="From a list step: "
@@ -173,6 +203,10 @@ CONNECTORS: tuple[Connector, ...] = (
                 path="/users/me/messages/send",
                 description="Sends a message. `raw` must be base64url of an "
                             "RFC 2822 message.",
+                sample={"id": "18f2b0117c5d9e44",
+                        "threadId": "18f2b0117c5d9e44",
+                        "labelIds": ["SENT"],
+                        "simulated": True},
                 fields=(Field("raw", "body", "Raw message", required=True),),
             ),
         ),
@@ -182,9 +216,9 @@ CONNECTORS: tuple[Connector, ...] = (
         label="Outlook",
         base_url="https://graph.microsoft.com/v1.0",
         auth="bearer",
-        note="Microsoft Graph, with an OAuth access token that expires in "
-             "about an hour. Compass has no authorization flow yet, so paste "
-             "a current token and expect to replace it.",
+        note="Microsoft Graph. Sign in on the connection and Compass keeps "
+             "the access token renewed from its refresh token, so a "
+             "scheduled pipeline does not stop working overnight.",
         operations=(
             Operation(
                 id="list_messages", label="Outlook · list messages",
@@ -192,6 +226,24 @@ CONNECTORS: tuple[Connector, ...] = (
                 description="Messages from the signed-in mailbox. The list is "
                             "on `value`, which is where a For each points.",
                 items_at="value",
+                sample={"value": [
+                    {"id": "AAMkAGI2T",
+                     "subject": "Invoice INV-2043 is ready",
+                     "from": {"emailAddress": {"name": "Billing",
+                                               "address": "billing@example.com"}},
+                     "receivedDateTime": "2026-09-02T09:14:02Z",
+                     "isRead": False,
+                     "bodyPreview": "Your September invoice is ready. The "
+                                    "total due is 1,240.00."},
+                    {"id": "AAMkAGI2U",
+                     "subject": "Standup moved to 10:15",
+                     "from": {"emailAddress": {"name": "Priya Nair",
+                                               "address": "priya@example.com"}},
+                     "receivedDateTime": "2026-09-02T07:41:55Z",
+                     "isRead": True,
+                     "bodyPreview": "Pushing today's standup by fifteen "
+                                    "minutes."},
+                ]},
                 fields=(
                     Field("$search", "query", "Search",
                           description='Graph search, e.g. "invoice".'),
@@ -258,13 +310,17 @@ async def _call(connector: Connector, operation: Operation,
     if not conn:
         raise RuntimeError(
             f"No connection chosen. Pick a {connector.kind} connection in "
-            "this node's settings, or create one first."
+            "this node's settings, or create one first. To see the graph "
+            "produce output before connecting an account, run it in mock "
+            "mode — every step returns sample data and nothing is called."
         )
     secret = str(conn.get("secret") or "")
     if not secret and connector.auth != "none":
         raise RuntimeError(
-            f"The {connector.label} connection has no credential stored. "
-            "Add the secret on the Connections panel."
+            f"The {connector.label} connection has no credential yet. Open it "
+            "on the Connections panel and "
+            + ("sign in." if connector.auth == "oauth2" else "paste a token.")
+            + " Or run the pipeline in mock mode to see it work without one."
         )
 
     path = operation.path
@@ -295,11 +351,12 @@ async def _call(connector: Connector, operation: Operation,
         missing = path[path.index("{") + 1: path.index("}")]
         raise RuntimeError(f"{missing} is required.")
 
-    headers["Authorization"] = (
-        f"Bearer {secret}" if connector.auth in ("bearer", "token") else ""
-    )
-    if not headers["Authorization"]:
-        headers.pop("Authorization")
+    # The credential type says how it authenticates; this no longer assumes
+    # every service takes a bearer token. `headers` is computed by the engine
+    # when it resolves the connection, from the same declaration the settings
+    # form and the credential test are built from — so a change in one place
+    # cannot leave the three disagreeing.
+    headers.update(conn.get("headers") or {})
 
     url = connector.base_url.rstrip("/") + path
     async with httpx.AsyncClient(timeout=TIMEOUT_S) as client:
@@ -362,6 +419,7 @@ def _make(connector: Connector, operation: Operation) -> NodeType:
         outputs=(Port("out", "json", "Result"),),
         requires="network",
         concurrency_safe=operation.method == "GET",
+        sample=operation.sample,
     )
 
 

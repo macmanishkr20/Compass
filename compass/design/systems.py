@@ -29,6 +29,10 @@ class DesignSystem:
     fonts: str = ""         # the typefaces, for the card
     swatches: list[str] = field(default_factory=list)  # the ramp, for the card
     origin: str = ""        # where it came from — a URL, a repo path, a filename
+    #: Who imported it. The shipped BUILTIN_SYSTEMS carry no owner and are
+    #: therefore visible to everyone under the legacy rule, which is what you
+    #: want for examples — see `compass.common.ownership`.
+    owner: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -363,6 +367,7 @@ class DesignSystemStore:
         fonts: str = "",
         swatches: list[str] | None = None,
         origin: str = "",
+        owner: str = "",
     ) -> dict:
         rows = self._read()
         s = DesignSystem(
@@ -373,16 +378,22 @@ class DesignSystemStore:
             fonts=fonts,
             swatches=swatches or [],
             origin=origin,
+            owner=owner,
         ).to_dict()
         rows.append(s)
         self._write(rows)
         return s
 
-    async def duplicate(self, system: dict) -> dict:
+    async def duplicate(self, system: dict, owner: str = "") -> dict:
         """Copy a system into the user's own, so an included one can be
-        annotated and retuned without being edited in place."""
+        annotated and retuned without being edited in place.
+
+        The copy belongs to whoever made it, never to the source — that is
+        the point of duplicating a shipped example.
+        """
         rows = self._read()
         copy = dict(system)
+        copy["owner"] = owner
         copy["id"] = uuid.uuid4().hex[:12]
         copy["name"] = f"{system.get('name', 'Untitled system')} copy"
         copy["source"] = "copied"

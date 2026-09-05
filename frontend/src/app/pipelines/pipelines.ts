@@ -1,17 +1,20 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { JsonPipe } from '@angular/common';
 import { CompassApiService } from '../compass-api.service';
 import {
   ConnectionKind,
+  CredentialTypeInfo,
   NodeTypeInfo,
   PipelineConnection,
   PipelineEdge,
   PipelineExport,
   PipelineNode,
+  PipelineNodeRun,
   PipelineProblem,
   PipelineRun,
   PipelineSummary,
 } from '../models';
-import { NODE_H, NODE_W, PipelineCanvas } from './canvas';
+import { NODE_H, NODE_W, PipelineCanvas, Side } from './canvas';
 
 /** Builder tools that change the graph, so the canvas is worth re-reading
  *  the moment one finishes. The read-only ones would only cost a round trip. */
@@ -40,8 +43,11 @@ import { Markdown } from '../markdown/markdown';
   selector: 'app-pipelines',
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './pipelines.html',
+  // The capability explainer closes when you look away from it, like every
+  // other popover in the product.
+  host: { '(document:click)': 'capsOpen.set(false)' },
   styleUrl: './pipelines.css',
-  imports: [PipelineCanvas, PipelineInspector, Markdown],
+  imports: [PipelineCanvas, PipelineInspector, Markdown, JsonPipe],
 })
 export class Pipelines {
   private readonly api = inject(CompassApiService);
@@ -55,6 +61,120 @@ export class Pipelines {
   /** The kinds the built-in connectors expect. Offered in the
    *  Connections panel so the string matches without guessing. */
   readonly connectionKinds = signal<ConnectionKind[]>([]);
+
+  // -- the index, as a chart ---------------------------------------------
+  //
+  // The mockup's health strip wants healthy/failing counts and a sparkline of
+  // recent runs. Compass does not hold that on the list: runs live behind
+  // `/v1/pipelines/{id}/runs`, so filling those cards honestly would mean one
+  // request per pipeline on every visit to this page. The strip therefore
+  // counts what the list actually knows — which is enough to answer the
+  // question it is really asking, "what needs me?" — rather than inventing a
+  // health it would have to guess at.
+
+  /** Which card or chip is filtering the list. '' is everything. */
+  readonly filter = signal<'' | 'ready' | 'setup' | 'never' | 'paused'>('');
+  readonly search = signal('');
+  /** Cards or rows. Both show the same pipelines. */
+  readonly gridView = signal(true);
+
+  /** The connection kinds a pipeline's nodes ask for that nothing satisfies.
+   *  Generalised from `neededSetup`, which answered this for the open one
+   *  only — the index needs it for all of them, and every input is already
+   *  in the browser. */
+  private missingFor(pipeline: PipelineSummary): string[] {
+    const types = this.typeMap();
+    const have = new Set(this.connections().map((c) => c.kind));
+    const want = new Set<string>();
+    for (const node of pipeline.nodes) {
+      const kind = types.get(node.type)?.connection_kind;
+      if (kind && !have.has(kind)) want.add(kind);
+    }
+    return [...want];
+  }
+
+  /** One pipeline's standing, in a word. Ordered by what a person would want
+   *  to see first: something switched off is paused whatever else is true of
+   *  it, and something missing a credential cannot run whether or not it once
+   *  did. */
+  status(pipeline: PipelineSummary): 'paused' | 'setup' | 'never' | 'ready' {
+    if (!pipeline.enabled) return 'paused';
+    if (this.missingFor(pipeline).length) return 'setup';
+    if (!pipeline.proven_at) return 'never';
+    return 'ready';
+  }
+
+  statusLabel(pipeline: PipelineSummary): string {
+    return {
+      paused: 'Paused',
+      setup: 'Needs setup',
+      never: 'Not yet run',
+      ready: 'Ready',
+    }[this.status(pipeline)];
+  }
+
+  /** What each card counts, and the word under it. */
+  readonly health = computed(() => {
+    const all = this.pipelines();
+    const by = (want: string) => all.filter((p) => this.status(p) === want).length;
+    const kinds = new Set(this.connections().map((c) => c.kind));
+    return [
+      { key: '' as const, dot: 'brass', label: 'All pipelines', value: all.length,
+        note: `across ${kinds.size} connection${kinds.size === 1 ? '' : 's'}` },
+      { key: 'ready' as const, dot: 'ok', label: 'Ready', value: by('ready'),
+        note: 'proved by a manual run' },
+      { key: 'setup' as const, dot: 'bad', label: 'Needs setup', value: by('setup'),
+        note: 'missing a connection' },
+      { key: 'never' as const, dot: 'warn', label: 'Not yet run', value: by('never'),
+        note: 'cannot be scheduled' },
+      { key: 'paused' as const, dot: 'off', label: 'Paused', value: by('paused'),
+        note: 'switched off' },
+    ];
+  });
+
+  /** The list after the chips and the search box. */
+  readonly shown = computed(() => {
+    const want = this.filter();
+    const term = this.search().trim().toLowerCase();
+    return this.pipelines().filter((p) => {
+      if (want && this.status(p) !== want) return false;
+      if (term && !p.name.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  });
+
+  /** How this pipeline starts, said in words rather than in trigger objects. */
+  triggerLine(pipeline: PipelineSummary): string {
+    const types = this.typeMap();
+    const trigger = pipeline.nodes.find(
+      (n) => types.get(n.type)?.id === 'gmail.trigger');
+    if (trigger) return 'On new mail matching a search';
+    const every = (pipeline.triggers ?? []).find(
+      (t) => Number((t as Record<string, unknown>)['every_minutes']) > 0);
+    if (every) {
+      const minutes = Number((every as Record<string, unknown>)['every_minutes']);
+      return `Every ${minutes} minute${minutes === 1 ? '' : 's'}`;
+    }
+    return 'Run by hand';
+  }
+
+  /** "12m ago". Same wording as the Design index, so the two lists read the
+   *  same way rather than each inventing a house style for time. */
+  age(epochSeconds: number): string {
+    const secs = Math.max(0, Date.now() / 1000 - epochSeconds);
+    if (secs < 60) return 'just now';
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(epochSeconds * 1000).toLocaleDateString();
+  }
+
+  pickFilter(key: '' | 'ready' | 'setup' | 'never' | 'paused'): void {
+    this.filter.set(this.filter() === key ? '' : key);
+  }
 
   readonly open = signal<PipelineSummary | null>(null);
   readonly selectedId = signal('');
@@ -178,6 +298,130 @@ export class Pipelines {
   // looking at the graph rather than instead of it.
 
   readonly logsOpen = signal(true);
+
+  /** Which pane of the drawer is showing. All three are real: Logs is this
+   *  run's steps, Run history is the runs endpoint, and Data is the selected
+   *  step's payload — the same payload the log detail shows, given a place
+   *  of its own because that is what people scroll the drawer looking for. */
+  readonly drawerTab = signal<'logs' | 'runs' | 'data'>('logs');
+
+  /** The capability explainer in the bar. */
+  readonly capsOpen = signal(false);
+
+  /** Whether the builder pane is showing.
+   *
+   * Remembered, because collapsing it is a statement about how you work
+   * rather than about this pipeline — someone who does not use the builder
+   * should not have to shut it on every visit. */
+  readonly builderOpen = signal(this.rememberedBuilder());
+
+  setBuilderOpen(open: boolean): void {
+    this.builderOpen.set(open);
+    try {
+      localStorage.setItem('compass.pipelines.builder', open ? '1' : '0');
+    } catch {
+      // A browser refusing storage is not a reason to refuse the toggle.
+    }
+  }
+
+  private rememberedBuilder(): boolean {
+    try {
+      return localStorage.getItem('compass.pipelines.builder') !== '0';
+    } catch {
+      return true;
+    }
+  }
+
+  /** Openings for the builder's empty state. Three, and each names a
+   *  different shape of instruction — a whole pipeline, a condition, a
+   *  failure policy — so they read as a range rather than a list. */
+  readonly builderExamples = [
+    'Read new invoices and record each one in the ledger table',
+    'Only trigger on mail from outside the company',
+    'Retry the SQL write three times, then alert me',
+  ];
+
+  /** What each capability permits, and which steps asked for it. Read off the
+   *  graph rather than written down, so it cannot fall out of date with the
+   *  node types — and so the answer names the step, which is the thing you
+   *  need in order to decide whether to grant it. */
+  readonly capabilityNotes = computed(() => {
+    const what: Record<string, string> = {
+      shell: 'Run commands on the runner',
+      write: 'Write files in the workspace',
+      network: 'Reach external services',
+      agent: 'Call a model to decide steps',
+    };
+    const pipeline = this.open();
+    const types = this.typeMap();
+    return Object.entries(what).map(([name, text]) => ({
+      name,
+      what: text,
+      wantedBy: (pipeline?.nodes ?? [])
+        .filter((n) => types.get(n.type)?.requires === name)
+        .map((n) => n.name || types.get(n.type)?.label || n.type),
+    }));
+  });
+  readonly runHistory = signal<PipelineRun[]>([]);
+  readonly runHistoryLoading = signal(false);
+
+  /** The line on the right of the drawer's header: what there is to see. */
+  readonly drawerMeta = computed(() => {
+    const current = this.run();
+    if (current) {
+      const ms = this.runMs();
+      return `${current.status}${ms === null ? '' : ` · ${ms}ms`}`
+        + `${current.mode === 'mock' ? ' · dry run' : ''}`;
+    }
+    const history = this.runHistory();
+    if (history.length) return `${history.length} run(s) recorded`;
+    return 'no runs yet';
+  });
+
+  /** Granted, and asked for by a step that is on the canvas. Turning it off
+   *  would stop that step, so the chip is marked rather than merely filled —
+   *  it is a fact about the graph, not a second switch. */
+  capabilityLocked(name: string): boolean {
+    if (!this.hasCapability(name)) return false;
+    return this.capabilityNotes().some(
+      (c) => c.name === name && c.wantedBy.length > 0);
+  }
+
+  async pickDrawer(tab: 'logs' | 'runs' | 'data'): Promise<void> {
+    this.drawerTab.set(tab);
+    this.logsOpen.set(true);
+    // Fetched when the tab is opened rather than with the pipeline: a run
+    // list nobody looks at is a request nobody asked for.
+    if (tab === 'runs' && !this.runHistory().length) await this.loadRunHistory();
+  }
+
+  async loadRunHistory(): Promise<void> {
+    const pipeline = this.open();
+    if (!pipeline) return;
+    this.runHistoryLoading.set(true);
+    try {
+      const res = await this.api.pipelineRuns(pipeline.id);
+      this.runHistory.set(res.runs ?? []);
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.runHistoryLoading.set(false);
+    }
+  }
+
+  /** Whether a step left anything worth printing. An empty object is not a
+   *  payload, and showing one as if it were makes the pane look broken. */
+  hasPayload(nodeRun: PipelineNodeRun): boolean {
+    const out = nodeRun.output;
+    return !!out && Object.keys(out).length > 0;
+  }
+
+  /** How long a finished run took, for the history rows. */
+  runLength(r: PipelineRun): string {
+    if (!r.finished_at || !r.started_at) return '—';
+    const ms = Math.round((r.finished_at - r.started_at) * 1000);
+    return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+  }
   readonly logNodeId = signal('');
 
   /** Node runs in the order they happened, which is what a log is.
@@ -305,6 +549,11 @@ export class Pipelines {
       this.nodeTypes.set(cat.node_types);
       this.connectionKinds.set(cat.connection_kinds ?? []);
       this.connections.set(conns.connections);
+      // The credential shapes, so the Connections form is the one the
+      // server declares rather than a guess kept in the browser.
+      this.api.connectionTypes()
+        .then((r) => this.credentialTypes.set(r.types))
+        .catch(() => this.credentialTypes.set([]));
     } catch (err: unknown) {
       this.error.set(this.message(err));
     } finally {
@@ -349,7 +598,8 @@ export class Pipelines {
 
   /** Adds a node just right of the rightmost one, so a new step lands where
    *  the eye already is rather than on top of an existing node. */
-  addNode(type: NodeTypeInfo, after?: { source: string; port: string }): void {
+  addNode(type: NodeTypeInfo,
+          after?: { source: string; port: string; side?: Side }): void {
     const pipeline = this.open();
     if (!pipeline) return;
     // A step added after a particular node belongs beside that node, not at
@@ -357,12 +607,48 @@ export class Pipelines {
     // the new node past everything else and the wire crosses the canvas.
     const source = after && pipeline.nodes.find((n) => n.id === after.source);
     const right = pipeline.nodes.reduce((max, n) => Math.max(max, n.position.x), -1);
-    const column = source
-      ? source.position.x + NODE_W + 70
-      : right < 0
-        ? 40
-        : right + NODE_W + 70;
-    const stacked = pipeline.nodes.filter((n) => n.position.x === column).length;
+
+    // Added from a side handle, the new step lands on that side — which is
+    // the whole point of the handle being there. Anywhere it would land on
+    // top of something, it steps along until it is clear: two steps hung off
+    // the same edge should sit beside each other, not on each other.
+    let spot: { x: number; y: number };
+    if (source && after?.side) {
+      // Off a side handle the step lands on that side, because that is the
+      // only thing the handle promised. Where the slot is taken it slides
+      // along the edge until it is clear — several steps may hang off one
+      // side, and they should sit beside each other rather than on top.
+      const gap = { x: NODE_W + 70, y: NODE_H + 60 };
+      spot = { x: source.position.x, y: source.position.y };
+      if (after.side === 'left') spot.x -= gap.x;
+      if (after.side === 'right') spot.x += gap.x;
+      if (after.side === 'top') spot.y -= gap.y;
+      if (after.side === 'bottom') spot.y += gap.y;
+      // Slide across the edge, not along it: nodes hung below spread sideways.
+      const step = after.side === 'left' || after.side === 'right'
+        ? { x: 0, y: NODE_H + 26 }
+        : { x: NODE_W + 26, y: 0 };
+      const taken = (at: { x: number; y: number }) => pipeline.nodes.some(
+        (n) => Math.abs(n.position.x - at.x) < NODE_W
+          && Math.abs(n.position.y - at.y) < NODE_H);
+      for (let guard = 0; guard < 40 && taken(spot); guard++) {
+        spot = { x: spot.x + step.x, y: spot.y + step.y };
+      }
+    } else {
+      const column = source
+        ? source.position.x + NODE_W + 70
+        : right < 0
+          ? 40
+          : right + NODE_W + 70;
+      const stacked = pipeline.nodes.filter((n) => n.position.x === column).length;
+      spot = {
+        x: column,
+        y: source && !stacked
+          ? source.position.y
+          : 40 + stacked * (NODE_H + 26),
+      };
+    }
+
     const node: PipelineNode = {
       id: `n_${Math.random().toString(36).slice(2, 9)}`,
       type: type.id,
@@ -370,12 +656,7 @@ export class Pipelines {
       description: '',
       config: {},
       connection_id: '',
-      position: {
-        x: column,
-        y: source && !stacked
-          ? source.position.y
-          : 40 + stacked * (NODE_H + 26),
-      },
+      position: spot,
       timeout_s: 43200,
       retries: 0,
       retry_interval_s: 30,
@@ -664,7 +945,8 @@ export class Pipelines {
   // from the palette and then drawing the wire is two acts for one intention,
   // and the wire is the half people forget.
 
-  readonly pickerFor = signal<{ source: string; port: string } | null>(null);
+  readonly pickerFor =
+    signal<{ source: string; port: string; side?: Side } | null>(null);
   readonly pickerOpen = signal(false);
   readonly pickerFilter = signal('');
 
@@ -690,7 +972,7 @@ export class Pipelines {
       .filter((g) => g.types.length);
   });
 
-  openPicker(after: { source: string; port: string } | null): void {
+  openPicker(after: { source: string; port: string; side?: Side } | null): void {
     this.pickerFor.set(after);
     this.pickerFilter.set('');
     this.pickerOpen.set(true);
@@ -1228,6 +1510,119 @@ export class Pipelines {
 
   readonly connectionsOpen = signal(false);
   readonly draft = signal({ kind: 'rest', name: '', auth: 'none', endpoint: '', secret: '' });
+
+  /** What each kind of connection needs. Loaded once; the form is rendered
+   *  from it rather than hand-written per service. */
+  readonly credentialTypes = signal<CredentialTypeInfo[]>([]);
+  /** The connection whose credential is open for editing. */
+  readonly editing = signal<string>('');
+  /** Field values being typed. Never pre-filled from the server — a stored
+   *  secret is never sent back, and an empty box means "leave it alone". */
+  readonly credDraft = signal<Record<string, string>>({});
+  /** The last test result per connection, so the answer stays on screen. */
+  readonly testResult = signal<Record<string, { ok: boolean; message: string }>>({});
+
+  credentialType(kind: string): CredentialTypeInfo | undefined {
+    return this.credentialTypes().find((c) => c.kind === kind);
+  }
+
+  setCred(name: string, value: string): void {
+    this.credDraft.update((d) => ({ ...d, [name]: value }));
+  }
+
+  openCredential(id: string): void {
+    this.editing.set(this.editing() === id ? '' : id);
+    this.credDraft.set({});
+  }
+
+  async saveCredential(conn: PipelineConnection): Promise<void> {
+    this.busy.set('Saving…');
+    try {
+      await this.api.patchConnection(conn.id, { values: this.credDraft() });
+      this.credDraft.set({});
+      await this.reloadConnections();
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    } finally {
+      this.busy.set('');
+    }
+  }
+
+  async testConnection(conn: PipelineConnection): Promise<void> {
+    this.busy.set('Testing…');
+    try {
+      const res = await this.api.testConnection(conn.id);
+      this.testResult.update((r) => ({ ...r, [conn.id]: res }));
+    } catch (err: unknown) {
+      this.testResult.update((r) => ({
+        ...r, [conn.id]: { ok: false, message: this.message(err) },
+      }));
+    } finally {
+      this.busy.set('');
+    }
+  }
+
+  /**
+   * Send the person to the provider, in a separate window.
+   *
+   * A window rather than a redirect because the canvas may have unsaved
+   * work: navigating away to Google and back would be a round trip through
+   * a page load for something that takes ten seconds. The callback page
+   * closes itself, and the panel re-reads the connection when focus returns.
+   */
+  async signIn(conn: PipelineConnection): Promise<void> {
+    try {
+      const { url } = await this.api.signInConnection(conn.id);
+      const opened = window.open(url, 'compass-oauth', 'width=520,height=680');
+      if (!opened) {
+        this.error.set('The sign-in window was blocked. Allow pop-ups for '
+          + 'Compass and try again.');
+        return;
+      }
+      const poll = window.setInterval(async () => {
+        if (!opened.closed) return;
+        window.clearInterval(poll);
+        await this.reloadConnections();
+      }, 700);
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    }
+  }
+
+  async signOut(conn: PipelineConnection): Promise<void> {
+    try {
+      await this.api.signOutConnection(conn.id);
+      this.testResult.update((r) => ({ ...r, [conn.id]: undefined as never }));
+      await this.reloadConnections();
+    } catch (err: unknown) {
+      this.error.set(this.message(err));
+    }
+  }
+
+  /**
+   * Pin this node's sample output, so a graph can be run without an account.
+   *
+   * The sample comes from the node type, which declares what a realistic
+   * result of its own looks like — a Gmail step yields a message with a
+   * sender and a subject rather than {"id": "mock-1"}. Written onto the node
+   * as pinned data, which is the same field a person fills in by hand, so
+   * there is one mechanism rather than two.
+   */
+  useSampleData(node: PipelineNode): void {
+    const type = this.nodeTypes().find((t) => t.id === node.type);
+    const sample = type?.sample;
+    if (!sample) {
+      this.error.set('This step has no sample data to stand in for a real '
+        + 'call. Paste pinned data on it, or connect an account.');
+      return;
+    }
+    this.patchNode({ mock: sample });
+  }
+
+  private async reloadConnections(): Promise<void> {
+    const list = await this.api.pipelineConnections();
+    this.connections.set(list.connections);
+  }
 
   setDraft(key: 'kind' | 'name' | 'auth' | 'endpoint' | 'secret', value: string): void {
     this.draft.update((d) => ({ ...d, [key]: value }));

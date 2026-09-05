@@ -478,46 +478,6 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .cwrap:not(.mine) { max-width: 100%; }
 .cwrap:not(.mine) .cbubble { max-width: 82%; }
 
-.cthink {
-  width: 100%;
-  margin: 0 0 6px;
-  border-left: 2px solid var(--accent-line);
-  padding-left: 10px;
-}
-/* Alive: the rule breathes between faded and full accent. Settled: it stays
-   at the faded accent, so a finished block still reads as Compass's rather
-   than as a neutral grey divider. */
-.cthink.live {
-  border-left-color: var(--accent-line);
-  animation: cthink-alive 1.6s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  /* Still obviously active, just not blinking — a pulsing element is a real
-     problem for some people, and "it is working" is the only thing the
-     animation was carrying. */
-  .cthink.live { animation: none; border-left-color: var(--accent); }
-}
-
-
-
-
-
-.cthink-body {
-  margin: 4px 0 2px;
-  color: var(--muted);
-  font-size: 0.84rem;
-  font-style: italic;
-  line-height: 1.55;
-  /* No inner scroller. The reasoning is visible by default now, and a
-     scrollbox nested inside a scrolling transcript is a trap: the wheel does
-     the wrong thing depending on where the pointer happens to be, and the
-     reader cannot tell how much is hidden. It flows at its natural length. */
-}
-.cthink-body :is(p, ul, ol) { margin: 0 0 0.5em; }
-/* The headings inside this block are styled in styles.css, not here — see the
-   note beside the same removal in app.css. Injected markup carries no
-   component attribute, so a rule written here matches nothing. */
-
 /* Work Azure did inside the turn: code run, searches made. Sits above the
    answer rather than below it, because it happened before the answer and
    reading it afterwards would be reading it out of order. */
@@ -534,27 +494,6 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   padding: 2px 8px;
 }
 
-/* What the thinking cost, under the thinking rather than over it, and only
-   when the pointer is on the message — the same bargain the copy and
-   read-aloud actions strike. The number matters when you go looking for it
-   and is clutter the rest of the time. */
-.cthink-foot {
-  display: flex;
-  align-items: center;
-  min-height: 20px;
-  margin: 2px 0 0;
-}
-.cthink-tokens {
-  padding: 3px 6px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--faint);
-  font-size: 0.68rem;
-  font-weight: 550;
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-  opacity: 0;
-  transition: opacity 0.15s ease, color 0.15s ease;
-  cursor: default;
-}
-.crow:hover .cthink-tokens { opacity: 0.75; }
+/* No .cthink rules here. Home does not render the reasoning block — see the
+   note in home-chat.html — so the styles for it were removed rather than left
+   to rot. The Code console keeps both the block and its styles. */

@@ -1,9 +1,16 @@
 <div class="cv-wrap">
 
+  <!-- Out, level, in, fit — the order every map and every canvas uses, so
+       the reading in the middle is what the two buttons act on. -->
   <div class="cv-tools">
-    <button type="button" (click)="zoomBy(1.15)" title="Zoom in" aria-label="Zoom in">+</button>
     <button type="button" (click)="zoomBy(0.87)" title="Zoom out" aria-label="Zoom out">−</button>
-    <button type="button" class="cv-reset" (click)="resetView()">{{ (scale() * 100).toFixed(0) }}%</button>
+    <button type="button" class="cv-reset" (click)="resetView()"
+      title="Reset to 100%">{{ (scale() * 100).toFixed(0) }}%</button>
+    <button type="button" (click)="zoomBy(1.15)" title="Zoom in" aria-label="Zoom in">+</button>
+    <button type="button" class="cv-fit" (click)="fitView()" title="Fit the graph"
+      aria-label="Fit the graph">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/></svg>
+    </button>
   </div>
 
   <div #surface class="cv-surface" (pointerdown)="startPan($event)" (wheel)="onWheel($event)">
@@ -42,24 +49,43 @@
 
       @for (n of nodes(); track n.id) {
         <div class="cv-node" [attr.data-node-id]="n.id"
+          [attr.data-kind]="kindFor(n)"
+          [attr.data-trigger]="isTrigger(n) ? '1' : null"
           [class.sel]="selectedId() === n.id"
           [class.unknown]="isUnknown(n)"
           [class.looped]="loopedFor(n)"
           [class]="'st-' + (statusFor(n) || 'idle')"
           [style.left.px]="n.position.x" [style.top.px]="n.position.y"
-          [style.width.px]="190" [style.height.px]="62"
+          [style.width.px]="nodeW" [style.height.px]="nodeH"
           (pointerdown)="startDrag($event, n)"
           (dblclick)="openNode.emit(n.id)">
 
           @if (hasInput(n)) { <i class="cv-in" aria-hidden="true"></i> }
 
           <span class="cv-kind">
-            {{ kindFor(n) || 'node' }}
+            {{ kindLabel(n) }}
             <!-- A looped node ran once per item, not once. Saying so on the
                  box stops its status being read as "this happened once". -->
             @if (loopedFor(n)) { <i class="cv-loop" title="Runs once per item">loop</i> }
+            <!-- Pinned steps are marked on the box. A run that finished in
+                 milliseconds because three of its steps served saved data is
+                 a run that should say so on the canvas, not only in the panel
+                 of whichever node you happen to open. -->
+            @if (n.mock) {
+              <i class="cv-pin"
+                title="Returns pinned data on a run you start by hand">pinned</i>
+            }
           </span>
           <span class="cv-label">{{ labelFor(n) }}</span>
+          <!-- What the step is and what it is bound to. A name is the
+               author's words and says nothing about which connector this is
+               or whose account it uses. -->
+          <span class="cv-sub">{{ subFor(n) }}</span>
+          <!-- What this step is doing right now. A dot and a word, because a
+               canvas of boxes with no state is a diagram rather than a run. -->
+          <span class="cv-state">
+            <i class="cv-statedot"></i>{{ statusFor(n) || 'idle' }}
+          </span>
 
           @if (noteFor(n)) {
             <span class="cv-status">{{ noteFor(n) }}</span>
@@ -70,23 +96,43 @@
             <span class="cv-status warn" title="No provider offers this type right now">unavailable</span>
           }
 
+          <!-- The right edge keeps one handle per output, because that is
+               where an If's `true` and `false` have to be told apart. The
+               height comes from nodeH rather than a literal — it was written
+               as 62 and stayed 62 when the box grew, which put every port a
+               third of the way up the node. -->
           @for (p of outputsOf(n); track p.name; let i = $index; let c = $count) {
             <button type="button" class="cv-out" [attr.data-port]="p.name"
-              [style.top.px]="(62 / (c + 1)) * (i + 1) - 6"
+              [style.top.px]="(nodeH / (c + 1)) * (i + 1) - 6"
               (pointerdown)="startLink($event, n, p.name)"
               [title]="'Drag from ' + p.label + ' to another node'"
               [attr.aria-label]="'Connect from ' + p.label">
               @if (c > 1) { <span class="cv-out-tag">{{ p.label }}</span> }
             </button>
-            <!-- Adding the next step from here wires it as it lands. Going to
-                 the palette and then drawing the wire is two acts for one
-                 intention. -->
             <button type="button" class="cv-add"
-              [style.top.px]="(62 / (c + 1)) * (i + 1) - 8"
+              [style.top.px]="(nodeH / (c + 1)) * (i + 1) - 8"
               (pointerdown)="$event.stopPropagation()"
-              (click)="$event.stopPropagation(); addAfter.emit({ source: n.id, port: p.name })"
+              (click)="$event.stopPropagation();
+                addAfter.emit({ source: n.id, port: p.name, side: 'right' })"
               [title]="'Add the step after ' + p.label"
               [attr.aria-label]="'Add a step after ' + p.label">+</button>
+          }
+
+          <!-- And a handle on the other three, each able to start a wire or
+               drop a step on that side. A graph is not always drawn left to
+               right, and several steps may hang off the same side — the
+               wires spread along the edge rather than stacking. -->
+          @for (s of sideHandles; track s) {
+            <button type="button" class="cv-side" [class]="'cv-side ' + s"
+              (pointerdown)="startLink($event, n, defaultPort(n))"
+              [title]="'Drag from the ' + s + ' edge to another step'"
+              [attr.aria-label]="'Connect from the ' + s + ' edge'"></button>
+            <button type="button" class="cv-sideadd" [class]="'cv-sideadd ' + s"
+              (pointerdown)="$event.stopPropagation()"
+              (click)="$event.stopPropagation();
+                addAfter.emit({ source: n.id, port: defaultPort(n), side: s })"
+              [title]="'Add a step on the ' + s"
+              [attr.aria-label]="'Add a step on the ' + s">+</button>
           }
         </div>
       }
@@ -104,6 +150,17 @@
         <span class="cv-start-mark">✦</span>
         <span class="cv-start-label">Build with AI</span>
       </button>
+    </div>
+  }
+
+  <!-- What the stripe down each node's edge means. Only worth showing when
+       there is a graph to read; on an empty canvas it is a key to nothing. -->
+  @if (nodes().length) {
+    <div class="cv-legend" aria-hidden="true">
+      <span><i style="background: var(--kind-trigger)"></i>Trigger</span>
+      <span><i style="background: var(--kind-connector)"></i>Connector</span>
+      <span><i style="background: var(--kind-agent)"></i>Agent</span>
+      <span><i style="background: var(--kind-transform)"></i>Transform</span>
     </div>
   }
 </div>

@@ -178,6 +178,7 @@ class CosmosChatStore:
                     "id": m["sessionId"],
                     "title": m.get("title") or "New chat",
                     "pinned": bool(m.get("pinned")),
+                    "owner": m.get("owner", "") or "",
                     "updated_at": m.get("updated_at", 0),
                     "created_at": m.get("created_at", 0),
                 }
@@ -185,8 +186,17 @@ class CosmosChatStore:
         cards.sort(key=lambda c: c["updated_at"], reverse=True)
         return cards
 
+    async def owner_of(self, session_id: str) -> str:
+        container = await self._get_container()
+        try:
+            meta = await container.read_item(_META_ID, partition_key=session_id)
+        except Exception:  # noqa: BLE001
+            return ""
+        return meta.get("owner", "") or ""
+
     async def set_meta(
-        self, session_id: str, *, title: str | None = None, pinned: bool | None = None
+        self, session_id: str, *, title: str | None = None,
+        pinned: bool | None = None, owner: str | None = None
     ) -> None:
         container = await self._get_container()
         now = time.time()
@@ -201,6 +211,8 @@ class CosmosChatStore:
             meta["title"] = title
         if pinned is not None:
             meta["pinned"] = pinned
+        if owner is not None:
+            meta["owner"] = owner
         await container.upsert_item(meta)
 
     async def delete(self, session_id: str) -> None:

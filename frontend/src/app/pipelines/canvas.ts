@@ -3,12 +3,19 @@ import {
   Component,
   ElementRef,
   computed,
+  effect,
   input,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
-import { PipelineEdge, PipelineNode, NodeTypeInfo } from '../models';
+import {
+  NodeTypeInfo,
+  PipelineConnection,
+  PipelineEdge,
+  PipelineNode,
+} from '../models';
 
 /**
  * The pipeline canvas: nodes you can drag, ports you can wire together.
@@ -30,8 +37,15 @@ import { PipelineEdge, PipelineNode, NodeTypeInfo } from '../models';
 
 /** Node box geometry. Fixed, because a wire has to know where a port is
  *  before the node has rendered — on first paint, and while dragging. */
-export const NODE_W = 190;
-export const NODE_H = 62;
+/** One of a node's four edges. */
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+interface Point { x: number; y: number }
+
+export const NODE_W = 210;
+// Taller than it was: a node now carries its kind, its name and the line
+// saying what it is bound to. The old 62px fitted two of those three, and
+// the third was silently clipped by the node's own overflow.
+export const NODE_H = 110;
 const PORT_R = 5;
 
 interface Wire {
@@ -72,6 +86,16 @@ export class PipelineCanvas {
    *  what a box means: it ran once per item, not once. */
   readonly inLoop = input<Set<string>>(new Set<string>());
   readonly selectedId = input<string>('');
+  /** The connections that exist, so a node can say which one it is bound to
+   *  rather than only that it wants one. */
+  readonly connections = input<PipelineConnection[]>([]);
+
+  /** The box's size, for the template. It used to write 190 and 62 as
+   *  literals beside constants that said the same thing, which is exactly
+   *  how the two come to disagree — and they did, the moment the box needed
+   *  to be taller. */
+  readonly nodeW = NODE_W;
+  readonly nodeH = NODE_H;
 
   readonly select = output<string>();
   readonly moveNode = output<{ id: string; x: number; y: number }>();
@@ -83,7 +107,7 @@ export class PipelineCanvas {
   readonly openNode = output<string>();
   /** The + on a node's trailing edge: add the next step and wire it, rather
    *  than adding from the palette and then drawing the wire yourself. */
-  readonly addAfter = output<{ source: string; port: string }>();
+  readonly addAfter = output<{ source: string; port: string; side?: Side }>();
   /** The two things worth doing on an empty canvas. */
   readonly addFirst = output<void>();
   readonly buildWithAI = output<void>();
@@ -112,15 +136,45 @@ export class PipelineCanvas {
     return this.nodes().find((n) => n.id === id);
   }
 
-  /** Where an output port sits, in graph coordinates. Ports are spread down
-   *  the right edge so a two-output node (an If) has room for both. */
-  outPort(node: PipelineNode, index: number, total: number): { x: number; y: number } {
-    const step = NODE_H / (total + 1);
-    return { x: node.position.x + NODE_W, y: node.position.y + step * (index + 1) };
+  /** A point on one of a node's four edges.
+   *
+   * `index`/`total` spread several attachments along that edge, so two wires
+   * leaving the same side do not stack on one pixel. The right side is still
+   * where an If's `true` and `false` live; the other three exist because a
+   * graph is not always drawn left to right, and forcing every wire out of
+   * the right edge makes a step placed above its source look like it feeds
+   * backwards.
+   */
+  anchor(node: PipelineNode, side: Side, index = 0, total = 1): Point {
+    const alongX = node.position.x + (NODE_W / (total + 1)) * (index + 1);
+    const alongY = node.position.y + (NODE_H / (total + 1)) * (index + 1);
+    switch (side) {
+      case 'top': return { x: alongX, y: node.position.y };
+      case 'bottom': return { x: alongX, y: node.position.y + NODE_H };
+      case 'left': return { x: node.position.x, y: alongY };
+      default: return { x: node.position.x + NODE_W, y: alongY };
+    }
   }
 
-  inPort(node: PipelineNode): { x: number; y: number } {
-    return { x: node.position.x, y: node.position.y + NODE_H / 2 };
+  /** Which edge of the source a wire should leave from, and which edge of the
+   *  target it should arrive at — the pair of sides that face each other.
+   *  Chosen by whichever axis separates the two nodes more, so a step placed
+   *  below its source is wired top-to-bottom rather than looping round. */
+  facing(source: PipelineNode, target: PipelineNode): { from: Side; to: Side } {
+    const dx = (target.position.x + NODE_W / 2) - (source.position.x + NODE_W / 2);
+    const dy = (target.position.y + NODE_H / 2) - (source.position.y + NODE_H / 2);
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? { from: 'right', to: 'left' } : { from: 'left', to: 'right' };
+    }
+    return dy >= 0 ? { from: 'bottom', to: 'top' } : { from: 'top', to: 'bottom' };
+  }
+
+  outPort(node: PipelineNode, index: number, total: number): Point {
+    return this.anchor(node, 'right', index, total);
+  }
+
+  inPort(node: PipelineNode): Point {
+    return this.anchor(node, 'left');
   }
 
   outputsOf(node: PipelineNode): { name: string; label: string }[] {
@@ -128,6 +182,18 @@ export class PipelineCanvas {
     const ports = type?.outputs ?? [];
     return ports.length ? ports.map((p) => ({ name: p.name, label: p.label || p.name })) : [];
   }
+
+  /** The port a side handle wires from: the node's first output, which for
+   *  everything but a branch is its only one. A branch still has its own
+   *  labelled handles on the right. */
+  defaultPort(node: PipelineNode): string {
+    return this.outputsOf(node)[0]?.name ?? 'out';
+  }
+
+  /** The three edges that get a plain handle. Typed here rather than written
+   *  as strings in the template, where they would widen to `string` and the
+   *  side would stop being one of four. */
+  readonly sideHandles: Side[] = ['top', 'bottom', 'left'];
 
   hasInput(node: PipelineNode): boolean {
     const type = this.types().get(node.type);
@@ -139,18 +205,46 @@ export class PipelineCanvas {
    *  when the target sits above or behind the source. */
   readonly wires = computed<Wire[]>(() => {
     const out: Wire[] = [];
+
+    // How many wires leave each (node, side) and arrive at each, so several
+    // sharing an edge of the box are spread along it instead of stacking on
+    // one point. Counted first, then placed — a wire cannot know its own slot
+    // without knowing how many neighbours it has.
+    const leaving = new Map<string, number>();
+    const arriving = new Map<string, number>();
+    const sides = new Map<string, { from: Side; to: Side }>();
     for (const edge of this.edges()) {
       const source = this.node(edge.source);
       const target = this.node(edge.target);
       if (!source || !target) continue;
-      const ports = this.outputsOf(source);
-      const index = Math.max(0, ports.findIndex((p) => p.name === (edge.port || 'out')));
-      const a = this.outPort(source, index, ports.length || 1);
-      const b = this.inPort(target);
+      const face = this.facing(source, target);
+      sides.set(this.wireKey(edge), face);
+      const fromKey = `${edge.source}:${face.from}`;
+      const toKey = `${edge.target}:${face.to}`;
+      leaving.set(fromKey, (leaving.get(fromKey) ?? 0) + 1);
+      arriving.set(toKey, (arriving.get(toKey) ?? 0) + 1);
+    }
+    const usedFrom = new Map<string, number>();
+    const usedTo = new Map<string, number>();
+
+    for (const edge of this.edges()) {
+      const source = this.node(edge.source);
+      const target = this.node(edge.target);
+      if (!source || !target) continue;
+      const face = sides.get(this.wireKey(edge)) ?? { from: 'right' as Side, to: 'left' as Side };
+      const fromKey = `${edge.source}:${face.from}`;
+      const toKey = `${edge.target}:${face.to}`;
+      const fromSlot = usedFrom.get(fromKey) ?? 0;
+      const toSlot = usedTo.get(toKey) ?? 0;
+      usedFrom.set(fromKey, fromSlot + 1);
+      usedTo.set(toKey, toSlot + 1);
+
+      const a = this.anchor(source, face.from, fromSlot, leaving.get(fromKey) ?? 1);
+      const b = this.anchor(target, face.to, toSlot, arriving.get(toKey) ?? 1);
       const count = this.counts()[edge.source];
       out.push({
         key: `${edge.source}:${edge.port}->${edge.target}:${edge.when}`,
-        d: this.curve(a, b),
+        d: this.curve(a, b, face.from, face.to),
         when: edge.when,
         midX: (a.x + b.x) / 2,
         midY: (a.y + b.y) / 2,
@@ -172,9 +266,30 @@ export class PipelineCanvas {
     return this.curve(a, { x: link.x, y: link.y });
   });
 
-  private curve(a: { x: number; y: number }, b: { x: number; y: number }): string {
-    const reach = Math.max(40, Math.abs(b.x - a.x) * 0.5);
-    return `M ${a.x} ${a.y} C ${a.x + reach} ${a.y}, ${b.x - reach} ${b.y}, ${b.x} ${b.y}`;
+  private wireKey(edge: PipelineEdge): string {
+    return `${edge.source}:${edge.port}->${edge.target}:${edge.when}`;
+  }
+
+  /** A cubic whose control points leave along the side's own normal, so a
+   *  wire departs perpendicular to the box it came from rather than always
+   *  heading right. That is what makes a downward connection read as
+   *  downward instead of as a loop. */
+  private curve(a: Point, b: Point, from: Side = 'right', to: Side = 'left'): string {
+    const reach = Math.max(
+      40,
+      Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) * 0.5,
+    );
+    const push = (p: Point, side: Side, sign: number): Point => {
+      switch (side) {
+        case 'top': return { x: p.x, y: p.y - reach * sign };
+        case 'bottom': return { x: p.x, y: p.y + reach * sign };
+        case 'left': return { x: p.x - reach * sign, y: p.y };
+        default: return { x: p.x + reach * sign, y: p.y };
+      }
+    };
+    const c1 = push(a, from, 1);
+    const c2 = push(b, to, 1);
+    return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
   }
 
   /** The drawing area, sized to hold every node plus room to drag into. */
@@ -271,10 +386,86 @@ export class PipelineCanvas {
     this.scale.set(Number(Math.min(1.8, Math.max(0.4, this.scale() * factor)).toFixed(3)));
   }
 
+  /** Pans just enough to show the node that was selected, when it is off the
+   *  pane.
+   *
+   * A step added from the left or top handle lands at a smaller coordinate
+   * than anything already there — often a negative one — and the default view
+   * starts at the origin, so the node you just asked for is created outside
+   * the window. Fitting the whole graph would answer that, but it also rescales
+   * a graph nobody asked to rescale.
+   *
+   * Only the selection is tracked. Pan and zoom are read untracked on purpose:
+   * reading them would make this re-run whenever the canvas is dragged, and
+   * then dragging a selected node off the edge would snap it back, which is
+   * the one thing a pan must never do.
+   */
+  private readonly reveal = effect(() => {
+    const id = this.selectedId();
+    if (!id) return;
+    untracked(() => this.bringIntoView(id));
+  });
+
+  private bringIntoView(id: string): void {
+    const node = untracked(() => this.node(id));
+    const surface = this.surface()?.nativeElement;
+    if (!node || !surface) return;
+
+    const scale = this.scale();
+    const margin = 32;
+    const left = this.panX() + node.position.x * scale;
+    const top = this.panY() + node.position.y * scale;
+    const right = left + NODE_W * scale;
+    const bottom = top + NODE_H * scale;
+    const width = surface.clientWidth;
+    const height = surface.clientHeight;
+    if (!width || !height) return;
+
+    let dx = 0;
+    let dy = 0;
+    if (left < margin) dx = margin - left;
+    else if (right > width - margin) dx = width - margin - right;
+    if (top < margin) dy = margin - top;
+    else if (bottom > height - margin) dy = height - margin - bottom;
+
+    if (dx) this.panX.set(Math.round(this.panX() + dx));
+    if (dy) this.panY.set(Math.round(this.panY() + dy));
+  }
+
   resetView(): void {
     this.scale.set(1);
     this.panX.set(0);
     this.panY.set(0);
+  }
+
+  /** Scale the graph to the pane, with a margin, and centre it.
+   *
+   * Different from reset: reset returns to 100% wherever the graph happens to
+   * be, which on a wide pipeline shows the first two steps and nothing else.
+   * Fit answers "show me all of it", which is the question the button beside
+   * the zoom is actually being asked.
+   */
+  fitView(): void {
+    const nodes = this.nodes();
+    const surface = this.surface()?.nativeElement;
+    if (!nodes.length || !surface) return this.resetView();
+
+    const left = Math.min(...nodes.map((n) => n.position.x));
+    const top = Math.min(...nodes.map((n) => n.position.y));
+    const right = Math.max(...nodes.map((n) => n.position.x + NODE_W));
+    const bottom = Math.max(...nodes.map((n) => n.position.y + NODE_H));
+
+    const pad = 48;
+    const scale = Math.min(
+      1.8,
+      Math.max(0.4, Math.min(
+        (surface.clientWidth - pad * 2) / Math.max(1, right - left),
+        (surface.clientHeight - pad * 2) / Math.max(1, bottom - top),
+      )),
+    );
+    this.scale.set(Number(scale.toFixed(3)));
+    this.panX.set(Math.round(pad - left * scale));
+    this.panY.set(Math.round(pad - top * scale));
   }
 
   // -- presentation ---------------------------------------------------------
@@ -287,6 +478,14 @@ export class PipelineCanvas {
     return this.types().get(node.type)?.category ?? '';
   }
 
+  /** What the badge says. A Gmail trigger is categorised `connector` so the
+   *  engine will mock it, which is right — but on the canvas it is the step
+   *  the graph begins at, and calling it CONNECTOR beside the connector it
+   *  feeds is the opposite of a label's job. */
+  kindLabel(node: PipelineNode): string {
+    return this.isTrigger(node) ? 'trigger' : (this.kindFor(node) || 'node');
+  }
+
   statusFor(node: PipelineNode): string {
     return this.statuses()[node.id] ?? '';
   }
@@ -295,6 +494,35 @@ export class PipelineCanvas {
    *  "2/3 item(s), 1 failed" says more than "failed". */
   noteFor(node: PipelineNode): string {
     return this.notes()[node.id] ?? '';
+  }
+
+  /** The line under the name: what this step actually is, and what it is
+   *  bound to. The name is the author's words — "Save to SQL Server" — and
+   *  says nothing about which connector that is or which account it uses, so
+   *  a box on a canvas cannot otherwise be told apart from a box beside it
+   *  that does something else entirely. */
+  subFor(node: PipelineNode): string {
+    const type = this.types().get(node.type);
+    const bits: string[] = [];
+    if (type) {
+      // The type id past its provider — "gmail.list_messages" is read as the
+      // operation on the connector already named by the kind badge.
+      bits.push(node.type.includes('.') ? node.type.split('.')[1] : node.type);
+    } else {
+      bits.push(node.type);
+    }
+    const connection = this.connections().find((c) => c.id === node.connection_id);
+    if (connection) bits.push(connection.name);
+    else if (type?.connection_kind) bits.push('no connection');
+    return bits.join(' · ');
+  }
+
+  /** A step the graph begins at. Coloured apart from the connectors it is
+   *  otherwise one of, because where a graph starts is the first thing
+   *  anyone looks for — the question that got asked about a graph the
+   *  builder drew was exactly this one. */
+  isTrigger(node: PipelineNode): boolean {
+    return node.type.endsWith('.trigger') || node.type === 'flow.start';
   }
 
   loopedFor(node: PipelineNode): boolean {

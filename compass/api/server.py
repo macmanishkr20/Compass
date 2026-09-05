@@ -83,6 +83,12 @@ async def lifespan(app: FastAPI):
     from compass.code.routines import start_scheduler
 
     start_scheduler(engine)
+    # Only when the module is on. A trigger loop for a disabled module would
+    # poll mailboxes for pipelines nobody can see.
+    if get_settings().pipelines.enabled:
+        from compass.pipelines import runner as pipeline_runner
+
+        pipeline_runner.start()
     yield
     await manager.stop()
     store = get_transcript_store()

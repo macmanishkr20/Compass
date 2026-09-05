@@ -524,6 +524,21 @@
   position: relative;
   z-index: 30;
 }
+/* The section tabs. Which one you are in was said three ways — a raised
+   surface, ink instead of muted, and a heavier label — and all three are
+   quiet enough that at a glance the strip reads as four of the same thing.
+   The icon carries the accent in the selected tab, which is the one signal
+   that is a different kind rather than a stronger degree of the same one.
+
+   The label stays ink on purpose: a whole tab in brass reads as a button
+   waiting to be pressed rather than the place you are standing.
+
+   Selected off `aria-selected`, which the tabs already set and already have
+   to keep right — a second flag for the styling could drift from the one a
+   screen reader announces. `stroke` on the SVG is a presentation attribute,
+   so any rule at all beats it; no !important needed. */
+.hc-switch button[aria-selected="true"] svg { stroke: var(--accent); }
+
 /* Grows to fill row 1 when there's room; shrinks (with ellipsis) and lets the
    controls wrap below when the column is narrow. */
 .topbar-title { flex: 1 1 160px; min-width: 0; }

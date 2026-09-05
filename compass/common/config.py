@@ -313,6 +313,13 @@ class AuthSettings(BaseModel):
 
     enabled: bool = True
     users: dict[str, str] = {"admin": "compass"}  # demo default; see .env
+    #: Login name -> the identity that owns records. A username is not a
+    #: person: `admin` is the shipped demo credential and the person using it
+    #: has a real address, and if those stay two identities then records owned
+    #: by one are invisible to the other. Override with COMPASS_AUTH_ALIASES
+    #: ("admin:someone@example.com,root:someone@example.com"). A name that is
+    #: not listed is its own identity and owns nothing to begin with.
+    identity_aliases: dict[str, str] = {"admin": "macmanishkr20@gmail.com"}
     secret: str = ""
     token_ttl_hours: float = 12.0
     # The token is also set as an httpOnly cookie (no browser localStorage).
@@ -641,6 +648,14 @@ def get_settings() -> Settings:
                 parsed[name] = password
         if parsed:
             auth.users = parsed
+    if aliases_raw := os.environ.get("COMPASS_AUTH_ALIASES"):
+        aliases: dict[str, str] = {}
+        for pair in aliases_raw.split(","):
+            name, _, identity = pair.strip().partition(":")
+            if name and identity:
+                aliases[name] = identity
+        if aliases:
+            auth.identity_aliases = aliases
     auth.secret = os.environ.get("COMPASS_AUTH_SECRET", auth.secret)
     if ttl := os.environ.get("COMPASS_AUTH_TOKEN_TTL_HOURS"):
         try:

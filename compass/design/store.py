@@ -58,6 +58,9 @@ class DesignProject:
     # the project so reopening it shows the question again, not a blank canvas.
     clarify: dict = field(default_factory=dict)  # every system it follows
     starred: bool = False
+    #: Who this project belongs to. Empty is legacy and stays visible; see
+    #: `compass.common.ownership`.
+    owner: str = ""
     viewed_at: float = field(default_factory=time.time)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -285,6 +288,7 @@ class DesignStore:
         prompt: str,
         design_system: str = "",
         design_systems: list[str] | None = None,
+        owner: str = "",
     ) -> dict:
         rows = self._read()
         systems = list(design_systems or ([design_system] if design_system else []))
@@ -294,6 +298,7 @@ class DesignStore:
             prompt=prompt,
             design_system=systems[0] if systems else "",
             design_systems=systems,
+            owner=owner,
         ).to_dict()
         rows.append(p)
         self._write(rows)

@@ -114,6 +114,9 @@ class Pipeline:
     #: Set once a manual run has succeeded. Scheduling is refused until then
     #: when `require_manual_first_run` is on.
     proven_at: float | None = None
+    #: Who this pipeline belongs to. Empty is legacy and stays visible; see
+    #: `compass.common.ownership`.
+    owner: str = ""
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
 
@@ -148,12 +151,17 @@ class Connection:
     auth: str = "none"  # none | api_key | basic | oauth2 | managed_identity
     config: dict[str, Any] = field(default_factory=dict)  # endpoint, scopes…
     secret_ref: str = ""
+    #: Who may use this connection. A credential is the one record where
+    #: sharing by default is a leak rather than an inconvenience, so this is
+    #: scoped even though the endpoint it points at may be innocuous.
+    owner: str = ""
     created_at: float = field(default_factory=_now)
 
     def redacted(self) -> dict[str, Any]:
         """The API view: everything except the pointer to the secret."""
         d = asdict(self)
         d.pop("secret_ref", None)
+        d.pop("owner", None)
         d["has_secret"] = bool(self.secret_ref)
         return d
 
@@ -204,6 +212,10 @@ class PipelineRun:
     iterations: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     #: The token a waiting node is parked on, so /resume can find it.
     waiting_on: str = ""
+    #: Inherited from the pipeline, not from whoever pressed Run: a scheduled
+    #: run has no request behind it, and a run must resolve the same
+    #: connections whether a person or a timer started it.
+    owner: str = ""
     started_at: float = field(default_factory=_now)
     finished_at: float | None = None
 
@@ -349,6 +361,7 @@ class RunStore(_JsonStore):
             parameters={**pipeline.parameters, **parameters},
             variables=dict(pipeline.variables),
             nodes={n.id: NodeRun(node_id=n.id) for n in pipeline.nodes},
+            owner=pipeline.owner,
         )
         self._write(run.id, run.to_dict())
         return run

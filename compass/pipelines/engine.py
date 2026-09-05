@@ -39,6 +39,8 @@ from dataclasses import asdict
 from typing import Any
 
 from compass.common.config import get_settings
+from compass.common.ownership import visible_to
+from compass.pipelines import credentials, oauth
 from compass.pipelines import store as pstore
 from compass.pipelines.expressions import ExpressionError, Resolver
 from compass.pipelines.secrets import get_secret_store
@@ -287,8 +289,17 @@ class PipelineEngine:
             # has to be a live one. A mocked run calls nothing, so treating it
             # as proof would let a pipeline be scheduled on the strength of a
             # run that never touched the thing it is supposed to touch.
+            # Pinned nodes count against proof for the same reason a mocked
+            # run does: a graph whose Gmail step served a pinned message has
+            # not shown that the mailbox is reachable, and scheduling it would
+            # be scheduling something never tried. Unpin and run it once.
+            any_pinned = any(
+                n.mock is not None and run.nodes.get(n.id) is not None
+                and run.nodes[n.id].status == "done"
+                for n in pipeline.nodes
+            )
             if (run.status == "done" and run.trigger == "manual"
-                    and run.mode == "live"):
+                    and run.mode == "live" and not any_pinned):
                 fresh = await pstore.pipelines.get(pipeline.id)
                 if fresh and not fresh.proven_at:
                     fresh.proven_at = time.time()
@@ -457,7 +468,20 @@ class PipelineEngine:
         # an arbitrary branch, or a loop fanning out over stubs, would make
         # the mocked run a different graph from the live one — and a
         # verification of a different graph verifies nothing.
-        if run.mode == "mock" and node_type.category != "flow":
+        # Pinned data stands in for the call in a run someone started by hand,
+        # even when a credential exists and the call would have worked. That
+        # is n8n's rule and it is why the recording's whole workflow finished
+        # in 162ms with the Gmail trigger reporting 1ms: it was not reading a
+        # mailbox. The point is being able to work on the rest of the graph
+        # against a known input, without waiting on a mailbox and without
+        # re-sending anything.
+        #
+        # Manual only, deliberately. A scheduled or triggered run ignores
+        # pinned data and calls for real, because a pipeline quietly serving
+        # the same pinned email every morning is a failure nobody would catch
+        # — it succeeds, it just stops being about the mail.
+        use_pinned = node.mock is not None and run.trigger == "manual"
+        if (run.mode == "mock" or use_pinned) and node_type.category != "flow":
             mocked = self._mock_result(node, node_type)
             node_run.status = "done"
             node_run.output = {} if node.secure_output else dict(mocked.data)
@@ -474,7 +498,7 @@ class PipelineEngine:
             upstream={nid: nr.output for nid, nr in run.nodes.items()},
             parameters=run.parameters,
             variables=run.variables,
-            connection=self._connection_resolver(node.connection_id),
+            connection=self._connection_resolver(node.connection_id, run.owner),
             allowed=frozenset(pipeline.capabilities),
             workspace_root=str(get_settings().workspace_root),
         )
@@ -534,6 +558,15 @@ class PipelineEngine:
         if node.mock is not None:
             return NodeResult(data=dict(node.mock), text="Pinned data",
                               port="out")
+        # The type's own sample, when it has one. A Gmail step that mocks to a
+        # message with a sender and a subject shows the pipeline working; one
+        # that mocks to {"id": "mock-1"} only shows that the wires are
+        # connected, and the person still cannot tell whether their graph does
+        # what they meant.
+        if node_type is not None and getattr(node_type, "sample", None):
+            label = node.name or node.type
+            return NodeResult(data=dict(node_type.sample),
+                              text=f"{label}: sample data (nothing was called)")
         kind = ""
         if node_type is not None and node_type.outputs:
             kind = node_type.outputs[0].kind
@@ -695,24 +728,42 @@ class PipelineEngine:
                     pipeline, run, node, states=states, item=item, index=index,
                 )
 
-    def _connection_resolver(self, connection_id: str):
+    def _connection_resolver(self, connection_id: str, owner: str = ""):
         """Fetches a connection with its secret, at the moment it is used.
 
         A callable rather than a value so the credential never sits in the
         run's persisted state — which is the point of `secret_ref` existing.
+
+        `owner` is the run's, and a connection someone else owns is reported
+        as missing rather than refused: a node may name any id it likes, and
+        distinguishing "not yours" from "not there" would confirm that a
+        given connection exists on the box.
         """
         async def _resolve(requested: str = "") -> dict[str, Any]:
             target = requested or connection_id
             if not target:
                 return {}
             conn = await pstore.connections.get(target)
+            if conn and not visible_to(owner, conn.owner):
+                conn = None
             if not conn:
                 raise ValueError(f"no connection {target!r}")
-            secret = ""
+            raw = ""
             if conn.secret_ref:
-                secret = await get_secret_store().get(conn.secret_ref)
-            return {"kind": conn.kind, "auth": conn.auth,
-                    **conn.config, "secret": secret}
+                raw = await get_secret_store().get(conn.secret_ref)
+            values = oauth.load_values(raw)
+            # Renewed here rather than at the route, because this is the last
+            # moment before the call and the only one that is reached by a
+            # scheduled run as well as by a person pressing Run.
+            values = await oauth.fresh_values(conn, values)
+            return {
+                "kind": conn.kind, "auth": conn.auth, **conn.config,
+                # `secret` is the pre-credential-types contract, kept so a
+                # handler written against it still works.
+                "secret": values.get("access_token", ""),
+                "values": values,
+                "headers": credentials.apply_auth(conn.kind, values),
+            }
 
         return _resolve
 

@@ -15,6 +15,7 @@ provider needs no frontend change to become usable.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,6 +24,8 @@ from pydantic import BaseModel, Field
 
 from compass.common.auth import require_user
 from compass.common.config import get_settings
+from compass.common.ownership import owned, owner_for, visible_to
+from compass.pipelines import credentials, oauth
 from compass.pipelines import store as pstore
 from compass.pipelines.engine import engine
 from compass.pipelines.expressions import references
@@ -88,6 +91,17 @@ class ConnectionCreate(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     #: Write-only. Stored behind a reference and never returned.
     secret: str = ""
+    #: The credential type's fields — client id, secret, token. Write-only in
+    #: the same way, and the shape `credentials.py` declares.
+    values: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectionPatch(BaseModel):
+    """Editing a credential without recreating it, so the connection id the
+    graph already points at survives a rotated token."""
+
+    name: str | None = None
+    values: dict[str, Any] | None = None
 
 
 # --------------------------------------------------------------------------- catalogue
@@ -104,23 +118,44 @@ async def node_types(user: str = Depends(require_user)) -> dict:
     from compass.pipelines.nodes import connectors
 
     types = get_registry().all()
+    # Built from the credential types, not from the HTTP connectors. They were
+    # the same list until SQL Server arrived, which is a connection kind with
+    # no HTTP connector behind it — and because this list drives the
+    # Connections panel, a kind missing from it is a connection nobody can
+    # create and a node that can never be set up.
+    notes = {c.kind: c.note for c in connectors.CONNECTORS}
     return {
         "node_types": [t.summary() for t in types.values()],
         "capabilities": list(CAPABILITIES),
         "edge_conditions": list(EDGE_CONDITIONS),
-        # The connection kinds the built-in connectors expect, so the
-        # Connections panel can offer them rather than asking someone to
-        # guess a string that has to match exactly.
-        "connection_kinds": connectors.kinds(),
+        "connection_kinds": [
+            {"kind": c.kind, "label": c.label, "auth": c.auth,
+             "note": notes.get(c.kind) or c.setup_note}
+            for c in credentials.all_types()
+        ],
     }
 
 
 # --------------------------------------------------------------------------- pipelines
 
 
+async def _owned_pipeline(pipeline_id: str, user: str):
+    """The pipeline, if this user may see it — one place, so the ownership
+    check cannot be forgotten on a route added later.
+
+    Someone else's pipeline is reported as missing rather than forbidden: a
+    403 on a guessed id confirms the id exists, which is the one thing the
+    guess was trying to learn.
+    """
+    pipeline = await pstore.pipelines.get(pipeline_id)
+    if not pipeline or not visible_to(user, pipeline.owner):
+        raise HTTPException(status_code=404, detail="no such pipeline")
+    return pipeline
+
+
 @router.get("/v1/pipelines")
 async def list_pipelines(user: str = Depends(require_user)) -> dict:
-    items = await pstore.pipelines.list()
+    items = owned(await pstore.pipelines.list(), user)
     items.sort(key=lambda p: p.updated_at, reverse=True)
     return {"pipelines": [p.to_dict() for p in items]}
 
@@ -128,25 +163,22 @@ async def list_pipelines(user: str = Depends(require_user)) -> dict:
 @router.post("/v1/pipelines")
 async def create_pipeline(body: PipelineCreate,
                           user: str = Depends(require_user)) -> dict:
-    pipeline = await pstore.pipelines.create(name=body.name.strip())
+    pipeline = await pstore.pipelines.create(name=body.name.strip(),
+                                             owner=owner_for(user))
     return pipeline.to_dict()
 
 
 @router.get("/v1/pipelines/{pipeline_id}")
 async def get_pipeline(pipeline_id: str,
                        user: str = Depends(require_user)) -> dict:
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
     return pipeline.to_dict()
 
 
 @router.patch("/v1/pipelines/{pipeline_id}")
 async def patch_pipeline(pipeline_id: str, body: PipelinePatch,
                          user: str = Depends(require_user)) -> dict:
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
 
     graph_changed = body.nodes is not None or body.edges is not None
     if body.name is not None:
@@ -179,6 +211,7 @@ async def patch_pipeline(pipeline_id: str, body: PipelinePatch,
 @router.delete("/v1/pipelines/{pipeline_id}")
 async def delete_pipeline(pipeline_id: str,
                           user: str = Depends(require_user)) -> dict:
+    await _owned_pipeline(pipeline_id, user)
     return {"deleted": await pstore.pipelines.delete(pipeline_id)}
 
 
@@ -190,9 +223,7 @@ async def validate_pipeline(pipeline_id: str,
     Cheaper to say now than at 3am when a schedule fires, which is the whole
     argument for validating at edit time rather than only on the way in.
     """
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
 
     types = get_registry().all()
     ids = {n.id for n in pipeline.nodes}
@@ -229,6 +260,26 @@ async def validate_pipeline(pipeline_id: str,
 
     if _has_cycle(pipeline):
         problems.append({"node": "", "problem": "the graph contains a cycle"})
+
+    # Where the graph begins. n8n makes this structural — a workflow starts at
+    # a trigger and the editor will not let you forget one — and the reason
+    # showed up here as a question nobody should have to ask: "where is the
+    # start point, from where the first arrow comes from?" A graph with three
+    # unconnected entry points runs all three at once, which is legal, rarely
+    # meant, and invisible until it happens.
+    if pipeline.nodes:
+        targeted = {e.target for e in pipeline.edges}
+        entries = [n for n in pipeline.nodes if n.id not in targeted]
+        if not entries:
+            problems.append({"node": "", "problem":
+                             "no starting step — every node is downstream of "
+                             "another, so nothing can run first"})
+        elif len(entries) > 1:
+            names = ", ".join(n.name or n.id for n in entries[:4])
+            problems.append({"node": entries[0].id, "problem":
+                             f"{len(entries)} steps start at once ({names}). "
+                             "If that is deliberate this is fine; if not, "
+                             "wire them in sequence or add a Start step."})
 
     return {"ok": not problems, "problems": problems}
 
@@ -267,9 +318,7 @@ def _has_cycle(pipeline) -> bool:
 @router.post("/v1/pipelines/{pipeline_id}/run")
 async def run_pipeline(pipeline_id: str, body: RunStart,
                        user: str = Depends(require_user)) -> dict:
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
     try:
         run = await engine.start(pipeline, trigger=body.trigger,
                                  parameters=body.parameters, mode=body.mode)
@@ -289,9 +338,7 @@ async def run_node(pipeline_id: str, node_id: str, body: StepRun,
     so a step cannot pass here and fail in a real run over a difference
     between two implementations.
     """
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
     try:
         run = await engine.start(pipeline, trigger="manual", mode=body.mode,
                                  only=node_id, seed=body.seed)
@@ -305,6 +352,7 @@ async def run_node(pipeline_id: str, node_id: str, body: StepRun,
 @router.get("/v1/pipelines/{pipeline_id}/runs")
 async def list_runs(pipeline_id: str, limit: int = 50,
                     user: str = Depends(require_user)) -> dict:
+    await _owned_pipeline(pipeline_id, user)
     items = await pstore.runs.list(pipeline_id, limit)
     return {"runs": [r.to_dict() for r in items]}
 
@@ -320,18 +368,23 @@ async def export_pipeline(pipeline_id: str,
     contents unreadable in the browser, which is where most of it gets looked
     at first.
     """
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="No such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
     from compass.pipelines import export as pexport
 
     return pexport.bundle(pipeline)
 
 
+async def _owned_run(run_id: str, user: str):
+    run = await pstore.runs.get(run_id)
+    if not run or not visible_to(user, run.owner):
+        raise HTTPException(status_code=404, detail="no such run")
+    return run
+
+
 @router.get("/v1/pipeline-runs/{run_id}")
 async def get_run(run_id: str, user: str = Depends(require_user)) -> dict:
     run = await pstore.runs.get(run_id)
-    if not run:
+    if not run or not visible_to(user, run.owner):
         raise HTTPException(status_code=404, detail="no such run")
     return run.to_dict()
 
@@ -339,6 +392,7 @@ async def get_run(run_id: str, user: str = Depends(require_user)) -> dict:
 @router.post("/v1/pipeline-runs/{run_id}/resume")
 async def resume_run(run_id: str, body: ResumeBody,
                      user: str = Depends(require_user)) -> dict:
+    await _owned_run(run_id, user)  # checked before it acts, not after
     run = await engine.resume(run_id, body.answer)
     if not run:
         raise HTTPException(status_code=404, detail="no such run")
@@ -347,6 +401,7 @@ async def resume_run(run_id: str, body: ResumeBody,
 
 @router.post("/v1/pipeline-runs/{run_id}/cancel")
 async def cancel_run(run_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_run(run_id, user)  # checked before it acts, not after
     run = await engine.cancel(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="no such run")
@@ -356,10 +411,60 @@ async def cancel_run(run_id: str, user: str = Depends(require_user)) -> dict:
 # --------------------------------------------------------------------------- connections
 
 
+def _connection_view(conn, values: dict[str, Any] | None = None) -> dict:
+    """The API view of a connection: never a stored value, always the state.
+
+    What a person needs to know about a credential is whether it is complete
+    and whether it works — not what is in it. `configured` and `signed_in`
+    answer that without the API ever handing a token back, which is the rule
+    the whole credential store exists to keep.
+    """
+    view = conn.redacted()
+    spec = credentials.get_type(conn.kind)
+    values = values or {}
+    required = [f.name for f in (spec.fields if spec else ())
+                if f.required and not f.from_oauth]
+    view["configured"] = all(values.get(name) for name in required)
+    view["signed_in"] = bool(values.get("access_token"))
+    view["needs_sign_in"] = bool(spec and spec.auth == "oauth2"
+                                 and not values.get("access_token"))
+    expires_at = values.get("expires_at")
+    view["expires_at"] = expires_at
+    view["expired"] = bool(expires_at and float(expires_at) <= time.time())
+    view["auth_kind"] = spec.auth if spec else conn.auth
+    return view
+
+
+async def _connection_values(conn) -> dict[str, Any]:
+    raw = await get_secret_store().get(conn.secret_ref) if conn.secret_ref else ""
+    return oauth.load_values(raw)
+
+
+async def _owned_connection(connection_id: str, user: str):
+    conn = await pstore.connections.get(connection_id)
+    if not conn or not visible_to(user, conn.owner):
+        raise HTTPException(status_code=404, detail="no such connection")
+    return conn
+
+
+@router.get("/v1/pipeline-connection-types")
+async def connection_types(user: str = Depends(require_user)) -> dict:
+    """What each kind of connection needs, so the form is the credential's own.
+
+    n8n's credential classes declare their fields, how they authenticate and
+    how they are tested; the browser renders from that rather than carrying a
+    hand-written form per service, which is what keeps the two from drifting.
+    """
+    return {"types": [c.public() for c in credentials.all_types()]}
+
+
 @router.get("/v1/pipeline-connections")
 async def list_connections(user: str = Depends(require_user)) -> dict:
-    items = await pstore.connections.list()
-    return {"connections": [c.redacted() for c in items]}
+    items = owned(await pstore.connections.list(), user)
+    out = []
+    for conn in items:
+        out.append(_connection_view(conn, await _connection_values(conn)))
+    return {"connections": out}
 
 
 @router.post("/v1/pipeline-connections")
@@ -374,19 +479,194 @@ async def create_connection(body: ConnectionCreate,
     conn = await pstore.connections.create(
         kind=body.kind.strip(), name=body.name.strip(),
         auth=body.auth.strip() or "none", config=body.config,
+        owner=owner_for(user),
     )
-    if body.secret:
+    values = dict(body.values)
+    if body.secret and not values:
+        # The pre-credential-types shape: one opaque secret. Read as an access
+        # token so an older client keeps working.
+        values = {"access_token": body.secret}
+    if values:
         conn.secret_ref = f"{conn.id}/secret"
-        await get_secret_store().set(conn.secret_ref, body.secret)
+        await get_secret_store().set(conn.secret_ref, oauth.dump_values(values))
         pstore.connections._write(conn.id, conn.__dict__)
-    return conn.redacted()
+    return _connection_view(conn, values)
+
+
+@router.patch("/v1/pipeline-connections/{connection_id}")
+async def patch_connection(connection_id: str, body: ConnectionPatch,
+                           user: str = Depends(require_user)) -> dict:
+    """Edit a credential in place.
+
+    In place because the graph points at the connection id: rotating a token
+    by deleting and recreating would silently unwire every node that used it,
+    and the person would find out at the next run.
+    """
+    conn = await _owned_connection(connection_id, user)
+    values = await _connection_values(conn)
+    if body.name is not None and body.name.strip():
+        conn.name = body.name.strip()
+        pstore.connections._write(conn.id, conn.__dict__)
+    if body.values is not None:
+        # Merged, not replaced: the form never sends back a password it was
+        # never given, and a blank field must not wipe a stored secret.
+        values.update({k: v for k, v in body.values.items() if v != ""})
+        ref = conn.secret_ref or f"{conn.id}/secret"
+        await get_secret_store().set(ref, oauth.dump_values(values))
+        if not conn.secret_ref:
+            conn.secret_ref = ref
+            pstore.connections._write(conn.id, conn.__dict__)
+    return _connection_view(conn, values)
+
+
+@router.post("/v1/pipeline-connections/{connection_id}/test")
+async def test_connection(connection_id: str,
+                          user: str = Depends(require_user)) -> dict:
+    """Prove the credential now, against the provider.
+
+    The single most valuable thing n8n does with credentials, and the reason
+    is scheduling: without a test, whether a credential works is discovered
+    when a pipeline runs, which may be at 3am and is certainly not while the
+    person who can fix it is looking at the form. A read-only call to the
+    smallest endpoint the provider offers turns that into an answer now.
+
+    Never raises. A failed test is an answer, not a server error, and the
+    provider's own words are passed through because they are usually the
+    actionable ones.
+    """
+    import httpx
+
+    conn = await _owned_connection(connection_id, user)
+    spec = credentials.get_type(conn.kind)
+    if spec is None:
+        return {"ok": False, "message": f"No credential type for {conn.kind}."}
+
+    values = oauth.with_client_defaults(conn.kind, await _connection_values(conn))
+
+    # A database credential is a driver handshake, not a request, so it has
+    # its own tester rather than a URL to GET.
+    if conn.kind == "mssql":
+        from compass.pipelines.nodes import database
+
+        passed, message = await database.test(values)
+        return {"ok": passed, "message": message}
+
+    url = spec.test_url or str(values.get("test_url") or "")
+    if not url:
+        return {"ok": False, "message":
+                "This kind of connection has nothing to test against. Add a "
+                "test URL and try again."}
+
+    try:
+        values = await oauth.fresh_values(conn, values)
+    except ValueError as err:
+        return {"ok": False, "message": str(err)}
+
+    headers = credentials.apply_auth(conn.kind, values)
+    if not headers and spec.auth != "none":
+        return {"ok": False, "message":
+                "There is no credential stored on this connection yet."}
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.request(spec.test_method, url,
+                                            headers={"Accept": "application/json",
+                                                     **headers})
+    except Exception as err:  # noqa: BLE001 — a network failure is a result
+        return {"ok": False, "message": f"Could not reach {url}: {err}"}
+
+    if response.status_code < 300:
+        return {"ok": True, "message": f"{spec.label} answered. The "
+                                       "connection works."}
+    return {"ok": False, "status": response.status_code,
+            "message": f"{spec.label} returned {response.status_code}: "
+                       f"{oauth._provider_error(response.text, response.status_code)}"}
+
+
+@router.post("/v1/pipeline-connections/{connection_id}/sign-in")
+async def sign_in(connection_id: str,
+                  user: str = Depends(require_user)) -> dict:
+    """Where to send the person to authorize this connection."""
+    conn = await _owned_connection(connection_id, user)
+    values = await _connection_values(conn)
+    try:
+        return {"url": oauth.start(conn.id, conn.kind, values)}
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=str(err))
+
+
+@router.get("/v1/pipeline-connections/oauth/callback")
+async def oauth_callback(code: str = "", state: str = "",
+                         error: str = "") -> Any:
+    """Where the provider sends the person back.
+
+    Deliberately unauthenticated: the browser arriving here is coming from
+    the provider, not from Compass, and may not carry the session cookie
+    depending on how the redirect is made. The `state` is the guard — it is
+    unguessable, single-use, short-lived, and is what ties this callback to a
+    sign-in that Compass itself started for a connection it owns.
+    """
+    from fastapi.responses import HTMLResponse
+
+    def page(title: str, detail: str, ok: bool) -> HTMLResponse:
+        # Plain and self-closing: this window exists for two seconds and its
+        # only job is to say which of the two things happened.
+        tint = "#177245" if ok else "#a3352c"
+        return HTMLResponse(
+            f"<!doctype html><meta charset=utf-8>"
+            f"<title>{title}</title>"
+            f"<body style='font:15px/1.5 system-ui;margin:14vh auto;max-width:32rem;"
+            f"padding:0 1.5rem;color:#222'>"
+            f"<h1 style='font-size:1.15rem;color:{tint}'>{title}</h1>"
+            f"<p>{detail}</p>"
+            f"<p style='color:#777;font-size:.9rem'>You can close this window "
+            f"and go back to Compass.</p>"
+            f"<script>setTimeout(()=>window.close(),2500)</script>",
+            status_code=200 if ok else 400,
+        )
+
+    if error:
+        return page("Sign-in was refused", f"The provider said: {error}", False)
+    if not code or not state:
+        return page("That link is incomplete",
+                    "No authorization code came back. Start the sign-in "
+                    "again from the Connections panel.", False)
+    try:
+        await oauth.exchange(state, code)
+    except ValueError as err:
+        return page("Sign-in did not complete", str(err), False)
+    except Exception as err:  # noqa: BLE001
+        logger.exception("oauth callback failed")
+        return page("Sign-in did not complete", str(err), False)
+    return page("Connected", "Compass has an access token and a refresh "
+                             "token for this account.", True)
+
+
+@router.delete("/v1/pipeline-connections/{connection_id}/sign-in")
+async def sign_out(connection_id: str,
+                   user: str = Depends(require_user)) -> dict:
+    """Forget the tokens, keep the connection and its client id.
+
+    Separate from deleting the connection because they are different
+    intentions: signing out revokes this box's access, deleting unwires every
+    node that pointed at it.
+    """
+    conn = await _owned_connection(connection_id, user)
+    values = await _connection_values(conn)
+    for key in ("access_token", "refresh_token", "expires_at"):
+        values.pop(key, None)
+    if conn.secret_ref:
+        await get_secret_store().set(conn.secret_ref, oauth.dump_values(values))
+    return _connection_view(conn, values)
 
 
 @router.delete("/v1/pipeline-connections/{connection_id}")
 async def delete_connection(connection_id: str,
                             user: str = Depends(require_user)) -> dict:
     conn = await pstore.connections.get(connection_id)
-    if conn and conn.secret_ref:
+    if not conn or not visible_to(user, conn.owner):
+        return {"deleted": False}
+    if conn.secret_ref:
         await get_secret_store().delete(conn.secret_ref)
     return {"deleted": await pstore.connections.delete(connection_id)}
 
@@ -413,9 +693,7 @@ async def build(pipeline_id: str, body: BuildMessage,
     from compass.code.routes import engine as code_engine
     from compass.pipelines.builder import build_session
 
-    pipeline = await pstore.pipelines.get(pipeline_id)
-    if not pipeline:
-        raise HTTPException(status_code=404, detail="no such pipeline")
+    pipeline = await _owned_pipeline(pipeline_id, user)
 
     session = _sessions.get(pipeline_id)
     if session is None:
@@ -483,6 +761,7 @@ async def build_history(pipeline_id: str,
     """
     from compass.code.routes import engine as code_engine
 
+    await _owned_pipeline(pipeline_id, user)
     session_id = await _find_builder_session(pipeline_id)
     if not session_id:
         return {"session_id": "", "messages": []}
@@ -505,6 +784,7 @@ async def reset_build(pipeline_id: str,
     """Forget the conversation, keep the graph."""
     from compass.code.routes import engine as code_engine
 
+    await _owned_pipeline(pipeline_id, user)
     _sessions.pop(pipeline_id, None)
     # Forget the transcript as well. Dropping only the in-memory session would
     # make Clear look like it worked and then bring the conversation back on

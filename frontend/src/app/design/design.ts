@@ -15,6 +15,8 @@ import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-brows
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { CompassApiService } from '../compass-api.service';
+import { FitMenuDirective } from './fit-menu.directive';
+import { TickSound } from './tick.service';
 import {
   DesignClarify,
   DesignClarifyField,
@@ -71,13 +73,14 @@ const LANDING_ROWS = 4;
 @Component({
   selector: 'app-design',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, FitMenuDirective],
   templateUrl: './design.html',
   styleUrl: './design.css',
   host: { '(document:click)': 'closeMenus()' },
 })
 export class Design {
   private readonly api = inject(CompassApiService);
+  readonly tick = inject(TickSound);
   private readonly sanitizer = inject(DomSanitizer);
 
   readonly templates = signal<DesignTemplate[]>([]);
@@ -106,6 +109,96 @@ export class Design {
   readonly codebase = signal('');
   readonly model = signal('');
   readonly templatesOpen = signal(true);
+
+  // -- the compass rose ------------------------------------------------------
+  //
+  // The template picker as a bearing dial. Presentation only: every template
+  // is the same template, `pickTemplate` is the same call, and the list view
+  // below is the grid that was here before. What changes is where a tile sits
+  // and that the ring names an angle for it.
+
+  /** Rose or plain list. The list is the old grid, kept because a dial is
+   *  worse than a list the moment you are looking for one name in fourteen. */
+  readonly roseView = signal(true);
+  /** The tile under the pointer, or -1 to follow the selection. */
+  readonly rosePoint = signal(-1);
+
+  /**
+   * Move the needle to a tile, and click as it lands.
+   *
+   * The tick fires here rather than from an effect on `rosePoint` so that it
+   * follows the pointer only. An effect would also fire when the selection
+   * changes for other reasons — a template picked from the list, or restored
+   * from a project — and a dial that clicks at nothing is worse than a silent
+   * one.
+   */
+  pointAt(index: number): void {
+    if (this.rosePoint() === index) return;  // the same tile is not a detent
+    this.rosePoint.set(index);
+    this.tick.play(index);
+  }
+
+  /** Where the selected template sits on the ring. */
+  readonly tplIndex = computed(() => {
+    const id = this.template();
+    const at = this.templates().findIndex((t) => t.id === id);
+    return at < 0 ? 0 : at;
+  });
+
+  /** What the needle and the hub are describing: the hovered tile if there is
+   *  one, otherwise the chosen one. */
+  readonly roseAt = computed(() => {
+    const point = this.rosePoint();
+    return point >= 0 ? point : this.tplIndex();
+  });
+
+  readonly roseTemplate = computed(() => this.templates()[this.roseAt()] ?? null);
+
+  /** Degrees between neighbours. Derived, so the ring stays even however many
+   *  templates the server sends. */
+  private roseStep(): number {
+    return 360 / Math.max(1, this.templates().length);
+  }
+
+  /** A tile's place on the ring. -90° so index 0 sits at north. */
+  tplTransform(index: number): string {
+    const radians = ((index * this.roseStep()) - 90) * Math.PI / 180;
+    const radius = 214;
+    return `translate(${(radius * Math.cos(radians)).toFixed(1)}px,`
+      + ` ${(radius * Math.sin(radians)).toFixed(1)}px)`;
+  }
+
+  needleTransform(): string {
+    return `rotate(${(this.roseAt() * this.roseStep()).toFixed(1)}deg)`;
+  }
+
+  /** "NNE 023°" — the compass point and the angle, as a chart would label it. */
+  bearing(index: number): string {
+    const angle = Math.round(index * this.roseStep());
+    const points = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
+                    'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const point = points[Math.round(angle / 22.5) % 16];
+    return `${point} ${String(angle).padStart(3, '0')}°`;
+  }
+
+  /** The ring's graduations: every 15°, longer every 45°. Computed rather
+   *  than drawn by hand so it cannot drift from the geometry above. */
+  readonly roseTicks = computed(() => {
+    const out: { x1: number; y1: number; x2: number; y2: number; o: number }[] = [];
+    for (let angle = 0; angle < 360; angle += 15) {
+      const major = angle % 45 === 0;
+      const radians = (angle - 90) * Math.PI / 180;
+      const inner = major ? 272 : 266;
+      out.push({
+        x1: 280 + inner * Math.cos(radians),
+        y1: 280 + inner * Math.sin(radians),
+        x2: 280 + 272 * Math.cos(radians),
+        y2: 280 + 272 * Math.sin(radians),
+        o: major ? 1 : 0.45,
+      });
+    }
+    return out;
+  });
   readonly creating = signal(false);
 
   // -- workspace
@@ -445,7 +538,11 @@ export class Design {
   // The last document handed to the iframe, and the SafeHtml wrapping it.
   // Identical html must yield the identical object: a new one rebinds srcdoc,
   // which reloads the frame — losing the selection and any in-flight edit.
-  private lastHtml = ' ';
+  // A sentinel no document can equal, so the first render always runs --
+  // including for an empty design, where '' would compare equal and skip
+  // it. It was a literal NUL byte, which made this file binary to every
+  // text tool: grep skipped it silently, which is its own kind of bug.
+  private lastHtml: string | null = null;
   private lastCanvas: SafeHtml = '';
 
   /** The preview document: the design plus the editor agent. The agent is
@@ -2329,6 +2426,14 @@ export class Design {
     this.error.set('');
     try {
       const blob = await this.api.downloadBlob(ask.url);
+      // A zero-length body is not a file. The server should have refused
+      // rather than sent one, but a PDF of nothing on disk is the symptom the
+      // person actually sees, so it is refused here too rather than saved.
+      if (!blob.size) {
+        throw new Error(
+          'the server returned an empty file, so nothing was saved',
+        );
+      }
       if (handle) {
         const writable = await handle.createWritable();
         await writable.write(blob);
@@ -2339,10 +2444,39 @@ export class Design {
       this.shareNote.set(`Saved ${name}.`);
       setTimeout(() => this.shareNote.set(''), 4000);
     } catch (err) {
+      // The save dialog creates the file the moment it is dismissed, before
+      // anything is fetched — it has to, because a picker opened after the
+      // await has lost the click that justified it. So a failed export leaves
+      // a real, empty file on disk, which is exactly the "it made a PDF that
+      // will not open" report. Take it back out.
+      await this.discard(handle, name);
       this.error.set(`Export failed: ${(err as Error).message}`);
     } finally {
       this.exporting.set('');
     }
+  }
+
+  /** Remove the empty file the save dialog created for an export that then
+   *  failed. `remove()` is recent, so its absence is not itself an error —
+   *  the message says the file is there either way. */
+  private async discard(
+    handle: FileSystemFileHandle | null,
+    name: string,
+  ): Promise<void> {
+    if (!handle) return;
+    const removable = handle as unknown as { remove?: () => Promise<void> };
+    try {
+      if (typeof removable.remove === 'function') {
+        await removable.remove();
+        return;
+      }
+    } catch {
+      // fall through to saying so
+    }
+    this.shareNote.set(
+      `${name} was created before the export failed and is empty — delete it.`,
+    );
+    setTimeout(() => this.shareNote.set(''), 8000);
   }
 
   private fileStem(name: string): string {

@@ -60,6 +60,11 @@ class Session:
     #: graph.
     tool_override: list | None = None
     prompt_override: str | None = None
+    #: Who this conversation belongs to, carried from the request that created
+    #: it so the metadata written mid-turn can be stamped without threading a
+    #: user through the engine. Empty means unowned; see
+    #: `compass.common.ownership`.
+    owner: str = ""
 
     def make_context(self) -> ToolUseContext:
         from compass.code.mcp.manager import get_mcp_manager
@@ -113,6 +118,7 @@ class QueryEngine:
             session.effort = kwargs.get("effort") or meta.effort
             session.model = kwargs.get("model") or meta.model or None
             session.workspace_id = kwargs.get("workspace_id") or meta.workspace or None
+            session.owner = meta.owner
         await self._attach_workspace(session)
         return session
 
@@ -125,10 +131,12 @@ class QueryEngine:
             session.workspace_id
         )
 
-    async def ensure_meta(self, session_id: str) -> SessionMeta:
+    async def ensure_meta(self, session_id: str, owner: str = "") -> SessionMeta:
         meta = await self.meta.get(session_id)
         if meta is None:
-            meta = SessionMeta(id=session_id)
+            # Stamped at creation only. Re-stamping here would let whoever
+            # opened a conversation next take it over.
+            meta = SessionMeta(id=session_id, owner=owner)
             await self.meta.upsert(meta)
         return meta
 
@@ -146,7 +154,7 @@ class QueryEngine:
         await self.meta.delete(session_id)
 
     async def _bump_meta(self, session: Session, first_prompt: str | None) -> None:
-        meta = await self.ensure_meta(session.id)
+        meta = await self.ensure_meta(session.id, session.owner)
         if first_prompt and not meta.title:
             meta.title = _title_from(first_prompt)
         meta.message_count = sum(1 for m in session.messages if m.role == "user")
@@ -286,6 +294,7 @@ class QueryEngine:
                 mode=src.mode if src else "default",
                 effort=src.effort if src else "medium",
                 message_count=sum(1 for m in messages if m.role == "user"),
+                owner=src.owner if src else "",
             )
         )
         return new_id

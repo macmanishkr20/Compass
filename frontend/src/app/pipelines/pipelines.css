@@ -228,16 +228,19 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 10px;
+  /* Three columns always: the inspector is a permanent pane with an empty
+     state, so the canvas no longer resizes under the pointer the moment a
+     step is picked. */
+  grid-template-columns: 320px minmax(0, 1fr) 312px;
+  gap: 12px;
 }
-.pl-work.inspecting { grid-template-columns: 320px minmax(0, 1fr) 300px; }
+.pl-work.inspecting { grid-template-columns: 320px minmax(0, 1fr) 312px; }
 /* Narrow windows keep all three columns and let the canvas take the loss.
    The alternative — floating the inspector over the canvas — hid the node
    being edited behind the panel editing it, which is the one thing you are
    looking at. The canvas can be panned and zoomed; a covered node cannot. */
 @media (max-width: 1100px) {
-  .pl-work { grid-template-columns: 260px minmax(0, 1fr); }
+  .pl-work { grid-template-columns: 260px minmax(0, 1fr) 260px; }
   .pl-work.inspecting { grid-template-columns: 240px minmax(0, 1fr) 260px; }
 }
 
@@ -386,6 +389,86 @@
   height: 22px;
 }
 .pl-conn-del:hover { background: var(--bg-2); color: var(--danger, #A8452F); }
+
+/* A credential's state, in one word, in the colour that word deserves. The
+   three are genuinely different situations — signed in and working, signed
+   in and expired, never signed in — and collapsing them into "key held" is
+   what made an expired Gmail token look identical to a working one until a
+   run failed overnight. */
+.pl-conn-state {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  border-radius: 20px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+}
+.pl-conn-state.good {
+  color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 40%, transparent);
+}
+.pl-conn-state.warn {
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.pl-conn-state.bad {
+  color: var(--danger, #A8452F);
+  border-color: color-mix(in oklab, var(--danger, #A8452F) 40%, transparent);
+}
+.pl-conn-act {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  padding: 2px 8px;
+}
+.pl-conn-act:hover:not(:disabled) { background: var(--bg-2); color: var(--fg); }
+.pl-conn-act:disabled { opacity: 0.5; cursor: default; }
+
+/* The test's answer, kept on screen rather than flashed: it is the thing the
+   person pressed the button to read. */
+.pl-conn-test {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--success);
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.pl-conn-test.bad { border-left-color: var(--danger, #A8452F); }
+
+.pl-cred {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-2);
+}
+.pl-cred-row { display: block; margin-bottom: 9px; }
+.pl-cred-label {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+.pl-req {
+  font-style: normal;
+  font-size: 0.62rem;
+  color: var(--faint);
+  margin-left: 6px;
+}
+.pl-cred-help {
+  display: block;
+  font-size: 0.71rem;
+  color: var(--faint);
+  line-height: 1.45;
+  margin-top: 3px;
+}
+.pl-cred-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pl-btn.sm { font-size: 0.76rem; padding: 4px 10px; }
+.pl-btn.ghost { background: none; color: var(--muted); border: 1px solid var(--border); }
+.pl-cred-docs { font-size: 0.74rem; color: var(--accent); margin-left: auto; }
 
 .pl-connform {
   display: grid;
@@ -1060,6 +1143,13 @@
   margin-left: auto;
   width: min(420px, 100%);
   height: 100%;
+  /* `height: 100%` only means the window while the overlay's grid row is
+     capped further down. That is one rule away from the drawer growing to
+     its whole catalogue again — the bug this pair exists to prevent — so
+     the window is also stated here, directly, in a unit every browser has
+     understood for a decade. It is a maximum, so it changes nothing while
+     the other rule is doing its job. */
+  max-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -1116,8 +1206,29 @@
   padding: 0 7px;
 }
 
-/* The picker slides in from the right, so the overlay must not centre it. */
-.pl-modal:has(.pl-picker) { padding: 0; place-items: stretch; }
+/* The picker slides in from the right, so the overlay must not centre it.
+
+   `grid-template-rows` is the part that is easy to leave out and impossible
+   to see. The overlay is a fixed grid the height of the window, but its one
+   row defaults to `auto`, and an auto row is sized by its content — stretch
+   grows a row into leftover space, it never shrinks one. So a catalogue of
+   thirty steps made the row 3202px inside an 800px overlay, `height: 100%`
+   on the drawer resolved against the row rather than the window, and the
+   list underneath was handed all the room it asked for: its `overflow-y`
+   was live the whole time and had nothing to scroll. Capping the row at the
+   overlay is what makes the drawer's own height mean the window.
+
+   Selected by a class the template writes rather than by `:has(.pl-picker)`.
+   The markup already knows which of the four overlays this is; asking the
+   selector engine to rediscover it costs a feature that only arrived in
+   Chrome and Edge 105 and in Firefox 121, and a browser without it drops
+   this whole block — padding, placement and the row cap together. There is
+   no version of this where the class is the worse choice. */
+.pl-modal-drawer {
+  padding: 0;
+  place-items: stretch;
+  grid-template-rows: minmax(0, 1fr);
+}
 
 /* A banner you can put away. Validation results and errors both persist
    until something changes them, and a report you have read and acted on is
@@ -1163,3 +1274,969 @@
   text-underline-offset: 2px;
 }
 .pl-problem-node:hover { color: var(--accent); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CARTOGRAPHIC — the Pipelines index, to match the chart mockup and the
+   Design module beside it.
+
+   Same rule as Design: the mockup's layout is adopted, its colours are not.
+   Every token is an alias onto the one the rest of Compass uses, so this
+   sits on the app's background and turns with the app's theme by the same
+   switch. A module with a palette of its own reads as a different product,
+   and two modules with two different palettes of their own read as three.
+
+   There is no dark block for the same reason there is none in Design:
+   nothing here is a literal colour, so there is nothing to restate.
+   ═══════════════════════════════════════════════════════════════════════ */
+/* Both roots, because they are siblings rather than nested: the index is
+   `.pl-root` and the editor is `.pl-editor`, and declaring the palette on the
+   first left every alias undefined in the second. `var(--brass)` with no
+   --brass resolves to nothing, so the Run button came out transparent — a
+   failure that looks like a missing style rather than a missing variable. */
+.pl-root,
+.pl-editor {
+  --paper: var(--bg);
+  --paper-2: var(--bg-2);
+  --ink-2: var(--muted);
+  --ink-3: var(--faint);
+  --rule: var(--border);
+  --rule-2: var(--border-strong);
+  --brass: var(--accent);
+  --brass-2: var(--accent-strong);
+  --brass-soft: var(--accent-tint);
+  --sh-1: var(--shadow-sm);
+  --sh-2: var(--shadow-md);
+  --serif: "New York", ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+
+.pl-title {
+  font-family: var(--serif);
+  font-size: 2.35rem;
+  font-weight: 400;
+  letter-spacing: -0.022em;
+  line-height: 1;
+}
+.pl-sub {
+  font-size: 0.845rem;
+  color: var(--ink-2);
+  margin-top: 9px;
+  max-width: 460px;
+  line-height: 1.5;
+}
+
+/* ── The health strip ──────────────────────────────────────────────────── */
+.pl-health {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin: 22px 0 20px;
+}
+.pl-hcard {
+  padding: 13px 15px;
+  border-radius: 13px;
+  background: var(--surface);
+  /* The count inherits this, and a <button> that names no colour of its own
+     does not inherit the page's — it takes the UA's `buttontext`, which
+     follows the operating system rather than the app's theme switch. So the
+     numbers came out black on a dark card. Every other line here sets a
+     colour and was never affected, which is why it read as one broken
+     element rather than a missing rule on the card. */
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  cursor: pointer;
+  transition: 0.15s;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+}
+.pl-hcard:hover {
+  border-color: var(--rule-2);
+  box-shadow: var(--sh-2);
+  transform: translateY(-1px);
+}
+.pl-hcard.on {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 3px var(--brass-soft), var(--sh-1);
+}
+.pl-hk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pl-hk .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  font-style: normal;
+  flex: none;
+}
+.pl-hk .dot.brass { background: var(--brass); }
+.pl-hk .dot.ok { background: var(--success); }
+.pl-hk .dot.bad { background: var(--danger, #A8452F); }
+.pl-hk .dot.warn { background: var(--accent); }
+.pl-hk .dot.off { background: var(--ink-3); }
+.pl-hv {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  margin-top: 7px;
+  line-height: 1;
+}
+.pl-hs { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
+
+/* ── Create bar ────────────────────────────────────────────────────────── */
+.pl-createbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 13px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  margin-bottom: 14px;
+}
+.pl-createbar-ic { display: flex; color: var(--brass); }
+.pl-createbar-ic svg { width: 17px; height: 17px; }
+.pl-createbar-in {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.845rem;
+  color: var(--ink);
+}
+.pl-createbar-in::placeholder { color: var(--ink-3); }
+.pl-btn.pri {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #fff;
+}
+.pl-btn.pri:hover:not(:disabled) { background: var(--brass-2); }
+:root[data-theme="dark"] .pl-btn.pri { color: #1a1205; }
+
+/* ── Filter chips, search, view toggle ─────────────────────────────────── */
+.pl-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.pl-chip {
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: none;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.pl-chip:hover { color: var(--ink); background: var(--rule); }
+.pl-chip.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  border-color: var(--rule);
+  box-shadow: var(--sh-1);
+}
+.pl-chipcount {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  margin-left: 6px;
+}
+.pl-srch {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  width: 230px;
+}
+.pl-srch svg { width: 13px; height: 13px; color: var(--ink-3); flex: none; }
+.pl-srch input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  width: 100%;
+  color: var(--ink);
+}
+.pl-vtog {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--rule);
+}
+.pl-vtog button {
+  width: 26px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.15s;
+}
+.pl-vtog button.on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+}
+.pl-vtog svg { width: 12px; height: 12px; }
+
+/* ── Pipeline cards ────────────────────────────────────────────────────── */
+.pl-grid { grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 12px; }
+.pl-card {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  padding: 15px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  transition: 0.17s;
+  position: relative;
+  overflow: hidden;
+}
+/* A stripe down the edge in the colour of the standing, so a wall of cards
+   can be read for what needs attention without reading any of the words. */
+.pl-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: transparent;
+}
+.pl-card[data-status="ready"]::before { background: var(--success); }
+.pl-card[data-status="setup"]::before { background: var(--danger, #A8452F); }
+.pl-card[data-status="never"]::before { background: var(--accent); }
+.pl-card[data-status="paused"]::before { background: var(--faint); }
+.pl-card:hover {
+  border-color: var(--rule-2);
+  box-shadow: var(--sh-2);
+  transform: translateY(-2px);
+}
+.pl-card-top { display: flex; align-items: flex-start; gap: 9px; }
+.pl-card-name {
+  flex: 1;
+  font-size: 0.845rem;
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: -0.015em;
+}
+.pl-card-trig {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+.pl-card-trig svg { width: 12px; height: 12px; color: var(--ink-3); flex: none; }
+.pl-card-meta {
+  font-family: var(--mono);
+  font-size: 0.655rem;
+  color: var(--ink-3);
+  margin-top: 5px;
+}
+.pl-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--rule);
+}
+.pl-card-when { font-size: 0.69rem; color: var(--ink-3); }
+.pl-card .pl-card-del { margin-left: auto; position: static; }
+
+/* The standing, in a word and a colour. */
+.pl-status {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 20px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  flex: none;
+}
+.pl-status.ready {
+  color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 40%, transparent);
+}
+.pl-status.setup {
+  color: var(--danger, #A8452F);
+  border-color: color-mix(in oklab, var(--danger, #A8452F) 40%, transparent);
+}
+.pl-status.never {
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.pl-status.paused { color: var(--ink-3); border-color: var(--rule-2); }
+
+/* ── Rows, for when there are more of these than a wall of cards suits ─── */
+.pl-tbl {
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+}
+.pl-th, .pl-tr {
+  display: grid;
+  grid-template-columns: 1fr 108px 1fr 96px 96px 34px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  width: 100%;
+  text-align: left;
+}
+.pl-th {
+  height: 34px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pl-tr {
+  height: 52px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  background: none;
+  cursor: pointer;
+  transition: background 0.13s;
+  color: inherit;
+  font: inherit;
+}
+.pl-tr:last-of-type { border-bottom: none; }
+.pl-tr:hover { background: var(--surface-2); }
+.pl-tr-name { font-size: 0.8rem; font-weight: 500; }
+.pl-tr-muted { font-size: 0.74rem; color: var(--ink-2); }
+
+@media (max-width: 1080px) {
+  .pl-health { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 700px) {
+  .pl-health { grid-template-columns: repeat(2, 1fr); }
+  .pl-srch { width: 100%; margin-left: 0; }
+}
+
+/* ── The drawer: Logs, Run history, Data ───────────────────────────────── */
+/*
+   Three panes rather than one list, and all three show something a run
+   actually produced — the history comes from the runs endpoint, the payload
+   is the one the log detail already holds. A tab that had to be filled with
+   a promise would have been a worse thing to add than nothing.
+*/
+.pl-logs {
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+}
+.pl-logs-head {
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid transparent;
+}
+.pl-logs:not(.shut) .pl-logs-head { border-bottom-color: var(--rule); }
+.pl-logs-toggle { color: var(--ink-3); }
+
+.pl-dtab {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.pl-dtab:hover { color: var(--ink); }
+.pl-dtab.on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+}
+.pl-dmeta {
+  font-family: var(--mono);
+  font-size: 0.655rem;
+  color: var(--ink-3);
+}
+
+/* Run history rows: the same grid the mockup uses, and the same columns a
+   person actually asks about — when, what set it off, whether it was real,
+   how it ended, how long. */
+.pl-rh-head, .pl-rh {
+  display: grid;
+  /* Fixed rather than fractional. The drawer is the width of the window and
+     a 1fr column stranded "manual" a screen away from the status beside it —
+     a table you have to track across is worse than one that ends early. */
+  grid-template-columns: 104px 120px 96px 96px 80px;
+  max-width: 560px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.72rem;
+}
+.pl-rh-head {
+  padding-top: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pl-rh:last-child { border-bottom: none; }
+.pl-rh .mn { font-family: var(--mono); font-size: 0.69rem; color: var(--ink-2); }
+
+.pl-data-of { font-size: 0.76rem; color: var(--ink-2); margin-bottom: 9px; }
+/* Scoped to the drawer. `.pl-code` is also the export dialog's file viewer,
+   and an unscoped cap here squashed that to 150px with 878px of file in it —
+   which is why the exported code looked mis-set against the file list beside
+   it. A rule for one pane has to say which pane. */
+.pl-dpane .pl-code {
+  margin: 0;
+  padding: 11px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 0.69rem;
+  line-height: 1.65;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* The two panes added beside Logs get their own box. `.pl-logs-body` is a
+   flex row because the Logs pane is a list next to a detail; reusing it laid
+   the run-history rows out side by side. */
+.pl-dpane {
+  display: block;
+  border-top: 1px solid var(--rule);
+  padding: 12px 14px;
+  max-height: 186px;
+  overflow-y: auto;
+}
+
+/* ── The editor bar ────────────────────────────────────────────────────── */
+.pl-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  flex: none;
+}
+.pl-back svg { width: 14px; height: 14px; }
+.pl-back:hover { background: var(--surface-2); color: var(--ink); }
+
+.pl-crumb { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.pl-crumb-path {
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+}
+.pl-bar-name { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.015em; }
+
+.pl-capslab {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 2px;
+}
+.pl-capinfo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.pl-capinfo:hover { background: var(--rule); color: var(--ink); }
+.pl-capinfo svg { width: 14px; height: 14px; }
+
+.pl-menu-wrap { position: relative; display: inline-flex; }
+.pl-cappop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 330px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  box-shadow: var(--shadow-lg);
+  text-align: left;
+}
+.pl-cappop h4 {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 10px;
+}
+.pl-caprow { display: flex; gap: 10px; padding: 6px 0; }
+.pl-caprow-nm {
+  width: 58px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.69rem;
+  color: var(--ink-3);
+}
+.pl-caprow-tx b { display: block; font-size: 0.76rem; font-weight: 600; }
+.pl-caprow-tx small {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  margin-top: 1px;
+  line-height: 1.45;
+}
+.pl-caprow-tx small.wanted { color: var(--accent); }
+.pl-capnote {
+  margin: 9px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+/* ── The setup banner ──────────────────────────────────────────────────── */
+.pl-setup-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+}
+.pl-setup-ic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brass);
+  color: #fff;
+}
+:root[data-theme="dark"] .pl-setup-ic { color: #1a1205; }
+.pl-setup-ic svg { width: 15px; height: 15px; }
+.pl-setup-txt { flex: 1; min-width: 0; }
+.pl-setup-txt b { display: block; font-size: 0.82rem; font-weight: 600; }
+.pl-setup-txt small {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--ink-2);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.pl-setup-txt .mn { font-family: var(--mono); font-size: 0.71rem; }
+
+/* Inline icons in bar buttons. Without an explicit size an SVG with only a
+   viewBox expands to fill its button, which is how "Dry run" became a
+   brass square with a sunburst in it. */
+.pl-btn svg { width: 13px; height: 13px; flex: none; }
+.pl-btn { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   The editor bar, to the chart's own measurements.
+
+   Sizes, weights, paddings and radii are the mockup's literal values rather
+   than approximations of them, because "close" in a toolbar reads as wrong:
+   six buttons at 12px beside a heading at 15px look like a different
+   application from the same six at 11.5px beside 16px. Colours still come
+   from Compass's tokens, so the bar turns with the theme.
+   ═══════════════════════════════════════════════════════════════════════ */
+.pl-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px 12px;
+}
+.pl-crumb-path { font-size: 11px; color: var(--ink-3); }
+.pl-bar-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The version, as a chip rather than loose text. */
+.pl-bar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.pl-capslab {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* The chips sit in a trough, which is what makes them read as one control. */
+.pl-caps {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--rule);
+}
+.pl-cap {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.pl-cap:hover { color: var(--ink); }
+.pl-cap.on {
+  background: var(--brass);
+  color: #fff;
+  box-shadow: var(--sh-1);
+}
+:root[data-theme="dark"] .pl-cap.on { color: #1a1205; }
+/* Granted *and* asked for by a step: it cannot be turned off without
+   stopping that step, so it is marked rather than merely filled. */
+.pl-cap.on.locked {
+  background: var(--accent-tint);
+  color: var(--accent);
+  box-shadow: none;
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+.pl-capinfo { width: 32px; height: 32px; border-radius: 9px; color: var(--ink-2); }
+
+/* Buttons, at the chart's small size. */
+.pl-bar .pl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  color: var(--ink);
+  white-space: nowrap;
+  transition: 0.15s;
+}
+.pl-bar .pl-btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+}
+.pl-bar .pl-btn.ghost:hover:not(:disabled) { color: var(--ink); background: var(--rule); }
+.pl-bar .pl-btn.pri {
+  background: var(--brass);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+:root[data-theme="dark"] .pl-bar .pl-btn.pri { color: #1a1205; }
+.pl-bar .pl-btn.pri:hover:not(:disabled) { background: var(--brass-2); }
+.pl-bar .pl-btn:disabled { opacity: 0.4; pointer-events: none; }
+
+/* The banner, in the chart's warning tint. */
+.pl-setup-bar {
+  margin: 0 18px 12px;
+  padding: 12px 12px 12px 16px;
+  border-radius: 13px;
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, transparent);
+}
+.pl-setup-bar .pl-btn.pri {
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--brass);
+  border-color: transparent;
+  color: #fff;
+}
+:root[data-theme="dark"] .pl-setup-bar .pl-btn.pri { color: #1a1205; }
+
+/* ── Panes: builder, canvas, inspector — three cards in a row ──────────── */
+.pl-chat, .pl-side {
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.pl-chat-head, .pl-side-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.pl-side-h {
+  margin: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.pl-side-x {
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+.pl-side-x:hover { background: var(--rule); color: var(--ink); }
+
+/* The builder's openings. */
+.pl-examples { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.pl-example {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.pl-example:hover { border-color: var(--brass); color: var(--ink); }
+
+/* The inspector before a step is picked. */
+.pl-side-empty {
+  padding: 36px 22px;
+  text-align: center;
+  color: var(--ink-3);
+}
+.pl-side-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--rule);
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+.pl-side-icon svg { width: 20px; height: 20px; }
+.pl-side-empty p { font-size: 0.76rem; line-height: 1.55; margin: 0; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Editor rhythm, to the chart's measurements.
+
+   The misalignment was two paddings fighting: the section carried 16px at
+   the sides and the banner carried its own 18px margin inside that, so the
+   banner sat inset from the panes below it. One gutter now, declared once,
+   and every child sits flush to it. The 12px gap between rows is the
+   section's own, so nothing needs a margin to space itself.
+   ═══════════════════════════════════════════════════════════════════════ */
+.pl-editor {
+  padding: 8px 18px 14px;
+  gap: 12px;
+}
+.pl-bar { padding: 0; }
+.pl-setup-bar { margin: 0; }
+.pl-logs { margin: 0; }
+
+/* The chart's own column widths. */
+.pl-work { grid-template-columns: 296px minmax(0, 1fr); }
+.pl-work.inspecting { grid-template-columns: 296px minmax(0, 1fr) 312px; }
+
+/* Zoom: a single control, out / level / in / fit, floating on the canvas. */
+.cv-tools {
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.cv-tools button {
+  width: 26px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+.cv-tools button:hover { background: var(--border); color: var(--ink); }
+.cv-tools .cv-reset {
+  width: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 0 7px;
+  min-width: 44px;
+}
+.cv-tools .cv-fit svg { width: 12px; height: 12px; }
+
+@media (max-width: 1180px) {
+  .pl-work { grid-template-columns: 260px minmax(0, 1fr); }
+  .pl-work.inspecting { grid-template-columns: 240px minmax(0, 1fr) 260px; }
+}
+
+/* ── Collapsing the builder ────────────────────────────────────────────── */
+/*
+   The column simply leaves the grid rather than shrinking to a rail: a rail
+   is a strip of nothing that still costs width, and the reason to collapse
+   the builder is to give that width to the canvas.
+*/
+.pl-work.no-builder { grid-template-columns: minmax(0, 1fr); }
+.pl-work.no-builder.inspecting { grid-template-columns: minmax(0, 1fr) 312px; }
+
+.pl-canvas { position: relative; min-width: 0; }
+
+.pl-collapse {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  box-shadow: var(--shadow-sm);
+  color: var(--muted);
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: color 0.15s, background 0.15s;
+}
+.pl-collapse:hover { color: var(--ink); background: var(--surface); }
+.pl-collapse svg { width: 13px; height: 13px; transition: transform 0.18s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pl-collapse svg { transition: none; }
+}
+
+@media (max-width: 1180px) {
+  .pl-work.no-builder.inspecting { grid-template-columns: minmax(0, 1fr) 260px; }
+}
+
+/* ── The drawer takes a fixed height, not a share of the window ────────── */
+/*
+   It was capped at 34vh, which on an 860px window is 292px — and since the
+   drawer is laid out before the panes get what is left, a run left the
+   canvas 307px for 380px of graph and squeezed the builder until its
+   examples disappeared. The chart fixes the open body at 186px and lets the
+   panes have the rest, which is the right way round: the graph is the thing
+   being worked on, and the log is what you glance at.
+*/
+.pl-logs { max-height: none; }
+.pl-logs-body {
+  /* 186px on a normal window, which is the chart's own figure. On a short
+     one it yields rather than holding its size while the canvas collapses
+     to a strip — the drawer is the thing you glance at, so it is the thing
+     that should give. */
+  height: clamp(120px, 22vh, 186px);
+  min-height: 0;
+}
+/* Each column scrolls on its own, so a long payload never pushes the drawer
+   past the height it was given. */
+.pl-logs-body > * { overflow-y: auto; min-height: 0; }
+.pl-dpane { height: clamp(120px, 22vh, 186px); max-height: none; }
+
+/* The inspector scrolls under its header. The pane was the scroller before it
+   gained a fixed head; then `overflow: hidden` on the pane (added for the
+   card's rounded corners) left a panel that simply cut its own contents off
+   at the bottom — a settings form you cannot reach the bottom of. */
+.pl-side-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+}

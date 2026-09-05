@@ -3786,3 +3786,453 @@ select.dz-ed-in {
   border-radius: 8px;
 }
 .dz-degraded svg { flex: none; margin-top: 2px; color: var(--warn, #b4690e); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CARTOGRAPHIC — the Design landing, restyled to the chart mockup.
+
+   The mockup's *layout* is adopted — a serif display with a deck, the
+   template picker as a bearing dial, the project table as a log — but not
+   its colours. Every token below is an alias onto the one Compass already
+   uses everywhere else, so Design sits on the same background as Home, Code
+   and Pipelines and changes with the theme by the same switch. The mockup's
+   own paper and graticule were tried and were wrong here: a module with its
+   own background reads as a different application.
+
+   The aliasing is what makes that true by construction rather than by
+   matching hex values that would drift apart the first time the app's
+   palette moved. Compass's accent is already the brass this design wants —
+   #B8860B in day, #D9A441 at night — so the ring, the needle and the
+   selected tile are the accent, not a second gold beside it.
+
+   Nothing is redefined that the app already owns: --surface, --surface-2 and
+   --ink are left alone, so every existing rule in this file keeps its
+   meaning. There is no dark block, because there is nothing here that does
+   not already flip with the theme.
+
+   Cosmetics only. No selector below hides a control, and every binding,
+   handler and glyph in the template is the one that was already there.
+   ═══════════════════════════════════════════════════════════════════════ */
+.dz-landing {
+  --paper: var(--bg);
+  --paper-2: var(--bg-2);
+  --ink-2: var(--muted);
+  --ink-3: var(--faint);
+  --rule: var(--border);
+  --rule-2: var(--border-strong);
+  --brass: var(--accent);
+  --brass-2: var(--accent-strong);
+  --brass-soft: var(--accent-tint);
+  --sh-1: var(--shadow-sm);
+  --sh-2: var(--shadow-md);
+  --sh-3: var(--shadow-lg);
+  --serif: "New York", ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+
+  position: relative;
+  /* Transparent, like every other section: the app paints one backdrop and
+     this sits on it rather than covering it with a second one. */
+  background: transparent;
+}
+
+.dz-hero {
+  font-family: var(--serif);
+  font-size: 2.55rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+
+/* The deck. The mockup gives the heading a second line saying what the
+   thing does, which is the one piece of copy the old page had nowhere. */
+.dz-deck {
+  max-width: 560px;
+  margin: 0 auto 26px;
+  text-align: center;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+
+.dz-prompt-card {
+  background: var(--surface);
+  border-color: var(--rule);
+  box-shadow: var(--sh-2);
+  border-radius: 18px;
+}
+
+/* ── The rose ──────────────────────────────────────────────────────────── */
+.dz-rose-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.dz-landing .dz-templates-head {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass);
+  padding: 0;
+  border: 0;
+  background: none;
+  width: auto;
+}
+.dz-rose-head .dz-tick { flex: 1; height: 1px; background: var(--rule); }
+
+.dz-viewtog {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--rule);
+}
+.dz-viewtog button {
+  width: 26px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.dz-viewtog button.on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--sh-1);
+}
+.dz-viewtog svg { width: 12px; height: 12px; }
+
+.dz-rose {
+  position: relative;
+  width: 560px;
+  height: 560px;
+  margin: 8px auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dz-rose-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* transform-box so the rotation turns about the dial's centre rather than
+   the path's own bounding box, which would swing it off the card. */
+.dz-needle {
+  transform-box: view-box;
+  transform-origin: 280px 280px;
+  transition: transform 0.5s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+
+.dz-hub {
+  position: relative;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 22px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-3);
+}
+.dz-hub-deg {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--brass);
+  letter-spacing: 0.06em;
+}
+.dz-hub-nm {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 6px 0 5px;
+  line-height: 1.2;
+}
+.dz-hub-ds { font-size: 11px; line-height: 1.45; color: var(--ink-3); }
+.dz-hub-go {
+  margin-top: 11px;
+  padding: 5px 13px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--brass);
+  /* The same pairing the app's own accent buttons use: white on the day
+     brass, near-black on the brighter night one, which white would glare
+     against. */
+  color: #fff;
+  cursor: pointer;
+  transition: 0.15s;
+}
+:host-context([data-theme="dark"]) .dz-hub-go { color: #1a1205; }
+.dz-hub-go:hover { background: var(--brass-2); }
+
+/* The chart's own reset, which is the part that was missing. A <button>
+   does not inherit the page's type: the UA gives it Arial at 13.33px, and
+   `font-size` declared further in only fixes the size — the family and the
+   tracking stay the browser's. So every tile label and the hub's button
+   were set in Arial while the two lines beside them, which are spans, were
+   in the system face. At 8.5px that is not a subtle difference: Arial is
+   wider per character, so a label wrapped where the chart's did not. */
+.dz-rose button {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+.dz-tpl {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 74px;
+  height: 74px;
+  margin: -37px 0 0 -37px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.dz-tpl-in {
+  width: 74px;
+  height: 74px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  transition: transform 0.2s cubic-bezier(0.34, 1.3, 0.5, 1),
+    border-color 0.18s, box-shadow 0.18s;
+}
+.dz-tpl-in .dz-glyph { width: 19px; height: 19px; display: block; }
+.dz-tpl-in .dz-glyph svg { width: 19px; height: 19px; display: block; }
+.dz-tpl-lb {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-align: center;
+  line-height: 1.15;
+  padding: 0 4px;
+  /* Stated, as the chart states it. The app tracks its body text slightly
+     tight, and inherited into a 74px tile that is enough to move where a
+     two-word label breaks. */
+  letter-spacing: 0;
+}
+.dz-tpl:hover .dz-tpl-in {
+  transform: scale(1.12);
+  border-color: var(--brass);
+  box-shadow: var(--sh-2);
+}
+.dz-tpl.sel .dz-tpl-in {
+  border-color: var(--brass);
+  background: var(--brass-soft);
+  box-shadow: 0 0 0 3px var(--brass-soft), var(--sh-2);
+}
+.dz-tpl.sel .dz-tpl-lb { color: var(--brass); }
+
+/* ── The list, which is the grid this replaced ─────────────────────────── */
+.dz-tpl-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.dz-tl {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.dz-tl:hover {
+  border-color: var(--brass);
+  transform: translateY(-1px);
+  box-shadow: var(--sh-2);
+}
+.dz-tl.sel { border-color: var(--brass); background: var(--brass-soft); }
+.dz-tl .dz-glyph { width: 17px; height: 17px; flex-shrink: 0; }
+.dz-tl .dz-glyph svg { width: 17px; height: 17px; display: block; }
+.dz-tl-tx b { display: block; font-size: 12.5px; font-weight: 600; }
+.dz-tl-tx i {
+  display: block;
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+
+@media (max-width: 720px) {
+  /* The dial needs 560px it cannot have here, and a squeezed rose is
+     unreadable rather than merely small — so the list takes over. */
+  .dz-rose { display: none; }
+  .dz-tpl-list { display: grid; }
+}
+
+/* The rose sits outside the composer card, as the chart does: the dial is
+   560px and the card is a reading measure, so nesting it clipped the ring. */
+.dz-landing > .dz-templates {
+  max-width: 940px;
+  margin: 52px auto 0;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+/* ── The voyage log ────────────────────────────────────────────────────── */
+.dz-landing .dz-tabs button {
+  padding: 6px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: none;
+  border: 1px solid transparent;
+  transition: 0.15s;
+}
+.dz-landing .dz-tabs button:hover { color: var(--ink); background: var(--rule); }
+.dz-landing .dz-tabs button.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: var(--sh-1);
+  border-color: var(--rule);
+}
+
+.dz-landing .dz-search {
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+}
+.dz-landing .dz-search input { background: transparent; }
+
+.dz-landing .dz-table {
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.dz-landing .dz-table thead tr {
+  height: 34px;
+  background: var(--surface-2);
+}
+.dz-landing .dz-table th {
+  border-bottom: 1px solid var(--rule);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.dz-landing .dz-table tbody tr {
+  height: 56px;
+  border-bottom: 1px solid var(--rule);
+  transition: background 0.13s;
+}
+.dz-landing .dz-table tbody tr:hover { background: var(--surface-2); }
+.dz-landing .dz-table td { border-bottom: 1px solid var(--rule); }
+.dz-landing .dz-table tbody tr:last-child td { border-bottom: none; }
+
+/* The chart's own thumbnail: a sheet with ruled lines, standing in until a
+   render exists. Keeps the row height honest whether or not one does. */
+.dz-landing .dz-thumb {
+  width: 34px;
+  height: 42px;
+  border-radius: 5px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  position: relative;
+  overflow: hidden;
+}
+.dz-landing .dz-thumb.blank::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  top: 6px;
+  height: 2px;
+  background: var(--ink-3);
+  opacity: 0.3;
+  box-shadow: 0 5px 0 var(--ink-3), 0 10px 0 var(--ink-3), 0 15px 0 var(--ink-3);
+}
+.dz-landing .dz-thumb.blank svg { display: none; }
+
+.dz-landing .dz-row-name { font-size: 13px; font-weight: 500; }
+.dz-landing .dz-cell-muted { font-size: 12px; color: var(--ink-2); }
+.dz-landing .dz-owner {
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  font-size: 8.5px;
+  font-weight: 700;
+  background: var(--brass-soft);
+  color: var(--brass);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Menus have to be able to leave the card ───────────────────────────── */
+/*
+   `.dz-prompt-card` carries `overflow: hidden`, which is there to round the
+   opaque `.dz-prompt` against the card's corners. It also clipped every
+   dropdown opened from the composer's own footer — the design-system picker
+   came out 38px tall with 535px of content inside it.
+
+   This was latent rather than new: while the template grid lived inside the
+   card the card was tall enough to contain a menu, so nothing showed. Moving
+   the rose out left a 178px card and the clip finally bit. The corners are
+   rounded on the child that needs it instead, which is what the clip was
+   really for.
+*/
+.dz-landing .dz-prompt-card { overflow: visible; }
+.dz-landing .dz-prompt { border-radius: 18px 18px 0 0; }
+
+/*
+   And a menu is bounded, which it never was. With no max-height a list of
+   design systems is as tall as the list — 535px here — so it ran off the
+   bottom of the window whether or not anything clipped it. It scrolls inside
+   itself now, and stops well short of the viewport.
+*/
+.dz-menu, .dz-picker, .dz-attach {
+  /* The height itself is set by FitMenuDirective, which can measure the room
+     below the trigger; a vh fraction cannot, and that is what let these run
+     off the bottom. This just makes sure there is a scroller for it to cap. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The dial's mute, sitting with the view toggle because both are about how
+   the rose behaves rather than about what is on it. */
+.dz-tickbtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.15s;
+}
+.dz-tickbtn svg { width: 13px; height: 13px; }
+.dz-tickbtn:hover { color: var(--ink); background: var(--rule); }
+.dz-tickbtn.on { color: var(--brass); }

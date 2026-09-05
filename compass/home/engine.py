@@ -127,7 +127,8 @@ class ChatStore:
         self._meta_path().write_text(json.dumps(meta))
 
     async def set_meta(
-        self, session_id: str, *, title: str | None = None, pinned: bool | None = None
+        self, session_id: str, *, title: str | None = None,
+        pinned: bool | None = None, owner: str | None = None
     ) -> None:
         meta = self._read_meta()
         entry = meta.setdefault(session_id, {})
@@ -135,7 +136,16 @@ class ChatStore:
             entry["title"] = title
         if pinned is not None:
             entry["pinned"] = pinned
+        if owner is not None:
+            entry["owner"] = owner
         self._write_meta(meta)
+
+    async def owner_of(self, session_id: str) -> str:
+        """Who a thread belongs to. Empty for threads written before ownership
+        existed — Home's index only holds a row once something has been
+        renamed, pinned or created since, so absence here is normal and means
+        legacy rather than unowned-and-hidden."""
+        return self._read_meta().get(session_id, {}).get("owner", "") or ""
 
     def append(self, session_id: str, message: Message) -> None:
         with self._path(session_id).open("a") as f:
@@ -178,6 +188,7 @@ class ChatStore:
                     "id": p.stem,
                     "title": m.get("title") or _first_user_title(p) or "New chat",
                     "pinned": bool(m.get("pinned")),
+                    "owner": m.get("owner", "") or "",
                     "updated_at": st.st_mtime,
                     "created_at": getattr(st, "st_birthtime", st.st_ctime),
                 }

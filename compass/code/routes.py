@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from compass.common.agent.steering import steer
 from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
+from compass.common.ownership import owned, owner_for, visible_to
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.code.engine import QueryEngine, Session
 from compass.common.models.events import ErrorEvent
@@ -177,11 +178,21 @@ def _get_session(session_id: str) -> Session:
     return session
 
 
+async def _owned_session(session_id: str, user: str) -> None:
+    """Refuse a conversation this user does not own, before anything acts on
+    it. Reported as unknown rather than forbidden, so a guessed id learns
+    nothing about whether it exists."""
+    meta = await engine.meta.get(session_id)
+    if meta is not None and not visible_to(user, meta.owner):
+        raise HTTPException(status_code=404, detail="unknown session")
+
+
 @router.post("/v1/sessions")
 async def create_session(
     body: CreateSessionRequest, user: str = Depends(require_user)
 ) -> dict:
     if body.resume and body.session_id and await engine.store.exists(body.session_id):
+        await _owned_session(body.session_id, user)
         session = await engine.resume(
             body.session_id,
             permission_mode=body.permission_mode,
@@ -199,6 +210,7 @@ async def create_session(
         if body.session_id:
             session.id = body.session_id
         await engine._attach_workspace(session)
+        session.owner = owner_for(user)
     sessions[session.id] = session
     return {
         "session_id": session.id,
@@ -241,6 +253,7 @@ def _sse(gen) -> StreamingResponse:
 async def send_message(
     session_id: str, body: SendMessageRequest, user: str = Depends(require_user)
 ) -> StreamingResponse:
+    await _owned_session(session_id, user)
     session = _get_session(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -256,6 +269,7 @@ async def edit_message(
     user: str = Depends(require_user),
 ) -> StreamingResponse:
     """Edit a past user prompt and re-run from that checkpoint."""
+    await _owned_session(session_id, user)
     session = await _session_for_mutation(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -267,6 +281,7 @@ async def regenerate(
     session_id: str, user: str = Depends(require_user)
 ) -> StreamingResponse:
     """Re-run the last user turn (discarding the previous answer)."""
+    await _owned_session(session_id, user)
     session = await _session_for_mutation(session_id)
     if session.turn_lock.locked():
         raise HTTPException(status_code=409, detail="a turn is already running")
@@ -277,6 +292,7 @@ async def regenerate(
 async def fork_session(
     session_id: str, body: ForkRequest, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_session(session_id, user)
     if not await engine.store.exists(session_id):
         raise HTTPException(status_code=404, detail="unknown session")
     new_id = await engine.fork(session_id, body.up_to_uuid)
@@ -287,6 +303,7 @@ async def fork_session(
 async def update_session(
     session_id: str, body: UpdateSessionRequest, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_session(session_id, user)
     meta = await engine.update_meta(
         session_id,
         title=body.title,
@@ -318,6 +335,7 @@ async def update_session(
 async def delete_session(
     session_id: str, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_session(session_id, user)
     await engine.delete_session(session_id)
     sessions.pop(session_id, None)
     return {"deleted": session_id}
@@ -331,6 +349,7 @@ async def answer_question(
     user: str = Depends(require_user),
 ) -> dict:
     """Answer a question the model asked. The waiting turn resumes."""
+    await _owned_session(session_id, user)
     session = _get_session(session_id)
     reply = (
         None
@@ -349,6 +368,7 @@ async def resolve_permission(
     body: ResolvePermissionRequest,
     user: str = Depends(require_user),
 ) -> dict:
+    await _owned_session(session_id, user)
     session = _get_session(session_id)
     if body.behavior not in ("allow", "deny", "allow_always"):
         raise HTTPException(
@@ -365,6 +385,7 @@ async def resolve_permission(
 
 @router.post("/v1/sessions/{session_id}/abort")
 async def abort_turn(session_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_session(session_id, user)
     session = _get_session(session_id)
     session.abort_event.set()
     return {"aborted": True}
@@ -376,6 +397,7 @@ async def transcript(
     include_sidechains: bool = False,
     user: str = Depends(require_user),
 ) -> dict:
+    await _owned_session(session_id, user)
     if not await engine.store.exists(session_id):
         raise HTTPException(status_code=404, detail="unknown session")
     messages = await engine.store.load(
@@ -403,6 +425,8 @@ async def list_sessions(
         # the same list — the routine filter lives in the frontend and is one
         # client away from being wrong.
         if meta.pipeline_id:
+            continue
+        if not visible_to(user, meta.owner):
             continue
         cards.append(meta.to_dict())
     cards.sort(key=lambda c: c["updated_at"], reverse=True)
@@ -464,6 +488,7 @@ SUGGEST_PROMPT = (
 @router.post("/v1/sessions/{session_id}/suggest")
 async def suggest_next(session_id: str, user: str = Depends(require_user)) -> dict:
     """The next-step suggestion pre-filled in the composer after a turn."""
+    await _owned_session(session_id, user)
     session = sessions.get(session_id)
 
     def _text(c) -> str:
@@ -843,7 +868,7 @@ async def list_routines(user: str = Depends(require_user)) -> dict:
         CONNECTOR_OPTIONS, SUGGESTIONS, TEMPLATES, store,
     )
 
-    routines = [r.to_dict() for r in await store.list()]
+    routines = [r.to_dict() for r in owned(await store.list(), user)]
     return {
         "routines": routines, "templates": TEMPLATES, "suggestions": SUGGESTIONS,
         "connectors": CONNECTOR_OPTIONS,
@@ -859,6 +884,7 @@ async def create_routine(
     if not body.prompt.strip():
         raise HTTPException(status_code=400, detail="instructions are required")
     r = await store.create(
+        owner=owner_for(user),
         name=body.name,
         prompt=body.prompt,
         triggers=[t.model_dump() for t in body.triggers],
@@ -872,14 +898,19 @@ async def create_routine(
     return r.to_dict()
 
 
-@router.get("/v1/routines/{routine_id}")
-async def get_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
+async def _owned_routine(routine_id: str, user: str):
+    """The routine, if this user may see it — reported as unknown otherwise."""
     from compass.code.routines import store
 
-    r = await store.get(routine_id)
-    if not r:
+    routine = await store.get(routine_id)
+    if not routine or not visible_to(user, routine.owner):
         raise HTTPException(status_code=404, detail="unknown routine")
-    return r.to_dict()
+    return routine
+
+
+@router.get("/v1/routines/{routine_id}")
+async def get_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
+    return (await _owned_routine(routine_id, user)).to_dict()
 
 
 @router.patch("/v1/routines/{routine_id}")
@@ -888,6 +919,7 @@ async def update_routine(
 ) -> dict:
     from compass.code.routines import store
 
+    await _owned_routine(routine_id, user)
     patch = body.model_dump(exclude_none=True)
     if "triggers" in patch:
         patch["triggers"] = [t if isinstance(t, dict) else t for t in patch["triggers"]]
@@ -901,6 +933,7 @@ async def update_routine(
 async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> dict:
     from compass.code.routines import store
 
+    await _owned_routine(routine_id, user)
     if not await store.delete(routine_id):
         raise HTTPException(status_code=404, detail="unknown routine")
     return {"deleted": routine_id}
@@ -910,16 +943,15 @@ async def delete_routine(routine_id: str, user: str = Depends(require_user)) -> 
 async def list_routine_runs(routine_id: str, user: str = Depends(require_user)) -> dict:
     from compass.code.routines import runs
 
+    await _owned_routine(routine_id, user)
     return {"runs": [r.to_dict() for r in await runs.list_for(routine_id)]}
 
 
 @router.post("/v1/routines/{routine_id}/run")
 async def run_routine_now(routine_id: str, user: str = Depends(require_user)) -> dict:
-    from compass.code.routines import execute_routine, store
+    from compass.code.routines import execute_routine
 
-    routine = await store.get(routine_id)
-    if not routine:
-        raise HTTPException(status_code=404, detail="unknown routine")
+    routine = await _owned_routine(routine_id, user)
     run = await execute_routine(routine, "manual", engine)
     return run.to_dict()
 
@@ -929,7 +961,7 @@ async def get_routine_run(run_id: str, user: str = Depends(require_user)) -> dic
     from compass.code.routines import runs
 
     run = await runs.get(run_id)
-    if not run:
+    if not run or not visible_to(user, run.owner):
         raise HTTPException(status_code=404, detail="unknown run")
     return run.to_dict()
 
@@ -942,7 +974,7 @@ async def recent_routine_runs(
     notification settings — the browser polls this to fire push notifications."""
     from compass.code.routines import runs, store
 
-    routines_by_id = {r.id: r for r in await store.list()}
+    routines_by_id = {r.id: r for r in owned(await store.list(), user)}
     out = []
     for run in await runs.finished_since(since):
         r = routines_by_id.get(run.routine_id)

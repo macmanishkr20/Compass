@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from compass.common.auth import require_user
+from compass.common.ownership import owned, owner_for, visible_to
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.common.config import get_settings
 from compass.common.gateway.responses import ReasoningTrace
@@ -188,7 +189,7 @@ async def design_templates(user: str = Depends(require_user)) -> dict:
 async def design_projects(user: str = Depends(require_user)) -> dict:
     from compass.design.store import get_design_store
 
-    return {"projects": await get_design_store().list()}
+    return {"projects": owned(await get_design_store().list(), user)}
 
 
 class DesignClarify(BaseModel):
@@ -299,11 +300,24 @@ async def design_create(body: DesignCreate, user: str = Depends(require_user)) -
         prompt=body.prompt,
         design_system=body.design_system,
         design_systems=body.design_systems,
+        owner=owner_for(user),
     )
+
+
+async def _owned_project(project_id: str, user: str) -> dict:
+    """The project, if this user may see it. Reported as missing rather than
+    forbidden, so a guessed id learns nothing about what exists."""
+    from compass.design.store import get_design_store
+
+    p = await get_design_store().get(project_id)
+    if p is None or not visible_to(user, p.get("owner", "") or ""):
+        raise HTTPException(status_code=404, detail="no such design project")
+    return p
 
 
 @router.get("/v1/design/projects/{project_id}")
 async def design_get(project_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
@@ -316,6 +330,7 @@ async def design_get(project_id: str, user: str = Depends(require_user)) -> dict
 async def design_patch(
     project_id: str, body: DesignPatch, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().update(project_id, **body.model_dump())
@@ -326,6 +341,7 @@ async def design_patch(
 
 @router.delete("/v1/design/projects/{project_id}")
 async def design_delete(project_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_project(project_id, user)
     from compass.design import files as design_files
     from compass.design.store import get_design_store
 
@@ -410,11 +426,27 @@ async def _fetch_page(url: str) -> str:
         raise HTTPException(status_code=502, detail=f"could not read {url}: {err}")
 
 
+async def _owned_system(system_id: str, user: str) -> dict:
+    """The design system, if this user may see it.
+
+    A shipped example has no owner and so is visible to everyone, which is the
+    legacy rule doing exactly the right thing here — the included systems are
+    meant as examples, not as anybody's property.
+    """
+    from compass.design.systems import get_system_store
+
+    system = await get_system_store().get(system_id)
+    if system is None or not visible_to(user, system.get("owner", "") or ""):
+        raise HTTPException(status_code=404, detail="no such design system")
+    return system
+
+
 @router.get("/v1/design/systems")
 async def design_systems(user: str = Depends(require_user)) -> dict:
     from compass.design.systems import BUILTIN_SYSTEMS, get_system_store
 
-    return {"systems": await get_system_store().list(), "included": BUILTIN_SYSTEMS}
+    return {"systems": owned(await get_system_store().list(), user),
+            "included": BUILTIN_SYSTEMS}
 
 
 @router.post("/v1/design/systems")
@@ -463,6 +495,7 @@ async def design_system_create(
         fonts=fonts,
         swatches=swatches,
         origin=origin,
+        owner=owner_for(user),
     )
 
 
@@ -567,6 +600,7 @@ async def design_system_setup(
         fonts=fonts,
         swatches=swatches,
         origin=" · ".join(origin_bits),
+        owner=owner_for(user),
     )
 
 
@@ -575,10 +609,8 @@ async def design_system_duplicate(system_id: str, user: str = Depends(require_us
     from compass.design.systems import get_system_store
 
     store = get_system_store()
-    system = await store.get(system_id)
-    if system is None:
-        raise HTTPException(status_code=404, detail="no such design system")
-    return await store.duplicate(system)
+    system = await _owned_system(system_id, user)
+    return await store.duplicate(system, owner=owner_for(user))
 
 
 @router.get("/v1/design/systems/{system_id}/doc")
@@ -588,9 +620,7 @@ async def design_system_doc(system_id: str, user: str = Depends(require_user)) -
     from compass.design import docs as design_docs
     from compass.design.systems import get_system_store
 
-    system = await get_system_store().get(system_id)
-    if system is None:
-        raise HTTPException(status_code=404, detail="no such design system")
+    system = await _owned_system(system_id, user)
     return {
         "system": {k: v for k, v in system.items() if k != "notes"},
         "name": system.get("name"),
@@ -607,6 +637,7 @@ async def design_system_page(
     system_id: str, section_id: str, user: str = Depends(require_user)
 ) -> Response:
     """One section, as a standalone document — what the preview frames render."""
+    await _owned_system(system_id, user)
     from compass.design import docs as design_docs
     from compass.design.systems import get_system_store
 
@@ -625,6 +656,7 @@ async def design_system_file(
     system_id: str, path: str = "styles.css", user: str = Depends(require_user)
 ) -> Response:
     """A raw file from the system — the token sheet, the guide, the record."""
+    await _owned_system(system_id, user)
     from compass.design import docs as design_docs
     from compass.design.systems import get_system_store
 
@@ -644,6 +676,7 @@ async def design_system_file(
 
 @router.get("/v1/design/systems/{system_id}/export")
 async def design_system_export(system_id: str, user: str = Depends(require_user)) -> Response:
+    await _owned_system(system_id, user)
     from compass.design import docs as design_docs
     from compass.design.systems import get_system_store
 
@@ -671,6 +704,7 @@ async def design_system_usage(
 ) -> dict:
     """Usage notes a team adds to a section. Only a system of the user's own can
     carry them — the included ones are read-only by design."""
+    await _owned_system(system_id, user)
     from compass.design.systems import get_system_store
 
     store = get_system_store()
@@ -693,6 +727,7 @@ async def design_system_usage(
 
 @router.delete("/v1/design/systems/{system_id}")
 async def design_system_delete(system_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_system(system_id, user)
     from compass.design.systems import get_system_store
 
     return {"deleted": await get_system_store().delete(system_id)}
@@ -709,6 +744,7 @@ async def design_save_html(
 ) -> dict:
     """Store a design edited directly on the canvas, keeping the old one as a
     version. Separate from PATCH so canvas edits always enter history."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().save_html(project_id, body.html, label=body.label)
@@ -720,6 +756,7 @@ async def design_save_html(
 @router.post("/v1/design/projects/{project_id}/open")
 async def design_open(project_id: str, user: str = Depends(require_user)) -> dict:
     """Mark the project as viewed — backs the table's Last viewed column."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().touch(project_id)
@@ -730,6 +767,7 @@ async def design_open(project_id: str, user: str = Depends(require_user)) -> dic
 
 @router.post("/v1/design/projects/{project_id}/duplicate")
 async def design_duplicate(project_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().duplicate(project_id)
@@ -744,6 +782,7 @@ class PageCreate(BaseModel):
 
 @router.get("/v1/design/projects/{project_id}/pages")
 async def design_pages(project_id: str, user: str = Depends(require_user)) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     store = get_design_store()
@@ -758,6 +797,7 @@ async def design_pages(project_id: str, user: str = Depends(require_user)) -> di
 async def design_page_add(
     project_id: str, body: PageCreate, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().add_page(project_id, body.name)
@@ -770,6 +810,7 @@ async def design_page_add(
 async def design_page_delete(
     project_id: str, page_id: str, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().delete_page(project_id, page_id)
@@ -784,6 +825,7 @@ async def design_page_delete(
 async def design_page_open(
     project_id: str, page_id: str, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().open_page(project_id, page_id)
@@ -805,6 +847,7 @@ class ProjectFile(BaseModel):
 async def design_files(
     project_id: str, path: str = "", user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design import files as design_files
 
     try:
@@ -819,6 +862,7 @@ async def design_files(
 async def design_file_read(
     project_id: str, path: str, user: str = Depends(require_user)
 ) -> Response:
+    await _owned_project(project_id, user)
     from compass.design import files as design_files
 
     try:
@@ -834,6 +878,7 @@ async def design_file_read(
 async def design_file_write(
     project_id: str, body: ProjectFile, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design import files as design_files
 
     try:
@@ -852,6 +897,7 @@ async def design_file_write(
 async def design_file_delete(
     project_id: str, path: str, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design import files as design_files
 
     try:
@@ -863,6 +909,7 @@ async def design_file_delete(
 @router.get("/v1/design/projects/{project_id}/versions")
 async def design_versions(project_id: str, user: str = Depends(require_user)) -> dict:
     """The history list — html omitted, since a version can be tens of kilobytes."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
@@ -882,6 +929,7 @@ async def design_restore(
 ) -> dict:
     """Restore a past version. The design being replaced becomes a version of
     its own, so restoring is itself undoable."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     store = get_design_store()
@@ -905,6 +953,7 @@ class DesignComment(BaseModel):
 async def design_comment_add(
     project_id: str, body: DesignComment, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     import uuid as _uuid
 
     from compass.design.store import get_design_store
@@ -932,6 +981,7 @@ async def design_comment_add(
 async def design_comment_delete(
     project_id: str, comment_id: str, user: str = Depends(require_user)
 ) -> dict:
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     store = get_design_store()
@@ -945,6 +995,7 @@ async def design_comment_delete(
 @router.get("/v1/design/projects/{project_id}/thumbnail")
 async def design_thumbnail(project_id: str, user: str = Depends(require_user)) -> Response:
     """A small render of the design, cached on disk until the design changes."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     p = await get_design_store().get(project_id)
@@ -984,6 +1035,7 @@ async def design_export(
     project_id: str, format: str = "html", user: str = Depends(require_user)
 ) -> Response:
     """Export the design as html | pdf | png | zip | pptx."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
     from compass.design.systems import get_system_store
 
@@ -1011,6 +1063,9 @@ async def design_export(
 
     if format in ("zip", "archive"):
         system = await get_system_store().get(project.get("design_system") or "")
+        if system and not visible_to(project.get("owner", "") or "",
+                                     system.get("owner", "") or ""):
+            system = None
         notes = (system or {}).get("notes", "")
         if format == "zip":
             return send(
@@ -1093,6 +1148,7 @@ async def design_element(
     """Rewrite one element to order — Factory calls this design mode: point at
     the part that needs attention, say what to change, and the change lands
     there rather than anywhere else in the document."""
+    await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
     project = await get_design_store().get(project_id)
@@ -1582,6 +1638,7 @@ async def design_generate(
     project_id: str, body: DesignGenerate, user: str = Depends(require_user)
 ) -> dict:
     """Generate (or refine) the project's design and store the HTML."""
+    await _owned_project(project_id, user)
     from compass.design.skills import DESIGN_SYSTEM_PROMPT, TEMPLATE_PROMPTS
     from compass.design.store import get_design_store
     from compass.design.systems import get_system_store, system_prompt_block
@@ -1602,7 +1659,13 @@ async def design_generate(
     attached: list[dict] = []
     if ids:
         store_s = get_system_store()
-        attached = [x for x in [await store_s.get(i) for i in ids] if x]
+        # Scoped to the project's owner, not the caller: the same check the
+        # route made, applied where the system is actually read into the
+        # prompt. A stored reference to someone else's system is ignored
+        # rather than followed.
+        owner = project.get("owner", "") or ""
+        attached = [x for x in [await store_s.get(i) for i in ids]
+                    if x and visible_to(owner, x.get("owner", "") or "")]
         parts.append(system_prompt_block(*attached))
     # Pictures: the ones attached to this turn, then any already embedded in
     # the design, all referred to by marker rather than by their bytes.

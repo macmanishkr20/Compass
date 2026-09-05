@@ -90,6 +90,11 @@ def prompts() -> dict[str, str]:
 
     wherever("chat.CHAT_SYSTEM_PROMPT", "CHAT_SYSTEM_PROMPT",
              "compass.home.engine")
+    # The Pipelines builder's prompt was not watched, which is how it could be
+    # edited without this saying so — the one prompt in the product whose job
+    # is to stop a model inventing node types was the one nothing guarded.
+    wherever("pipelines.builder.SYSTEM_PROMPT", "SYSTEM_PROMPT",
+             "compass.pipelines.builder")
     wherever("work_iq.WORK_IQ_SYSTEM_PROMPT", "WORK_IQ_SYSTEM_PROMPT",
              "compass.home.work_iq")
     wherever("compaction.SUMMARY_PROMPT", "SUMMARY_PROMPT",

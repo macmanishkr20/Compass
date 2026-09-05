@@ -14,10 +14,10 @@ would land beside `flow` and `tools` and need no change anywhere else.
 
 from __future__ import annotations
 
-from compass.pipelines.nodes import connectors, flow, tools
+from compass.pipelines.nodes import connectors, database, flow, tools, triggers
 from compass.pipelines.types import Provider
 
 
 def builtin_providers() -> list[Provider]:
-    return [flow.provider, connectors.provider, tools.provider,
-            tools.mcp_provider]
+    return [flow.provider, triggers.provider, connectors.provider,
+            database.provider, tools.provider, tools.mcp_provider]

@@ -105,7 +105,11 @@ async def require_user(
     username = verify_token(token)
     if username is None:
         raise HTTPException(status_code=401, detail="invalid or expired token")
-    return username
+    # Canonicalised here as well as at login, so a token minted before an
+    # alias was configured still resolves to the right identity.
+    from compass.common.users import canonical
+
+    return canonical(username)
 
 
 class LoginRequest(BaseModel):
@@ -125,10 +129,16 @@ async def login(body: LoginRequest, response: Response) -> dict:
     log_event("auth_login", ok=ok)
     if not ok:
         raise HTTPException(status_code=401, detail="invalid username or password")
+    from compass.common.users import canonical, get_user_store
+
+    identity = canonical(body.username)
+    await get_user_store().record_login(body.username)
     token = mint_token(body.username)
     _set_auth_cookie(response, token)
     # token still returned for non-browser API clients; browsers use the cookie.
-    return {"token": token, "user": {"username": body.username}}
+    # `username` is the identity that owns records, which is what the client
+    # should show and what every store stamps — not necessarily what was typed.
+    return {"token": token, "user": {"username": identity}}
 
 
 @router.post("/logout")
@@ -140,3 +150,13 @@ async def logout(response: Response) -> dict:
 @router.get("/me")
 async def me(username: str = Depends(require_user)) -> dict:
     return {"username": username, "auth_enabled": get_settings().auth.enabled}
+
+
+@router.get("/users")
+async def users(username: str = Depends(require_user)) -> dict:
+    """Who has logged in. A record of use, not a grant of access — the
+    credential map is still the only thing that decides who may sign in."""
+    from compass.common.users import get_user_store
+
+    return {"users": [u.to_dict() for u in await get_user_store().list()],
+            "you": username}

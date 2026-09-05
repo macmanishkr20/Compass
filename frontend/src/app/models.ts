@@ -213,6 +213,9 @@ export interface NodeTypeInfo {
   outputs: { name: string; kind: string; label: string }[];
   /** A capability the pipeline must hold before this node may run. */
   requires: string;
+  /** What this step produces when nothing may be called. Present only on
+   *  types that declare one. */
+  sample?: Record<string, unknown> | null;
 }
 
 /** One node, mirroring compass/pipelines/store.py. The common fields are the
@@ -231,7 +234,9 @@ export interface PipelineNode {
   retry_interval_s: number;
   secure_input: boolean;
   secure_output: boolean;
-  /** Pinned output, returned instead of calling anything in a mocked run. */
+  /** Pinned output. Returned instead of calling anything in a mocked run and
+   *  in any run started by hand; a scheduled run ignores it and calls for
+   *  real, so a pipeline cannot quietly serve the same saved result forever. */
   mock: Record<string, unknown> | null;
   state: string;
   mark_as: string;
@@ -254,6 +259,9 @@ export interface PipelineSummary {
   parameters: Record<string, unknown>;
   variables: Record<string, unknown>;
   capabilities: string[];
+  /** How this pipeline starts on its own. The API has always sent these; the
+   *  interface simply never said so. */
+  triggers: Record<string, unknown>[];
   enabled: boolean;
   version: number;
   /** Set once a manual run has succeeded; scheduling is refused until then. */
@@ -326,6 +334,43 @@ export interface PipelineConnection {
   auth: string;
   config: Record<string, unknown>;
   has_secret: boolean;
+  /** Every required field is filled in. Not the same as working — that is
+   *  what the test answers. */
+  configured?: boolean;
+  signed_in?: boolean;
+  needs_sign_in?: boolean;
+  expires_at?: number | null;
+  expired?: boolean;
+  auth_kind?: string;
+}
+
+/** One field on a credential form. Mirrors n8n's credential `properties`:
+ *  the browser renders the form from what the server declares, so the two
+ *  cannot drift apart. */
+export interface CredentialField {
+  name: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  default: string;
+  help: string;
+  from_oauth: boolean;
+}
+
+export interface CredentialTypeInfo {
+  kind: string;
+  label: string;
+  /** "token" | "oauth2" | "none" */
+  auth: string;
+  fields: CredentialField[];
+  test_url: string;
+  scopes: string[];
+  setup_note: string;
+  docs_url: string;
+  /** Registered with the provider ahead of time, so it is shown to be copied
+   *  into their console — the most common thing to get wrong. */
+  redirect_uri: string;
+  has_client_default: boolean;
 }
 
 export interface PipelineProblem {

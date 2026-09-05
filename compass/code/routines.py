@@ -75,6 +75,9 @@ class Routine:
         default_factory=lambda: {"enabled": True, "push": True, "email": False, "slack": False}
     )
     enabled: bool = True
+    #: Who this routine belongs to. Empty is legacy and stays visible; see
+    #: `compass.common.ownership`.
+    owner: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     last_run_at: float | None = None
@@ -116,6 +119,9 @@ class RoutineRun:
     finished_at: float | None = None
     session_id: str = ""
     summary: str = ""
+    #: Inherited from the routine, not from whoever pressed Run — a scheduled
+    #: run has no request behind it.
+    owner: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -391,7 +397,7 @@ class RunStore:
     async def create(self, routine: Routine, trigger: str) -> RoutineRun:
         run = RoutineRun(
             id=uuid.uuid4().hex[:8], routine_id=routine.id,
-            routine_name=routine.name, trigger=trigger,
+            routine_name=routine.name, trigger=trigger, owner=routine.owner,
         )
         async with self._lock:
             self._load()[run.id] = run

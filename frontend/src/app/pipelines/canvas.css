@@ -325,3 +325,255 @@
   text-anchor: middle;
   pointer-events: none;
 }
+
+/* Pinned, on the box. Same weight as the loop mark beside it — a fact about
+   how the step will behave, not a warning. */
+.cv-pin {
+  font-style: normal;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 20px;
+  padding: 0 5px;
+  margin-left: 5px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   CARTOGRAPHIC — the canvas, to match the chart mockup.
+
+   Colours are aliases onto the app's tokens, as in the index and in Design.
+   The one thing this adds beyond paint is a category colour: a canvas of
+   identical white boxes has to be read word by word, and the point of a
+   graph is to be read at a glance. Trigger, connector, agent and transform
+   each get an edge, and the legend says which is which.
+   ═══════════════════════════════════════════════════════════════════════ */
+/* Declared on the wrapper, not on the scrolling surface: the legend is a
+   sibling of that surface, so a colour defined there resolved to nothing and
+   the legend's dots came out invisible. */
+.cv-wrap {
+  --rule: var(--border);
+  --rule-2: var(--border-strong);
+  --brass: var(--accent);
+  --brass-soft: var(--accent-tint);
+  --ink-3: var(--faint);
+  --dotgrid: color-mix(in oklab, var(--ink) 13%, transparent);
+  /* The mockup's own kind colours. Connector and transform borrow Compass's
+     accent and success so they turn with the theme; the other two are the
+     chart's, and have no token of their own to borrow. */
+  --kind-trigger: #1f74b8;
+  --kind-connector: var(--accent);
+  --kind-agent: #7b5ea7;
+  --kind-transform: var(--success);
+  --kind-flow: var(--faint);
+
+  /* The canvas is a card, as it is in the chart: a white surface the graph
+     sits on rather than the module's own grey showing through. */
+  background: var(--surface);
+  /* The 380px minimum above predates the drawer having a fixed height: with
+     a run open the grid row is ~370px, so the minimum pushed the card 9px
+     past its own cell and it overhung the drawer. The canvas scrolls
+     internally, so it does not need a floor — the row it is given is the
+     size it should be. */
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.cv-surface {
+  /* Surveyor's paper: a dot at every station rather than a ruled grid, so
+     the graph sits on it instead of fighting it. */
+  background-image: radial-gradient(var(--dotgrid) 1px, transparent 1px);
+  background-size: 19px 19px;
+}
+
+.cv-node {
+  /* Width and height come from NODE_W/NODE_H inline, so edge routing and the
+     box agree; only the look is set here. */
+  border-radius: 12px;
+  justify-content: flex-start;
+  border-left-width: 1px;
+  padding: 11px 13px 11px 15px;
+  box-shadow: var(--shadow-md);
+  /* Deliberately not `overflow: hidden`. Clipping the box to round the stripe
+     also clipped the output port, which sits at right:-6px — half of it went
+     invisible, and the invisible half is half the target you have to grab to
+     wire two steps together. The stripe rounds its own corners instead. */
+  transition: box-shadow 0.16s, border-color 0.16s, transform 0.16s;
+}
+/* The category, as a stripe. A border-left cannot also carry the selected
+   state, which is why this is a pseudo-element rather than the border it
+   replaces. */
+.cv-node::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--kind-flow);
+  border-radius: 12px 0 0 12px;
+}
+.cv-node[data-kind="connector"]::before { background: var(--kind-connector); }
+.cv-node[data-kind="intelligence"]::before { background: var(--kind-agent); }
+.cv-node[data-kind="code"]::before,
+.cv-node[data-kind="tool"]::before { background: var(--kind-transform); }
+.cv-node[data-kind="io"]::before { background: var(--kind-trigger); }
+.cv-node[data-trigger="1"]::before { background: var(--kind-trigger); }
+.cv-node:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
+.cv-node.sel {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 3px var(--brass-soft), var(--shadow-md);
+}
+
+.cv-kind {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--kind-flow);
+}
+.cv-node[data-kind="connector"] .cv-kind { color: var(--kind-connector); }
+.cv-node[data-kind="intelligence"] .cv-kind { color: var(--kind-agent); }
+.cv-node[data-kind="code"] .cv-kind,
+.cv-node[data-kind="tool"] .cv-kind { color: var(--kind-transform); }
+.cv-node[data-trigger="1"] .cv-kind { color: var(--kind-trigger); }
+
+.cv-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 6px;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+/* What it is and what it is bound to, in the typeface that says "this is an
+   identifier, not prose". */
+.cv-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-top: 3px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The legend, so the stripe colours mean something without being learned. */
+.cv-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 10px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+.cv-legend span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.cv-legend i { width: 7px; height: 7px; border-radius: 2px; }
+
+/* What the step is doing, on the box. */
+.cv-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.cv-statedot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  flex: none;
+}
+.cv-node.st-running .cv-statedot { background: var(--accent); animation: cv-pulse 1s infinite; }
+.cv-node.st-done .cv-statedot { background: var(--success); }
+.cv-node.st-failed .cv-statedot { background: var(--danger, #A8452F); }
+@keyframes cv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .cv-node.st-running .cv-statedot { animation: none; }
+}
+
+/* The box is a fixed-height flex column, so a child with no `flex` basis gets
+   shrunk to fit rather than overflowing. That is why the node's name measured
+   4px tall and vanished: it was still there, still black, and one line of
+   text high in the wrong dimension. Nothing here shrinks. */
+.cv-node > * { flex: none; }
+
+/* ── Handles on all four edges ─────────────────────────────────────────── */
+/*
+   The right edge keeps its labelled output ports; the other three get one
+   plain handle each. Both the dot and its `+` are hidden until the node is
+   hovered or focused — twelve permanent affordances on every box would bury
+   the graph under its own controls.
+*/
+.cv-side, .cv-sideadd {
+  position: absolute;
+  opacity: 0;
+  transition: opacity 0.14s;
+  border: 0;
+  padding: 0;
+  cursor: crosshair;
+}
+.cv-node:hover .cv-side,
+.cv-node:hover .cv-sideadd,
+.cv-node.sel .cv-side,
+.cv-node.sel .cv-sideadd,
+.cv-side:focus-visible,
+.cv-sideadd:focus-visible { opacity: 1; }
+
+.cv-side {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1.8px solid var(--rule-2);
+}
+.cv-side:hover { border-color: var(--brass); background: var(--brass); }
+.cv-side.top { top: -6px; left: 50%; margin-left: -5.5px; }
+.cv-side.bottom { bottom: -6px; left: 50%; margin-left: -5.5px; }
+.cv-side.left { left: -6px; top: 50%; margin-top: -5.5px; }
+
+.cv-sideadd {
+  width: 17px;
+  height: 17px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.cv-sideadd:hover { border-color: var(--brass); color: var(--brass); }
+.cv-sideadd.top { top: -25px; left: 50%; margin-left: -8.5px; }
+.cv-sideadd.bottom { bottom: -25px; left: 50%; margin-left: -8.5px; }
+.cv-sideadd.left { left: -25px; top: 50%; margin-top: -8.5px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-side, .cv-sideadd { transition: none; }
+}

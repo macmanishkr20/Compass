@@ -1302,6 +1302,8 @@
   <!-- ============================ landing ============================ -->
   <div class="dz-landing">
     <h1 class="dz-hero">What should we create?</h1>
+    <p class="dz-deck">Describe the destination. Compass charts the route, picks
+      the tools, and asks before it commits anything.</p>
 
     <div class="dz-prompt-card">
       <div class="dz-prompt">
@@ -1489,70 +1491,104 @@
       </div>
       @if (attachNote()) { <p class="dz-attach-note">{{ attachNote() }}</p> }
 
-      <div class="dz-templates">
+    </div>
+
+    <!-- The template picker as a bearing dial. Same templates, same
+         `pickTemplate`, same glyphs — the ring only decides where a tile
+         sits and gives it an angle to be named by. The list beside it is
+         the grid this used to be, kept because a dial is the wrong shape
+         for finding one name among fourteen. -->
+    <div class="dz-templates">
+      <div class="dz-rose-head">
         <button class="dz-templates-head" (click)="templatesOpen.set(!templatesOpen())"
-          [attr.aria-expanded]="templatesOpen()">
-          CHOOSE A TEMPLATE
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            [style.transform]="templatesOpen() ? null : 'rotate(180deg)'" aria-hidden="true"><path d="M18 15l-6-6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
+          [attr.aria-expanded]="templatesOpen()">Set a heading</button>
+        <span class="dz-tick"></span>
         @if (templatesOpen()) {
-          <div class="dz-tiles">
-            @for (t of templates(); track t.id) {
-              <button class="dz-tile" [class.on]="template() === t.id" (click)="pickTemplate(t.id)"
-                [title]="t.hint">
-                <span class="dz-glyph">
-                  @switch (t.id) {
-                    @case ('blank') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 8h22l10 10v38H16z"/><path class="edge" d="M38 8v10h10"/></svg>
-                    }
-                    @case ('mobile') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="20" y="6" width="24" height="52" rx="5"/><rect class="mint" x="25" y="14" width="14" height="6" rx="3"/><rect class="mint" x="25" y="26" width="14" height="6" rx="3"/></svg>
-                    }
-                    @case ('slides') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="16" width="48" height="32" rx="4"/><rect class="edge-f" x="14" y="22" width="18" height="5" rx="2"/><rect class="edge-f" x="14" y="31" width="12" height="4" rx="2"/><rect class="dark-f" x="36" y="22" width="14" height="20" rx="3"/></svg>
-                    }
-                    @case ('document') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 26h20M22 33h20M22 40h20M22 47h12"/></g></svg>
-                    }
-                    @case ('wireframe') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><g class="edge-s"><path d="M14 20l20 14M34 20L14 34M38 22h12M38 30h12"/></g><rect class="edge-f" x="38" y="38" width="12" height="6" rx="3"/></svg>
-                    }
-                    @case ('animation') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="fill" cx="32" cy="24" r="14"/><path class="dark-f" d="M28 18l10 6-10 6z"/><g class="edge-s"><path d="M12 46h40"/></g><circle class="dark-f" cx="24" cy="46" r="4"/></svg>
-                    }
-                    @case ('mockups') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="edge-f" x="10" y="12" width="34" height="26" rx="4"/><rect class="fill" x="20" y="24" width="34" height="28" rx="4"/><rect class="edge-f" x="26" y="31" width="16" height="4" rx="2"/><rect class="orange" x="26" y="40" width="12" height="6" rx="3"/></svg>
-                    }
-                    @case ('resume') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><circle class="dark-f" cx="24" cy="26" r="4"/><g class="edge-s"><path d="M32 24h12M32 30h8M22 40h22M22 47h16"/></g><rect class="orange" x="22" y="51" width="12" height="5" rx="2"/></svg>
-                    }
-                    @case ('object3d') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M32 8l20 11v22L32 52 12 41V19z"/><path class="edge-f" d="M32 8l20 11-20 11-20-11z"/><g class="edge-s"><path d="M32 30v22"/></g></svg>
-                    }
-                    @case ('research') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 24h18M22 31h18M38 49l6 6"/><circle cx="32" cy="43" r="8"/></g></svg>
-                    }
-                    @case ('email') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><circle class="dark-f" cx="18" cy="24" r="3"/><g class="edge-s"><path d="M26 24h20M16 34h32M16 41h16"/></g><rect class="orange" x="38" y="38" width="12" height="6" rx="3"/></svg>
-                    }
-                    @case ('colortype') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="12" width="48" height="40" rx="4"/><text class="aa" x="17" y="37">Aa</text><rect class="orange" x="17" y="42" width="8" height="6" rx="2"/><rect class="mint" x="27" y="42" width="8" height="6" rx="2"/><rect class="edge-f" x="37" y="42" width="8" height="6" rx="2"/></svg>
-                    }
-                    @case ('diagram') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="edge-f" x="9" y="12" width="18" height="9" rx="3"/><rect class="edge-f" x="37" y="12" width="18" height="9" rx="3"/><g class="edge-s"><path d="M18 21v6h28v-6M32 27v5"/></g><rect class="edge-f" x="23" y="32" width="18" height="9" rx="3"/><g class="edge-s"><path d="M32 41v6"/></g><rect class="fill" x="23" y="47" width="18" height="9" rx="3"/></svg>
-                    }
-                    @case ('flier') {
-                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="18" y="5" width="28" height="54" rx="4"/><rect class="mint" x="23" y="11" width="18" height="14" rx="2"/><circle class="edge-f" cx="28" cy="16" r="2"/><g class="edge-s"><path d="M24 23l5-5 3 3 4-4 5 6"/><path d="M23 31h18M23 37h18M23 43h12"/><path d="M23 49v8M27 49v8M31 49v8M35 49v8M39 49v8"/></g></svg>
-                    }
-                  }
+          <!-- Anything that makes a noise has to offer a way to stop it, and
+               the preference is remembered. -->
+          <button class="dz-tickbtn" type="button" [class.on]="tick.enabled()"
+            (click)="tick.toggle()"
+            [title]="tick.enabled() ? 'Silence the dial' : 'Let the dial tick'"
+            [attr.aria-pressed]="tick.enabled()" aria-label="Dial sound">
+            @if (tick.enabled()) {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 010 7"/><path d="M18.5 5.5a9 9 0 010 13"/></svg>
+            } @else {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+            }
+          </button>
+          <div class="dz-viewtog">
+            <button type="button" [class.on]="roseView()" (click)="roseView.set(true)"
+              title="Rose view" aria-label="Rose view">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><path d="M12 3l2 9-2 9-2-9z" fill="currentColor" stroke="none"/></svg>
+            </button>
+            <button type="button" [class.on]="!roseView()" (click)="roseView.set(false)"
+              title="List view" aria-label="List view">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+          </div>
+        }
+      </div>
+
+      @if (templatesOpen()) {
+        @if (roseView()) {
+          <div class="dz-rose" (mouseleave)="rosePoint.set(-1)">
+            <svg class="dz-rose-svg" viewBox="0 0 560 560" fill="none" aria-hidden="true">
+              <circle cx="280" cy="280" r="272" stroke="var(--rule)" stroke-width="1"/>
+              <circle cx="280" cy="280" r="212" stroke="var(--rule)" stroke-width="1" stroke-dasharray="2 6"/>
+              <circle cx="280" cy="280" r="118" stroke="var(--rule)" stroke-width="1"/>
+              <g stroke="var(--rule-2)" stroke-width="1">
+                @for (k of roseTicks(); track $index) {
+                  <line [attr.x1]="k.x1" [attr.y1]="k.y1" [attr.x2]="k.x2" [attr.y2]="k.y2"
+                    [attr.opacity]="k.o"/>
+                }
+              </g>
+              <g class="dz-needle" [style.transform]="needleTransform()">
+                <path d="M280 168 L288 280 L280 300 L272 280 Z" fill="var(--brass)"/>
+                <circle cx="280" cy="280" r="4" fill="var(--brass)"/>
+              </g>
+            </svg>
+
+            @for (t of templates(); track t.id; let i = $index) {
+              <button class="dz-tpl" type="button" [class.sel]="template() === t.id"
+                [style.transform]="tplTransform(i)" [title]="t.hint"
+                (mouseenter)="pointAt(i)" (focus)="pointAt(i)"
+                (click)="pickTemplate(t.id); tick.clunk()">
+                <span class="dz-tpl-in">
+                  <ng-container [ngTemplateOutlet]="tplGlyph"
+                    [ngTemplateOutletContext]="{ $implicit: t }" />
+                  <span class="dz-tpl-lb">{{ t.name }}</span>
                 </span>
-                <span class="dz-tile-name">{{ t.name }}</span>
+              </button>
+            }
+
+            @if (roseTemplate(); as rt) {
+              <div class="dz-hub">
+                <div class="dz-hub-deg">{{ bearing(roseAt()) }} · BEARING</div>
+                <div class="dz-hub-nm">{{ rt.name }}</div>
+                <div class="dz-hub-ds">{{ rt.hint }}</div>
+                <button class="dz-hub-go" type="button"
+                  (click)="pickTemplate(rt.id); tick.clunk()">
+                  Chart it
+                </button>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="dz-tpl-list">
+            @for (t of templates(); track t.id; let i = $index) {
+              <button class="dz-tl" type="button" [class.sel]="template() === t.id"
+                [title]="t.hint" (click)="pickTemplate(t.id)">
+                <ng-container [ngTemplateOutlet]="tplGlyph"
+                  [ngTemplateOutletContext]="{ $implicit: t }" />
+                <span class="dz-tl-tx">
+                  <b>{{ t.name }}</b>
+                  <i>{{ bearing(i) }}</i>
+                </span>
               </button>
             }
           </div>
         }
-      </div>
+      }
     </div>
     @if (error()) { <p class="dz-error center">{{ error() }}</p> }
 
@@ -2411,3 +2447,56 @@ buttons, cards, inputs and tables look, and the voice of the copy.</pre>
     </div>
   </div>
 }
+
+
+<!-- One copy of the template glyphs, used by the rose and by the list.
+     Extracted rather than duplicated: fourteen inline SVGs written twice
+     is fourteen chances for the two views to disagree. -->
+<ng-template #tplGlyph let-t>
+                <span class="dz-glyph">
+                  @switch (t.id) {
+                    @case ('blank') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 8h22l10 10v38H16z"/><path class="edge" d="M38 8v10h10"/></svg>
+                    }
+                    @case ('mobile') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="20" y="6" width="24" height="52" rx="5"/><rect class="mint" x="25" y="14" width="14" height="6" rx="3"/><rect class="mint" x="25" y="26" width="14" height="6" rx="3"/></svg>
+                    }
+                    @case ('slides') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="16" width="48" height="32" rx="4"/><rect class="edge-f" x="14" y="22" width="18" height="5" rx="2"/><rect class="edge-f" x="14" y="31" width="12" height="4" rx="2"/><rect class="dark-f" x="36" y="22" width="14" height="20" rx="3"/></svg>
+                    }
+                    @case ('document') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 26h20M22 33h20M22 40h20M22 47h12"/></g></svg>
+                    }
+                    @case ('wireframe') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><g class="edge-s"><path d="M14 20l20 14M34 20L14 34M38 22h12M38 30h12"/></g><rect class="edge-f" x="38" y="38" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('animation') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><circle class="fill" cx="32" cy="24" r="14"/><path class="dark-f" d="M28 18l10 6-10 6z"/><g class="edge-s"><path d="M12 46h40"/></g><circle class="dark-f" cx="24" cy="46" r="4"/></svg>
+                    }
+                    @case ('mockups') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="edge-f" x="10" y="12" width="34" height="26" rx="4"/><rect class="fill" x="20" y="24" width="34" height="28" rx="4"/><rect class="edge-f" x="26" y="31" width="16" height="4" rx="2"/><rect class="orange" x="26" y="40" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('resume') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><circle class="dark-f" cx="24" cy="26" r="4"/><g class="edge-s"><path d="M32 24h12M32 30h8M22 40h22M22 47h16"/></g><rect class="orange" x="22" y="51" width="12" height="5" rx="2"/></svg>
+                    }
+                    @case ('object3d') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M32 8l20 11v22L32 52 12 41V19z"/><path class="edge-f" d="M32 8l20 11-20 11-20-11z"/><g class="edge-s"><path d="M32 30v22"/></g></svg>
+                    }
+                    @case ('research') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><path class="fill" d="M16 6h22l10 10v42H16z"/><path class="edge" d="M38 6v10h10"/><g class="edge-s"><path d="M22 24h18M22 31h18M38 49l6 6"/><circle cx="32" cy="43" r="8"/></g></svg>
+                    }
+                    @case ('email') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="14" width="48" height="36" rx="4"/><circle class="dark-f" cx="18" cy="24" r="3"/><g class="edge-s"><path d="M26 24h20M16 34h32M16 41h16"/></g><rect class="orange" x="38" y="38" width="12" height="6" rx="3"/></svg>
+                    }
+                    @case ('colortype') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="8" y="12" width="48" height="40" rx="4"/><text class="aa" x="17" y="37">Aa</text><rect class="orange" x="17" y="42" width="8" height="6" rx="2"/><rect class="mint" x="27" y="42" width="8" height="6" rx="2"/><rect class="edge-f" x="37" y="42" width="8" height="6" rx="2"/></svg>
+                    }
+                    @case ('diagram') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="edge-f" x="9" y="12" width="18" height="9" rx="3"/><rect class="edge-f" x="37" y="12" width="18" height="9" rx="3"/><g class="edge-s"><path d="M18 21v6h28v-6M32 27v5"/></g><rect class="edge-f" x="23" y="32" width="18" height="9" rx="3"/><g class="edge-s"><path d="M32 41v6"/></g><rect class="fill" x="23" y="47" width="18" height="9" rx="3"/></svg>
+                    }
+                    @case ('flier') {
+                      <svg viewBox="0 0 64 64" aria-hidden="true"><rect class="fill" x="18" y="5" width="28" height="54" rx="4"/><rect class="mint" x="23" y="11" width="18" height="14" rx="2"/><circle class="edge-f" cx="28" cy="16" r="2"/><g class="edge-s"><path d="M24 23l5-5 3 3 4-4 5 6"/><path d="M23 31h18M23 37h18M23 43h12"/><path d="M23 49v8M27 49v8M31 49v8M35 49v8M39 49v8"/></g></svg>
+                    }
+                  }
+                </span>
+</ng-template>

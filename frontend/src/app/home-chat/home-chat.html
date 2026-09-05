@@ -17,19 +17,18 @@
             }
             <div class="cwrap" [class.mine]="m.role === 'user'">
               @if (m.role === 'assistant') {
-                @if (m.thinking) {
-                  <!-- Same as the Code console: narration, then what it cost
-                       underneath on hover. A split between the two surfaces
-                       would be worse than either choice. -->
-                  <div class="cthink" [class.live]="m.thinkingLive">
-                    <div class="cthink-body"><app-markdown [text]="m.thinking!" /></div>
-                    @if (m.thinkingTokens) {
-                      <div class="cthink-foot">
-                        <span class="cthink-tokens">{{ m.thinkingTokens }} tokens used</span>
-                      </div>
-                    }
-                  </div>
-                }
+                <!-- Home shows no reasoning, deliberately, where the Code
+                     console does. The two surfaces answer different
+                     questions: in Code the working is the product — which
+                     files it read, what it decided to change, why a tool ran
+                     — and reading it is how you audit the change before you
+                     accept it. Home is a conversation, and a paragraph of
+                     the model narrating its own plan for a two-line answer
+                     is throat-clearing between the question and the reply.
+                     The reasoning is still requested and still streams: it
+                     is what opens the bubble before the first word arrives,
+                     and it stays on the transcript. It is simply not shown
+                     here. -->
                 <div class="cbubble">
                   @if (m.serverActivity?.length) {
                     <div class="csrv">

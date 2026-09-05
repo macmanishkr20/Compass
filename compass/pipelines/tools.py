@@ -32,6 +32,7 @@ from typing import Any, AsyncIterator
 
 from pydantic import BaseModel, Field
 
+from compass.common.ownership import owned
 from compass.common.tools.base import Tool, ToolOutput, ToolUseContext, ToolYield
 from compass.pipelines import store as pstore
 from compass.pipelines.store import Edge, Node
@@ -469,7 +470,7 @@ class NeededConnectionsTool(_Bound):
                    ) -> AsyncIterator[ToolYield]:
         pipeline = await self._pipeline()
         registry = get_registry()
-        have = {c.kind for c in await pstore.connections.list()}
+        have = {c.kind for c in owned(await pstore.connections.list(), pipeline.owner)}
         needed: dict[str, list[str]] = {}
         for node in pipeline.nodes:
             node_type = registry.get(node.type)

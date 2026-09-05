@@ -42,6 +42,9 @@ class SessionMeta:
     # appear in that list — a conversation about a graph showing up beside
     # conversations about a repository.
     pipeline_id: str = ""
+    #: Who this conversation belongs to. Empty is legacy and stays visible to
+    #: everyone — see `compass.common.ownership` for why that fails open.
+    owner: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     message_count: int = 0

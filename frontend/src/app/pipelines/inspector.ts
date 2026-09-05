@@ -6,7 +6,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { NodeTypeInfo, PipelineNode } from '../models';
+import { NodeTypeInfo, PipelineConnection, PipelineNode } from '../models';
 
 /**
  * The properties pane: one shared frame, plus a form generated from the
@@ -46,10 +46,22 @@ export class PipelineInspector {
   readonly node = input.required<PipelineNode>();
   readonly type = input<NodeTypeInfo | undefined>(undefined);
   /** Connections the user has, for a node type that needs one. */
-  readonly connections = input<{ id: string; name: string; kind: string }[]>([]);
+  readonly connections = input<PipelineConnection[]>([]);
 
   readonly patch = output<Partial<PipelineNode>>();
   readonly remove = output<string>();
+  /** Authorize the chosen connection. Handled by the page, which owns the
+   *  pop-up and the reload — the inspector only knows which one to act on. */
+  readonly signIn = output<PipelineConnection>();
+  readonly testConnection = output<PipelineConnection>();
+  /** Give this node sample output so the graph can be run without an
+   *  account. n8n offers this in the same breath as signing in, and the
+   *  reason is that they are the two ways past the same wall. */
+  readonly useSample = output<void>();
+
+  /** The connection this node points at, if it still exists. */
+  readonly chosen = computed(() =>
+    this.connections().find((c) => c.id === this.node().connection_id));
 
   readonly tab = input<'general' | 'settings'>('settings');
 

@@ -26,6 +26,7 @@ import {
   MemoryEntry,
   NodeTypeInfo,
   ConnectionKind,
+  CredentialTypeInfo,
   PipelineConnection,
   PipelineExport,
   PipelineProblem,
@@ -252,6 +253,41 @@ export class CompassApiService {
   deleteConnection(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(
       this.http.delete<{ deleted: boolean }>(`/v1/pipeline-connections/${id}`),
+    );
+  }
+  /** What each kind of connection needs, so the form is the credential's own
+   *  rather than one opaque "secret" box for every service. */
+  connectionTypes(): Promise<{ types: CredentialTypeInfo[] }> {
+    return firstValueFrom(
+      this.http.get<{ types: CredentialTypeInfo[] }>('/v1/pipeline-connection-types'),
+    );
+  }
+  /** Edit in place: the graph points at the connection id, so rotating a
+   *  token must not mean deleting and recreating it. */
+  patchConnection(
+    id: string,
+    body: { name?: string; values?: Record<string, string> },
+  ): Promise<PipelineConnection> {
+    return firstValueFrom(
+      this.http.patch<PipelineConnection>(`/v1/pipeline-connections/${id}`, body),
+    );
+  }
+  /** Prove the credential now, against the provider. A failed test is an
+   *  answer, not an error, so this resolves either way. */
+  testConnection(id: string): Promise<{ ok: boolean; message: string }> {
+    return firstValueFrom(
+      this.http.post<{ ok: boolean; message: string }>(
+        `/v1/pipeline-connections/${id}/test`, {}),
+    );
+  }
+  signInConnection(id: string): Promise<{ url: string }> {
+    return firstValueFrom(
+      this.http.post<{ url: string }>(`/v1/pipeline-connections/${id}/sign-in`, {}),
+    );
+  }
+  signOutConnection(id: string): Promise<PipelineConnection> {
+    return firstValueFrom(
+      this.http.delete<PipelineConnection>(`/v1/pipeline-connections/${id}/sign-in`),
     );
   }
   revealWorkspace(id: string): Promise<{ opened: string }> {

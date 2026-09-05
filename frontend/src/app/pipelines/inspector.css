@@ -154,3 +154,96 @@
   font-weight: 600;
 }
 .in-expr { font-family: var(--mono); font-size: 0.77rem; }
+
+/* The credential's state and its two ways forward, in the node that needs it.
+   n8n puts this at the top of a node's parameters rather than on a separate
+   page, because this is the moment a person discovers they need an account —
+   and the moment is where the affordance has to be. */
+.in-cred {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px 0 12px;
+  flex-wrap: wrap;
+}
+.in-cred-state {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  border-radius: 20px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+}
+.in-cred-state.good {
+  color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 40%, transparent);
+}
+.in-cred-state.warn {
+  color: var(--accent);
+  border-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+.in-cred-state.bad {
+  color: var(--danger, #A8452F);
+  border-color: color-mix(in oklab, var(--danger, #A8452F) 40%, transparent);
+}
+.in-cred-btn {
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  padding: 2px 9px;
+}
+.in-cred-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--fg); }
+.in-cred-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Said in prose rather than as a button row, because the sentence is the
+   point: what is missing, and the one thing you can do about it right now. */
+.in-cred-none {
+  margin: -4px 0 12px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.in-cred-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Pinned data. Offered next to the credential rather than hidden behind an
+   absence of one: having an account connected is not a reason to call it on
+   every iteration while the steps after it are being built. */
+.in-pin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.in-pin.on {
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  background: color-mix(in oklab, var(--accent) 7%, transparent);
+}
+.in-pin-state {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
+  border-radius: 20px;
+  padding: 1px 7px;
+}
+.in-pin-text {
+  flex: 1 1 12rem;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--muted);
+}

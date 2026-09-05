@@ -17,6 +17,22 @@
       </div>
     </header>
 
+    <!-- What needs me, in five numbers. Counted from the list already in the
+         browser rather than from run history, which lives behind a request
+         per pipeline — see `health` for why that line was drawn there. Each
+         card is also the filter for what it counts. -->
+    <div class="pl-health">
+      @for (h of health(); track h.key) {
+        <button class="pl-hcard" type="button" [class.on]="filter() === h.key"
+          (click)="pickFilter(h.key)"
+          [attr.aria-pressed]="filter() === h.key">
+          <span class="pl-hk"><i [class]="'dot ' + h.dot"></i>{{ h.label }}</span>
+          <span class="pl-hv">{{ h.value }}</span>
+          <span class="pl-hs">{{ h.note }}</span>
+        </button>
+      }
+    </div>
+
     @if (connectionsOpen()) {
       <section class="pl-conns">
         <h2 class="pl-h2">Connections</h2>
@@ -34,11 +50,92 @@
         @for (c of connections(); track c.id) {
           <div class="pl-conn">
             <span class="pl-conn-name">{{ c.name }}</span>
-            <span class="pl-conn-kind">{{ c.kind }} · {{ c.auth }}</span>
-            @if (c.has_secret) { <span class="pl-conn-key" title="A credential is stored">key held</span> }
+            <span class="pl-conn-kind">{{ c.kind }} · {{ c.auth_kind || c.auth }}</span>
+            <!-- State, not contents. What a person needs to know about a
+                 credential is whether it is complete and whether it works;
+                 the value itself never comes back from the API. -->
+            @if (c.expired) {
+              <span class="pl-conn-state bad" title="Its access token has expired">expired</span>
+            } @else if (c.signed_in) {
+              <span class="pl-conn-state good">signed in</span>
+            } @else if (c.needs_sign_in) {
+              <span class="pl-conn-state warn">not signed in</span>
+            } @else if (c.has_secret) {
+              <span class="pl-conn-key" title="A credential is stored">key held</span>
+            }
+            <button class="pl-conn-act" type="button" (click)="openCredential(c.id)">
+              {{ editing() === c.id ? 'Close' : 'Edit' }}
+            </button>
+            <button class="pl-conn-act" type="button" (click)="testConnection(c)"
+              [disabled]="!!busy()" title="Ask the provider whether this credential works">
+              Test
+            </button>
             <button class="pl-conn-del" type="button" (click)="deleteConnection(c.id)"
               title="Delete this connection">✕</button>
           </div>
+
+          @if (testResult()[c.id]; as res) {
+            <p class="pl-conn-test" [class.bad]="!res.ok">{{ res.message }}</p>
+          }
+
+          @if (editing() === c.id) {
+            <div class="pl-cred">
+              @if (credentialType(c.kind); as spec) {
+                @if (spec.setup_note) { <p class="pl-kindnote">{{ spec.setup_note }}</p> }
+
+                @if (spec.auth === 'oauth2') {
+                  <!-- The redirect URI is registered with the provider ahead
+                       of time, so it is shown to be copied rather than
+                       guessed — the single most common thing to get wrong. -->
+                  <label class="pl-cred-row">
+                    <span class="pl-cred-label">Redirect URI</span>
+                    <input class="pl-input sm" type="text" readonly
+                      [value]="spec.redirect_uri"
+                      (focus)="$any($event.target).select()" />
+                  </label>
+                }
+
+                @for (f of spec.fields; track f.name) {
+                  <label class="pl-cred-row">
+                    <span class="pl-cred-label">
+                      {{ f.label }}@if (f.required) { <i class="pl-req">required</i> }
+                    </span>
+                    <input class="pl-input sm" autocomplete="off"
+                      [type]="f.kind === 'password' ? 'password' : 'text'"
+                      [placeholder]="c.has_secret ? 'Stored — leave blank to keep' : f.default"
+                      [value]="credDraft()[f.name] || ''"
+                      (input)="setCred(f.name, $any($event.target).value)" />
+                    @if (f.help) { <span class="pl-cred-help">{{ f.help }}</span> }
+                  </label>
+                }
+
+                <div class="pl-cred-acts">
+                  <button class="pl-btn sm" type="button" (click)="saveCredential(c)"
+                    [disabled]="!!busy()">Save</button>
+                  @if (spec.auth === 'oauth2') {
+                    @if (c.signed_in && !c.expired) {
+                      <button class="pl-btn sm ghost" type="button" (click)="signOut(c)">
+                        Sign out
+                      </button>
+                    } @else {
+                      <button class="pl-btn sm" type="button" (click)="signIn(c)"
+                        [disabled]="!c.configured"
+                        [title]="c.configured ? 'Authorize this account with ' + spec.label
+                                              : 'Save a client id and secret first'">
+                        Sign in with {{ spec.label }}
+                      </button>
+                    }
+                  }
+                  @if (spec.docs_url) {
+                    <a class="pl-cred-docs" [href]="spec.docs_url" target="_blank"
+                      rel="noopener noreferrer">How to set this up ↗</a>
+                  }
+                </div>
+              } @else {
+                <p class="pl-empty sm">No credential form for {{ c.kind }}.</p>
+              }
+            </div>
+          }
         } @empty {
           <p class="pl-empty sm">No connections yet.</p>
         }
@@ -70,32 +167,101 @@
 
     @if (error()) { <div class="pl-error">{{ error() }}</div> }
 
-    <div class="pl-new">
-      <input class="pl-input" type="text" placeholder="Name a new pipeline…"
+    <div class="pl-createbar">
+      <span class="pl-createbar-ic" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="12" r="2.5"/><path d="M7.5 6h4a3 3 0 013 3v.5M7.5 18h4a3 3 0 003-3v-.5"/></svg>
+      </span>
+      <input class="pl-createbar-in" type="text"
+        placeholder="Name a new pipeline, or describe what it should do…"
         [value]="newName()" (input)="newName.set($any($event.target).value)"
         (keydown.enter)="create()" />
-      <button class="pl-btn" type="button" (click)="create()" [disabled]="!newName().trim()">
-        Create
-      </button>
+      <button class="pl-btn pri" type="button" (click)="create()"
+        [disabled]="!newName().trim()">Create</button>
     </div>
 
-    <div class="pl-grid">
-      @for (p of pipelines(); track p.id) {
-        <button class="pl-card" type="button" (click)="openPipeline(p)">
-          <span class="pl-card-name">{{ p.name }}</span>
-          <span class="pl-card-meta">
-            {{ p.nodes.length }} node{{ p.nodes.length === 1 ? '' : 's' }} · v{{ p.version }}
-          </span>
-          @if (!p.proven_at) { <span class="pl-tag">not yet run</span> }
-          <span class="pl-card-del" (click)="deletePipeline(p.id, $event)"
-            title="Delete this pipeline">✕</span>
+    <div class="pl-tools">
+      @for (h of health(); track h.key) {
+        <button class="pl-chip" type="button" [class.on]="filter() === h.key"
+          (click)="pickFilter(h.key)">
+          {{ h.label }}<span class="pl-chipcount">{{ h.value }}</span>
         </button>
-      } @empty {
-        <p class="pl-empty">
-          Nothing here yet. A pipeline is a graph of nodes — name one above to start.
-        </p>
       }
+      <label class="pl-srch">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input type="search" placeholder="Search pipelines"
+          [value]="search()" (input)="search.set($any($event.target).value)" />
+      </label>
+      <div class="pl-vtog">
+        <button type="button" [class.on]="gridView()" (click)="gridView.set(true)"
+          title="Cards" aria-label="Cards">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+        </button>
+        <button type="button" [class.on]="!gridView()" (click)="gridView.set(false)"
+          title="Rows" aria-label="Rows">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+      </div>
     </div>
+
+    @if (gridView()) {
+      <div class="pl-grid">
+        @for (p of shown(); track p.id) {
+          <button class="pl-card" type="button" (click)="openPipeline(p)"
+            [attr.data-status]="status(p)">
+            <span class="pl-card-top">
+              <span class="pl-card-name">{{ p.name }}</span>
+              <span class="pl-status" [class]="'pl-status ' + status(p)">
+                {{ statusLabel(p) }}
+              </span>
+            </span>
+            <span class="pl-card-trig">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              {{ triggerLine(p) }}
+            </span>
+            <span class="pl-card-meta">
+              {{ p.nodes.length }} node{{ p.nodes.length === 1 ? '' : 's' }} ·
+              v{{ p.version }}
+            </span>
+            <span class="pl-card-foot">
+              <span class="pl-card-when">{{ age(p.updated_at) }}</span>
+              <span class="pl-card-del" (click)="deletePipeline(p.id, $event)"
+                title="Delete this pipeline">✕</span>
+            </span>
+          </button>
+        } @empty {
+          <p class="pl-empty">
+            @if (pipelines().length) {
+              Nothing matches that. Clear the filter or the search to see the rest.
+            } @else {
+              Nothing here yet. A pipeline is a graph of nodes — name one above
+              to start.
+            }
+          </p>
+        }
+      </div>
+    } @else {
+      <div class="pl-tbl">
+        <div class="pl-th">
+          <span>Pipeline</span><span>Status</span><span>Trigger</span>
+          <span>Steps</span><span>Updated</span><span></span>
+        </div>
+        @for (p of shown(); track p.id) {
+          <button class="pl-tr" type="button" (click)="openPipeline(p)">
+            <span class="pl-tr-name">{{ p.name }}</span>
+            <span class="pl-status" [class]="'pl-status ' + status(p)">
+              {{ statusLabel(p) }}
+            </span>
+            <span class="pl-tr-muted">{{ triggerLine(p) }}</span>
+            <span class="pl-tr-muted">{{ p.nodes.length }} · v{{ p.version }}</span>
+            <span class="pl-tr-muted">{{ age(p.updated_at) }}</span>
+            <span class="pl-card-del" (click)="deletePipeline(p.id, $event)"
+              title="Delete this pipeline">✕</span>
+          </button>
+        } @empty {
+          <p class="pl-empty">Nothing matches that.</p>
+        }
+      </div>
+    }
   </div>
 
 } @else {
@@ -104,35 +270,81 @@
   <div class="pl-editor">
 
     <header class="pl-bar">
-      <button class="pl-back" type="button" (click)="close()" aria-label="Back to pipelines">←</button>
-      <span class="pl-bar-name">{{ open()!.name }}</span>
+      <button class="pl-back" type="button" (click)="close()" aria-label="Back to pipelines">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+      </button>
+      <!-- Where you are, above what you are looking at. A name on its own
+           does not say which list it came from. -->
+      <span class="pl-crumb">
+        <span class="pl-crumb-path">Pipelines</span>
+        <span class="pl-bar-name">{{ open()!.name }}</span>
+      </span>
       <span class="pl-bar-meta">v{{ open()!.version }}</span>
       @if (dirty()) { <span class="pl-unsaved">unsaved</span> }
 
       <span class="pl-bar-space"></span>
 
+      <span class="pl-capslab">Capabilities</span>
       <span class="pl-caps">
         @for (c of ['shell', 'write', 'network', 'agent']; track c) {
           <button type="button" class="pl-cap" [class.on]="hasCapability(c)"
+            [class.locked]="capabilityLocked(c)"
             (click)="toggleCapability(c)"
-            [title]="'Allow this pipeline to ' + c">{{ c }}</button>
+            [title]="capabilityLocked(c)
+              ? 'A step on this canvas needs this — turning it off will stop that step'
+              : 'Allow this pipeline to ' + c">{{ c }}</button>
+        }
+      </span>
+      <!-- What each of those words actually permits, and which step asked
+           for it. The chips are the control; this is the explanation, and
+           putting it behind a button keeps the bar readable. -->
+      <span class="pl-menu-wrap">
+        <button class="pl-capinfo" type="button" aria-label="What these allow"
+          (click)="$event.stopPropagation(); capsOpen.set(!capsOpen())">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        </button>
+        @if (capsOpen()) {
+          <div class="pl-cappop" (click)="$event.stopPropagation()">
+            <h4>What this pipeline may do</h4>
+            @for (c of capabilityNotes(); track c.name) {
+              <div class="pl-caprow">
+                <span class="pl-caprow-nm">{{ c.name }}</span>
+                <span class="pl-caprow-tx">
+                  <b>{{ c.what }}</b>
+                  <small [class.wanted]="c.wantedBy.length">
+                    @if (c.wantedBy.length) {
+                      Required by {{ c.wantedBy.join(' and ') }}.
+                    } @else {
+                      Not requested by any step.
+                    }
+                  </small>
+                </span>
+              </div>
+            }
+            <p class="pl-capnote">
+              A step that needs one of these will not run without it. Turning
+              one on is yours to do — the builder can ask, and cannot grant.
+            </p>
+          </div>
         }
       </span>
 
-      <button class="pl-btn ghost" type="button" (click)="runNow('mock')"
-        [disabled]="!!busy()"
-        title="Run with pinned or stubbed data — calls nothing, needs no capabilities">
-        Dry run
-      </button>
-      <button class="pl-btn ghost" type="button" (click)="showExport()"
-        title="Take this out as a diagram, a design note and a package">Export</button>
       <button class="pl-btn ghost" type="button" (click)="tidy()"
         title="Lay the steps out left to right in the order they run">Tidy</button>
       <button class="pl-btn ghost" type="button" (click)="validate()">Check</button>
+      <button class="pl-btn ghost" type="button" (click)="showExport()"
+        title="Take this out as a diagram, a design note and a package">Export</button>
+      <button class="pl-btn" type="button" (click)="runNow('mock')"
+        [disabled]="!!busy()"
+        title="Run with pinned or stubbed data — calls nothing, needs no capabilities">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v4M12 17v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M3 12h4M17 12h4"/></svg>
+        Dry run
+      </button>
       <button class="pl-btn ghost" type="button" (click)="save()" [disabled]="!dirty() || !!busy()">
         Save
       </button>
-      <button class="pl-btn" type="button" (click)="runNow()" [disabled]="!!busy()">
+      <button class="pl-btn pri" type="button" (click)="runNow()" [disabled]="!!busy()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>
         {{ busy() || 'Run' }}
       </button>
     </header>
@@ -147,21 +359,39 @@
 
     @if (setupTodo().length || missingCapabilities().length) {
       <div class="pl-setup-bar">
+        <span class="pl-setup-ic" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 17h.01"/></svg>
+        </span>
         <span class="pl-setup-txt">
-          @if (setupTodo().length) {
-            Needs {{ setupTodo().length }}
-            connection{{ setupTodo().length === 1 ? '' : 's' }} before it can run
-            for real{{ missingCapabilities().length ? ', and ' : '.' }}
-          }
-          @if (missingCapabilities().length) {
-            {{ setupTodo().length ? '' : 'Needs ' }}the
-            {{ missingCapabilities().join(', ') }}
-            capabilit{{ missingCapabilities().length === 1 ? 'y' : 'ies' }},
-            which only you can grant.
-          }
+          <b>
+            @if (setupTodo().length) {
+              Needs {{ setupTodo().length }}
+              connection{{ setupTodo().length === 1 ? '' : 's' }} before it can
+              run for real{{ missingCapabilities().length ? ',' : '' }}
+            }
+            @if (missingCapabilities().length) {
+              {{ setupTodo().length ? 'and the' : 'Needs the' }}
+              {{ missingCapabilities().join(', ') }}
+              capabilit{{ missingCapabilities().length === 1 ? 'y' : 'ies' }}
+            }
+          </b>
+          <!-- Which step, by name. "Needs 1 connection" tells you there is a
+               problem; naming the step tells you where it is. -->
+          <small>
+            @if (setupTodo().length) {
+              @for (s of setupTodo(); track s.kind) {
+                <span class="mn">{{ s.nodes.join(', ') }}</span>
+                has no {{ s.label }} credential bound.
+              }
+              Dry runs will still work with sample data.
+            } @else {
+              Only you can grant a capability — the builder can ask for one
+              and cannot turn it on.
+            }
+          </small>
         </span>
         @if (setupTodo().length) {
-          <button class="pl-btn" type="button" (click)="openSetup()">Set up</button>
+          <button class="pl-btn pri" type="button" (click)="openSetup()">Set up</button>
         }
       </div>
     }
@@ -191,8 +421,10 @@
       </div>
     }
 
-    <div class="pl-work" [class.inspecting]="!!selectedNode()">
+    <div class="pl-work" [class.inspecting]="!!selectedNode()"
+      [class.no-builder]="!builderOpen()">
 
+      @if (builderOpen()) {
       <aside class="pl-chat">
         <header class="pl-chat-head">
           <h3 class="pl-side-h">Builder</h3>
@@ -218,8 +450,18 @@
             <p class="pl-empty sm">
               Describe what this pipeline should do and it will build it on
                 the canvas — choosing steps, wiring them, and dry running the
-                result. It cannot grant capabilities or make connections; it
-                will tell you which are needed.</p>
+                result. <b>It cannot grant capabilities or make connections</b>
+                — it will tell you which are needed.</p>
+            <!-- Three openings, because a blank box is the hardest thing to
+                 answer. They fill the composer rather than sending, so the
+                 wording stays yours to change. -->
+            <div class="pl-examples">
+              @for (e of builderExamples; track e) {
+                <button class="pl-example" type="button" (click)="chatDraft.set(e)">
+                  {{ e }}
+                </button>
+              }
+            </div>
           }
           @if (building()) { <p class="pl-msg-step live">Working…</p> }
         </div>
@@ -236,8 +478,23 @@
           </button>
         </div>
       </aside>
+      }
 
       <div class="pl-canvas">
+        <!-- Collapse the builder. On the canvas edge rather than in the
+             builder's own header, because when it is shut the header has
+             gone with it and the control has to still be somewhere. -->
+        <button class="pl-collapse" type="button"
+          (click)="setBuilderOpen(!builderOpen())"
+          [attr.aria-expanded]="builderOpen()"
+          [title]="builderOpen() ? 'Hide the builder' : 'Show the builder'"
+          [attr.aria-label]="builderOpen() ? 'Hide the builder' : 'Show the builder'">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+            [style.transform]="builderOpen() ? null : 'rotate(180deg)'">
+            <path d="M15 6l-6 6 6 6"/>
+          </svg>
+        </button>
         <app-pipeline-canvas
           [nodes]="open()!.nodes"
           [edges]="open()!.edges"
@@ -245,6 +502,7 @@
           [statuses]="statuses()"
           [notes]="notes()"
           [inLoop]="loopBody()"
+          [connections]="connections()"
           [selectedId]="selectedId()"
           (select)="selectedId.set($event)"
           (moveNode)="moveNode($event)"
@@ -259,12 +517,25 @@
 
       @if (selectedNode(); as n) {
         <aside class="pl-side">
+          <header class="pl-side-bar">
+            <h3 class="pl-side-h">Inspector</h3>
+            <span class="pl-bar-space"></span>
+            <button class="pl-side-x" type="button" (click)="selectedId.set('')"
+              aria-label="Close the inspector">✕</button>
+          </header>
+
+          <!-- The header stays put and everything under it scrolls. The pane
+               itself cannot be the scroller now that it has a fixed head. -->
+          <div class="pl-side-body">
           <app-pipeline-inspector
             [node]="n"
             [type]="selectedType()"
             [connections]="connections()"
             (patch)="patchNode($event)"
-            (remove)="deleteNode($event)" />
+            (remove)="deleteNode($event)"
+            (signIn)="signIn($event)"
+            (testConnection)="testConnection($event)"
+            (useSample)="useSampleData(n)" />
 
           <!-- A loop's iterations, where the per-item detail actually is. The
                canvas can only show one box per node, so this is the only place
@@ -287,6 +558,7 @@
               }
             </section>
           }
+          </div>
         </aside>
       }
 
@@ -297,114 +569,181 @@
     <section class="pl-logs" [class.shut]="!logsOpen()">
       <header class="pl-logs-head">
         <button class="pl-logs-toggle" type="button" (click)="logsOpen.set(!logsOpen())"
-          [attr.aria-expanded]="logsOpen()">
+          [attr.aria-expanded]="logsOpen()" aria-label="Show or hide the drawer">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2.4" aria-hidden="true" [style.transform]="logsOpen() ? 'rotate(90deg)' : ''">
             <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <span>Logs</span>
         </button>
+
+        <!-- Three panes rather than one list. All three show something the
+             run already produced; none of them is a placeholder. -->
+        <button class="pl-dtab" type="button" [class.on]="drawerTab() === 'logs'"
+          (click)="pickDrawer('logs')">Logs</button>
+        <button class="pl-dtab" type="button" [class.on]="drawerTab() === 'runs'"
+          (click)="pickDrawer('runs')">Run history</button>
+        <button class="pl-dtab" type="button" [class.on]="drawerTab() === 'data'"
+          (click)="pickDrawer('data')">Data</button>
+
+        <span class="pl-sheet-spacer"></span>
 
         @if (run(); as r) {
           <span class="pl-logs-status" [class]="'st-' + r.status">{{ r.status }}</span>
           @if (r.mode === 'mock') {
             <span class="pl-logs-mock" title="Nothing outside was called">dry run</span>
           }
-          @if (runMs() !== null) { <span class="pl-logs-ms">{{ runMs() }}ms</span> }
-          @if (r.trigger) { <span class="pl-logs-trig">{{ r.trigger }}</span> }
-          <span class="pl-sheet-spacer"></span>
           <button class="pl-logs-clear" type="button" (click)="clearRun()">Clear execution</button>
+        } @else {
+          <span class="pl-dmeta">{{ drawerMeta() }}</span>
         }
       </header>
 
       @if (logsOpen()) {
-        <div class="pl-logs-body">
-          @if (run()) {
-            <ul class="pl-loglist">
-              @for (row of logRows(); track row.run.node_id) {
-                <li>
-                  <button type="button" class="pl-logitem"
-                    [class.on]="logSelected()?.run?.node_id === row.run.node_id"
-                    [class]="'st-' + row.run.status"
-                    (click)="logNodeId.set(row.run.node_id)">
-                    <i class="pl-logdot"></i>
-                    <span class="pl-logname">{{ row.label }}</span>
-                    @if (row.looped) { <i class="pl-logloop" title="Ran once per item">loop</i> }
-                    @if (row.ms !== null) { <span class="pl-logms">{{ row.ms }}ms</span> }
-                  </button>
-                </li>
-              } @empty {
-                <li><p class="pl-empty sm">No steps ran.</p></li>
-              }
-            </ul>
-
-            @if (logIterations().length) {
-              <!-- A loop body node ran once per item, so one pair of panes
-                   would have to pick an item and hide the rest. -->
-              <div class="pl-iterlog">
-                @for (it of logIterations(); track it.index) {
-                  <div class="pl-iterlog-row" [class]="'st-' + it.run.status">
-                    <span class="pl-iterlog-n">{{ it.index + 1 }}</span>
-                    <div class="pl-iterlog-panes">
-                      <div>
-                        <h4 class="pl-pane-h">Input</h4>
-                        @if (isEmpty(it.run.input)) {
-                          <p class="pl-pane-none">Nothing recorded.</p>
-                        } @else {
-                          <pre class="pl-pane-code">{{ asJson(it.run.input) }}</pre>
-                        }
-                      </div>
-                      <div>
-                        <h4 class="pl-pane-h">Output</h4>
-                        @if (it.run.error) {
-                          <pre class="pl-pane-code err">{{ it.run.error }}</pre>
-                        } @else if (isEmpty(it.run.output)) {
-                          <p class="pl-pane-none">{{ it.run.text || 'No output.' }}</p>
-                        } @else {
-                          <pre class="pl-pane-code">{{ asJson(it.run.output) }}</pre>
-                        }
+        @if (drawerTab() === 'logs') {
+          <div class="pl-logs-body">
+            @if (run()) {
+              <ul class="pl-loglist">
+                @for (row of logRows(); track row.run.node_id) {
+                  <li>
+                    <button type="button" class="pl-logitem"
+                      [class.on]="logSelected()?.run?.node_id === row.run.node_id"
+                      [class]="'st-' + row.run.status"
+                      (click)="logNodeId.set(row.run.node_id)">
+                      <i class="pl-logdot"></i>
+                      <span class="pl-logname">{{ row.label }}</span>
+                      @if (row.looped) { <i class="pl-logloop" title="Ran once per item">loop</i> }
+                      @if (row.ms !== null) { <span class="pl-logms">{{ row.ms }}ms</span> }
+                    </button>
+                  </li>
+                } @empty {
+                  <li><p class="pl-empty sm">No steps ran.</p></li>
+                }
+              </ul>
+  
+              @if (logIterations().length) {
+                <!-- A loop body node ran once per item, so one pair of panes
+                     would have to pick an item and hide the rest. -->
+                <div class="pl-iterlog">
+                  @for (it of logIterations(); track it.index) {
+                    <div class="pl-iterlog-row" [class]="'st-' + it.run.status">
+                      <span class="pl-iterlog-n">{{ it.index + 1 }}</span>
+                      <div class="pl-iterlog-panes">
+                        <div>
+                          <h4 class="pl-pane-h">Input</h4>
+                          @if (isEmpty(it.run.input)) {
+                            <p class="pl-pane-none">Nothing recorded.</p>
+                          } @else {
+                            <pre class="pl-pane-code">{{ asJson(it.run.input) }}</pre>
+                          }
+                        </div>
+                        <div>
+                          <h4 class="pl-pane-h">Output</h4>
+                          @if (it.run.error) {
+                            <pre class="pl-pane-code err">{{ it.run.error }}</pre>
+                          } @else if (isEmpty(it.run.output)) {
+                            <p class="pl-pane-none">{{ it.run.text || 'No output.' }}</p>
+                          } @else {
+                            <pre class="pl-pane-code">{{ asJson(it.run.output) }}</pre>
+                          }
+                        </div>
                       </div>
                     </div>
+                  }
+                </div>
+              } @else if (logSelected(); as sel) {
+                <div class="pl-panes">
+                  <div class="pl-pane">
+                    <h4 class="pl-pane-h">Input</h4>
+                    @if (isEmpty(sel.run.input)) {
+                      <p class="pl-pane-none">
+                        Nothing recorded. Either the step takes no settings, or it
+                        was told to keep its input out of the log.
+                      </p>
+                    } @else {
+                      <pre class="pl-pane-code">{{ asJson(sel.run.input) }}</pre>
+                    }
                   </div>
-                }
-              </div>
-            } @else if (logSelected(); as sel) {
-              <div class="pl-panes">
-                <div class="pl-pane">
-                  <h4 class="pl-pane-h">Input</h4>
-                  @if (isEmpty(sel.run.input)) {
-                    <p class="pl-pane-none">
-                      Nothing recorded. Either the step takes no settings, or it
-                      was told to keep its input out of the log.
-                    </p>
-                  } @else {
-                    <pre class="pl-pane-code">{{ asJson(sel.run.input) }}</pre>
-                  }
+                  <div class="pl-pane">
+                    <h4 class="pl-pane-h">Output</h4>
+                    @if (sel.run.error) {
+                      <pre class="pl-pane-code err">{{ sel.run.error }}</pre>
+                      <button class="pl-fix" type="button"
+                        (click)="fixWithAI(sel.run.node_id)">Fix with AI</button>
+                    } @else if (isEmpty(sel.run.output)) {
+                      <p class="pl-pane-none">
+                        {{ sel.run.text || 'No output.' }}
+                      </p>
+                    } @else {
+                      @if (sel.run.text) { <p class="pl-pane-text">{{ sel.run.text }}</p> }
+                      <pre class="pl-pane-code">{{ asJson(sel.run.output) }}</pre>
+                    }
+                  </div>
                 </div>
-                <div class="pl-pane">
-                  <h4 class="pl-pane-h">Output</h4>
-                  @if (sel.run.error) {
-                    <pre class="pl-pane-code err">{{ sel.run.error }}</pre>
-                    <button class="pl-fix" type="button"
-                      (click)="fixWithAI(sel.run.node_id)">Fix with AI</button>
-                  } @else if (isEmpty(sel.run.output)) {
-                    <p class="pl-pane-none">
-                      {{ sel.run.text || 'No output.' }}
-                    </p>
-                  } @else {
-                    @if (sel.run.text) { <p class="pl-pane-text">{{ sel.run.text }}</p> }
-                    <pre class="pl-pane-code">{{ asJson(sel.run.output) }}</pre>
-                  }
-                </div>
-              </div>
+              }
+            } @else {
+              <p class="pl-logs-empty">
+                Nothing to display yet. Run the pipeline to see what each step
+                received and produced.
+              </p>
             }
-          } @else {
-            <p class="pl-logs-empty">
-              Nothing to display yet. Run the pipeline to see what each step
-              received and produced.
-            </p>
-          }
-        </div>
+          </div>
+        }
+
+        @if (drawerTab() === 'runs') {
+          <div class="pl-dpane">
+            @if (runHistoryLoading()) {
+              <p class="pl-logs-empty">Reading the run history…</p>
+            } @else if (runHistory().length) {
+              <div class="pl-rh-head">
+                <span>Started</span><span>Trigger</span><span>Mode</span>
+                <span>Status</span><span>Took</span>
+              </div>
+              @for (r of runHistory(); track r.id) {
+                <div class="pl-rh">
+                  <span class="mn">{{ age(r.started_at) }}</span>
+                  <span class="mn">{{ r.trigger }}</span>
+                  <span class="mn">{{ r.mode === 'mock' ? 'dry run' : 'live' }}</span>
+                  <span class="pl-logs-status" [class]="'st-' + r.status">{{ r.status }}</span>
+                  <span class="mn">{{ runLength(r) }}</span>
+                </div>
+              }
+            } @else {
+              <p class="pl-logs-empty">This pipeline has not run yet.</p>
+            }
+          </div>
+        }
+
+        @if (drawerTab() === 'data') {
+          <div class="pl-dpane">
+            @if (logSelected(); as sel) {
+              <p class="pl-data-of">
+                What <b>{{ sel.label }}</b> produced.
+              </p>
+              @if (hasPayload(sel.run)) {
+                <pre class="pl-code">{{ sel.run.output | json }}</pre>
+              } @else {
+                <!-- A bare {} is technically true and tells you nothing. A
+                     step inside a For each has one result per item, kept
+                     apart from this field, and that is where to look. -->
+                <p class="pl-logs-empty">
+                  This step produced no payload of its own.
+                  @if (loopBody().has(sel.run.node_id)) {
+                    It runs once per item — open it under Logs to see each
+                    iteration.
+                  }
+                </p>
+              }
+            } @else if (run()) {
+              <p class="pl-logs-empty">
+                Pick a step under Logs to see the payload it produced.
+              </p>
+            } @else {
+              <p class="pl-logs-empty">
+                Payloads appear here once a run produces them.
+              </p>
+            }
+          </div>
+        }
       }
     </section>
   </div>
@@ -413,7 +752,7 @@
 <!-- The step picker. Same catalogue as the palette, asked as a question,
      and wiring what it adds. -->
 @if (pickerOpen()) {
-  <div class="pl-modal" (click)="closePicker()">
+  <div class="pl-modal pl-modal-drawer" (click)="closePicker()">
     <aside class="pl-picker" (click)="$event.stopPropagation()">
       <header class="pl-picker-head">
         <h2 class="pl-picker-title">{{ pickerTitle() }}</h2>
@@ -552,7 +891,10 @@
             [type]="detailType()"
             [connections]="connections()"
             (patch)="patchNode($event)"
-            (remove)="deleteNode($event); closeDetail()" />
+            (remove)="deleteNode($event); closeDetail()"
+            (signIn)="signIn($event)"
+            (testConnection)="testConnection($event)"
+            (useSample)="useSampleData(n)" />
         </div>
 
         <div class="pl-ndv-pane">

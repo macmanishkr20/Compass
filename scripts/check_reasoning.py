@@ -12,6 +12,7 @@ than eyeballed.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -680,8 +681,7 @@ def check_thinking_cost_is_a_hover() -> None:
     # The reveal, and the surface each one hangs off: the Code console's row
     # is .row, Home's is .crow, and Home's span carries no .msg-act to
     # inherit the behaviour from, so it needs its own rules.
-    for name, css, row in (("app.css", code, ".row"),
-                           ("home-chat.css", home, ".crow")):
+    for name, css, row in (("app.css", code, ".row"),):
         rest = section(css, ".cthink-tokens {", "\n}")
         ok("opacity: 0;" in rest, f"{name}: nothing at rest")
         ok("font-style: normal" in rest,
@@ -689,11 +689,24 @@ def check_thinking_cost_is_a_hover() -> None:
         ok(f"{row}:hover .cthink-tokens {{ opacity: 0.75; }}" in css,
            f"{name}: revealed when the pointer is on the message")
 
-    for name, html, prefix in (("app.html", code_html, "b"),
-                               ("home-chat.html", home_html, "m")):
+    for name, html, prefix in (("app.html", code_html, "b"),):
         foot = section(html, '<div class="cthink-foot">', "</div>")
         ok(f"{{{{ {prefix}.thinkingTokens }}}} tokens used" in foot,
            f"{name}: the number says what it is a number of")
+
+    # Home is the exception, on purpose. Asserted rather than merely absent,
+    # so removing the block cannot be undone by accident.
+    ok('class="cthink"' not in home_html and ".cthink {" not in home,
+       "Home renders no reasoning block at all — a conversation surface, "
+       "where the model narrating its plan for a two-line answer is "
+       "throat-clearing between the question and the reply")
+    ok('class="cthink"' in code_html,
+       "while the Code console keeps it, because there the working is the "
+       "product: it is how a change is audited before it is accepted")
+    ok("thinking_delta" in (ROOT / "frontend/src/app/home-chat/home-chat.ts").read_text(),
+       "and Home still receives the reasoning — it is what opens the bubble "
+       "before the first word, so hiding it did not cost the wait its "
+       "feedback")
 
 
 def check_thinking_rule_colour() -> None:
@@ -714,8 +727,9 @@ def check_thinking_rule_colour() -> None:
        "and move between the theme's faded and full accent, so dark mode "
        "follows without a second rule")
 
-    for name in ("frontend/src/app/app.css",
-                 "frontend/src/app/home-chat/home-chat.css"):
+    # Home no longer draws this block, so there is nothing here to colour;
+    # see check_thinking_cost_is_a_hover for the assertion that it is gone.
+    for name in ("frontend/src/app/app.css",):
         css = (ROOT / name).read_text()
         short = name.rsplit("/", 1)[-1]
         ok("border-left: 2px solid var(--accent-line);" in css,
@@ -1015,6 +1029,975 @@ def check_thinking_interleaves_with_work() -> None:
        "a file write stays its own row rather than folding in, as it should")
 
 
+def check_records_know_their_owner() -> None:
+    """Every stored record says who it belongs to, and every route that
+    reaches one by id checks.
+
+    The gap this closes was found by reading, not by a failure: `require_user`
+    was a dependency on all 120 stateful routes and the username it returned
+    was used by none of them. Identity was delivered to every handler and
+    dropped on the floor, so every list endpoint returned everything on the
+    box regardless of who asked.
+
+    Ownership lives in the metadata layer, never in the transcript. That is
+    what keeps this a field on 258 records rather than a rewrite of 159
+    transcript files, and it means a conversation's history is never touched
+    by a question about who may read it.
+
+    Two rules, both failing open, because the failure mode of the alternative
+    is a user staring at an empty list and concluding their work is gone:
+    an empty owner is legacy and stays visible, and when auth is disabled
+    there is no identity to filter on so nothing is hidden. The consequence
+    is that `scripts/migrate_ownership.py` is not optional — until it runs,
+    the whole existing corpus is legacy and therefore shared. It has been
+    run here: 258 records across eight stores, assigned to one identity.
+
+    The by-id check is enforced here structurally rather than by reviewing a
+    list once: the route table is walked, and any handler taking an id in its
+    path without a gate fails this check. A route added next month is covered
+    by construction.
+
+    Not a tenancy boundary, and the module docstring says so: Code sessions
+    carry a workspace root and the agent has shell access, so this separates
+    users rather than isolating them.
+    """
+    import ast
+
+    print("\na record knows whose it is, and a route by id checks")
+
+    own = (ROOT / "compass/common/ownership.py").read_text()
+    ok("return rows" in own and "if not get_settings().auth.enabled" in own,
+       "auth off means no filtering — a box with no login has one user, and "
+       "filtering on 'guest' would hide everything written while auth was on")
+    ok("return not owner or owner == user" in own,
+       "an empty owner is legacy and stays visible, so nobody's work "
+       "disappears the moment ownership ships")
+
+    for path, field in (
+        ("compass/common/persistence/session_meta.py", 'owner: str = ""'),
+        ("compass/pipelines/store.py", 'owner: str = ""'),
+        ("compass/design/store.py", 'owner: str = ""'),
+        ("compass/design/systems.py", 'owner: str = ""'),
+        ("compass/code/routines.py", 'owner: str = ""'),
+    ):
+        ok(field in (ROOT / path).read_text(),
+           f"{'/'.join(path.split('/')[1:])} records carry an owner")
+
+    conn = section((ROOT / "compass/pipelines/store.py").read_text(),
+                   "class Connection:", "class NodeRun")
+    ok('d.pop("owner", None)' in conn,
+       "a connection's owner stays server-side, like its secret ref")
+
+    droutes = (ROOT / "compass/design/routes.py").read_text()
+    ok("visible_to(owner, x.get(" in droutes,
+       "a design system is re-checked where it is read into the prompt, "
+       "against the project's owner rather than the caller's — a stored "
+       "reference to someone else's system is ignored, not followed")
+    ok('copy["owner"] = owner' in (ROOT / "compass/design/systems.py").read_text(),
+       "and duplicating a shipped example gives the copy to whoever made it, "
+       "which is the whole point of duplicating one")
+
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    ok("visible_to(owner, conn.owner)" in engine,
+       "and the credential is re-checked where it is actually fetched, not "
+       "only at the route — a node may name any connection id it likes")
+    ok("owner=pipeline.owner" in (ROOT / "compass/pipelines/store.py").read_text(),
+       "a run inherits the pipeline's owner, so a scheduled run with no "
+       "request behind it still resolves the same connections")
+
+    # The structural half: walk the route tables and demand a gate on
+    # anything addressed by id.
+    guards = ("_owned_session", "_owned_chat", "_owned_project",
+              "_owned_pipeline", "_owned_run", "_owned_system",
+              "_owned_routine", "_owned_connection", "visible_to", "owned(")
+    ids = ("{session_id}", "{project_id}", "{pipeline_id}", "{run_id}",
+           "{connection_id}", "{system_id}", "{routine_id}")
+    ungated: list[str] = []
+    gated = 0
+    for rel in ("compass/code/routes.py", "compass/home/routes.py",
+                "compass/design/routes.py", "compass/pipelines/routes.py"):
+        src = (ROOT / rel).read_text()
+        lines = src.splitlines(keepends=True)
+        for node in ast.parse(src).body:
+            if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                continue
+            for dec in node.decorator_list:
+                if not (isinstance(dec, ast.Call)
+                        and isinstance(dec.func, ast.Attribute) and dec.args):
+                    continue
+                route = getattr(dec.args[0], "value", "")
+                if not any(marker in route for marker in ids):
+                    continue
+                body = "".join(lines[node.lineno - 1:node.end_lineno])
+                if any(guard in body for guard in guards):
+                    gated += 1
+                else:
+                    ungated.append(f"{dec.func.attr.upper()} {route}")
+    ok(not ungated,
+       f"all {gated} routes addressing a record by id check ownership"
+       + (f" — ungated: {', '.join(ungated)}" if ungated else ""))
+
+    users = (ROOT / "compass/common/users.py").read_text()
+    ok("def canonical(" in users,
+       "a username is not a person: several credentials can map to one "
+       "identity, so enabling auth does not orphan what 'admin' created")
+    ok("async def record_login" in users,
+       "and who has actually logged in is recorded, which the credential map "
+       "cannot tell you — it lists who may, not who has")
+    ok("row.logins.append(username)" in users,
+       "keeping the names they signed in as, so an alias is visible as one "
+       "identity reached by more than one credential")
+
+    auth = (ROOT / "compass/common/auth.py").read_text()
+    ok("return canonical(username)" in auth,
+       "require_user hands back the identity, not the string that was typed, "
+       "so a token minted before an alias existed still resolves")
+
+    mig = (ROOT / "scripts/migrate_ownership.py").read_text()
+    for store in ("routines", "routine runs", "home threads", "connections",
+                  "design systems"):
+        ok(f'("{store}"' in mig, f"the migration covers {store}")
+    ok('if record.get("owner") and not force' in mig,
+       "the migration never reassigns an owned record, so running it twice "
+       "is a no-op and a wrong name cannot take someone's work away")
+    ok("glob(\"*.jsonl\")" in mig,
+       "and it creates the Home rows rather than updating them — Home's "
+       "index only holds a row once a thread has been renamed or pinned")
+
+
+def check_credentials_can_be_signed_into() -> None:
+    """A connection can be signed into, proved, and renewed — n8n's model.
+
+    The complaint was that Pipelines would not let anyone sign in, and it was
+    right. `nodes/connectors.py` said so in its own docstring: "Compass has no
+    OAuth flow yet, so those connectors work with a token you paste and stop
+    working when it expires." A pasted Google token lasts about an hour, which
+    makes a scheduled pipeline something that works while you build it and
+    fails overnight.
+
+    n8n's credential class declares three things, and Compass now declares the
+    same three: `properties` (the fields, so the form is per-service rather
+    than one opaque "secret" box), `authenticate` (how those fields become an
+    authorized request, declaratively, instead of a hardcoded bearer line in
+    the handler), and `test` (a request that proves the credential while the
+    person is still looking at the form, rather than at 3am).
+
+    The honest part, which is a finding rather than a feature: the one-click
+    "Sign in with Google" in n8n's own demos is n8n *Cloud*, where n8n runs a
+    registered, Google-verified OAuth application. Their documentation states
+    managed OAuth is not available to self-hosted users, who must register an
+    app and supply a client id and secret. Compass is self-hosted, so it
+    implements the self-hosted flow — and reads a registered Compass app from
+    the environment if one is ever configured, at which point the same code
+    produces the one-click experience.
+
+    The other half of the request was that a pipeline should still produce
+    output when signing in is not possible. Mock mode already ran the graph
+    without calling anything; what it produced was {"id": "mock-1"}, which
+    proves the wiring and nothing else. Node types now declare a sample, so a
+    mocked Gmail step yields a message with a sender, a subject and a snippet
+    that a downstream expression can actually resolve against.
+
+    Measured: a live run with no connection fails on the first node with a
+    message naming mock mode; the same graph in mock mode completes with two
+    messages, one of them "Invoice INV-2043 is ready" from
+    billing@example.com. And the credential test on a connection holding a
+    dud token answers "GitHub returned 401" in the browser rather than
+    waiting for a run to say it.
+    """
+    print("\na connection can be signed into, proved, and renewed")
+    creds = (ROOT / "compass/pipelines/credentials.py").read_text()
+    oauth_src = (ROOT / "compass/pipelines/oauth.py").read_text()
+    conn_src = (ROOT / "compass/pipelines/nodes/connectors.py").read_text()
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+
+    # n8n's three parts, each present.
+    ok("fields:" in creds and "class CredField" in creds,
+       "a credential declares its fields, so the form is the service's own "
+       "rather than one opaque secret box for everything")
+    ok("def apply_auth" in creds and "headers.update(conn.get(\"headers\")" in conn_src,
+       "and how they become an authorized request, declaratively — the "
+       "handler no longer assumes every service takes a bearer token")
+    ok("test_url" in creds and "/test\")" in (ROOT / "compass/pipelines/routes.py").read_text(),
+       "and a request that proves it, because a credential that cannot be "
+       "proved when it is entered gets proved in production")
+
+    # The flow itself.
+    for part in ("def start", "async def exchange", "async def refresh",
+                 "async def fresh_values"):
+        ok(part in oauth_src, f"oauth.py: {part.split()[-1]}")
+    ok("access_type" in oauth_src and "prompt" in oauth_src,
+       "consent is asked for offline access, or Google returns a token that "
+       "expires with nothing to renew it")
+    ok('if refresh_token := payload.get("refresh_token")' in oauth_src,
+       "and a refresh never overwrites the refresh token with the absent "
+       "one the provider omits on renewal")
+    ok("oauth.fresh_values(conn, values)" in engine,
+       "renewal happens where the connection is resolved — the last moment "
+       "before a call, and the one a scheduled run reaches too")
+
+    # Backward compatibility, which is not optional: a connection already
+    # exists on this box holding a bare-string secret.
+    ok('return {"access_token": raw}' in oauth_src,
+       "a secret written before credentials had a shape still reads as a "
+       "token, so existing connections keep working")
+
+    # The fallback the request actually asked for.
+    ok("sample: dict[str, Any] | None = None" in (ROOT / "compass/pipelines/types.py").read_text(),
+       "a node type can declare what it produces when nothing may be called")
+    ok('getattr(node_type, "sample", None)' in engine,
+       "and a mocked run prefers it over a generic stub")
+    ok("billing@example.com" in conn_src,
+       "so a mocked mail step yields an actual message rather than "
+       "{'id': 'mock-1'} — the difference between proving the wiring and "
+       "showing someone their pipeline working")
+    ok("produce output before connecting an account" in conn_src
+       and "in mock mode to see it work without one." in conn_src,
+       "and both missing-credential errors name that way forward instead of "
+       "being a wall — one for no connection chosen, one for a connection "
+       "with nothing in it, because they have different fixes")
+
+    # The finding, recorded where it will be read.
+    ok("n8n Cloud" in creds and "self-hosted" in creds,
+       "and the one-click sign-in that self-hosting cannot have is written "
+       "down as a fact about OAuth registration, not left as a mystery")
+
+
+def check_builder_thinks_like_an_architect() -> None:
+    """The builder prompt carries the four rules n8n's own prompts carry.
+
+    n8n splits its builder across a supervisor, a discovery agent, a planner
+    and a responder. The split itself is not worth copying: it exists because
+    n8n routes between answering a question and editing the graph, and this
+    builder only ever does the second. Four of its rules are worth copying,
+    because they describe failures any graph-editing model makes and this
+    prompt had none of them.
+
+    *One entry point.* The clearest evidence it was missing is a question
+    asked here about a graph the builder had just produced: "where is the
+    start point, from where the first arrow comes from?" Nodes with no
+    incoming edge all start at once, which is legal, almost never meant, and
+    invisible on a canvas. It is now a prompt rule and, more usefully, a
+    validation problem — the prompt can be ignored, the validator cannot.
+
+    *Prefer acting.* "Can you add a step that files these?" is an instruction
+    wearing a question mark.
+
+    *Resolve deixis.* "it", "that one", "the second step" refer to something
+    already on the canvas; n8n has a whole module for this. Editing the wrong
+    node is worse than a short question, because the person cannot see which
+    one was picked until the edit has happened.
+
+    *Describe the change, not the graph.* When editing something that exists,
+    a recap of six steps buries the one line that matters.
+
+    Two things deliberately not copied, because they patch n8n's own design
+    rather than a real problem: `alwaysOutputData` exists because an n8n node
+    that returns no items stops the branch, and Compass's edges follow status
+    rather than item count; `executeOnce` exists because an n8n node runs once
+    per input item by default, and Compass's fan-out is explicit. Adding
+    either would be a setting that does nothing.
+    """
+    print("\nthe builder begins somewhere, and knows what 'it' means")
+    prompt = (ROOT / "compass/pipelines/builder.py").read_text()
+    routes = (ROOT / "compass/pipelines/routes.py").read_text()
+
+    ok("Every graph has one place it begins." in prompt,
+       "the prompt says where a pipeline starts, which is the question that "
+       "was actually asked about a graph it had built")
+    ok("Prefer doing to explaining." in prompt,
+       "an instruction wearing a question mark is still an instruction")
+    ok('they say "it", "that one"' in prompt,
+       "and a reference to something on the canvas is resolved before it is "
+       "acted on, not guessed at")
+    ok("report the change and not the" in prompt,
+       "editing an existing pipeline reports the edit, not a recap of what "
+       "is already on screen")
+    ok("Never put a token, password or API key into a node" in prompt,
+       "and a credential never goes in a node, because a node travels with "
+       "the exported graph")
+
+    ok("no starting step" in routes and "steps start at once" in routes,
+       "the entry point is a validation problem too — a prompt can be "
+       "ignored, a validator cannot")
+
+    snap = (ROOT / "scripts/structure_snapshot.py").read_text()
+    ok("pipelines.builder.SYSTEM_PROMPT" in snap,
+       "and the prompt is watched byte for byte, which it was not: the one "
+       "prompt whose job is to stop a model inventing node types was the one "
+       "nothing guarded")
+
+
+def check_sql_and_the_gmail_trigger() -> None:
+    """The two nodes the recording ended on: a trigger, and SQL Server.
+
+    The video's workflow was Gmail Trigger → extract → build row → Save to SQL
+    Server, and Compass could express neither end of it. Both are now node
+    types and the whole graph runs in mock mode on a machine with no Gmail
+    account and no database driver, which is the only way it could have been
+    checked here at all.
+
+    *The trigger is a node, not a pipeline property.* n8n is right about this:
+    a trigger has settings — which mailbox, which search, how often — and
+    settings belong where they can be seen and expressed. It also gives the
+    canvas an unambiguous first step, which is the question that was asked
+    here about a graph the builder drew.
+
+    *The runner is new, because nothing ever fired a trigger.*
+    `Pipeline.triggers` was a stored field with no reader: a schedule could be
+    saved and would never run. The cursor is the correctness problem — Gmail's
+    list is not a queue, so polling returns the same messages, and without a
+    record of what was seen a five-minute poll reprocesses the same invoice
+    twelve times an hour. Measured: two messages fire once, do not fire again,
+    and a third arriving fires alone.
+
+    Two bugs were found by running it rather than by reading it. The trigger
+    was categorised `flow`, and the engine deliberately runs flow nodes for
+    real even in a mocked run — so a mocked run tried to reach the mailbox.
+    And `every_minutes or 5` turned an explicit 0 into five minutes, which is
+    why the first cursor test passed for the wrong reason.
+
+    *SQL takes parameters, never interpolation.* This is the one that would
+    have been a hole. Compass resolves expressions in a node's settings before
+    the handler runs, so a query field containing an expression arrives with
+    the value already substituted — a subject reading `'; DROP TABLE x; --`
+    included. `query` and `parameters` are separate fields for exactly that
+    reason, the counts must match before the driver is opened, and `insert`
+    builds its statement from validated identifiers with every value bound.
+    """
+    print("\na trigger that fires, and a database that binds its values")
+    trig = (ROOT / "compass/pipelines/nodes/triggers.py").read_text()
+    runner = (ROOT / "compass/pipelines/runner.py").read_text()
+    db = (ROOT / "compass/pipelines/nodes/database.py").read_text()
+
+    ok('category="connector"' in trig,
+       "the Gmail trigger is mockable — categorising it as flow made a "
+       "mocked run try to reach the mailbox, because the engine runs flow "
+       "nodes for real on purpose")
+    ok("inputs=()," in trig,
+       "and it has no input port, so nothing can be wired into the step the "
+       "graph begins at")
+    ok("DELIVERY_KEY" in trig and "Run by hand: fetch now" in trig,
+       "fired, it emits what the runner delivered; by hand, it fetches — "
+       "which is how a graph is tried before it is scheduled")
+
+    ok("def tick" in runner and "_write_state" in runner,
+       "and something finally fires triggers: the stored field had no reader")
+    ok("Recorded before the run, not after." in runner,
+       "the cursor moves before the run, so a failing pipeline does not "
+       "reprocess the same mail every five minutes")
+    ok("seen[-CURSOR_KEEP:]" in runner,
+       "and it is bounded, so the file cannot grow without limit")
+    ok("silent override" in runner,
+       "an explicit 0 means every tick rather than being quietly replaced")
+
+    ok('"parameters"' in db and "placeholder(s) and" in db,
+       "SQL values are parameters, counted before the driver opens — an "
+       "expression resolved into a query string is an injection")
+    ok("_IDENT" in db and "is not a plain identifier" in db,
+       "and an identifier Compass assembles SQL from is validated, because "
+       "bracket-quoting alone does not survive a ] in the name")
+    ok("import pyodbc" in db and "still runs in" in db,
+       "the driver is optional and its absence is explained, so a graph can "
+       "be built and shown working on a machine with no database")
+    ok(db.count("sample=") >= 2,
+       "both SQL steps declare sample rows, so the whole workflow from the "
+       "recording runs end to end with nothing connected")
+
+
+def check_pinned_data_beats_a_live_credential() -> None:
+    """A connected account is not a reason to call it on every run.
+
+    Asked for directly, and the recording is the argument: that whole workflow
+    finished in 162ms with the Gmail trigger reporting "Success in 1ms". No
+    mailbox answers in a millisecond. n8n was serving pinned data on a node
+    whose credential was perfectly good, because the person was working on the
+    four steps after it and did not want to wait on — or re-send — anything.
+
+    Compass honoured pinned data only in a mocked run, so the moment a
+    connection existed every Run went to Gmail. Pinned data now stands in
+    during any run started by hand, whatever the mode and whatever the
+    credential.
+
+    Manual only, and the two guards matter more than the feature:
+
+    *A scheduled run ignores pinning and calls for real.* A pipeline quietly
+    serving the same saved email every morning would succeed forever and stop
+    being about the mail — the kind of failure nobody catches because nothing
+    goes red.
+
+    *A pinned run does not mark a pipeline proven.* `require_manual_first_run`
+    exists so a schedule cannot be set on something never tried; a graph whose
+    Gmail step served saved data has not shown the mailbox is reachable, so it
+    must not unlock scheduling. Same reasoning the mocked-run rule already
+    used, extended to the case that now exists.
+
+    Measured, with a signed-in Gmail connection on the node: the run finished
+    in 47ms with both steps reporting "Pinned data", `proven_at` stayed None,
+    and the same graph on a scheduled trigger called Gmail and came back 401.
+    """
+    print("\npinned data stands in even when the account is connected")
+    engine = (ROOT / "compass/pipelines/engine.py").read_text()
+    inspector = (ROOT / "frontend/src/app/pipelines/inspector.html").read_text()
+    canvas = (ROOT / "frontend/src/app/pipelines/canvas.html").read_text()
+
+    ok('use_pinned = node.mock is not None and run.trigger == "manual"' in engine,
+       "pinned data stands in for a run someone started by hand, whatever "
+       "the mode and whatever the credential")
+    ok('if (run.mode == "mock" or use_pinned)' in engine,
+       "so a live run with a working connection can still serve saved data")
+    ok("any_pinned" in engine and "not any_pinned" in engine,
+       "and a run that leant on pinning does not mark the pipeline proven, "
+       "because it has not shown the thing it is supposed to touch is there")
+
+    ok("Pin sample data" in inspector and "Use live data" in inspector,
+       "the control is offered and reversible")
+    ok('@if (type()?.sample || node().mock) {' in inspector,
+       "and it is offered whether or not a credential exists — hiding it "
+       "behind a missing account was the bug")
+    ok("A scheduled run ignores this" in inspector,
+       "the panel says so, because 'pinned' would otherwise read as "
+       "'pinned everywhere' and that is the dangerous reading")
+    ok('@if (n.mock) {' in canvas and "cv-pin" in canvas,
+       "and the canvas marks pinned steps, so a run that finished in "
+       "milliseconds explains itself without opening every node")
+
+
+def check_a_failed_export_leaves_no_file() -> None:
+    """A PDF that will not open is worse than an export that says no.
+
+    Reported from Windows: "it creates the PDF file but no content and hence
+    PDF not open." Two bugs stacked, and only the second is the one being
+    looked at.
+
+    *The file exists because the save dialog made it.* `confirmExport` opens
+    the picker before fetching, and it has to — a picker opened after an await
+    has lost the click that justified it, and the browser refuses. But the
+    moment the dialog is dismissed the file is on disk, empty. If the export
+    then fails, that empty file stays. It is removed now, and where the
+    browser is too old for `remove()` the person is told the file is there
+    rather than left to find it.
+
+    *The export failed because Chromium was not installed.* Only the missing
+    `playwright` package was translated; a present package with no browser —
+    the ordinary state on a machine where nobody ran the install step — fell
+    through to a generic 502 carrying a driver stack trace. So did the Windows
+    event-loop failure, where asyncio cannot spawn a subprocess off the
+    Proactor loop. Both say what to run now, and both mention that HTML and
+    ZIP export need no browser, because that is the answer for someone who
+    just wants the file today.
+
+    An empty body is also refused at the client rather than written, since a
+    zero-length PDF on disk is the symptom being reported and no server bug
+    should be able to produce it again.
+
+    Checked on this host: the two Windows failures produce those messages, and
+    a real export still returns 26,666 bytes beginning %PDF-1.4.
+    """
+    print("\na failed export leaves no file behind")
+    export = (ROOT / "compass/design/export.py").read_text()
+    design = (ROOT / "frontend/src/app/design/design.ts").read_text()
+
+    ok("playwright install chromium" in export
+       and "Executable doesn" in export,
+       "a present Playwright with no browser says which command to run, "
+       "rather than returning a driver stack trace")
+    ok("Proactor event loop" in export,
+       "and the Windows event-loop failure is named, because nothing in the "
+       "NotImplementedError it raises says what went wrong")
+    ok(export.count("need no browser") >= 1 or "needs no browser" in export,
+       "both point at HTML and ZIP, which is the answer for someone who "
+       "wants the file today")
+
+    ok("await this.discard(handle, name)" in design,
+       "a failed export takes back the empty file the save dialog created")
+    ok("private async discard(" in design and "removable.remove" in design,
+       "and says so where the browser cannot remove it, rather than leaving "
+       "a file that will not open to be discovered later")
+    ok("if (!blob.size)" in design,
+       "an empty body is refused rather than written, so no server fault can "
+       "put a zero-length PDF on disk again")
+
+    # The corruption found while reading this code, worth keeping out.
+    ok("\x00" not in design,
+       "and design.ts holds no NUL byte — one sat in a string literal and "
+       "made the file binary to every text tool, so grep skipped it silently")
+
+
+def check_the_chart_is_only_paint() -> None:
+    """The Design landing wears the chart, and nothing else does.
+
+    A restyle to a cartographic mockup: paper and graticule, a serif display
+    with a deck under it, the template picker as a bearing dial, and the
+    project table as a log. Cosmetics only, which is a claim worth defending
+    with more than intent.
+
+    *Scoped, so it cannot escape.* The mockup restyles the whole application;
+    the request was the Design module. The palette is declared on
+    `.dz-landing` and nowhere higher, including the three token names Compass
+    already owns — --ink, --surface, --surface-2 — which are shadowed inside
+    that subtree rather than renamed, so every existing rule keeps working
+    against the new colours. Measured in the page: --paper and --brass are
+    unset on both :root and body, and Home renders exactly as before.
+
+    *One template, one set of glyphs.* The rose and the list are two
+    arrangements of the same `templates()` loop calling the same
+    `pickTemplate`, and the fourteen inline SVGs live in one ng-template used
+    by both. Written twice they would be fourteen chances to disagree.
+
+    *The dial is derived, not drawn.* Angles come from 360/count, so the ring
+    stays even however many templates the server sends, and the graduations
+    are computed from the same geometry rather than hand-placed.
+
+    The bug worth recording: the night palette was written as
+    `:root[data-theme="dark"] .dz-landing` and was dead on arrival. Angular's
+    emulated encapsulation stamps the component's content attribute onto every
+    compound selector, so it was emitted as
+    `[_ngcontent-x]:root[data-theme="dark"] .dz-landing[_ngcontent-x]` — which
+    asks <html> to carry an attribute it never has. It matched nothing, and
+    the page looked right in light mode, which is how it would have shipped.
+    `:host-context` is the selector that reaches an ancestor from inside a
+    component. Found by reading the emitted rule out of document.styleSheets,
+    not by looking at the source.
+    """
+    print("\nthe Design landing wears the chart, and nothing else does")
+    css = (ROOT / "frontend/src/app/design/design.css").read_text()
+    html = (ROOT / "frontend/src/app/design/design.html").read_text()
+    ts = (ROOT / "frontend/src/app/design/design.ts").read_text()
+
+    ok("--brass: var(--accent)" in css and "--paper: var(--bg)" in css,
+       "every colour is an alias onto the token the rest of Compass uses, so "
+       "Design cannot drift into being its own application")
+    ok("background: transparent;" in section(css, "--serif:", "\n}"),
+       "and the landing paints no background of its own — the app draws one "
+       "backdrop and every section sits on it")
+    ok(":host-context([data-theme=" in css,
+       "where an ancestor does have to be matched, :host-context is used: a "
+       "rule written against the root element from inside a component is "
+       "rewritten into one that can never match, and fails silently in the "
+       "one mode nobody screenshots")
+
+    block = section(css, "Cosmetics only.", "\n}")
+    for token in ("--paper:", "--brass:", "--ink-2:", "--rule:"):
+        ok(token in block,
+           f"{token[:-1]} is declared on .dz-landing, not on :root, so the "
+           "chart cannot reach Home, Code or Pipelines")
+    for owned in ("--ink:", "--surface:", "--surface-2:"):
+        ok(owned not in block,
+           f"and {owned[:-1]} is left to the app — shadowing a token Compass "
+           "already owns is how a section starts looking like a different "
+           "product")
+
+    ok("<ng-template #tplGlyph let-t>" in html,
+       "the fourteen template glyphs are defined once and used by both the "
+       "rose and the list")
+    ok(html.count('[ngTemplateOutlet]="tplGlyph"') == 2,
+       "by outlet in exactly the two places that draw a template")
+    ok(html.count("pickTemplate(") >= 3,
+       "and every tile still calls the picker that was already there — the "
+       "ring changed where a tile sits, not what clicking it does")
+
+    # The menus, which the restyle broke and then found broken.
+    ok("overflow: visible;" in section(css, ".dz-landing .dz-prompt-card", "\n}"),
+       "the composer card no longer clips its own dropdowns — `overflow: "
+       "hidden` was rounding a child's corners and cropping every menu "
+       "opened from the footer to 38px")
+    ok("border-radius: 18px 18px 0 0;" in css,
+       "and the corners are rounded on the child that needed it, which is "
+       "what the clip was for")
+
+    fit = (ROOT / "frontend/src/app/design/fit-menu.directive.ts").read_text()
+    ok("window.innerHeight - top" in fit,
+       "a menu is capped by the room below it, measured — a vh fraction "
+       "measures the window and cannot know where the menu starts, which is "
+       "how a picker opening at y=407 was given two thirds of the viewport")
+    ok("selector: '.dz-menu, .dz-picker, .dz-attach'" in fit,
+       "and every menu is covered by class, because the one left out would "
+       "be the one that overruns")
+
+    ok("360 / Math.max(1, this.templates().length)" in ts,
+       "the ring divides the circle by however many templates exist, so it "
+       "stays even when the catalogue changes")
+    ok("roseTicks" in ts and "angle % 45 === 0" in ts,
+       "and its graduations come from the same geometry rather than being "
+       "drawn by hand beside it")
+
+    # The chart's own reset, which was the part left out. Every size in the
+    # rose already matched it — 10, 16, 11, 8.5 — and the tiles still did not
+    # look like the chart, because a <button> takes the UA's font rather than
+    # the page's: the labels and the hub's button were Arial while the two
+    # lines beside them were the system face. Measured after: every element
+    # in the rose reports -apple-system or SF Mono, and the labels break
+    # where the chart's break — "Mobile app design" and "Color + type
+    # pairing" on two lines, the other twelve on one.
+    ok("font-family: inherit;" in section(css, ".dz-rose button {", "\n}"),
+       "the rose's buttons are set in the page's type, not the browser's — "
+       "declaring a font-size on a button fixes the size and leaves the face")
+    ok("letter-spacing: 0;" in section(css, ".dz-tpl-lb {", "\n}"),
+       "and a tile label states its tracking as the chart does, rather than "
+       "inheriting the app's tighter body tracking into a 74px box where it "
+       "decides where a two-word label breaks")
+
+
+def check_the_dial_ticks() -> None:
+    """The rose clicks as the needle passes a template, like a detent.
+
+    Synthesised rather than played from a file: a tick is a short envelope,
+    and generating it costs no request, cannot be caught mid-play by the next
+    one, and can take its pitch from the bearing — which is what makes
+    fourteen clicks read as a dial turning rather than a key being pressed.
+    Measured across five tiles: 1650, 1728, 1806, 1884, 1962 Hz.
+
+    Three things it has to not do, all of them about not being obnoxious.
+
+    *Not start itself.* Browsers refuse an AudioContext until the page has
+    been interacted with, and they are right to — a page that makes a noise
+    before you touch it is a page nobody trusts. Ticks before that are
+    dropped rather than queued, so nothing fires in a burst later.
+
+    *Not repeat on the same detent.* Re-entering a tile the needle already
+    points at is not a new position. Measured: two mouseenters on one tile,
+    one tick.
+
+    *Not become a buzz.* Sweeping the pointer across the whole ring in one
+    frame would schedule fourteen overlapping clicks, which the ear hears as
+    a tone. A 28ms floor holds them apart. Measured: fourteen tiles crossed
+    instantly, one tick.
+
+    And it can be switched off, which anything that makes a sound has to
+    offer. The preference is remembered, because being asked to silence the
+    same thing twice is worse than the sound was.
+    """
+    print("\nthe dial ticks as it turns, and can be told not to")
+    tick = (ROOT / "frontend/src/app/design/tick.service.ts").read_text()
+    ts = (ROOT / "frontend/src/app/design/design.ts").read_text()
+    html = (ROOT / "frontend/src/app/design/design.html").read_text()
+
+    ok("createOscillator" in tick and "exponentialRampToValueAtTime" in tick,
+       "the tick is synthesised, so it costs no asset and its pitch can "
+       "follow the bearing")
+    ok("(step % 16)" in tick,
+       "which it does — the ring rises as it turns rather than repeating one "
+       "click fourteen times")
+    ok("GAP_MS" in tick and "now - this.lastAt < TickSound.GAP_MS" in tick,
+       "a sweep across the ring cannot stack into a buzz")
+    ok("if (!ctx || ctx.state !== 'running') return;" in tick,
+       "and a tick before the page has been interacted with is dropped, not "
+       "queued to fire in a burst once it may")
+
+    ok("if (this.rosePoint() === index) return;" in ts,
+       "re-entering the tile the needle is already on is not a detent")
+    ok("this.tick.play(index);" in ts and "pointAt" in ts,
+       "the click follows the pointer, from the handler rather than from an "
+       "effect — an effect would also fire when the selection changed for "
+       "other reasons, and a dial that clicks at nothing is worse than a "
+       "silent one")
+
+    ok("dz-tickbtn" in html and "tick.toggle()" in html,
+       "it can be silenced, beside the view toggle")
+    ok("localStorage.setItem(TickSound.KEY" in tick,
+       "and stays silenced, because being asked twice is worse than the "
+       "sound")
+    ok('[attr.aria-pressed]="tick.enabled()"' in html,
+       "with its state on the control, so it is legible to a screen reader "
+       "rather than only to the ear it affects")
+
+
+def check_the_pipelines_index_reads_as_a_chart() -> None:
+    """Pipelines wears the same chart as Design, and counts only what it knows.
+
+    Same rule as the Design landing, and the same reason: the mockup's layout
+    is adopted, its colours are aliases onto the tokens the rest of Compass
+    uses. One module with a palette of its own reads as a different product;
+    two modules with two different palettes of their own read as three.
+
+    The health strip is where this had to be honest. The mockup counts
+    healthy, failing and runs-today, and Compass does not hold any of that on
+    the index — runs live behind `/v1/pipelines/{id}/runs`, so filling those
+    cards would mean one request per pipeline on every visit, and filling
+    them without the requests would mean inventing them. The strip counts
+    what the list actually carries instead: ready, needs setup, not yet run,
+    paused. It answers the question the mockup's strip is really asking —
+    what needs me — from data already in the browser.
+
+    `missingFor` is `neededSetup` generalised. That computed answered "what is
+    this pipeline missing" for the open one; the index needs it for all of
+    them, and every input — node types, connections — was already loaded. So
+    the status on a card is the same judgement the setup banner makes inside
+    the editor, rather than a second rule that could disagree with it.
+
+    Two things the restyle also fixed rather than added: `PipelineSummary`
+    never declared `triggers`, though the API has always sent them, and there
+    was no `age()` here so the two indexes would have told the time
+    differently.
+    """
+    print("\nthe Pipelines index reads as a chart, and counts what it knows")
+    css = (ROOT / "frontend/src/app/pipelines/pipelines.css").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    models = (ROOT / "frontend/src/app/models.ts").read_text()
+
+    block = section(css, "There is no dark block", "\n}")
+    ok("--brass: var(--accent)" in block and "--paper: var(--bg)" in block,
+       "every colour is an alias onto the app's own, so Pipelines and Design "
+       "cannot drift apart from each other or from the shell")
+    for owned in ("--ink:", "--surface:"):
+        ok(owned not in block,
+           f"and {owned[:-1]} is left to the app, as in Design")
+
+    ok("private missingFor(pipeline: PipelineSummary)" in ts,
+       "a card's standing comes from the same missing-connection rule the "
+       "editor's setup banner uses, not a second one beside it")
+    ok("readonly health = computed" in ts and "runs" not in section(ts, "readonly health = computed", "\n  });"),
+       "the strip counts the list, and does not reach for run history it "
+       "would need a request per pipeline to get")
+    ok("'paused' | 'setup' | 'never' | 'ready'" in ts,
+       "and the four standings are ordered by what a person needs first — "
+       "switched off beats missing a credential beats never having run")
+
+    ok("readonly shown = computed" in ts and 'this.filter()' in ts,
+       "the chips and the search filter the list that is already loaded")
+    ok("pl-hcard" in html and "pl-chip" in html,
+       "from the cards and from the chips, which count the same thing")
+    # A <button> that names no colour does not inherit the page's: it takes
+    # the UA's `buttontext`, which follows the operating system rather than
+    # the app's theme switch. Every other line on the card sets a colour, so
+    # only the count was affected — black on a dark card. Measured after, in
+    # dark: the count is #F5F5F7, and a sweep of the index and the editor
+    # finds no text left below a luminance of 70.
+    ok("color: var(--ink);" in section(css, ".pl-hcard {", "\n}"),
+       "the health card names its own text colour, because a button does not "
+       "inherit the page's and the count came out black in the dark theme")
+
+    ok("triggers: Record<string, unknown>[];" in models,
+       "PipelineSummary declares the triggers the API has always sent")
+    ok("age(epochSeconds: number)" in ts,
+       "and Pipelines tells the time the way Design does, rather than "
+       "inventing a second house style for it")
+
+
+def check_the_editor_reads_as_a_chart() -> None:
+    """The canvas and the drawer, gone over against the mockup properly.
+
+    The index was restyled and the editor was left alone, which was the wrong
+    place to stop — the editor is where the time is spent. Three things were
+    genuinely missing rather than merely different.
+
+    *A node said what it was called and nothing else.* Two white boxes reading
+    "Gmail Trigger" and "Save to SQL Server" cannot be told apart as a
+    trigger from a connector, and neither says which account it is bound to.
+    Nodes now carry a category stripe, a kind in mono, and a line saying what
+    the step is and what it is bound to — "insert · no connection" is the
+    fact a person is looking for when a run failed.
+
+    *NODE_W and NODE_H were duplicated as literals in the template.* The
+    constants said 190 and 62, the template wrote 190 and 62 beside them, and
+    edge routing used the constants. Making the box taller for the new line
+    clipped every node until the literals were found, because only one of the
+    two places had changed. The template reads the constants now, so they
+    cannot disagree again.
+
+    *The drawer was one list.* It is Logs, Run history and Data, and all
+    three show something real: the history is the runs endpoint, fetched when
+    the tab is opened rather than with the pipeline, and Data is the payload
+    the log detail already holds. An empty payload says so rather than
+    printing {} — and says where to look when the step ran inside a loop,
+    which is the case that produces one.
+
+    Measured: a dry run of the fan-out pipeline gave 17 rows of history
+    reading "manual · dry run · done · 116ms", and Data named the step it was
+    showing.
+    """
+    print("\nthe Pipelines editor reads as a chart too")
+    canvas_css = (ROOT / "frontend/src/app/pipelines/canvas.css").read_text()
+    canvas_ts = (ROOT / "frontend/src/app/pipelines/canvas.ts").read_text()
+    canvas_html = (ROOT / "frontend/src/app/pipelines/canvas.html").read_text()
+    css = (ROOT / "frontend/src/app/pipelines/pipelines.css").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+
+    ok("subFor(node: PipelineNode)" in canvas_ts and "cv-sub" in canvas_html,
+       "a node says what it is and what it is bound to, not only what someone "
+       "called it")
+    ok("--kind-trigger" in canvas_css and "cv-legend" in canvas_html,
+       "and its category is a colour with a legend, so a graph can be read at "
+       "a glance rather than word by word")
+    ok('[style.width.px]="nodeW"' in canvas_html
+       and "readonly nodeW = NODE_W;" in canvas_ts,
+       "the box's size comes from the constants the edge routing uses — the "
+       "template held its own copies, and making the node taller clipped "
+       "every one of them until that was found")
+    ok("radial-gradient(var(--dotgrid)" in canvas_css,
+       "the canvas is surveyor's paper rather than a blank field")
+    ok(".cv-node > * { flex: none; }" in canvas_css,
+       "nothing in the node shrinks: the box is a fixed-height flex column, "
+       "and the name measured 4px tall and vanished — still there, still "
+       "black, and one line of text high in the wrong dimension")
+    ok("Deliberately not `overflow: hidden`" in canvas_css,
+       "and the box does not clip itself: rounding the stripe that way took "
+       "half the output port with it, and the half that went is half the "
+       "target you grab to wire two steps together")
+    ok("kindLabel(node: PipelineNode)" in canvas_ts,
+       "a trigger's badge says TRIGGER — it is categorised as a connector so "
+       "the engine will mock it, which is right, and calling it CONNECTOR "
+       "beside the connector it feeds is the opposite of a label's job")
+
+    ok("readonly capabilityNotes = computed" in ts,
+       "the capability explainer reads the graph, so it names the steps that "
+       "asked — which is the fact you need in order to decide")
+    ok(".pl-btn svg { width: 13px" in css,
+       "and an inline icon is sized: an SVG with only a viewBox fills its "
+       "button, which turned Dry run into a brass square")
+
+    # The bar was measured against the chart rather than eyeballed, because
+    # "close" in a toolbar reads as a different application.
+    ok(".pl-root,\n.pl-editor {" in css,
+       "the palette is declared on both roots — the index and the editor are "
+       "siblings, and declaring it on the first left every alias undefined "
+       "in the second, which is why Run came out transparent rather than "
+       "unstyled")
+    for exact in ("font-size: 11.5px;", "font-size: 16px;", "font-size: 10.5px;"):
+        ok(exact in css, f"the bar carries the chart's own {exact[:-1]}")
+    ok(".pl-cap.on.locked {" in css,
+       "and a capability a step actually needs is marked, not merely filled: "
+       "turning it off would stop that step")
+    ok("--kind-trigger: #1f74b8;" in canvas_css
+       and ".cv-wrap {" in canvas_css,
+       "the kind colours sit on the wrapper, because the legend is a sibling "
+       "of the scrolling surface and a colour defined there resolved to "
+       "nothing — the dots came out invisible")
+
+    ok(html.count("pl-dtab") >= 3 and html.count("drawerTab() ===") >= 3,
+       "the drawer is three panes, not one list")
+    ok("async loadRunHistory" in ts and "pipelineRuns" in ts,
+       "run history is the runs endpoint, so the tab shows what happened "
+       "rather than a placeholder")
+    ok("if (tab === 'runs' && !this.runHistory().length)" in ts,
+       "fetched when the tab is opened — a run list nobody looks at is a "
+       "request nobody asked for")
+    ok("hasPayload(nodeRun: PipelineNodeRun)" in ts,
+       "and an empty payload says so instead of printing an empty object as "
+       "though it were data")
+    ok("pl-dpane" in css and "flex row" in css,
+       "the new panes have their own box: `.pl-logs-body` is a flex row for "
+       "the log list and its detail, and reusing it laid the history rows "
+       "out side by side")
+
+
+def check_a_step_can_hang_off_any_side() -> None:
+    """Three faults from working in the editor, all of them the same shape.
+
+    *The inspector could not be scrolled.* The pane used to be its own
+    scroller; then it gained a fixed header and `overflow: hidden` for the
+    card's rounded corners, and the two together made a form whose bottom
+    rows simply did not exist. Measured before the fix: the pane was 545px
+    tall around 707px of content with no scroller anywhere in the chain. The
+    body is the scroller now, under the head that has to stay put.
+
+    *The export dialog's file viewer was 150px tall.* That cap was written
+    for the drawer's Data pane and left unscoped, so it also caught the
+    dialog — 878px of file shown through a 150px slot, which is why the code
+    looked mis-set beside the file list. This one was mine, from two turns
+    earlier: a rule for one pane has to name the pane. Measured after:
+    `{"h": 835, "scrollH": 824, "capped": false}`.
+
+    *Steps could only be added to the right.* A graph is not always drawn
+    left to right — a retry hangs below, an enrichment comes in from the
+    side — and one output edge made every such wire leave the right face and
+    double back. Every node now carries a handle and a + on all four edges,
+    a wire leaves and arrives on whichever pair of faces actually face each
+    other, and several wires on one edge are spread along it rather than
+    stacked on a pixel.
+
+    Two things that only showed up once it was running.
+
+    Placement had to avoid what is already there: hanging two steps off the
+    same edge put the second one exactly on the first. The new step now
+    slides *across* the edge it was added to — down the side, along the top —
+    until the slot is clear.
+
+    And a step added on the left or the top lands at a smaller coordinate
+    than anything else, often a negative one, while the view starts at the
+    origin: the node you just asked for was created off-screen. The canvas
+    pans the selection into view. Only the selection is tracked, deliberately
+    — reading the pan there would make dragging a selected node past the edge
+    snap it back, and that is worse than the bug it fixes.
+
+    Measured in the browser, four steps hung off one node: Filter left at
+    (-240, 40), Set variable above at (40, -130), Wait below at (40, 210),
+    Fail below-and-across at (276, 210) — and the wires
+    `M 40 95 ... -30 95` (left face to right face), `M 145 40 ... 145 -20`
+    (top to bottom) and `M 250 76.7` / `M 250 113.3` (two edges sharing the
+    right face, spread) say the routing agrees with the geometry.
+    """
+    print("\na step can be hung off any face of another")
+    css = (ROOT / "frontend/src/app/pipelines/pipelines.css").read_text()
+    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
+    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
+    canvas_ts = (ROOT / "frontend/src/app/pipelines/canvas.ts").read_text()
+    canvas_html = (ROOT / "frontend/src/app/pipelines/canvas.html").read_text()
+
+    ok(".pl-side-body {" in css and 'class="pl-side-body"' in html,
+       "the inspector scrolls: the head stays and the form moves under it, "
+       "rather than the pane clipping its own last rows away")
+    ok("overflow-y: auto;" in css.split(".pl-side-body {")[1].split("}")[0],
+       "and it is the body that scrolls, not the pane — the pane cannot, it "
+       "is what rounds the corners")
+    ok(".pl-dpane .pl-code {" in css,
+       "the drawer's code cap names the drawer: unscoped it also caught the "
+       "export dialog's viewer and showed 878px of file through 150px")
+
+    ok("export type Side = 'top' | 'right' | 'bottom' | 'left';" in canvas_ts,
+       "a node has four faces, not one output side")
+    ok("readonly sideHandles: Side[] = ['top', 'bottom', 'left'];" in canvas_ts
+       and "cv-sideadd" in canvas_html,
+       "and each of them carries a handle to drag from and a + to add from — "
+       "the fourth is the output port that was already there")
+    ok("facing(source: PipelineNode, target: PipelineNode)" in canvas_ts,
+       "a wire leaves and arrives on the two faces that face each other, so "
+       "a step placed above its source does not look like it feeds backwards")
+    ok("anchor(node: PipelineNode, side: Side, index = 0, total = 1)" in canvas_ts,
+       "several wires on one face are spread along it rather than stacked on "
+       "the same pixel")
+    ok("side?: Side" in ts and "if (after.side === 'left') spot.x -= gap.x;" in ts,
+       "a step added from a face lands on that face — which is the only thing "
+       "the + on that face promised")
+    ok("for (let guard = 0; guard < 40 && taken(spot); guard++)" in ts,
+       "and it slides across that face until the slot is clear: two steps "
+       "hung off one edge belong beside each other, not on each other")
+    ok("private readonly reveal = effect(() => {" in canvas_ts
+       and "private bringIntoView(id: string)" in canvas_ts,
+       "the canvas pans to the new step: added on the left or the top it "
+       "lands at a negative coordinate, and the view starts at the origin — "
+       "the node you asked for was made outside the window")
+    ok("grid-template-rows: minmax(0, 1fr);" in css,
+       "and the step picker can be scrolled to the bottom: the overlay is a "
+       "grid whose one row defaults to `auto`, an auto row is sized by its "
+       "content, and stretch only grows a row into leftover space — so a "
+       "catalogue of thirty steps made the row 3202px inside an 800px "
+       "window, the drawer's `height: 100%` measured the row, and the list "
+       "was handed all the room it asked for with `overflow-y: auto` live "
+       "and nothing to scroll")
+    # Portability, checked rather than assumed: the drawer is selected by a
+    # class the template writes, not by :has(), which Chrome and Edge only
+    # learned in 105 and Firefox in 121 — and a browser without it drops the
+    # padding, the placement and the row cap in one go. Verified by deleting
+    # the rule at runtime and re-measuring.
+    ok(":has(" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S),
+       "and it is selected by a class rather than by :has() — the markup "
+       "already knows which of the four overlays this is, and asking the "
+       "selector engine to rediscover it costs a feature some browsers in "
+       "use do not have")
+    ok("max-height: 100vh;" in section(css, ".pl-picker {", "\n}"),
+       "with the window stated on the drawer as well, in a unit every "
+       "browser has understood for a decade — the row cap is one rule away "
+       "from the drawer growing to its whole catalogue again")
+    ok("untracked(() => this.bringIntoView(id));" in canvas_ts,
+       "tracking the selection and nothing else, on purpose: reading the pan "
+       "there would snap a selected node back the moment you dragged it past "
+       "the edge, which is worse than the bug being fixed")
+
+
 def check_asking_the_person() -> None:
     """The model can put a decision to the person and wait for the answer.
 
@@ -1205,8 +2188,10 @@ def check_reasoning_is_visible_by_default() -> None:
     ok("thinkingCollapsed" not in models,
        "and so is the one that replaced it — the body is unconditional")
 
-    for page, prefix in (("frontend/src/app/app.html", "b"),
-                         ("frontend/src/app/home-chat/home-chat.html", "m")):
+    # Home was dropped from this list when it stopped rendering reasoning at
+    # all. The rule this check defends — shown, never behind a flag — applies
+    # wherever the block is drawn, which is now the Code console only.
+    for page, prefix in (("frontend/src/app/app.html", "b"),):
         html = (ROOT / page).read_text()
         short = page.rsplit("/", 1)[-1]
         ok(f'<div class="cthink-body"><app-markdown [text]="{prefix}.thinking!" />'
@@ -1222,8 +2207,7 @@ def check_reasoning_is_visible_by_default() -> None:
            f"{page.rsplit('/', 1)[-1]}: and no handler kept for a control "
            "that is gone")
 
-    for page in ("frontend/src/app/app.css",
-                 "frontend/src/app/home-chat/home-chat.css"):
+    for page in ("frontend/src/app/app.css",):
         css = (ROOT / page).read_text()
         short = page.rsplit("/", 1)[-1]
         body = section(css, ".cthink-body {", "\n}")
@@ -1382,10 +2366,19 @@ def check_pipelines_flag() -> None:
     ok('os.environ.get("COMPASS_PIPELINES"' in settings,
        "and the switch still exists, so a deployment can remove it")
 
-    mount = section(server, "if get_settings().pipelines.enabled:", "\n\n")
-    ok("from compass.pipelines.routes import router" in mount,
+    # Two conditionals now, not one: the routes are mounted behind the flag
+    # and the trigger runner is started behind it. Anchored on what each
+    # block actually does rather than on the `if`, because there is more than
+    # one of those — the first version of this check silently moved to the
+    # wrong block when the second was added.
+    mount = section(server, "from compass.pipelines.routes import router", "\n\n")
+    ok("router" in mount,
        "the router is imported inside the conditional, so a disabled module "
        "costs no import time")
+    runner_block = section(server, "if get_settings().pipelines.enabled:", "yield")
+    ok("from compass.pipelines import runner" in runner_block,
+       "and the trigger runner starts behind the same flag — a loop polling "
+       "mailboxes for a module nobody can reach would be worse than useless")
     ok("from compass.pipelines" not in server.split("if get_settings()")[0],
        "and nothing pipeline-related is imported at the top of server.py")
 
@@ -1643,7 +2636,9 @@ def check_dry_run() -> None:
        "and the run records which mode it was, since a green mock and a green "
        "live run mean very different things")
 
-    ok('if run.mode == "mock" and node_type.category != "flow":' in engine,
+    # The condition gained pinned runs; the exclusion it guards is the same.
+    ok('and node_type.category != "flow":' in engine
+       and 'run.mode == "mock"' in engine,
        "control flow runs for real — a mocked branch would be a different "
        "graph, and verifying a different graph verifies nothing")
     ok('run.mode != "mock" and node_type.requires' in engine,
@@ -1782,7 +2777,9 @@ def check_setup_and_fix() -> None:
 
     ok("readonly setupTodo = computed" in ts and "missingCapabilities" in ts,
        "the banner counts missing connections and ungranted capabilities")
-    ok("which only you can grant" in html,
+    # The wording moved into the banner's second line when it gained one;
+    # the promise it makes is the same and is what this defends.
+    ok("Only you can grant a capability" in html,
        "and says the capability is not the builder's to grant")
 
     step = section(ts, "async connectStep()", "\n  private attachConnection")
@@ -2024,19 +3021,62 @@ def check_editor_layout() -> None:
     ok('class="pl-picker"' in html,
        "and the picker remains, which has room to describe a step")
 
-    work = section(html, '<div class="pl-work"', ">")
-    ok("inspecting" in work,
-       "the column count follows whether a node is selected")
+    # Tried both ways. A permanent inspector matches the chart mockup and
+    # gives the pane somewhere to explain itself, but an empty panel that
+    # only ever says "pick something" is a third of the width spent on an
+    # instruction — so it is back to appearing with a selection, and the
+    # canvas takes the space until then.
     ok('@if (selectedNode(); as n) {\n        <aside class="pl-side">' in html,
-       "so the inspector arrives with a selection rather than sitting there "
+       "the inspector appears with a selection, rather than sitting empty "
        "telling you to make one")
+    ok('class="pl-side-empty"' not in html,
+       "and there is no blank state to show, because there is no blank pane")
+    ok(".pl-work { grid-template-columns: 296px minmax(0, 1fr); }" in css
+       and ".pl-work.inspecting { grid-template-columns: 296px minmax(0, 1fr) 312px; }" in css,
+       "two columns until a step is picked, three after — at the chart's own "
+       "296 and 312")
 
-    ok('grid-template-columns: 320px minmax(0, 1fr);' in css,
-       "the builder holds a fixed column")
-    ok(".pl-work.inspecting { grid-template-columns: 320px minmax(0, 1fr) 300px; }"
-       in css, "and the inspector takes a third only while it is wanted")
-    ok("toggleChat" not in html,
-       "with no toggle for a panel the layout now depends on")
+    # The alignment, which was two gutters fighting: the section carried 16px
+    # at the sides and the banner carried its own 18px margin inside it, so
+    # the banner sat inset from the panes under it. Measured after: bar,
+    # banner, builder and drawer all begin at x=42 and end at x=1410.
+    ok("padding: 8px 18px 14px;" in css,
+       "one gutter, declared once on the editor")
+    ok(".pl-setup-bar { margin: 0; }" in css and ".pl-logs { margin: 0; }" in css,
+       "and nothing inside it spaces itself against that gutter")
+    # The builder does collapse now, asked for directly. The old rule was
+    # against a toggle for a panel the layout *depends* on — and it no longer
+    # does: the column leaves the grid rather than shrinking to a rail, so
+    # there is nothing half-present to reason about. The control sits on the
+    # canvas edge rather than in the builder's header, because a header that
+    # has gone with the pane cannot hold the button that brings it back.
+    ok('class="pl-collapse"' in html and "builderOpen()" in html,
+       "the builder collapses, from a control that survives its collapsing")
+    ok(".pl-work.no-builder { grid-template-columns: minmax(0, 1fr); }" in css
+       and ".pl-work.no-builder.inspecting {" in css,
+       "and the canvas takes the width, in both the selected and unselected "
+       "case — a rail would have kept the cost and lost the use")
+    # After a run, the drawer decided the layout and the panes took what was
+    # left — the wrong way round. Measured at 860px before: drawer 292px,
+    # panes 307px for a 380px graph, and the builder squeezed until its
+    # examples were gone. After: drawer 229, panes 370, nothing clipped.
+    ok("height: clamp(120px, 22vh, 186px);" in css,
+       "the drawer takes a height rather than a share of the window, so a "
+       "run cannot squeeze the canvas — and yields on a short window, "
+       "because it is the thing you glance at")
+    ok(".pl-logs-body > * { overflow-y: auto; min-height: 0; }" in css,
+       "each column inside it scrolls on its own, so a long payload never "
+       "pushes the drawer past the height it was given")
+    canvas_css_here = (ROOT / "frontend/src/app/pipelines/canvas.css").read_text()
+    ok("min-height: 0;" in canvas_css_here
+       and "predates the drawer" in canvas_css_here,
+       "and the canvas card fills its cell exactly: a 380px floor written "
+       "before the drawer had a fixed height pushed it 9px past its own row")
+
+    ok("localStorage.setItem('compass.pipelines.builder'"
+       in (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text(),
+       "remembered, because collapsing it says how you work rather than "
+       "something about this one pipeline")
     ok(".pl-work.inspecting { grid-template-columns: 240px minmax(0, 1fr) 260px; }"
        in css,
        "a narrow window keeps all three columns and lets the canvas take the "
@@ -2121,6 +3161,20 @@ def check_topbar_mark() -> None:
     ok(".topbar-mark" in css,
        "sized to the button it stands in for, so the row's rhythm does not "
        "change between sections")
+
+    # Which section you are in was said three ways — a raised surface, ink
+    # rather than muted, a heavier label — and all three are degrees of the
+    # same thing, which is why the strip read as four of a kind at a glance.
+    # The icon in the selected tab takes the accent: a difference in kind.
+    # Measured in both themes: selected icon #B8860B / #D9A441 against a
+    # label that stays ink, unselected muted throughout.
+    ok('.hc-switch button[aria-selected="true"] svg { stroke: var(--accent); }'
+       in css,
+       "the section you are in is marked by the colour of its icon, not only "
+       "by three shades of the same emphasis")
+    ok("color]=\"section() === 'home' ? 'var(--ink)'" in html,
+       "and the label stays ink: a whole tab in brass reads as a button "
+       "waiting to be pressed rather than the place you are standing")
 
 
 def check_profile_menu() -> None:
@@ -2531,6 +3585,17 @@ def main() -> int:
     check_profile_menu()
     check_sections_stay_separate()
     check_builder_history()
+    check_records_know_their_owner()
+    check_credentials_can_be_signed_into()
+    check_builder_thinks_like_an_architect()
+    check_sql_and_the_gmail_trigger()
+    check_pinned_data_beats_a_live_credential()
+    check_a_failed_export_leaves_no_file()
+    check_the_chart_is_only_paint()
+    check_the_dial_ticks()
+    check_the_pipelines_index_reads_as_a_chart()
+    check_the_editor_reads_as_a_chart()
+    check_a_step_can_hang_off_any_side()
     check_asking_the_person()
     check_answered_question_collapses()
     check_asking_shows_no_tool_row()
