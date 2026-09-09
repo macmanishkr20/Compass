@@ -298,6 +298,14 @@ class ChatEngine:
             while session.messages and session.messages[-1].role == "assistant":
                 session.messages.pop()
             if not session.messages or session.messages[-1].role != "user":
+                # Say so. A bare `return` here yielded an empty 200: the
+                # client opened a stream, received zero events, and waited for
+                # a completion that was never coming.
+                yield events.ErrorEvent(
+                    message="There is no answer to regenerate — this thread has "
+                            "no user message to re-run."
+                )
+                yield events.TurnComplete(reason="error", detail="nothing to regenerate")
                 return
             await self.store.rewrite(session.id, session.messages)
             rollback = list(session.messages)
@@ -319,8 +327,19 @@ class ChatEngine:
         async with session.turn_lock:
             session.abort_event.clear()
             if index < 0 or index >= len(session.messages):
+                yield events.ErrorEvent(
+                    message=f"Cannot edit message {index}: this thread has "
+                            f"{len(session.messages)} messages."
+                )
+                yield events.TurnComplete(reason="error", detail="edit index out of range")
                 return
             if session.messages[index].role != "user":
+                yield events.ErrorEvent(
+                    message=f"Cannot edit message {index}: it is a "
+                            f"{session.messages[index].role} message, and only a "
+                            "user message can be edited and resent."
+                )
+                yield events.TurnComplete(reason="error", detail="edit target is not a user message")
                 return
             del session.messages[index:]
             message = build_user_message(new_text, None)

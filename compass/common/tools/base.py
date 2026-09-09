@@ -45,6 +45,36 @@ class ToolOutput:
 ToolYield = Progress | ToolOutput
 
 
+#: How many expired request ids a broker remembers. Enough that a person who
+#: walked away comes back to a straight answer, small enough that a long
+#: session does not accumulate them. The ids are all that is kept.
+EXPIRED_MEMORY = 64
+
+
+class _Expiring:
+    """Remembers request ids whose deadline passed, so a late answer can be
+    told apart from a made-up one.
+
+    Without this, a question that timed out and a request id that never
+    existed are the same 404. They are not the same thing: one means "you took
+    longer than five minutes and the turn went on without you", which a person
+    can act on, and the other means "that id is not real". The turn cannot be
+    resumed either way — it has already finished — but saying which happened is
+    the difference between an explanation and a dead end.
+    """
+
+    def __init__(self) -> None:
+        self._ids: list[str] = []
+
+    def note(self, request_id: str) -> None:
+        self._ids.append(request_id)
+        if len(self._ids) > EXPIRED_MEMORY:
+            del self._ids[: len(self._ids) - EXPIRED_MEMORY]
+
+    def __contains__(self, request_id: str) -> bool:
+        return request_id in self._ids
+
+
 class PermissionBroker:
     """Bridges 'ask' verdicts to whatever surface is attached.
 
@@ -59,6 +89,8 @@ class PermissionBroker:
         # request_id -> (tool_name, primary_arg), so "allow always" can build a
         # session rule for the right tool/command.
         self._meta: dict[str, tuple[str, str]] = {}
+        #: Ids whose deadline passed. Consulted only to answer a late caller.
+        self.expired = _Expiring()
         # Session-scoped allow rules added by the user's "Always allow" choice;
         # consulted by check_permissions so matching calls stop prompting.
         self.session_rules: list = []
@@ -74,6 +106,17 @@ class PermissionBroker:
         future.set_result(allow)
         self._meta.pop(request_id, None)
         return True
+
+    def outcome(self, request_id: str, allow: bool) -> str:
+        """resolve(), but saying which of three things happened.
+
+        "resumed" — the turn was waiting and has been answered.
+        "late"    — the deadline had passed; the turn moved on without it.
+        "unknown" — no such request, which stays a 404.
+        """
+        if self.resolve(request_id, allow):
+            return "resumed"
+        return "late" if request_id in self.expired else "unknown"
 
     def allow_always(self, request_id: str) -> bool:
         """Grant this request AND remember the choice for the session: future
@@ -104,6 +147,7 @@ class PermissionBroker:
         try:
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
+            self.expired.note(request_id)
             return None
         finally:
             self._pending.pop(request_id, None)
@@ -127,6 +171,8 @@ class QuestionBroker:
     def __init__(self, *, policy: str = "interactive") -> None:
         self.policy = policy
         self._pending: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
+        #: Ids whose deadline passed. Consulted only to answer a late caller.
+        self.expired = _Expiring()
 
     def create(self, request_id: str) -> None:
         self._pending[request_id] = asyncio.get_running_loop().create_future()
@@ -139,6 +185,17 @@ class QuestionBroker:
         future.set_result(reply)
         return True
 
+    def outcome(self, request_id: str, reply: dict[str, Any] | None) -> str:
+        """answer(), but saying whether the turn was still waiting for it.
+
+        "resumed" — answered in time; the turn continues.
+        "late"    — the question had already timed out and been skipped.
+        "unknown" — no such question, which stays a 404.
+        """
+        if self.answer(request_id, reply):
+            return "resumed"
+        return "late" if request_id in self.expired else "unknown"
+
     async def wait(
         self, request_id: str, timeout: float
     ) -> dict[str, Any] | None:
@@ -150,6 +207,7 @@ class QuestionBroker:
         try:
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
+            self.expired.note(request_id)
             return None
         finally:
             self._pending.pop(request_id, None)

@@ -209,11 +209,26 @@ async def query(
 
         # ---- sample the model, streaming
         result: CompletionResult | None = None
+        # What has been streamed so far, kept so an abort mid-answer can save
+        # the part the reader already watched arrive.
+        streamed: list[str] = []
+        aborted_mid_stream = False
         try:
             async for item in client.stream_chat(
                 api_messages, tool_schemas, effort=effort, deployment=model,
                 reasoning_by_index=reasoning_by_index,
             ):
+                # Stop *inside* the stream, not only between turns. The check
+                # at the top of the loop is the only one there used to be, and
+                # a plain chat answer is one model call with no tool loop — so
+                # it had already been passed before the first token, and Stop
+                # did nothing at all: the turn ran to completion, was billed in
+                # full, and was written to the transcript, while the API had
+                # already answered {"aborted": true}. Breaking here closes the
+                # upstream response, which is what actually stops generation.
+                if ctx.abort_event.is_set():
+                    aborted_mid_stream = True
+                    break
                 if isinstance(item, ThinkingDelta):
                     yield events.ThinkingDelta(
                         text=item.text,
@@ -221,6 +236,7 @@ async def query(
                         agent_id=ctx.agent_id,
                     )
                 elif isinstance(item, StreamDelta):
+                    streamed.append(item.text)
                     yield events.TextDelta(text=item.text, agent_id=ctx.agent_id)
                 elif isinstance(item, ToolArgsDelta):
                     yield events.ToolArguments(
@@ -263,6 +279,31 @@ async def query(
                 yield _compaction(report, ctx)
             transition = Continue("reactive_compact")
             continue
+
+        if aborted_mid_stream:
+            # Keep what the reader saw. The turn stopped in the middle of an
+            # answer, and throwing that away would make Stop destructive as
+            # well as slow — the text was on screen, so it belongs in the
+            # thread the next turn re-sends.
+            partial = "".join(streamed)
+            if partial:
+                assistant = Message(
+                    role="assistant",
+                    content=partial,
+                    meta={"aborted": True, "agent_id": ctx.agent_id}
+                    if ctx.agent_id
+                    else {"aborted": True},
+                )
+                append(assistant)
+                yield events.AssistantMessage(
+                    uuid=assistant.uuid,
+                    content=assistant.content,
+                    tool_calls=[],
+                    finish_reason="aborted",
+                    agent_id=ctx.agent_id,
+                )
+            yield _complete(Terminal("aborted"), turn, ctx)
+            return
 
         if result is None:
             yield _complete(Terminal("error", "model returned no completion"), turn, ctx)

@@ -132,6 +132,25 @@ async def _owned_chat(session_id: str, user: str) -> None:
         raise HTTPException(status_code=404, detail="unknown chat session")
 
 
+async def _known_chat(session_id: str) -> None:
+    """404 unless this thread is real: a transcript on disk, or a live session
+    created in this process that has not written a turn yet.
+
+    Rename and delete used to answer 200 for any id at all — `{"deleted":
+    "never-existed-at-all"}` — while `/transcript` and `/fork` correctly said
+    404 for the same id. Worse than the inconsistency, a rename *wrote* a
+    metadata entry keyed by the id, so posting to a made-up id left a row in
+    the index for a thread that had never existed.
+
+    The in-memory arm matters: a thread is created before its first turn, so
+    for a moment it is real without being on disk, and refusing to rename it
+    then would be a different bug from the one being fixed."""
+    if session_id in chat_sessions:
+        return
+    if not await chat_engine.store.exists(session_id):
+        raise HTTPException(status_code=404, detail="unknown chat session")
+
+
 @router.post("/sessions/{session_id}/messages")
 async def send_chat_message(
     session_id: str, body: ChatMessageRequest, user: str = Depends(require_user)
@@ -302,6 +321,7 @@ async def patch_chat_session(
 ) -> dict:
     """Rename or star (pin) a Home chat — persisted to the chat meta index."""
     await _owned_chat(session_id, user)
+    await _known_chat(session_id)
     await chat_engine.store.set_meta(session_id, title=body.title, pinned=body.pinned)
     return {"ok": True}
 
@@ -309,6 +329,7 @@ async def patch_chat_session(
 @router.delete("/sessions/{session_id}")
 async def delete_chat_session(session_id: str, user: str = Depends(require_user)) -> dict:
     await _owned_chat(session_id, user)
+    await _known_chat(session_id)
     await chat_engine.store.delete(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}

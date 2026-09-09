@@ -16,12 +16,13 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from compass.common.auth import router as auth_router
 from compass.common.config import get_settings
 from compass.code.routes import engine
+from compass.common.workspaces import UnknownWorkspace
 from compass.code.routes import router as code_router
 from compass.common.routes import router as common_router
 from compass.design.routes import router as design_router
@@ -98,6 +99,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Compass", version="0.2.0", lifespan=lifespan)
+
+
+@app.exception_handler(UnknownWorkspace)
+async def _unknown_workspace(_request: Request, exc: UnknownWorkspace) -> JSONResponse:
+    """A workspace id that does not resolve is a 404, everywhere at once.
+
+    Twelve endpoints resolve a workspace root, and every one of them used to
+    receive the server's own repo when the id was stale. Handling it here
+    rather than at each call site means a new endpoint that resolves a
+    workspace inherits the right answer instead of having to remember it.
+    """
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
 
 # Mounted in the order they were written out when they all lived here, so
 # the order FastAPI matches paths in does not change.

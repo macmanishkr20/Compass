@@ -187,6 +187,25 @@ async def _owned_session(session_id: str, user: str) -> None:
         raise HTTPException(status_code=404, detail="unknown session")
 
 
+async def _known_session(session_id: str) -> None:
+    """404 unless this conversation is real: live in this process, a transcript
+    on disk, or a metadata row.
+
+    Rename and delete used to answer 200 for any id at all — `{"deleted":
+    "ghost"}` — while `/transcript` said 404 for the same id, and a rename
+    *wrote* a metadata row, so posting a made-up id left a conversation in the
+    index that had never been started. The live and metadata arms both matter:
+    a session exists before its first turn is written, and an archived one is a
+    metadata row whose transcript may have been trimmed."""
+    if session_id in sessions:
+        return
+    if await engine.store.exists(session_id):
+        return
+    if await engine.meta.get(session_id) is not None:
+        return
+    raise HTTPException(status_code=404, detail="unknown session")
+
+
 @router.post("/v1/sessions")
 async def create_session(
     body: CreateSessionRequest, user: str = Depends(require_user)
@@ -304,6 +323,7 @@ async def update_session(
     session_id: str, body: UpdateSessionRequest, user: str = Depends(require_user)
 ) -> dict:
     await _owned_session(session_id, user)
+    await _known_session(session_id)
     meta = await engine.update_meta(
         session_id,
         title=body.title,
@@ -336,6 +356,7 @@ async def delete_session(
     session_id: str, user: str = Depends(require_user)
 ) -> dict:
     await _owned_session(session_id, user)
+    await _known_session(session_id)
     await engine.delete_session(session_id)
     sessions.pop(session_id, None)
     return {"deleted": session_id}
@@ -356,9 +377,22 @@ async def answer_question(
         if body.skipped or not (body.chosen or body.other.strip())
         else {"chosen": body.chosen, "other": body.other}
     )
-    if not session.questions.answer(request_id, reply):
+    outcome = session.questions.outcome(request_id, reply)
+    if outcome == "unknown":
         raise HTTPException(status_code=404, detail="no pending question with that id")
-    return {"request_id": request_id, "answered": reply is not None}
+    if outcome == "late":
+        # The deadline passed and the turn carried on without an answer. Say
+        # that, rather than the 404 this used to be: "that id is not real" and
+        # "you took longer than the timeout" are different things, and only one
+        # of them is the person's fault.
+        return {
+            "request_id": request_id,
+            "answered": False,
+            "late": True,
+            "detail": "this question timed out and the turn continued without "
+                      "an answer; send it as a new message instead",
+        }
+    return {"request_id": request_id, "answered": reply is not None, "late": False}
 
 
 @router.post("/v1/sessions/{session_id}/permissions/{request_id}")
@@ -376,11 +410,21 @@ async def resolve_permission(
         )
     if body.behavior == "allow_always":
         resolved = session.broker.allow_always(request_id)
+        outcome = ("resumed" if resolved
+                   else "late" if request_id in session.broker.expired else "unknown")
     else:
-        resolved = session.broker.resolve(request_id, body.behavior == "allow")
-    if not resolved:
+        outcome = session.broker.outcome(request_id, body.behavior == "allow")
+    if outcome == "unknown":
         raise HTTPException(status_code=404, detail="no pending request with that id")
-    return {"request_id": request_id, "behavior": body.behavior}
+    if outcome == "late":
+        return {
+            "request_id": request_id,
+            "behavior": body.behavior,
+            "late": True,
+            "detail": "this request timed out and the tool was not run; ask "
+                      "again if you still want it",
+        }
+    return {"request_id": request_id, "behavior": body.behavior, "late": False}
 
 
 @router.post("/v1/sessions/{session_id}/abort")

@@ -26,6 +26,19 @@ logger = logging.getLogger("compass.workspaces")
 DEFAULT_ID = "default"
 
 
+class UnknownWorkspace(ValueError):
+    """A workspace id that was given and does not resolve to a folder.
+
+    Raised rather than quietly falling back. `resolve_root` used to answer the
+    server's own `workspace_root` for *any* id it could not find, which meant a
+    stale id — a workspace somebody had deleted, a second tab holding the old
+    selection, a typo — silently redirected file reads, the working diff, and
+    an agent's bash and write tools onto whatever repo Compass itself is
+    running from. Falling back is not needed for the honest case either: the
+    default workspace has its own id, is always registered, and resolves the
+    ordinary way."""
+
+
 @dataclass
 class Workspace:
     id: str
@@ -102,12 +115,25 @@ class WorkspaceRegistry:
             return self._load().get(workspace_id)
 
     async def resolve_root(self, workspace_id: str | None) -> Path:
-        """Absolute path for a session's workspace, falling back to default."""
-        if workspace_id:
-            ws = await self.get(workspace_id)
-            if ws and Path(ws.path).is_dir():
-                return Path(ws.path).resolve()
-        return get_settings().workspace_root
+        """Absolute path for a session's workspace.
+
+        No id means the default workspace, which is what an empty selection
+        has always meant. An id that *was* given and does not resolve raises
+        `UnknownWorkspace`: answering with a different directory than the one
+        that was asked for is worse than answering with an error, because
+        nothing downstream can tell the difference — the files come back, the
+        diff comes back, and bash runs somewhere nobody chose.
+        """
+        if not workspace_id:
+            return get_settings().workspace_root
+        ws = await self.get(workspace_id)
+        if ws is None:
+            raise UnknownWorkspace(f"unknown workspace: {workspace_id}")
+        root = Path(ws.path)
+        if not root.is_dir():
+            # Registered, but the folder has since been moved or deleted.
+            raise UnknownWorkspace(f"workspace folder is missing: {ws.path}")
+        return root.resolve()
 
     async def add_local(self, path: str, name: str | None = None) -> Workspace:
         resolved = Path(path).expanduser().resolve()
