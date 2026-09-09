@@ -54,6 +54,7 @@ class PipelinePatch(BaseModel):
     capabilities: list[str] | None = None
     triggers: list[dict[str, Any]] | None = None
     enabled: bool | None = None
+    estimate_id: str | None = None
 
 
 class RunStart(BaseModel):
@@ -203,6 +204,12 @@ async def patch_pipeline(pipeline_id: str, body: PipelinePatch,
         pipeline.triggers = body.triggers
     if body.enabled is not None:
         pipeline.enabled = body.enabled
+    if body.estimate_id is not None:
+        # Trimmed and length-capped, not validated against the Estimate store:
+        # the two modules switch independently, and a pipeline that refuses to
+        # load because a costing module is off would be a worse bug than a
+        # link that resolves to nothing. "" clears it.
+        pipeline.estimate_id = body.estimate_id.strip()[:64]
 
     await pstore.pipelines.save(pipeline, bump=graph_changed)
     return pipeline.to_dict()

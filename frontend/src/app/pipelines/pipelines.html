@@ -282,6 +282,27 @@
       <span class="pl-bar-meta">v{{ open()!.version }}</span>
       @if (dirty()) { <span class="pl-unsaved">unsaved</span> }
 
+      <!-- What this pipeline was costed against. Only where the module that
+           can answer it exists. -->
+      @if (estimateEnabled()) {
+        @if (linkedEstimate(); as est) {
+          <button class="pl-estlink" type="button" (click)="openEstimatePicker()"
+            [title]="'First year ' + estimateMoney(est) + ' — click to change'">
+            <span class="pl-estlink-k">costed</span>{{ est.name }}
+          </button>
+        } @else if (open()!.estimate_id) {
+          <button class="pl-estlink missing" type="button" (click)="openEstimatePicker()"
+            title="This pipeline names an estimate that is not on this server">
+            <span class="pl-estlink-k">costed</span>estimate not found
+          </button>
+        } @else {
+          <button class="pl-estlink add" type="button" (click)="openEstimatePicker()"
+            title="Link the estimate this pipeline was costed against">
+            + estimate
+          </button>
+        }
+      }
+
       <span class="pl-bar-space"></span>
 
       <span class="pl-capslab">Capabilities</span>
@@ -746,6 +767,42 @@
         }
       }
     </section>
+  </div>
+}
+
+@if (estimatePicking()) {
+  <div class="pl-modal pl-modal-drawer" (click)="estimatePicking.set(false)">
+    <aside class="pl-picker" (click)="$event.stopPropagation()">
+      <header class="pl-picker-head">
+        <h2 class="pl-picker-title">Which estimate?</h2>
+        <p class="pl-picker-sub">
+          The business case this pipeline implements. Linking one records what
+          was agreed; it changes nothing about how the pipeline runs.
+        </p>
+      </header>
+      <div class="pl-picker-list">
+        @if (open()!.estimate_id) {
+          <button class="pl-pick" type="button" (click)="linkEstimate('')">
+            <span class="pl-pick-label">Unlink</span>
+            <span class="pl-pick-desc">Leave this pipeline with no estimate.</span>
+          </button>
+        }
+        @for (e of estimateOptions(); track e.id) {
+          <button class="pl-pick" type="button" (click)="linkEstimate(e.id)">
+            <span class="pl-pick-label">{{ e.name }}</span>
+            <span class="pl-pick-desc">
+              {{ estimateMoney(e) }} first year · feasibility {{ e.score }}
+            </span>
+          </button>
+        }
+        @if (!estimateOptions().length) {
+          <p class="pl-picker-sub">
+            No estimates on this workspace yet — the Estimate section makes one
+            from a paragraph.
+          </p>
+        }
+      </div>
+    </aside>
   </div>
 }
 

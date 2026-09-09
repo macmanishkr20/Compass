@@ -26,6 +26,8 @@ const MUTATING = new Set([
 ]);
 import { PipelineInspector } from './inspector';
 import { Markdown } from '../markdown/markdown';
+import { EstimateApi } from '../estimate/estimate-api';
+import { EstimateSummary } from '../estimate/models';
 
 /**
  * The Pipelines section: list, palette, canvas, properties, runs.
@@ -51,6 +53,10 @@ import { Markdown } from '../markdown/markdown';
 })
 export class Pipelines {
   private readonly api = inject(CompassApiService);
+  /** The Estimate module's own service, injected rather than duplicated. The
+   *  dependency points one way and only from here: Estimate does not know
+   *  Pipelines exists. */
+  private readonly estimateApi = inject(EstimateApi);
 
   readonly loading = signal(false);
   readonly busy = signal('');
@@ -532,6 +538,7 @@ export class Pipelines {
 
   constructor() {
     void this.refresh();
+    void this.loadEstimateAvailability();
   }
 
   // -- loading --------------------------------------------------------------
@@ -767,6 +774,63 @@ export class Pipelines {
 
   // -- persisting and running -----------------------------------------------
 
+  // -- the estimate this pipeline was costed against ------------------------
+  //
+  // A one-way link: Pipelines knows an estimate id, Estimate knows nothing
+  // about pipelines. The server stores the string without resolving it,
+  // because the two modules switch independently and a pipeline that would
+  // not load on a box with costing switched off is a worse bug than a link
+  // that resolves to nothing. Everything below is gated on the health flag,
+  // so with Estimate off this is not merely inert — it is not rendered.
+
+  /** Whether the Estimate module exists on this server. Read from the health
+   *  endpoint, the same source the nav uses, rather than assumed — with the
+   *  flag off there are no costing routes and this whole affordance must not
+   *  be drawn. */
+  readonly estimateEnabled = signal(false);
+  readonly estimateOptions = signal<EstimateSummary[]>([]);
+  readonly estimatePicking = signal(false);
+
+  readonly linkedEstimate = computed(() => {
+    const id = this.open()?.estimate_id;
+    if (!id) return null;
+    return this.estimateOptions().find((e) => e.id === id) ?? null;
+  });
+
+  private async loadEstimateAvailability(): Promise<void> {
+    try {
+      this.estimateEnabled.set(!!(await this.api.health()).estimate);
+    } catch {
+      this.estimateEnabled.set(false);
+    }
+  }
+
+  async openEstimatePicker(): Promise<void> {
+    this.estimatePicking.set(true);
+    try {
+      const { estimates } = await this.estimateApi.list();
+      this.estimateOptions.set(estimates);
+    } catch {
+      // A costing module that cannot answer is not a pipeline error. The
+      // picker simply has nothing in it and says so.
+      this.estimateOptions.set([]);
+    }
+  }
+
+  /** Formatted here rather than through a pipe: the section imports no pipes
+   *  today, and adding CommonModule for one number is a poor trade. */
+  estimateMoney(e: EstimateSummary): string {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency', currency: e.currency || 'USD', maximumFractionDigits: 0,
+    }).format(e.total_expected);
+  }
+
+  linkEstimate(id: string): void {
+    this.mutate((p) => ({ ...p, estimate_id: id }));
+    this.estimatePicking.set(false);
+    void this.save();
+  }
+
   async save(): Promise<void> {
     const pipeline = this.open();
     if (!pipeline) return;
@@ -777,6 +841,7 @@ export class Pipelines {
         nodes: pipeline.nodes,
         edges: pipeline.edges,
         capabilities: pipeline.capabilities,
+        estimate_id: pipeline.estimate_id ?? '',
       });
       this.open.set(saved);
       this.dirty.set(false);

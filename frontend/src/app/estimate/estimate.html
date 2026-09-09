@@ -1,0 +1,541 @@
+<!-- The Estimate section: an index, a form, a report. Structure and measures
+     follow the mockup; the numbers behind them are the engine's. -->
+<div class="es">
+
+@if (view() === 'portfolio') {
+  <div class="scroll"><div class="wrap">
+    <div class="ix-head">
+      <div>
+        <h1>Estimate</h1>
+        <p>Whether to build it with AI, and what the first year costs. A model
+          reads the brief and labels it; every figure is computed.</p>
+      </div>
+      <!-- No "New estimate" button here, though the mockup has one.
+           It called `startNew('new')` — the same thing the New build card
+           below calls — so the two were not merely duplicates: the more
+           prominent of them silently picked one of the two branches, and
+           somebody who wanted an enhancement and reached for the primary
+           button got a new-build form without being told. Starting an
+           estimate is a *choice* between two kinds, and the two cards are
+           that choice asked properly. One way in, and it says which. -->
+      <div class="acts">
+        <button class="btn" type="button" (click)="refresh()">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="stats">
+      @for (s of stats(); track s.key) {
+        <div class="stat">
+          <div class="k">{{ s.label }}</div>
+          <div class="v">{{ s.value }}@if (s.of) {<small> / {{ s.of }}</small>}</div>
+          @if (s.split.length) {
+            <div class="split">
+              @for (p of s.split; track $index) {
+                <i [style.flex]="p.flex" [style.background]="p.colour"></i>
+              }
+            </div>
+          }
+          <div class="s" [style.margin-top]="s.split.length ? '6px' : null">{{ s.note }}</div>
+        </div>
+      }
+    </div>
+
+    <div class="entries">
+      <button class="entry lead" type="button" (click)="startNew('new')">
+        <span class="ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></span>
+        <span><b>New build</b><small>Cost something that does not exist yet. Full scope, full first-year run rate.</small></span>
+        <svg class="go" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+      <button class="entry" type="button" (click)="startNew('enhancement')">
+        <span class="ic"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 8.7l5.9-.8z"/></svg></span>
+        <span><b>Enhancement</b><small>Add AI to an application you already run — costed as the difference, not as a rebuild.</small></span>
+        <svg class="go" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+    </div>
+
+    @if (error()) {
+      <div class="err-banner" style="margin:0 0 12px">
+        <span>{{ error() }}</span>
+        <button type="button" (click)="error.set('')">✕</button>
+      </div>
+    }
+
+    <div class="ehead"><span class="sec-lab">Estimates on this workspace</span><span class="tk"></span></div>
+    <div class="tools">
+      @for (f of filters; track f.key) {
+        <button class="chip" type="button" [class.on]="filter() === f.key"
+          (click)="filter.set(f.key)">{{ f.label }}</button>
+      }
+    </div>
+    <div class="elist">
+      <div class="eh">
+        <span>Project</span><span>Verdict</span><span>Feasibility</span>
+        <span>First year</span><span>Confidence</span><span>Updated</span>
+      </div>
+      @for (e of shown(); track e.id) {
+        <button class="er" type="button" (click)="openEstimate(e.id)">
+          <div>
+            <div class="nm">{{ e.name }}</div>
+            <div class="sub">{{ typeLabel(e.project_type).toUpperCase() }}</div>
+          </div>
+          <div>
+            <span class="pill" [class]="'pill ' + verdictPill(e.verdict)">
+              <span class="d"></span>{{ verdictLabel(e.verdict) }}
+            </span>
+          </div>
+          <div class="fs">
+            @if (e.score) {
+              <span class="bar"><i [style.width.%]="e.score" [style.background]="scoreColour(e.score)"></i></span>
+              <span class="n">{{ e.score }}</span>
+            } @else {
+              <span class="n faint">—</span>
+            }
+          </div>
+          <div class="mt">{{ e.total_expected ? compactMoney(e.total_expected) : '—' }}</div>
+          <div class="mt sans">{{ confidenceLabel(e) }}</div>
+          <div class="mt sans faint">
+            {{ age(e.updated_at) }}
+            <span class="del" role="button" tabindex="0" title="Delete this estimate"
+              (click)="remove(e.id, $event)" (keydown.enter)="remove(e.id, $event)">✕</span>
+          </div>
+        </button>
+      }
+      @if (!shown().length) {
+        <p class="emptylist">
+          @if (loading()) { Loading… }
+          @else if (estimates().length) { Nothing matches that filter. }
+          @else { Nothing estimated yet. Describe a project and Compass will score its
+            feasibility, price the build and model the return. }
+        </p>
+      }
+    </div>
+  </div></div>
+}
+
+@if (view() === 'intake') {
+  <div class="f-head">
+    <button class="back" type="button" (click)="backToPortfolio()" aria-label="Back to the index">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+    </button>
+    <div>
+      <div class="path">Estimate</div>
+      <h2>{{ projectType() === 'enhancement' ? 'Enhancement' : 'New build' }}</h2>
+    </div>
+    <div class="prog">
+      <span class="txt">{{ running() ? stageLabel() : done() + ' of 6 complete' }}</span>
+      <span class="track"><i [style.width.%]="running() ? progress() : done() / 6 * 100"></i></span>
+      <button class="btn pri" type="button" [class.dis]="!canEstimate()" (click)="estimate()">
+        {{ running() ? 'Costing…' : 'Estimate' }}
+      </button>
+    </div>
+  </div>
+
+  @if (error()) {
+    <div class="err-banner">
+      <span>{{ error() }}</span>
+      <button type="button" (click)="error.set('')">✕</button>
+    </div>
+  }
+
+  <div class="cols">
+    <nav class="step">
+      @for (s of sections; track s.id; let i = $index) {
+        <button type="button" [class.on]="activeSection() === s.id"
+          [class.done]="sectionDone(s.id)" (click)="goToSection(s.id)">
+          <span class="n">{{ sectionDone(s.id) ? '✓' : i + 1 }}</span>{{ s.label }}
+          @if (i < sections.length - 1) { <span class="srail"></span> }
+        </button>
+      }
+    </nav>
+
+    <div class="fbody">
+
+      @if (catalog()?.draft) {
+        <div class="card" id="s-describe">
+          <div class="card-h"><span class="sec-lab">Describe it</span><span class="tk"></span></div>
+          <p class="help">A paragraph is enough. Compass fills the form in below and you
+            correct it — nothing is costed until you do.</p>
+          <textarea class="inp" style="min-height:104px" [value]="prose()"
+            [disabled]="drafting()"
+            (input)="prose.set($any($event.target).value)"
+            placeholder="e.g. Adjusters spend their day reading PDF claim packs and typing key fields into our claims system. We also want customers to ask about their claim status in the portal instead of phoning. About 900 claims a day."></textarea>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+            <button class="btn" type="button" [class.dis]="drafting() || !prose().trim()"
+              (click)="draftFromProse()">
+              <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+              {{ drafting() ? 'Reading the brief…' : 'Fill the form' }}
+            </button>
+            <span style="font-size:11.5px;color:var(--ink-3);line-height:1.45">
+              Volume figures are only filled in where you state them; the rate card is never touched.
+            </span>
+          </div>
+        </div>
+      }
+
+      <div class="card" id="s-project">
+        <div class="card-h"><span class="sec-lab">The project</span><span class="tk"></span></div>
+        <div class="fg"><label>Name</label>
+          <input class="inp" [value]="name()" (input)="name.set($any($event.target).value)"
+            placeholder="e.g. Customer support copilot" /></div>
+        <div class="fg"><label>What it does</label>
+          <span class="lh">A sentence or two. The classifier reads this.</span>
+          <textarea class="inp" [value]="description()"
+            (input)="description.set($any($event.target).value)"
+            placeholder="A sentence or two."></textarea></div>
+        <div class="row3">
+          <div class="fg"><label>Domain</label>
+            <input class="inp" [value]="domain()" (input)="domain.set($any($event.target).value)"
+              placeholder="e.g. SaaS / B2B" /></div>
+          <div class="fg"><label>Who uses it</label>
+            <input class="inp" [value]="targetUsers()" (input)="targetUsers.set($any($event.target).value)"
+              placeholder="e.g. Support agents" /></div>
+          <div class="fg"><label>Scale</label>
+            <select class="inp" [value]="scale()" (change)="scale.set($any($event.target).value)">
+              @for (s of catalog()?.scales ?? []; track s) {
+                <option [value]="s" [selected]="s === scale()">{{ label(s) }}</option>
+              }
+            </select></div>
+        </div>
+      </div>
+
+      @if (projectType() === 'enhancement') {
+        <div class="card" id="s-existing">
+          <div class="card-h"><span class="sec-lab">What already exists</span><span class="tk"></span></div>
+          <p class="help">Hosting, a database and networking you already run are not charged
+            for again — naming them is what makes this an enhancement estimate rather than a
+            second rebuild.</p>
+          <div class="fg"><label>Repository</label>
+            <input class="inp" [value]="repoUrl()" (input)="repoUrl.set($any($event.target).value)"
+              placeholder="https://github.com/org/repo" /></div>
+          <div class="row4">
+            <div class="fg"><label>Framework</label>
+              <input class="inp" [value]="framework()" (input)="framework.set($any($event.target).value)" placeholder="FastAPI" /></div>
+            <div class="fg"><label>Language</label>
+              <input class="inp" [value]="language()" (input)="language.set($any($event.target).value)" placeholder="Python" /></div>
+            <div class="fg"><label>Database</label>
+              <input class="inp" [value]="database()" (input)="database.set($any($event.target).value)" placeholder="Postgres" /></div>
+            <div class="fg"><label>Hosting</label>
+              <input class="inp" [value]="hosting()" (input)="hosting.set($any($event.target).value)" placeholder="Azure" /></div>
+          </div>
+        </div>
+      }
+
+      <div class="card" id="s-features">
+        <div class="card-h">
+          <span class="sec-lab">Work breakdown</span>
+          <span class="hint">{{ subCount() ? modules().length + ' modules · ' + subCount()
+            + ' sub-features · ' + wbsHours() + 'h' : '' }}</span>
+          <span class="tk"></span>
+          <button class="btn sm" type="button" (click)="addModule()">Add module</button>
+        </div>
+
+        @for (m of modules(); track m.id; let mi = $index) {
+          <div class="mod-edit">
+            <div class="mod-head">
+              <input class="inp grow" [value]="m.name" placeholder="Module name"
+                (input)="patchModule(mi, { name: $any($event.target).value })" />
+              <select class="inp" style="width:104px" [value]="m.phase"
+                (change)="patchModule(mi, { phase: +$any($event.target).value })">
+                @for (ph of [1, 2, 3]; track ph) {
+                  <option [value]="ph" [selected]="ph === m.phase">Phase {{ ph }}</option>
+                }
+              </select>
+              <span class="hrs">{{ moduleHours(m) }}h</span>
+              <button class="del" type="button" (click)="dropModule(mi)"
+                aria-label="Remove this module">
+                <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+
+            @for (s of m.sub_features; track s.id; let si = $index) {
+              <div class="item sub-edit">
+                <input class="inp grow" [value]="s.name" placeholder="Sub-feature"
+                  (input)="patchSub(mi, si, { name: $any($event.target).value })" />
+                <select class="inp" style="width:118px" [value]="s.size"
+                  (change)="patchSub(mi, si, { size: $any($event.target).value, units: null })">
+                  @for (b of catalog()?.size_bands ?? []; track b.key) {
+                    <option [value]="b.key" [selected]="b.key === s.size">
+                      {{ b.key.toUpperCase() }} · {{ b.units }}d
+                    </option>
+                  }
+                </select>
+                <span class="hrs">{{ s.units ? s.units * (catalog()?.unit_hours ?? 9)
+                  : bandHours(s.size) }}h</span>
+                <button class="del" type="button" (click)="dropSub(mi, si)"
+                  aria-label="Remove this sub-feature">
+                  <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+              </div>
+            }
+            <button class="addsub" type="button" (click)="addSub(mi)">+ Sub-feature</button>
+          </div>
+        }
+
+        @if (!modules().length) {
+          <p class="emptyline">Nothing yet. A module is a deliverable area; its sub-features
+            are the lines somebody can size. Nothing should be bigger than
+            {{ (catalog()?.unit_hours ?? 9) * 10 }} hours — if it is, it hasn't been
+            understood yet, and it wants splitting.</p>
+        }
+      </div>
+
+      <div class="card" id="s-assumptions">
+        <div class="card-h">
+          <span class="sec-lab">Assumptions</span>
+          <span class="hint">{{ assumptionRows().length ? assumptionRows().length + ' stated' : '' }}</span>
+          <span class="tk"></span>
+          <button class="btn sm" type="button" (click)="addAssumption()">Add assumption</button>
+        </div>
+        @for (a of assumptionRows(); track a.id; let i = $index) {
+          <div class="item">
+            <input class="inp grow" [value]="a.text"
+              placeholder="e.g. Third-party licences are procured by the client"
+              (input)="patchAssumption(i, $any($event.target).value)" />
+            <button class="del" type="button" (click)="dropAssumption(i)"
+              aria-label="Remove this assumption">
+              <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+        }
+        @if (!assumptionRows().length) {
+          <p class="emptyline">What the number takes for granted. These travel with the
+            estimate and are usually what a disagreement is actually about.</p>
+        }
+      </div>
+
+      @if (features().length) {
+        <div class="card">
+          <div class="card-h">
+            <span class="sec-lab">Features (flat list)</span>
+            <span class="hint">from an earlier estimate — priced the old way</span>
+            <span class="tk"></span>
+            <button class="btn sm" type="button" (click)="addFeature()">Add feature</button>
+          </div>
+        @for (f of features(); track f.id; let i = $index) {
+          <div class="item">
+            <input class="inp grow" [value]="f.name" placeholder="Feature name"
+              (input)="patchFeature(i, { name: $any($event.target).value })" />
+            <select class="inp" style="width:132px" [value]="f.complexity"
+              (change)="patchFeature(i, { complexity: $any($event.target).value })">
+              @for (c of catalog()?.complexities ?? []; track c) {
+                <option [value]="c" [selected]="c === f.complexity">{{ label(c) }}</option>
+              }
+            </select>
+            <span class="hrs">{{ featureHours(f.complexity) }}h</span>
+            <button class="del" type="button" (click)="dropFeature(i)" aria-label="Remove this feature">
+              <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+        }
+        <p class="emptyline">A breakdown, when there is one, replaces this list: modules
+          and sub-features price at the nine-hour unit, a flat feature at its complexity
+          band. Delete these rows once the work is broken down.</p>
+        </div>
+      }
+
+      <div class="card" id="s-usecases">
+        <div class="card-h">
+          <span class="sec-lab">AI use cases</span>
+          <span class="hint">{{ useCases().length ? useCases().length + ' added' : '' }}</span>
+          <span class="tk"></span>
+          <button class="btn sm" type="button" (click)="addUseCase()">Add use case</button>
+        </div>
+        @for (u of useCases(); track u.id; let i = $index) {
+          <div class="item">
+            <input class="inp grow" [value]="u.name" placeholder="Use case name"
+              (input)="patchUseCase(i, { name: $any($event.target).value })" />
+            <select class="inp" style="width:186px" [value]="u.task_type ?? ''"
+              (change)="patchUseCase(i, { task_type: $any($event.target).value || null })">
+              <option value="" [selected]="!u.task_type">classify for me</option>
+              @for (t of catalog()?.task_types ?? []; track t) {
+                <option [value]="t" [selected]="t === u.task_type">{{ taskLabel(t) }}</option>
+              }
+            </select>
+            <select class="inp" style="width:126px" [value]="u.priority"
+              (change)="patchUseCase(i, { priority: $any($event.target).value })">
+              @for (p of catalog()?.priorities ?? []; track p) {
+                <option [value]="p" [selected]="p === u.priority">{{ label(p) }}</option>
+              }
+            </select>
+            <button class="del" type="button" (click)="dropUseCase(i)" aria-label="Remove this use case">
+              <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+            </button>
+          </div>
+        }
+        @if (!useCases().length) {
+          <p class="emptyline">Leave the task type blank and it will be classified from the
+            name and description. It only ever picks a label from the list — the costing is
+            the same either way.</p>
+        }
+      </div>
+
+      <div class="card" id="s-volume">
+        <div class="card-h"><span class="sec-lab">Volume</span><span class="tk"></span></div>
+        <div class="row4">
+          <div class="fg"><label>Daily users</label>
+            <input class="inp" type="number" [value]="dailyUsers() ?? ''" placeholder="0"
+              (input)="dailyUsers.set(num($any($event.target).value))" /></div>
+          <div class="fg"><label>Requests per day</label>
+            <input class="inp" type="number" [value]="requestsPerDay() ?? ''" placeholder="0"
+              (input)="requestsPerDay.set(num($any($event.target).value))" /></div>
+          <div class="fg"><label>Data volume (GB)</label>
+            <input class="inp" type="number" [value]="dataGb() ?? ''" placeholder="0"
+              (input)="dataGb.set(num($any($event.target).value))" /></div>
+          <div class="fg"><label>Growth (%/yr)</label>
+            <input class="inp" type="number" [value]="growthPercent() ?? ''" placeholder="0"
+              (input)="growthPercent.set(num($any($event.target).value))" /></div>
+        </div>
+        <div class="fg" style="margin-bottom:0"><label>Peak load pattern</label>
+          <input class="inp" [value]="peakPattern()" (input)="peakPattern.set($any($event.target).value)"
+            placeholder="e.g. business hours, spiky, 24/7" /></div>
+      </div>
+
+      <div class="card" id="s-technical">
+        <div class="card-h"><span class="sec-lab">Technical</span><span class="tk"></span></div>
+        <div class="row2">
+          <div class="fg"><label>Deployment</label>
+            <select class="inp" [value]="deployment()" (change)="deployment.set($any($event.target).value)">
+              @for (d of deployments; track d) {
+                <option [value]="d" [selected]="d === deployment()">{{ label(d) }}</option>
+              }
+            </select></div>
+          <div class="fg"><label>Existing infrastructure</label>
+            <input class="inp" [value]="existingInfra()" (input)="existingInfra.set($any($event.target).value)"
+              placeholder="e.g. Azure, AWS, on-prem" /></div>
+        </div>
+        <div class="fg"><label>Compliance</label>
+          <input class="inp" [value]="compliance()" (input)="compliance.set($any($event.target).value)"
+            placeholder="Comma separated — e.g. SOC 2, GDPR, HIPAA" /></div>
+        <div class="row2">
+          <div class="fg"><label>Budget ceiling</label>
+            <input class="inp" type="number" [value]="budget() ?? ''" placeholder="0"
+              (input)="budget.set(num($any($event.target).value))" /></div>
+          <div class="fg"><label>Currency</label>
+            <input class="inp" [value]="currency()" (input)="currency.set($any($event.target).value)" /></div>
+        </div>
+        <div class="note">The delivery platform is <b>not asked for</b>. It is chosen from
+          the brief — and shown, with its reasoning, on the estimate.</div>
+      </div>
+
+      <div class="card" id="s-rate" [class.open]="assumptionsOpen()">
+        <button class="rate-head" type="button" (click)="assumptionsOpen.set(!assumptionsOpen())">
+          <span class="car"><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <span class="sec-lab">The rate card</span>
+          <span style="font-size:11.5px;color:var(--ink-3)">Every figure multiplies these numbers.</span>
+          <span class="tk"></span>
+          <span class="pill" [class]="'pill ' + rateStatePill()">{{ rateStateLabel() }}</span>
+        </button>
+        <div class="rate-body">
+          <div class="rate-grid">
+            @for (d of rateDials; track d.key) {
+              <div class="rc">
+                <div class="k">{{ d.label }}</div>
+                <input type="number" [value]="d.get()"
+                  (input)="setRate(d.key, +$any($event.target).value)" />
+                <div class="u">{{ d.unit }}</div>
+              </div>
+            }
+          </div>
+          <div class="note">Changing these re-costs every estimate you open from now on, not
+            the ones already saved. <b>Compass never edits the rate card itself.</b></div>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
+            <button class="btn sm" type="button" [class.dis]="savingRates()" (click)="saveRates()">
+              {{ savingRates() ? 'Saving…' : 'Save as my default' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <aside class="rail">
+      <div class="rcard">
+        <h4>Running estimate<span class="tk"></span>
+          <!-- Says where these fields came from. The banner this replaces was
+               not in the design, but the thing it said was true and worth
+               keeping: a form a model filled in should admit it before anyone
+               costs it. The mockup already has a pill here, and "from brief"
+               is its own wording for exactly this state. -->
+          <span class="pill" [class]="'pill ' + (drafted() ? 'p-warn' : preview() ? 'p-sea' : 'p-idle')">
+            {{ drafted() ? 'from brief' : preview() ? 'live' : 'draft' }}
+          </span>
+        </h4>
+        <div class="gauge">
+          <svg viewBox="0 0 150 88">
+            <path d="M14 80 A61 61 0 0 1 136 80" stroke="var(--rule)" stroke-width="10" stroke-linecap="round"/>
+            <path d="M14 80 A61 61 0 0 1 136 80" [attr.stroke]="scoreColour(score())"
+              stroke-width="10" stroke-linecap="round" stroke-dasharray="192"
+              [attr.stroke-dashoffset]="192 - (score() / 100 * 192)"
+              style="transition:stroke-dashoffset .5s,stroke .4s"/>
+            <g [style.transform]="'rotate(' + (-90 + score() * 1.8) + 'deg)'"
+               style="transform-origin:75px 80px;transition:transform .55s cubic-bezier(.34,1.3,.5,1)">
+              <path d="M75 30 L79 78 L75 84 L71 78 Z" fill="var(--ink)"/>
+              <circle cx="75" cy="80" r="3.5" fill="var(--brass)"/>
+            </g>
+          </svg>
+          <div class="num" [style.color]="score() ? scoreColour(score()) : 'var(--ink-3)'">
+            {{ score() || '—' }}
+          </div>
+          <div class="of">feasibility / 100</div>
+        </div>
+        <div class="subs">
+          @for (s of subScores(); track s.label) {
+            <div class="sub">
+              <span class="l">{{ s.label }}</span>
+              <span class="b"><i [style.width.%]="s.value" [style.background]="scoreColour(s.value)"></i></span>
+              <span class="v">{{ s.value || '—' }}</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="rcard">
+        <h4>First year<span class="tk"></span></h4>
+        <div class="money">
+          @for (m of moneyRows(); track m.label) {
+            <div class="mrow"><span class="l">{{ m.label }}</span><span class="v">{{ m.value }}</span></div>
+          }
+          <div class="mrow tot"><span class="l">Total</span><span class="v">{{ totalMoney() }}</span></div>
+        </div>
+        <div class="stack">
+          @if (moneySplit().length) {
+            @for (p of moneySplit(); track p.colour) {
+              <i [style.flex]="p.flex" [style.background]="p.colour"></i>
+            }
+          } @else {
+            <i style="flex:1;background:var(--rule)"></i>
+          }
+        </div>
+        <div class="slegend">
+          <span><i style="background:var(--series-1)"></i>Dev</span>
+          <span><i style="background:var(--series-2)"></i>Tokens</span>
+          <span><i style="background:var(--series-3)"></i>Infra</span>
+          <span><i style="background:var(--series-4)"></i>Maintenance</span>
+        </div>
+        @if (budgetNote()) {
+          <div class="note" style="margin-top:12px">{{ budgetNote() }}</div>
+        }
+      </div>
+
+      <div class="rcard">
+        <h4>Before it can be costed<span class="tk"></span></h4>
+        @for (c of checklist(); track c.text) {
+          <div class="miss" [class.ok]="c.done" [class.no]="!c.done">
+            <span class="mk">{{ c.done ? '✓' : '!' }}</span>
+            <span class="tx">{{ c.text }}</span>
+          </div>
+        }
+      </div>
+    </aside>
+  </div>
+}
+
+@if (view() === 'report') {
+  @if (open(); as record) {
+    <app-estimate-report [record]="record" (back)="backToPortfolio()" />
+  }
+}
+
+</div>

@@ -24,6 +24,7 @@ import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Design } from './design/design';
 import { Pipelines } from './pipelines/pipelines';
+import { Estimate } from './estimate/estimate';
 import { Lightbox } from './lightbox/lightbox';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
@@ -114,6 +115,7 @@ function scrolledUp(el: HTMLElement): boolean {
     HomeChat,
     Design,
     Pipelines,
+    Estimate,
     Lightbox,
   ],
   templateUrl: './app.html',
@@ -199,7 +201,7 @@ export class App {
   // Home is a separate, tool-free surface (HomeChat) and Design its own
   // canvas surface; neither shares state with the console. All three are
   // switched via the top-bar control.
-  readonly section = signal<'home' | 'code' | 'design' | 'pipelines'>('home');
+  readonly section = signal<'home' | 'code' | 'design' | 'pipelines' | 'estimate'>('home');
   enterHome(): void {
     this.section.set('home');
     // Background tasks & the browser are Code-only surfaces — close them so
@@ -231,6 +233,39 @@ export class App {
   enterPipelines(): void {
     if (!this.health()?.pipelines) return;
     this.section.set('pipelines');
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
+  }
+
+  /** Sections that bring their own full-width surface and hide the sidebar.
+   *
+   * A computed because the test was written out five times in the template,
+   * and adding a sixth section meant finding all five. It read as one fact
+   * and behaved as five copies of it — the shape a bug takes when a section
+   * gets the sidebar it was supposed to hide and nobody notices until the
+   * layout is 260px narrower than it should be. */
+  readonly chromeless = computed(
+    () => this.section() === 'design'
+      || this.section() === 'pipelines'
+      || this.section() === 'estimate',
+  );
+
+  /** Sections that act on the Code console's open workspace. Separate from
+   *  `chromeless` even though the two agree today: they are different facts,
+   *  and a section could perfectly well have a sidebar and no workspace. The
+   *  profile menu hides "Open in VS Code" where it would do nothing, because
+   *  an item you have to click to discover is dead is worse than one that is
+   *  simply not there. */
+  readonly hasWorkspace = computed(() => !this.chromeless());
+
+  /** The Estimate section, on the same terms as Pipelines: it only exists
+   *  when the server mounted it, and the guard is here as well as in the
+   *  template because the nav entry is the only way in *today*. */
+  enterEstimate(): void {
+    if (!this.health()?.estimate) return;
+    this.section.set('estimate');
     this.bgOpen.set(false);
     this.bgExpanded.set(false);
     this.browserOpen.set(false);

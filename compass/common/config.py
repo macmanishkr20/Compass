@@ -357,6 +357,46 @@ class LoopSettings(BaseModel):
     tool_timeout_seconds: float = 300.0
 
 
+class EstimateSettings(BaseModel):
+    """The Estimate module — feasibility and cost for a proposed build.
+
+    Off by default, which is the opposite of Pipelines and deliberate. The
+    numbers this module produces are opinionated: rate cards, loaded hourly
+    rates, model prices and scale tiers that were set for one organisation.
+    They are defensible once someone has read them and agreed they describe
+    *their* costs, and misleading before that — so a deployment opts in, rather
+    than finding a costing section it never asked for quoting figures it has
+    never seen. `COMPASS_ESTIMATE=1` turns it on; off, nothing is imported, no
+    routes are mounted and no section appears.
+
+    The two model-touching stages have their own switches because they fail in
+    different directions. With `classifier` off, a use case left unlabelled
+    falls to keyword rules — cheaper, no request, and occasionally wrong in a
+    way a person can see and fix. With `architect` off, the delivery platform
+    comes from the same keyword matching. Neither changes how anything is
+    priced; both change what gets priced, which is exactly the influence a
+    model is allowed to have here. An estimate is reproducible with them on or
+    off, and stating that as two flags rather than one keeps it testable.
+
+    `live_pricing` queries the public Azure Retail Prices API to refine unit
+    prices, falling back to the catalog baseline on any failure. Off makes an
+    estimate fully offline and pins it to the catalog — which is the right
+    setting when you need two runs a month apart to be comparable.
+    """
+
+    enabled: bool = False
+    classifier: bool = True
+    architect: bool = True
+    #: Drafting a brief from a paragraph. Its own switch because it is the one
+    #: place a model writes *inputs* rather than picking a label, and a
+    #: deployment may reasonably want the form filled by hand even where it is
+    #: happy for a use case to be classified. Nothing is costed from a draft
+    #: until a person has reviewed it, but "reviewed" is a habit, and a habit
+    #: is a weaker guarantee than a switch.
+    draft: bool = True
+    live_pricing: bool = True
+
+
 class PipelineSettings(BaseModel):
     """The Pipelines module, on by default and switchable off.
 
@@ -411,6 +451,7 @@ class Settings(BaseModel):
     thinking: ThinkingSettings = Field(default_factory=ThinkingSettings)
     tools: ToolSettings = Field(default_factory=ToolSettings)
     pipelines: PipelineSettings = Field(default_factory=PipelineSettings)
+    estimate: EstimateSettings = Field(default_factory=EstimateSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -682,6 +723,14 @@ def get_settings() -> Settings:
     pipelines.secrets_backend = os.environ.get(
         "COMPASS_PIPELINES_SECRETS", pipelines.secrets_backend
     ).lower()
+
+    estimate = settings.estimate
+    if (flag := os.environ.get("COMPASS_ESTIMATE", "").strip().lower()):
+        estimate.enabled = flag in ("1", "true", "yes", "on")
+    for name in ("classifier", "architect", "draft", "live_pricing"):
+        env = os.environ.get(f"COMPASS_ESTIMATE_{name.upper()}", "").strip().lower()
+        if env:
+            setattr(estimate, name, env in ("1", "true", "yes", "on"))
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

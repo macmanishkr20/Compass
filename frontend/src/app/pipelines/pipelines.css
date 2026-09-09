@@ -2240,3 +2240,36 @@
   overscroll-behavior: contain;
   padding: 12px;
 }
+
+
+/* ── the estimate this pipeline was costed against ────────────────────────
+   A quiet chip in the bar, not a toolbar button: it is a fact about the
+   pipeline rather than an action on it, and it competes with Run for
+   attention if it is given a button's weight. */
+.pl-estlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 20px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.pl-estlink:hover { border-color: var(--rule-2); color: var(--ink); }
+.pl-estlink-k {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.pl-estlink.add { color: var(--ink-3); border-style: dashed; }
+.pl-estlink.missing { color: var(--danger, #A8452F); border-color: currentColor; }

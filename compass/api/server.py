@@ -124,3 +124,13 @@ if get_settings().pipelines.enabled:
 
     app.include_router(pipelines_router)
     logger.info("Pipelines enabled")
+
+# Estimate, on the same terms and for the same reason — mounted last, imported
+# inside the conditional, costing a build that does not want it nothing at all.
+# Off by default, unlike Pipelines: see EstimateSettings for why a module that
+# quotes money should be opted into rather than out of.
+if get_settings().estimate.enabled:
+    from compass.estimate.routes import router as estimate_router
+
+    app.include_router(estimate_router)
+    logger.info("Estimate enabled")

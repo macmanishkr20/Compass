@@ -55,6 +55,10 @@ async def healthz() -> dict:
         # sections and never a nav entry leading to routes that are not
         # mounted.
         "pipelines": settings.pipelines.enabled,
+        # Same contract as `pipelines`: the UI reads whether the section exists
+        # rather than assuming it, so a build with Estimate off shows no nav
+        # entry leading to routes that are not mounted.
+        "estimate": settings.estimate.enabled,
         "workspace": str(settings.workspace_root),
     }
 

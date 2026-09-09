@@ -1,0 +1,322 @@
+/* The estimate, read — the mockup's result screen.
+   ═══════════════════════════════════════════════════════════════════════
+   Angular scopes styles per component, so the section's shell rules cannot
+   reach in here: the header, the buttons and the pills are restated at their
+   own values rather than lifted into the global sheet, because two components
+   sharing thirty lines is cheaper than a global surface every other section
+   can collide with.
+
+   Colours are the mockup's names aliased onto Compass's, exactly as in
+   estimate.css — see the note there on why that aliasing is the right call
+   for a mockup match and was the wrong one for the previous brief.
+
+   The three charts from the earlier pass are gone from this file and their
+   validated series colours with them: the mockup's result screen is a
+   waterfall and two panels of rows, and a chart that is not in the design is
+   not a chart this screen has.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+
+  --surface-2x: var(--bg-2);
+  --ink-2: var(--muted);
+  --ink-3: var(--faint);
+  --rule: var(--border);
+  --rule-2: var(--border-strong);
+  --brass: var(--accent);
+  --brass-2: var(--accent-strong);
+  --brass-soft: var(--accent-tint);
+  --ok: var(--success);
+  --ok-soft: var(--success-tint);
+  --err: var(--danger);
+  --err-soft: var(--danger-tint);
+  --sea: var(--info);
+  --sea-soft: var(--info-tint);
+  --sh-1: var(--shadow-sm);
+  --sh-2: var(--shadow-md);
+  --serif: "New York", ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+
+  --warn: #b8791b;
+  --warn-soft: rgba(184, 121, 27, 0.12);
+  --violet: #7b5ea7;
+  --violet-soft: rgba(123, 94, 167, 0.13);
+  --idle: #8d8b83;
+  --idle-soft: rgba(141, 139, 131, 0.13);
+
+  /* ── The series palette ──────────────────────────────────────────────
+     Four categorical slots for the four parts of a first-year cost, in a
+     fixed order that is never cycled: 1 development, 2 model usage,
+     3 infrastructure, 4 maintenance.
+
+     These are *not* the mockup's four. The mockup paints them brass, violet,
+     blue and green — its own accent plus three semantic colours — and that
+     set was run through the palette validator against both surfaces and
+     failed both times:
+
+       light  blue↔violet normal-vision ΔE 14.0, under the hard floor of 15
+              (secondary encoding does not excuse this one), and green at
+              2.22 contrast against white
+       dark   brass L 0.751, violet 0.676, green 0.756 — three of the four
+              outside the 0.48–0.67 band a data mark has to sit in
+
+     The assignment is the mockup's and is kept: four parts, one colour each,
+     a legend beneath, the same 8px stack. The hues are replaced with a set
+     that passes — worst adjacent CVD ΔE 9.1 light / 8.4 dark, normal-vision
+     22.9 / 19.8 — because a legibility failure is not a matter of taste and
+     a design cannot ask for one. The two light slots still under 3:1 are
+     relieved the way the rules require: every part is directly labelled in
+     the legend and the same figures sit in the rows beside it. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+}
+:host-context([data-theme="dark"]) {
+  --warn: #e0a83f;
+  --warn-soft: rgba(224, 168, 63, 0.15);
+  --violet: #a288cc;
+  --violet-soft: rgba(162, 136, 204, 0.16);
+  --idle: #6e6d68;
+  --idle-soft: rgba(110, 109, 104, 0.18);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+}
+
+.es { height: 100%; display: flex; flex-direction: column; min-height: 0;
+      font-family: var(--sans); color: var(--ink); letter-spacing: -0.01em; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 4px 32px 70px; }
+button { border: none; background: none; cursor: pointer; font-family: inherit;
+         letter-spacing: inherit; color: inherit; }
+a { font-family: inherit; letter-spacing: inherit; text-decoration: none; }
+.mono { font-family: var(--mono); }
+svg { fill: none; }
+
+/* ── header ─────────────────────────────────────────────────────────────── */
+
+.f-head { display: flex; align-items: center; gap: 12px; padding: 8px 20px 12px; }
+.back {
+  width: 32px; height: 32px; border-radius: 9px; background: var(--surface);
+  border: 1px solid var(--rule); box-shadow: var(--sh-1);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: 0.15s;
+}
+.back:hover { border-color: var(--rule-2); transform: translateX(-1px); }
+.back svg { width: 14px; height: 14px; stroke: var(--ink-2); stroke-width: 2; }
+.f-head .path { font-size: 11px; color: var(--ink-3); }
+.f-head h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.022em; line-height: 1.2; margin: 0; }
+.prog { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 9px; font-size: 12.5px; font-weight: 500;
+  background: var(--surface); border: 1px solid var(--rule);
+  box-shadow: var(--sh-1); transition: 0.15s; white-space: nowrap; color: var(--ink);
+}
+.btn:hover { border-color: var(--rule-2); box-shadow: var(--sh-2); }
+.btn.sm { padding: 5px 10px; font-size: 11.5px; border-radius: 8px; }
+.btn.pri { background: var(--brass); color: #fff; border-color: transparent; font-weight: 600; }
+:host-context([data-theme="dark"]) .btn.pri { color: #1a1205; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+  /* A pill is a chip and a chip never wraps. Every label it carries is two or
+     three short words; wrapping one turns a 18px tag into a 30px block and
+     drags the row's height with it. */
+  white-space: nowrap;
+}
+.pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-ok { background: var(--ok-soft); color: var(--ok); }
+.p-err { background: var(--err-soft); color: var(--err); }
+.p-warn { background: var(--warn-soft); color: var(--warn); }
+.p-sea { background: var(--sea-soft); color: var(--sea); }
+.p-idle { background: var(--idle-soft); color: var(--idle); }
+.tk { flex: 1; height: 1px; background: var(--rule); }
+
+/* ── verdict ────────────────────────────────────────────────────────────── */
+
+.verdict {
+  display: flex; align-items: center; gap: 16px; padding: 20px 22px;
+  border-radius: 18px; margin-bottom: 14px; background: var(--surface);
+  border: 1px solid var(--rule); box-shadow: var(--sh-2);
+  position: relative; overflow: hidden;
+}
+.verdict::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: var(--vc, var(--ok)); transition: background 0.3s;
+}
+.verdict .big { font-family: var(--serif); font-size: 30px; font-weight: 400; letter-spacing: -0.022em; line-height: 1.1; }
+.verdict .why { font-size: 12.5px; color: var(--ink-2); margin: 7px 0 0; line-height: 1.55; max-width: 560px; }
+.verdict .rt { margin-left: auto; text-align: right; flex-shrink: 0; }
+.verdict .rt .k { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.verdict .rt .v { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: -0.04em; margin-top: 5px; color: var(--brass); }
+.verdict .rt .s { font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+
+/* ── panels ─────────────────────────────────────────────────────────────── */
+
+.rgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.rgrid.three { grid-template-columns: 1fr 1fr 1fr; }
+.panel {
+  border-radius: 16px; background: var(--surface); border: 1px solid var(--rule);
+  box-shadow: var(--sh-1); padding: 18px 20px;
+}
+.panel h3 {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--ink-3); display: flex; align-items: center; gap: 10px; margin: 0 0 14px;
+}
+.panel h3 .plain { font-size: 11px; color: var(--ink-3); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.help { font-size: 12px; color: var(--ink-2); line-height: 1.55; margin: 0 0 12px; }
+.note {
+  padding: 10px 12px; border-radius: 10px; background: var(--surface-2x);
+  border: 1px solid var(--rule); font-size: 11.5px; line-height: 1.55; color: var(--ink-2);
+}
+.note b { color: var(--ink); font-weight: 600; }
+
+.subs { display: flex; flex-direction: column; gap: 8px; }
+.sub { display: flex; align-items: center; gap: 9px; font-size: 11.5px; }
+.sub .l { width: 96px; color: var(--ink-2); flex-shrink: 0; }
+.sub .b { flex: 1; height: 5px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.sub .b i { display: block; height: 100%; }
+.sub .v { font-family: var(--mono); font-size: 10.5px; font-weight: 700; width: 20px; text-align: right; }
+
+.wf { display: flex; flex-direction: column; gap: 10px; }
+.wfrow { display: flex; align-items: center; gap: 11px; font-size: 12px; }
+.wfrow .l { width: 120px; flex-shrink: 0; color: var(--ink-2); }
+.wfrow.tot .l { font-weight: 700; color: var(--ink); }
+.wfrow .b { flex: 1; height: 20px; border-radius: 5px; background: var(--rule); overflow: hidden; }
+.wfrow .b i { display: block; height: 100%; border-radius: 5px; }
+.wfrow .v { font-family: var(--mono); font-size: 12px; font-weight: 600; width: 92px; text-align: right; }
+
+.kv { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.kv:last-child { border-bottom: none; }
+.kv .k { width: 150px; flex-shrink: 0; color: var(--ink-3); }
+.kv .v { flex: 1; }
+.kv .v.mono { font-size: 11.5px; }
+
+.sens { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.sens > div {
+  padding: 12px; border-radius: 12px; background: var(--surface-2x);
+  border: 1px solid var(--rule); text-align: center;
+}
+.sens .t { font-size: 10.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+.sens .n { font-family: var(--mono); font-size: 19px; font-weight: 700; margin-top: 7px; letter-spacing: -0.03em; }
+.sens .d { font-size: 10.5px; margin-top: 3px; }
+
+/* ── charts ─────────────────────────────────────────────────────────────
+   The stack is the mockup's own component, restated here; the curve is new,
+   because the mockup's result screen has no chart of the thing a reader most
+   wants from an ROI model — where it crosses zero.
+
+   `height: auto` against the viewBox's own aspect, never a fixed height with
+   `preserveAspectRatio: none`. Stretching an SVG non-uniformly turns every
+   dot into an ellipse and every 2px stroke into two different widths
+   depending on which way it runs. */
+.fig { margin: 0; }
+.svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+.stack { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 9px; gap: 1.5px; }
+.slegend { display: flex; flex-wrap: wrap; gap: 9px 14px; margin-bottom: 14px; }
+/* Text wears a text token, never the series colour — a light categorical hue
+   is illegible as type. The swatch beside the words carries the identity. */
+.slegend span { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-3); }
+.slegend b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.slegend i { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+
+.area { fill: var(--series-1); fill-opacity: 0.1; stroke: none; }
+.line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+/* Hairline, solid, one step off the surface. Never dashed — a dashed rule
+   competes with the line it exists to measure. */
+.zero { stroke: var(--rule-2); stroke-width: 1; }
+/* Every dot carries a 2px ring in the surface colour so it stays legible
+   where it crosses the line. The ring is part of the hit target too. */
+.dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+.dot.cross { fill: var(--ink); }
+
+.axis { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 8px; }
+.ax-note { font-size: 11px; color: var(--ink-3); }
+.ax-ticks { display: flex; gap: 18px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+
+/* ── the work breakdown ─────────────────────────────────────────────────
+   A module is a row you can open; its sub-features are the rows underneath.
+   Collapsed by default, because sixteen modules of four is sixty-four lines
+   and the shape of a plan is its modules — the sub-features are what you open
+   when you disagree with one of them. */
+.phase { margin-bottom: 14px; }
+.phase:last-child { margin-bottom: 0; }
+.phase-h { display: flex; align-items: center; gap: 11px; margin-bottom: 7px; }
+.phase-n {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--brass);
+}
+.phase-m { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.phase-m.wks { color: var(--ink-2); font-weight: 700; }
+
+.mod {
+  display: grid; grid-template-columns: 14px 1fr 26px 110px 62px 58px 76px;
+  align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 7px 8px; border-radius: 8px; font-size: 12.5px; color: var(--ink);
+  transition: background 0.13s;
+}
+.mod:hover { background: var(--surface-2x); }
+.mod .car { color: var(--ink-3); font-size: 10px; }
+.mod-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* How many sub-features the line is made of. The number that says whether a
+   module has been thought about: a "1" is usually a module nobody has opened. */
+.mod-c {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  text-align: center; border: 1px solid var(--rule); border-radius: 20px; padding: 0 5px;
+}
+.mod-b { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.mod-b i { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }
+.mod-h, .mod-w, .mod-$ {
+  font-family: var(--mono); font-size: 11.5px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mod-w { color: var(--ink-3); }
+.mod-$ { color: var(--ink-2); }
+
+.subs-t { margin: 0 0 6px 32px; border-left: 1px solid var(--rule); padding-left: 12px; }
+.sub-r {
+  display: grid; grid-template-columns: 1fr 84px 54px 76px;
+  align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; color: var(--ink-2);
+}
+.sub-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub-s {
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  background: var(--surface-2x); border-radius: 20px; padding: 1px 7px; text-align: center;
+}
+.sub-h, .sub-$ {
+  font-family: var(--mono); font-size: 11px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sub-$ { color: var(--ink-3); }
+
+.assump { margin: 0; padding-left: 20px; }
+.assump li { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); margin-bottom: 5px; }
+.assump li::marker { color: var(--ink-3); font-family: var(--mono); font-size: 10px; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tbl th {
+  text-align: left; font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--ink-3);
+  padding: 0 10px 7px; border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+.tbl td { padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; line-height: 1.45; }
+.tbl tbody tr:last-child td { border-bottom: none; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.tbl a { color: var(--ink); }
+.tbl a:hover { color: var(--brass); }
+/* Under the name, not beside it. Inline it butted straight against the last
+   character — "Azure Container Appsestimate" — which reads as one word until
+   you look twice. */
+.src { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); margin-top: 2px; }
+
+.md { font-size: 12.5px; line-height: 1.62; color: var(--ink-2); }
+
+@media (max-width: 1080px) { .rgrid, .rgrid.three, .sens { grid-template-columns: 1fr; } }

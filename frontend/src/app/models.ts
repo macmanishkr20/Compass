@@ -18,6 +18,10 @@ export interface HealthInfo {
    *  assuming: with the flag off there are no pipeline routes, so an entry
    *  leading to them would be a link to nothing. */
   pipelines?: boolean;
+  /** Whether the Estimate module is mounted. Same contract as `pipelines`:
+   *  the nav reads it rather than assuming, so a build with the flag off
+   *  shows no entry leading to routes that are not there. */
+  estimate?: boolean;
   workspace: string;
 }
 
@@ -266,6 +270,11 @@ export interface PipelineSummary {
   version: number;
   /** Set once a manual run has succeeded; scheduling is refused until then. */
   proven_at: number | null;
+  /** An estimate this pipeline was costed against, or "". An opaque id: the
+   *  server does not resolve it, because Pipelines and Estimate switch
+   *  independently and a link that cannot resolve must not stop a pipeline
+   *  loading. */
+  estimate_id?: string;
   updated_at: number;
 }
 

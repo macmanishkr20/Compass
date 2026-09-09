@@ -3151,10 +3151,18 @@ def check_topbar_mark() -> None:
     html = (ROOT / "frontend/src/app/app.html").read_text()
     css = (ROOT / "frontend/src/app/app.css").read_text()
 
-    block = section(html, "@if (section() === 'design' || section() === 'pipelines') {",
-                    "      }")
+    # The condition is `chromeless()` now, not a literal list of sections. It
+    # was written out five times across this template, and Estimate would have
+    # made six — one fact behaving as five copies of itself, which is how a
+    # section ends up with the sidebar it was supposed to hide.
+    ts = (ROOT / "frontend/src/app/app.ts").read_text()
+    block = section(html, "@if (chromeless()) {", "      }")
     ok("app-compass-mark" in block,
-       "Design and Pipelines show the mark")
+       "the sections without a sidebar show the mark instead")
+    ok("readonly chromeless = computed(" in ts
+       and "=== 'design'" in section(ts, "readonly chromeless = computed(", ");")
+       and "=== 'estimate'" in section(ts, "readonly chromeless = computed(", ");"),
+       "and which sections those are is named once, in a computed")
     ok("Search conversations" in html,
        "and the sections that have conversations keep the search button")
     ok("openSearch" in html, "search itself is still reachable")
@@ -3206,9 +3214,11 @@ def check_profile_menu() -> None:
         css, ".topbar-user-menu {", "\n}"),
        "the menu hangs from the corner it belongs to")
 
-    gated = html.count("@if (section() !== 'design' && section() !== 'pipelines') {")
-    ok(gated >= 2,
+    ok(html.count("@if (hasWorkspace()) {") >= 2,
        "both workspace items are hidden where there is no workspace")
+    ok("readonly hasWorkspace = computed(" in (ROOT / "frontend/src/app/app.ts").read_text(),
+       "asked as its own question rather than as the sidebar's: the two agree "
+       "today, and a section with a sidebar and no workspace would part them")
     ok("openInVsCode()" in html and "openAppWindow()" in html,
        "and still offered where there is one")
 

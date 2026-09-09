@@ -1,0 +1,335 @@
+@let e = est();
+@let v = e.verdict;
+@let c = e.confidence;
+@let cost = e.cost_breakdown;
+@let roi = e.roi_projection;
+@let cmp = e.comparison;
+
+<div class="es">
+  <div class="f-head">
+    <button class="back" type="button" (click)="back.emit()" aria-label="Back">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+    </button>
+    <div>
+      <div class="path">Estimate · {{ typeLabel(e.project_type) }}</div>
+      <h2>{{ e.project_name }}</h2>
+    </div>
+    <div class="prog">
+      <button class="btn sm" type="button" (click)="tab.set(tab() === 'detail' ? 'summary' : 'detail')">
+        {{ tab() === 'detail' ? 'Summary' : 'Assumptions' }}
+      </button>
+      <a class="btn sm" [href]="excelHref()" download>Export Excel</a>
+      <a class="btn sm pri" [href]="pdfHref()" download>Export PDF</a>
+    </div>
+  </div>
+
+  <div class="scroll"><div class="wrap">
+
+    @if (v) {
+      <div class="verdict" [style.--vc]="verdictColour(v.decision)">
+        <div>
+          <div class="pill" [class]="'pill ' + verdictPill(v.decision)" style="margin-bottom:9px">
+            <span class="d"></span>{{ verdictLabel(v.decision) }}
+          </div>
+          <div class="big">{{ v.headline }}</div>
+          <p class="why">{{ v.one_liner }}</p>
+        </div>
+        <div class="rt">
+          <div class="k">First year</div>
+          <div class="v">{{ compactMoney(cost.total.expected) }}</div>
+          <div class="s">
+            {{ money(cost.development.total_cost) }} build ·
+            {{ money(cost.total.expected - cost.development.total_cost) }} run
+          </div>
+        </div>
+      </div>
+    }
+
+    <div class="rgrid">
+      <div class="panel">
+        <h3>Feasibility<span class="tk"></span>
+          <span class="plain mono">{{ e.feasibility.score }} / 100</span></h3>
+        <div class="subs">
+          @for (s of subScores(); track s.label) {
+            <div class="sub">
+              <span class="l">{{ s.label }}</span>
+              <span class="b"><i [style.width.%]="s.value" [style.background]="scoreColour(s.value)"></i></span>
+              <span class="v">{{ s.value }}</span>
+            </div>
+          }
+        </div>
+        <div class="note" style="margin-top:16px">{{ weakest() }}</div>
+      </div>
+
+      <div class="panel">
+        <h3>Where the money goes<span class="tk"></span></h3>
+        <!-- Part-to-whole first, magnitudes second. The stack is the shape
+             the four numbers make; the rows below compare them. Same four
+             colours in the same fixed order in both. -->
+        <div class="stack">
+          @for (p of composition(); track p.label) {
+            <i [style.flex]="p.flex" [style.background]="p.colour" [title]="p.label + ' — ' + money(p.amount) + ' (' + p.share + '%)'"></i>
+          }
+        </div>
+        <div class="slegend">
+          @for (p of composition(); track p.label) {
+            <span><i [style.background]="p.colour"></i>{{ p.label }} <b>{{ p.share }}%</b></span>
+          }
+        </div>
+        <div class="wf">
+          @for (row of waterfall(); track row.label) {
+            <div class="wfrow" [class.tot]="row.total">
+              <span class="l">{{ row.label }}</span>
+              <span class="b"><i [style.width.%]="row.width" [style.background]="row.colour"></i></span>
+              <span class="v">{{ money(row.amount) }}</span>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+
+    @if (hasWbs()) {
+      @let w = wbs();
+      <div class="panel" style="margin-bottom:12px">
+        <h3>Development — module by module<span class="tk"></span>
+          <span class="plain">{{ num(w.total_hours) }} h · {{ w.total_weeks }} wks
+            with {{ w.team_size }} people · {{ w.unit_hours }}h unit</span>
+          <button class="btn sm" type="button"
+            (click)="openModules().size ? collapseAll() : expandAll()">
+            {{ openModules().size ? 'Collapse all' : 'Expand all' }}
+          </button>
+        </h3>
+
+        @for (p of w.phases; track p.phase) {
+          <div class="phase">
+            <div class="phase-h">
+              <span class="phase-n">Phase {{ p.phase }}</span>
+              <span class="tk"></span>
+              <span class="phase-m">{{ num(p.hours) }} h</span>
+              <span class="phase-m">{{ money(p.cost) }}</span>
+              <span class="phase-m wks">{{ p.weeks }} wks</span>
+            </div>
+
+            @for (m of p.modules; track m.name) {
+              <button class="mod" type="button" (click)="toggleModule(m.name)"
+                [attr.aria-expanded]="isOpen(m.name)">
+                <span class="car">{{ isOpen(m.name) ? '▾' : '▸' }}</span>
+                <span class="mod-n">{{ m.name }}</span>
+                <span class="mod-c">{{ m.sub_features.length }}</span>
+                <span class="mod-b"><i [style.width.%]="m.hours / widestModule() * 100"></i></span>
+                <span class="mod-h">{{ num(m.hours) }} h</span>
+                <span class="mod-w">{{ m.weeks }} wks</span>
+                <span class="mod-$">{{ money(m.cost) }}</span>
+              </button>
+              @if (isOpen(m.name)) {
+                <div class="subs-t">
+                  @for (s of m.sub_features; track s.name) {
+                    <div class="sub-r">
+                      <span class="sub-n">{{ s.name }}</span>
+                      <span class="sub-s">{{ sizeLabel(s.size, s.units) }}</span>
+                      <span class="sub-h">{{ s.hours }} h</span>
+                      <span class="sub-$">{{ money(s.cost) }}</span>
+                    </div>
+                  }
+                </div>
+              }
+            }
+          </div>
+        }
+
+        @if (w.at_ceiling.length) {
+          <div class="note" style="margin-top:12px">
+            <b>{{ w.at_ceiling.length }} line{{ w.at_ceiling.length === 1 ? '' : 's' }} at the
+            {{ w.unit_hours * 10 }}-hour ceiling.</b> Not an error — a flag that the estimate
+            has reached the edge of what it understands. Break these down before anyone
+            commits to the number: {{ w.at_ceiling.join('; ') }}.
+          </div>
+        }
+      </div>
+    }
+
+    <div class="rgrid">
+      <div class="panel">
+        <h3>Delivery platform<span class="tk"></span>
+          <span class="pill p-sea">{{ cost.infrastructure.platform_label }}</span></h3>
+        @if (e.solution_proposal; as sp) {
+          <p class="help">{{ sp.rationale }}</p>
+        }
+        <div class="kv"><span class="k">Cost model</span><span class="v">{{ label(cost.infrastructure.cost_model) }}</span></div>
+        <div class="kv"><span class="k">Chosen by</span>
+          <span class="v">{{ platformSource() }}</span></div>
+        <div class="kv"><span class="k">Region</span>
+          <span class="v mono">{{ region() }}</span></div>
+        <div class="kv"><span class="k">Compliance driving it</span>
+          <span class="v">{{ complianceLine() }}</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>What this assumes<span class="tk"></span></h3>
+        <div class="kv"><span class="k">Delivery rate</span>
+          <span class="v mono">{{ money(cost.development.hourly_rate) }} / hour ·
+            {{ devHours() }} hours</span></div>
+        <div class="kv"><span class="k">Maintenance</span>
+          <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo at
+            {{ money(cost.maintenance.hourly_rate) }}</span></div>
+        <div class="kv"><span class="k">Tokens / month</span>
+          <span class="v mono">{{ tokensPerMonth() }}</span></div>
+        <div class="kv"><span class="k">Benefit basis</span>
+          <span class="v mono">{{ benefitBasis() }}</span></div>
+        <div class="kv"><span class="k">Adoption ramp</span>
+          <span class="v mono">{{ roi.benefit_ramp_months }} months to full</span></div>
+        @if (c) {
+          <div class="kv"><span class="k">Confidence</span>
+            <span class="v">{{ label(c.level) }} — {{ c.rationale }}</span></div>
+        }
+      </div>
+    </div>
+
+    @if (roiChart(); as rc) {
+      <div class="panel" style="margin-bottom:12px">
+        <h3>Cumulative net, three years<span class="tk"></span>
+          <span class="plain">{{ rc.crossLabel }}</span></h3>
+        <figure class="fig">
+          <svg class="svg" [attr.viewBox]="'0 0 ' + rc.width + ' ' + rc.height"
+            role="img" aria-label="Cumulative net value over three years">
+            <path [attr.d]="rc.area" class="area" />
+            <line x1="0" [attr.x2]="rc.width" [attr.y1]="rc.zeroY" [attr.y2]="rc.zeroY" class="zero" />
+            <path [attr.d]="rc.path" class="line" />
+            @for (d of rc.dots; track d.month) {
+              <circle [attr.cx]="d.cx" [attr.cy]="d.cy" r="4.5" class="dot">
+                <title>Month {{ d.month }} — {{ money(d.value) }}</title>
+              </circle>
+            }
+            @if (rc.crossing; as x) {
+              <circle [attr.cx]="x.x" [attr.cy]="x.y" r="5.5" class="dot cross" />
+            }
+          </svg>
+          <figcaption class="axis">
+            <span class="ax-note">
+              {{ rc.troughLabel ? rc.troughLabel + ' · ' : '' }}{{ rc.endLabel }}
+            </span>
+            <span class="ax-ticks">
+              @for (t of rc.ticks; track t.label) { <span>{{ t.label }}</span> }
+            </span>
+          </figcaption>
+        </figure>
+      </div>
+    }
+
+    @if (e.assumptions.length) {
+      <div class="panel" style="margin-bottom:12px">
+        <h3>Scope assumptions<span class="tk"></span>
+          <span class="plain">{{ e.assumptions.length }} statements · the part a
+            disagreement is actually about</span></h3>
+        <ol class="assump">
+          @for (a of e.assumptions; track a) { <li>{{ a }}</li> }
+        </ol>
+      </div>
+    }
+
+    <div class="panel" style="margin-bottom:12px">
+      <h3>If the volume moves<span class="tk"></span>
+        <span class="plain">Model usage and infrastructure scale; development does not.</span></h3>
+      @if (sensitivity().length) {
+        <div class="sens">
+          @for (s of sensitivity(); track s.label) {
+            <div>
+              <div class="t">{{ s.label }}</div>
+              <div class="n" [style.color]="s.baseline ? 'var(--brass)' : null">{{ compactMoney(s.total) }}</div>
+              <div class="d" [style.color]="s.baseline ? 'var(--ink-3)' : s.delta > 0 ? 'var(--err)' : 'var(--ok)'">
+                {{ s.baseline ? 'as briefed' : (s.delta > 0 ? '+' : '') + money(s.delta) }}
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="help" style="margin:0">Re-costing at half and double the stated volume…</p>
+      }
+    </div>
+
+    @if (tab() === 'detail') {
+      <div class="panel" style="margin-bottom:12px">
+        <h3>Development<span class="tk"></span>
+          <span class="plain">{{ cost.development.ai_integration_hours }} of these hours are the AI integration.</span></h3>
+        <table class="tbl">
+          <thead><tr><th>Work</th><th class="num">Hours</th><th class="num">Cost</th></tr></thead>
+          <tbody>
+            @for (b of cost.development.breakdown; track b.category) {
+              <tr><td>{{ b.category }}</td><td class="num">{{ b.hours }}</td><td class="num">{{ money(b.cost) }}</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel" style="margin-bottom:12px">
+        <h3>Infrastructure<span class="tk"></span>
+          <span class="plain">{{ money(cost.infrastructure.monthly_cost) }} a month. Every line links to the calculator.</span></h3>
+        <table class="tbl">
+          <thead>
+            <tr><th>Service</th><th>Tier</th><th>Region</th>
+              <th class="num">Unit price</th><th class="num">Monthly</th></tr>
+          </thead>
+          <tbody>
+            @for (s of infraCounted(); track s.service_name) {
+              <tr>
+                <td><a [href]="s.azure_pricing_url" target="_blank" rel="noopener">{{ s.service_name }}</a>
+                  <span class="src">{{ s.price_source }}</span></td>
+                <td>{{ s.tier }}</td>
+                <td class="mono">{{ s.region }}</td>
+                <td class="num">{{ s.unit_price }} / {{ s.unit }}</td>
+                <td class="num">{{ money(s.monthly_cost) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div class="rgrid">
+        <div class="panel">
+          <h3>Return<span class="tk"></span></h3>
+          <div class="kv"><span class="k">Year one benefit</span><span class="v mono">{{ money(roi.first_year_benefit) }}</span></div>
+          <div class="kv"><span class="k">At full adoption</span><span class="v mono">{{ money(roi.annual_benefit) }} a year</span></div>
+          <div class="kv"><span class="k">Payback</span>
+            <span class="v mono">{{ roi.payback_months === null ? 'none modelled' : roi.payback_months + ' months' }}</span></div>
+          <div class="kv"><span class="k">Three-year value</span><span class="v mono">{{ money(roi.three_year_value) }}</span></div>
+        </div>
+        <div class="panel">
+          <h3>AI against standard<span class="tk"></span></h3>
+          <p class="help">{{ cmp.summary }}</p>
+          <div class="kv"><span class="k">With AI</span>
+            <span class="v mono">{{ money(cmp.ai_approach.total_cost.expected) }} ·
+              {{ cmp.ai_approach.timeline_weeks }} wks · {{ cmp.ai_approach.team_size }} people</span></div>
+          <div class="kv"><span class="k">Standard</span>
+            <span class="v mono">{{ money(cmp.standard_approach.total_cost.expected) }} ·
+              {{ cmp.standard_approach.timeline_weeks }} wks · {{ cmp.standard_approach.team_size }} people</span></div>
+        </div>
+      </div>
+
+      @if (e.recommendations.length) {
+        <div class="panel" style="margin-bottom:12px">
+          <h3>What to do next<span class="tk"></span></h3>
+          <table class="tbl">
+            <thead><tr><th>Priority</th><th>Action</th><th>Impact</th></tr></thead>
+            <tbody>
+              @for (r of e.recommendations; track r.title) {
+                <tr>
+                  <td><span class="pill" [class]="'pill ' + (r.priority === 'high' ? 'p-warn' : 'p-idle')">{{ r.priority }}</span></td>
+                  <td><b>{{ r.title }}</b><br />{{ r.description }}</td>
+                  <td>{{ r.estimated_impact }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      @if (e.report_markdown) {
+        <div class="panel">
+          <h3>The written report<span class="tk"></span></h3>
+          <div class="md"><app-markdown [text]="e.report_markdown" /></div>
+        </div>
+      }
+    }
+
+  </div></div>
+</div>

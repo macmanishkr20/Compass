@@ -114,6 +114,15 @@ class Pipeline:
     #: Set once a manual run has succeeded. Scheduling is refused until then
     #: when `require_manual_first_run` is on.
     proven_at: float | None = None
+    #: An estimate this pipeline was costed against, or "".
+    #:
+    #: An opaque string, and deliberately nothing more. Pipelines does not
+    #: import the Estimate module and does not validate this against it: the
+    #: two are separately switchable, and a foreign key between them would
+    #: mean a pipeline that fails to load on a box where costing is off. The
+    #: UI resolves the id when the section exists and shows nothing when it
+    #: does not, which is the same contract the nav entry already uses.
+    estimate_id: str = ""
     #: Who this pipeline belongs to. Empty is legacy and stays visible; see
     #: `compass.common.ownership`.
     owner: str = ""

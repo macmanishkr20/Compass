@@ -82,3 +82,41 @@ def store_png(png: bytes) -> tuple[str, int, int]:
 
 def get_cached(sid: str) -> bytes | None:
     return _CACHE.get(sid)
+
+
+async def html_to_pdf(html: str, *, width: int = 1000) -> bytes:
+    """Print a self-contained HTML document to PDF. Raises on failure.
+
+    Here rather than in a module because it is a shared capability and this is
+    already the file that owns the headless browser. Design has its own PDF
+    path and keeps it: that one detects slides and fixed-size sheets and prints
+    one page per artboard, which is the right answer for a design and the wrong
+    one for a document. This is the plain case — a flowing document that the
+    stylesheet paginates.
+
+    `prefer_css_page_size` is what makes that work: the caller declares `@page`
+    and `break-inside` and gets a paginated PDF, instead of one page as tall as
+    the whole document. The HTML must be self-contained — no network fetches
+    are made, so styles are inline and there are no images to wait for.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as err:  # pragma: no cover - optional dependency
+        raise RuntimeError(_UNAVAILABLE) from err
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(args=["--no-sandbox"])
+        try:
+            page = await browser.new_page(viewport={"width": width, "height": 1200})
+            await page.set_content(html, wait_until="load")
+            # Print styles only resolve under the print emulation; without this
+            # the @page box is ignored and the colours come back washed out.
+            await page.emulate_media(media="print")
+            await page.wait_for_timeout(120)
+            return await page.pdf(
+                print_background=True,
+                prefer_css_page_size=True,
+                margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+            )
+        finally:
+            await browser.close()
