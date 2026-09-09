@@ -359,6 +359,18 @@ select.inp {
 }
 .addsub:hover { color: var(--brass); background: var(--brass-soft); }
 
+/* The one dial in the card that is not a number. It sits under the grid
+   rather than in it, because a checkbox in a five-column grid of numeric
+   inputs reads as a sixth number that has lost its box. */
+.rampup {
+  display: flex; gap: 9px; align-items: flex-start; margin-top: 11px;
+  padding: 10px; border-radius: 11px; background: var(--surface-2x);
+  border: 1px solid var(--rule); cursor: pointer;
+}
+.rampup input { margin-top: 2px; flex-shrink: 0; accent-color: var(--brass); }
+.rampup span { font-size: 12px; line-height: 1.55; color: var(--ink-2); }
+.rampup b { color: var(--ink); font-weight: 600; }
+
 .emptyline { font-size: 12px; color: var(--ink-3); line-height: 1.55; padding: 4px 0; margin: 0; }
 
 .rate-head { display: flex; align-items: center; gap: 10px; cursor: pointer; width: 100%; text-align: left; }

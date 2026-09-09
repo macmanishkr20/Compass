@@ -116,6 +116,27 @@ SIZE_BAND_UNITS: dict[str, int] = {
 #: The ceiling, in units. A sub-feature above it is not estimated, it is split.
 MAX_SUB_FEATURE_UNITS = 10
 
+#: Units of ramp-up, by how many areas the plan has. Understanding a
+#: requirement and standing up an environment is work that every project does
+#: and no description ever asks for — measured across twelve drafts of one
+#: paragraph, the model named it zero times, in the modules or in the
+#: assumptions. Unlike the scope a description genuinely leaves out, this is
+#: not a decision anybody made: it is simply invisible, so the engine books it
+#: rather than the model inventing it.
+#:
+#: It steps with the number of modules rather than with hours, because what
+#: has to be understood is the number of distinct areas, not the size of them
+#: — and because a proportion of the build is a multiplier, which is the thing
+#: `DELIVERY_OVERHEAD` was and the reason it was removed. Sixteen-plus modules
+#: gives 45h, which is what the architect's sheet books for its seventeen.
+RAMP_UP_UNITS_BY_BREADTH: tuple[tuple[int, int], ...] = (
+    (4, 2),    # up to 4 modules  -> 18h
+    (9, 3),    # up to 9          -> 27h
+    (15, 4),   # up to 15         -> 36h
+)
+RAMP_UP_UNITS_MAX = 5  # 16 or more -> 45h
+RAMP_UP_NAME = "Requirement understanding and environment setup"
+
 # How much harder a use case is to integrate than the plainest one.
 #
 # This was a cliff: 1.4 above an agentic score of 70 and 1.0 below it, which

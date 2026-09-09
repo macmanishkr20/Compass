@@ -121,6 +121,12 @@ class CostAssumptions(EstimateModel):
     # People working the build at once. Sets how long a phase takes, not what
     # it costs — the hours are the hours, whoever does them.
     team_size: float = 3
+    # Whether the engine books the project's own ramp-up — understanding the
+    # requirement and standing up an environment. On by default because every
+    # project does it; a switch rather than a constant because a team already
+    # running on this stack, extending something they built last quarter,
+    # genuinely does not.
+    include_ramp_up: bool = True
     # ROI benefit dials. value/call = minutes ÷ 60 × loaded_rate × automation%.
     # The fully-loaded cost of the person whose work AI offsets, and the share of
     # calls AI handles end-to-end (deflection) rather than an assumed perfect 100%.
@@ -274,6 +280,10 @@ class SubFeatureEstimate(EstimateModel):
 class ModuleEstimate(EstimateModel):
     name: str
     phase: int
+    #: True when the engine added this module rather than the brief naming it.
+    #: The report says so, because a line nobody wrote should not be able to
+    #: pass itself off as one somebody did.
+    derived: bool = False
     hours: int
     cost: int
     #: Elapsed weeks for one engineer. A module is usually one person's job;

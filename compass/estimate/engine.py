@@ -29,6 +29,9 @@ from .catalog import (
     BENEFIT_RAMP_MONTHS,
     EFFORT_UNIT_HOURS,
     MAX_SUB_FEATURE_UNITS,
+    RAMP_UP_NAME,
+    RAMP_UP_UNITS_BY_BREADTH,
+    RAMP_UP_UNITS_MAX,
     SCALE_DELIVERY,
     SIZE_BAND_UNITS,
     AUTOMATION_RATE_PERCENT,
@@ -162,6 +165,61 @@ def _band_for(units: int) -> str:
     return ""
 
 
+def _ramp_up_units(module_count: int) -> int:
+    """Units of ramp-up for a plan of `module_count` areas.
+
+    Stepped rather than proportional. What a team has to understand before it
+    can start is the number of distinct areas in front of it, and the sixth
+    module costs less to take in than the first — so this flattens, where a
+    percentage of the build would not.
+    """
+    for upto, units in RAMP_UP_UNITS_BY_BREADTH:
+        if module_count <= upto:
+            return units
+    return RAMP_UP_UNITS_MAX
+
+
+def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
+                    hours_per_week: float) -> dict:
+    """The ramp-up, as an ordinary module so it prices and rolls up like one.
+
+    It goes in the earliest phase present, which is where it happens, and it
+    carries `derived` so the report can say the engine added it. Two named
+    sub-features rather than one line called "setup", because the two are
+    different jobs and a reader who disagrees with one should be able to strike
+    it out without arguing about the other.
+    """
+    units = _ramp_up_units(module_count)
+    reading = max(1, units // 2)
+    building = units - reading
+    subs = []
+    for name, part in (("Requirement understanding and walkthroughs", reading),
+                       ("Development environment, repository and pipeline setup", building)):
+        hours = part * EFFORT_UNIT_HOURS
+        subs.append({
+            "name": name,
+            "size": _band_for(part),
+            "units": part,
+            "hours": hours,
+            "cost": jround(hours * dev_rate),
+        })
+    hours = sum(s["hours"] for s in subs)
+    return {
+        "name": RAMP_UP_NAME,
+        "phase": phase,
+        "derived": True,
+        "hours": hours,
+        "cost": jround(hours * dev_rate),
+        "weeks": round2(hours / hours_per_week) if hours_per_week else 0,
+        "sub_features": subs,
+    }
+
+
+def _wants_ramp_up(inp: ProjectInput) -> bool:
+    ca = inp.cost_assumptions
+    return True if ca is None else bool(ca.include_ramp_up)
+
+
 def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     """Price the work breakdown: sub-feature, module, phase.
 
@@ -212,11 +270,19 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         by_phase.setdefault(max(1, module.phase), []).append({
             "name": module.name or f"Module {i + 1}",
             "phase": max(1, module.phase),
+            "derived": False,
             "hours": module_hours,
             "cost": jround(module_hours * dev_rate),
             "weeks": round2(module_hours / hours_per_week) if hours_per_week else 0,
             "sub_features": subs,
         })
+
+    # Booked before the roll-up, so it is inside its phase's hours and weeks
+    # rather than a figure bolted on beside them.
+    if by_phase and _wants_ramp_up(inp):
+        first = min(by_phase)
+        by_phase[first].insert(0, _ramp_up_module(
+            len(modules), first, dev_rate, hours_per_week))
 
     phases = []
     for number in sorted(by_phase):

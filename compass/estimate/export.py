@@ -196,8 +196,9 @@ def to_html(est: Estimation) -> str:
                 f"<td class='num'><b>{_e(_num(ph.weeks, ' wks'))}</b></td></tr>"
             )
             for mod in ph.modules:
+                added = " <i>added by the engine</i>" if mod.derived else ""
                 body.append(
-                    f"<tr class='md'><td colspan='2'>{_e(mod.name)}</td>"
+                    f"<tr class='md'><td colspan='2'>{_e(mod.name)}{added}</td>"
                     f"<td class='num'>{_e(_num(mod.hours, 'h'))}</td>"
                     f"<td class='num'>{money(mod.cost)}</td>"
                     f"<td class='num'>{_e(_num(mod.weeks, ' wks'))}</td></tr>"
@@ -435,8 +436,9 @@ def to_excel(est: Estimation) -> bytes:
                 for sub in mod.sub_features:
                     ws.append([ph.phase, mod.name, sub.name, sub.size.upper() or "—",
                                sub.units, sub.hours, sub.cost, ""])
-                ws.append([ph.phase, mod.name, "Module total", "", "",
-                           mod.hours, mod.cost, mod.weeks])
+                ws.append([ph.phase,
+                           f"{mod.name} (added by the engine)" if mod.derived else mod.name,
+                           "Module total", "", "", mod.hours, mod.cost, mod.weeks])
                 for col in (3, 6, 7, 8):
                     ws.cell(row=ws.max_row, column=col).font = bold
             ws.append([ph.phase, f"PHASE {ph.phase} TOTAL", "", "", "",

@@ -266,11 +266,23 @@ svg { fill: none; }
 .mod:hover { background: var(--surface-2x); }
 .mod .car { color: var(--ink-3); font-size: 10px; }
 .mod-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The badge sits *inside* the name cell rather than in a column of its own.
+   Each row is its own grid, so tracks are not shared between rows: a column
+   for the badge is as wide as the badge on the one row that has one and zero
+   everywhere else, which throws every bar and figure below it out of line. */
 /* How many sub-features the line is made of. The number that says whether a
    module has been thought about: a "1" is usually a module nobody has opened. */
 .mod-c {
   font-family: var(--mono); font-size: 10px; color: var(--ink-3);
   text-align: center; border: 1px solid var(--rule); border-radius: 20px; padding: 0 5px;
+}
+/* A line the engine booked. Said quietly but said: a reader comparing this
+   against their own plan needs to know which lines they wrote. */
+.added {
+  display: inline-block; margin-left: 8px; vertical-align: 1px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); border: 1px solid var(--rule); border-radius: 20px;
+  padding: 1px 6px; flex-shrink: 0;
 }
 .mod-b { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
 .mod-b i { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }

@@ -187,6 +187,10 @@ export class EstimateReport {
    *  a flat feature list — those have no breakdown, and the panel says so
    *  rather than inventing one. */
   readonly wbs = computed(() => this.est().cost_breakdown.development.work_breakdown);
+  /** Whether the engine added any line the brief did not name. */
+  readonly hasDerived = computed(() =>
+    (this.wbs()?.phases ?? []).some((p) => p.modules.some((m) => m.derived)));
+
   readonly hasWbs = computed(() => (this.wbs()?.phases?.length ?? 0) > 0);
 
   /** Which modules are expanded. Collapsed by default: sixteen modules of four

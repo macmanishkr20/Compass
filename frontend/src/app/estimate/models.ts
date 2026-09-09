@@ -109,6 +109,8 @@ export interface CostAssumptions {
   /** People on the build at once. Sets how long a phase takes, not what it
    *  costs — the hours are the hours, whoever does them. */
   team_size: number;
+  /** Whether the engine books the project's own ramp-up. */
+  include_ramp_up: boolean;
   /** value/call = minutes ÷ 60 × loaded_hourly_rate × automation_rate_percent. */
   loaded_hourly_rate: number;
   automation_rate_percent: number;
@@ -250,6 +252,8 @@ export interface SubFeatureEstimate {
 export interface ModuleEstimate {
   name: string;
   phase: number;
+  /** True when the engine booked this module rather than the brief naming it. */
+  derived: boolean;
   hours: number;
   cost: number;
   /** Elapsed weeks for one engineer. */

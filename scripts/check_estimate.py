@@ -1229,18 +1229,25 @@ def check_work_breakdown() -> None:
     eq(w.unit_hours, 9, "one unit is nine hours — a day, less the meetings")
 
     p1, p2 = w.phases[0], w.phases[1]
-    eq([m.name for m in p1.modules], ["Video pipeline"], "phase one's modules")
-    subs = {s.name: s.hours for s in p1.modules[0].sub_features}
+    ramp = [m for m in p1.modules if m.derived]
+    eq([m.name for m in p1.modules if not m.derived], ["Video pipeline"],
+       "phase one's modules")
+    eq(len(ramp), 1,
+       "plus the ramp-up, which the engine books and the brief never named")
+    named = [m for m in p1.modules if not m.derived][0]
+    subs = {s.name: s.hours for s in named.sub_features}
     #   l=5u=45h   xxl=10u=90h   m=4u=36h
     eq(subs["FFmpeg transcoding"], 45, "an L is five units")
     eq(subs["API creation and blob integration"], 90, "an XXL is ten — the ceiling")
     eq(subs["Player integration"], 36, "an M is four")
 
-    eq(p1.modules[0].hours, 171, "a module is the sum of its sub-features")
-    eq(p1.hours, 171, "and a phase the sum of its modules")
+    eq(named.hours, 171, "a module is the sum of its sub-features")
+    #   two modules in the brief, so ramp-up is the first band: 2 units, 18h
+    eq(ramp[0].hours, 18, "a two-module plan ramps up in two units")
+    eq(p1.hours, 171 + 18, "and a phase the sum of its modules, ramp-up included")
     eq(p2.hours, 45, "phase two")
-    eq(w.total_hours, 216, "the plan is the sum of its phases")
-    eq(w.total_cost, engine.jround(216 * 115), "priced at the delivery rate")
+    eq(w.total_hours, 216 + 18, "the plan is the sum of its phases")
+    eq(w.total_cost, engine.jround(234 * 115), "priced at the delivery rate")
     ok(all(s.cost == engine.jround(s.hours * 115)
            for ph in w.phases for m in ph.modules for s in m.sub_features),
        "every line carries its own price, so a reader can strike one out and "
@@ -1250,9 +1257,9 @@ def check_work_breakdown() -> None:
     # working at once: 171/(3*32) = 1.78. Quoting one figure for both is how a
     # plan promises that six modules take as long as the longest of them.
     eq(w.team_size, 3, "the team size the elapsed weeks assume")
-    eq(p1.modules[0].weeks, 5.34, "a module's weeks are one engineer's")
-    eq(p1.weeks, 1.78, "a phase's are the team's")
-    eq(w.total_weeks, round(1.78 + 0.47, 2),
+    eq(named.weeks, 5.34, "a module's weeks are one engineer's")
+    eq(p1.weeks, engine.round2(189 / (3 * 32)), "a phase's are the team's")
+    eq(w.total_weeks, round(p1.weeks + p2.weeks, 2),
        "and the plan is the phases end to end, because they run in order")
 
     # A brief may set units directly — the sheet this model came from sized in
@@ -1265,7 +1272,8 @@ def check_work_breakdown() -> None:
             {"id": "s2", "name": "Odd one out", "size": "s", "units": 6},
         ]}],
     }), "est_units", "2026-06-20T00:00:00+00:00"))
-    priced = direct.cost_breakdown.development.work_breakdown.phases[0].modules[0].sub_features
+    priced = [m for m in direct.cost_breakdown.development.work_breakdown.phases[0].modules
+              if not m.derived][0].sub_features
     eq((priced[0].size, priced[0].hours), ("xl", 63),
        "seven units is an XL, whatever the band field said — a pill reading "
        "\"S · 7d\" contradicts itself")
@@ -1278,12 +1286,12 @@ def check_work_breakdown() -> None:
     ok(all(s.hours <= 90 for ph in w.phases for m in ph.modules
            for s in m.sub_features),
        "nothing is priced above the ceiling")
-    eq(p1.modules[0].sub_features[1].hours, 90,
+    eq(named.sub_features[1].hours, 90,
        "but the ceiling is reported, not applied — clamping a 120-hour line to "
        "90 would hide the one thing worth knowing about it, which is that "
        "nobody has broken it down")
 
-    eq(sum(b.hours for b in dev.breakdown), 216,
+    eq(sum(b.hours for b in dev.breakdown), 234,
        "development is the breakdown, at medium scale, with no multiplier "
        "between them")
     eq(dev.ai_integration_hours, 0,
@@ -1295,6 +1303,109 @@ def check_work_breakdown() -> None:
        "disagreement about the number is usually actually about")
 
 
+def check_the_section_renders_on_an_older_browser() -> None:
+    """The Estimate CSS keeps to what Windows Edge and Chrome both had.
+
+    `:has()` is the specific trap: it is the natural way to say "a row that
+    contains a badge", it is one line, and it silently does nothing on a
+    browser older than Chrome 105. This section was written with a badge on
+    one work-breakdown row and reached for exactly that selector; the row is
+    laid out with an `auto` grid track instead, which is zero-wide when the
+    badge is absent. Comments are stripped before searching, because a check
+    that goes red on the sentence explaining why a thing is *not* done is
+    worse than no check.
+    """
+    print("\nthe section renders on the browser somebody actually has")
+    for name in ("estimate.css", "report.css"):
+        css = re.sub(r"/\*.*?\*/", "", (ROOT / f"frontend/src/app/estimate/{name}").read_text(),
+                     flags=re.S)
+        ok(":has(" not in css,
+           f"{name} selects with a class or a grid track rather than :has() — "
+           "Chrome and Edge only got it in 105, and a selector that quietly "
+           "matches nothing is worse than one that fails loudly")
+        ok(":root" not in css,
+           f"{name} uses :host-context rather than :root — component styles "
+           "are scoped, and a :root rule inside one is a no-op that looks "
+           "like a theme")
+
+
+def check_the_ramp_up_is_booked() -> None:
+    """Every project reads the requirement and stands up an environment.
+
+    No description ever asks for it. Across twelve drafts of one paragraph the
+    model named it zero times — not as a module, not as a sub-feature, and not
+    as an assumption either, which is what separates it from the scope a brief
+    genuinely leaves out. Notifications are absent from that same fixture and
+    the drafter excludes them *in writing* in 12 of 12 briefs; a reader sees
+    the boundary and can argue with it. Ramp-up is simply invisible, and an
+    estimate that is silently short by a week is worse than one that is openly
+    short by a module.
+
+    So the engine books it rather than the prompt asking a model to invent it.
+    That division is the module's founding rule: a model resolves labels, code
+    computes numbers, and "every project has a ramp-up" is not a fact about
+    this project that a paragraph is evidence for — it is a fact about
+    projects, which is exactly the kind of thing a deterministic engine is
+    allowed to know.
+
+    It steps with the number of modules, not with hours. What has to be
+    understood is the number of distinct areas, and the sixth costs less to
+    take in than the first — so the ladder flattens. A proportion of the build
+    would have been a multiplier, which is what `DELIVERY_OVERHEAD` was and why
+    it is gone.
+    """
+    print("\nthe project's own ramp-up is booked, because nobody ever writes it down")
+    brief = {**WBS_BRIEF, "modules": [
+        {"id": f"m{i}", "name": f"Module {i}", "phase": 1, "sub_features": [
+            {"id": f"m{i}s1", "name": f"Thing {i}", "size": "s"}]}
+        for i in range(1, 18)]}
+    est = asyncio.run(run_estimate(
+        ProjectInput.model_validate(brief), "est_ramp", "2026-06-20T00:00:00+00:00"))
+    w = est.cost_breakdown.development.work_breakdown
+    derived = [m for ph in w.phases for m in ph.modules if m.derived]
+
+    eq(len(derived), 1, "exactly one module the brief did not name")
+    eq(derived[0].hours, 45,
+       "seventeen modules ramps up in five units — which is what the "
+       "architect's sheet books for its seventeen, arrived at independently")
+    eq([s.hours for s in derived[0].sub_features], [18, 27],
+       "reading the requirement and building the environment are two lines: "
+       "they are different jobs, and a reader who disagrees with one should "
+       "not have to argue about the other")
+    ok(derived[0] is w.phases[0].modules[0],
+       "and it comes first in the earliest phase, which is when it happens")
+
+    ok(all(not m.derived for ph in w.phases for m in ph.modules
+           if m.name != derived[0].name),
+       "every other module says it was not derived — a line nobody wrote must "
+       "not be able to pass itself off as one somebody did")
+
+    # The ladder, at each of its steps.
+    eq([engine._ramp_up_units(n) * 9 for n in (1, 4, 5, 9, 10, 15, 16, 40)],
+       [18, 18, 27, 27, 36, 36, 45, 45],
+       "it steps with breadth and then flattens — a forty-module plan does "
+       "not need eight times the introduction a five-module plan does")
+
+    off = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**brief, "cost_assumptions": {"include_ramp_up": False}}),
+        "est_ramp_off", "2026-06-20T00:00:00+00:00"))
+    ow = off.cost_breakdown.development.work_breakdown
+    ok(not any(m.derived for ph in ow.phases for m in ph.modules),
+       "and it is a switch, not a constant: a team already running on this "
+       "stack, extending what they built last quarter, turns it off")
+    eq(ow.total_hours, w.total_hours - 45,
+       "which removes exactly the hours it added, and nothing else")
+
+    # The guarantee that matters most: the legacy path never sees it.
+    legacy = asyncio.run(run_estimate(
+        ProjectInput.model_validate(BRIEF), "est_ramp_legacy",
+        "2026-06-20T00:00:00+00:00"))
+    eq(sum(b.hours for b in legacy.cost_breakdown.development.breakdown), 356,
+       "a brief with no breakdown is untouched by any of this — the port's "
+       "parity guarantee covers the flat-feature path, and a new line added "
+       "to it would be a fourth deliberate break rather than a third")
+
+
 def main() -> int:
     est = asyncio.run(run_estimate(
         ProjectInput.model_validate(BRIEF), "est_check", "2026-06-20T00:00:00+00:00"))
@@ -1304,6 +1415,8 @@ def main() -> int:
     check_development(est)
     check_effort_scales_with_reach()
     check_work_breakdown()
+    check_the_ramp_up_is_booked()
+    check_the_section_renders_on_an_older_browser()
     check_infrastructure(est)
     check_tokens(est)
     check_total(est)

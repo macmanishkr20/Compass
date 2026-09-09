@@ -438,6 +438,16 @@
               </div>
             }
           </div>
+          <label class="rampup">
+            <input type="checkbox" [checked]="includeRampUp()"
+              (change)="setRampUp($any($event.target).checked)" />
+            <span>
+              <b>Book the project's own ramp-up.</b>
+              Reading the requirement and standing up an environment — work every project
+              does and no requirement asks for, so no brief ever names it. Scales with how
+              many modules the plan has. Turn it off for a team already running on this stack.
+            </span>
+          </label>
           <div class="note">Changing these re-costs every estimate you open from now on, not
             the ones already saved. <b>Compass never edits the rate card itself.</b></div>
           <div style="display:flex;align-items:center;gap:12px;margin-top:11px">

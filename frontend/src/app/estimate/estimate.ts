@@ -170,6 +170,7 @@ export class Estimate {
   readonly maintRate = signal(95);
   readonly hoursPerWeek = signal(32);
   readonly teamSize = signal(3);
+  readonly includeRampUp = signal(true);
   readonly loadedRate = signal(75);
   readonly automationPercent = signal(35);
   readonly rampMonths = signal(6);
@@ -195,6 +196,12 @@ export class Estimate {
     { key: 'automation', label: 'Automated end to end', unit: '% of calls',
       get: () => this.automationPercent() },
   ];
+
+  setRampUp(on: boolean): void {
+    this.includeRampUp.set(on);
+    this.rateEdited.set(true);
+    this.rateCardSaved.set(false);
+  }
 
   setRate(key: string, value: number): void {
     ({
@@ -566,6 +573,7 @@ export class Estimate {
     this.maintRate.set(card.maint_hourly_rate);
     this.hoursPerWeek.set(card.effective_hours_per_week);
     this.teamSize.set(card.team_size);
+    this.includeRampUp.set(card.include_ramp_up ?? true);
     this.loadedRate.set(card.loaded_hourly_rate);
     this.automationPercent.set(card.automation_rate_percent);
     this.rampMonths.set(card.benefit_ramp_months);
@@ -578,6 +586,7 @@ export class Estimate {
       maint_hourly_rate: this.maintRate(),
       effective_hours_per_week: this.hoursPerWeek(),
       team_size: this.teamSize(),
+      include_ramp_up: this.includeRampUp(),
       loaded_hourly_rate: this.loadedRate(),
       automation_rate_percent: this.automationPercent(),
       benefit_ramp_months: this.rampMonths(),

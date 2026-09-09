@@ -114,7 +114,9 @@
               <button class="mod" type="button" (click)="toggleModule(m.name)"
                 [attr.aria-expanded]="isOpen(m.name)">
                 <span class="car">{{ isOpen(m.name) ? '▾' : '▸' }}</span>
-                <span class="mod-n">{{ m.name }}</span>
+                <span class="mod-n">{{ m.name }}@if (m.derived) {
+                  <span class="added">added</span>
+                }</span>
                 <span class="mod-c">{{ m.sub_features.length }}</span>
                 <span class="mod-b"><i [style.width.%]="m.hours / widestModule() * 100"></i></span>
                 <span class="mod-h">{{ num(m.hours) }} h</span>
@@ -134,6 +136,16 @@
                 </div>
               }
             }
+          </div>
+        }
+
+        @if (hasDerived()) {
+          <div class="note" style="margin-top:12px">
+            <b>One line here was added by the engine, not by the brief.</b>
+            Reading the requirement and standing up an environment is work every
+            project does and no requirement ever asks for, so it is booked rather
+            than left silently out. Switch it off in the rate card if this team is
+            already running on the stack.
           </div>
         }
 
