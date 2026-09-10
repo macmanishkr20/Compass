@@ -14,6 +14,7 @@ import {
 import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService } from '../compass-api.service';
 import { FitMenuDirective } from './fit-menu.directive';
 import { TickSound } from './tick.service';
@@ -80,6 +81,7 @@ const LANDING_ROWS = 4;
 })
 export class Design {
   private readonly api = inject(CompassApiService);
+  private readonly turnNotify = inject(TurnNotifyService);
   readonly tick = inject(TickSound);
   private readonly sanitizer = inject(DomSanitizer);
 
@@ -1985,6 +1987,7 @@ export class Design {
     this.lidOpen.set(true);
     this.error.set('');
     this.cancelling.set(false);
+    this.turnNotify.arm();
     const abort = new AbortController();
     this.runAbort = abort;
     try {
@@ -2041,6 +2044,12 @@ export class Design {
       this.working.set(false);
       this.cancelling.set(false);
       this.runAbort = null;
+      const last = this.turns()[this.turns().length - 1];
+      this.turnNotify.finished(
+        'design',
+        this.open()?.name ? `${this.open()!.name} — design updated` : 'Design updated.',
+        !(last?.text || '').startsWith('That one failed'),
+      );
     }
   }
 

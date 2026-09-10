@@ -361,29 +361,10 @@ def load_project_memory(root: Path | None = None) -> str:
     return ""
 
 
-def build_collab_apps_block() -> str:
-    """Known sibling apps (Compass Collab) with their URLs, so the agent can
-    screenshot/inspect them by name. Configurable via env."""
-    import os
-
-    apps = [
-        ("Cost Compass", os.getenv("COST_COMPASS_URL", "http://localhost:64989/dashboard")),
-        ("Pulse Compass", os.getenv("PULSE_COMPASS_URL", "http://localhost:65092")),
-    ]
-    lines = [
-        "# Compass Collab apps",
-        "Sibling apps running locally. To screenshot or inspect one by name, "
-        "use its URL with the `screenshot` tool:",
-    ]
-    lines += [f"- {name}: {url}" for name, url in apps]
-    return "\n".join(lines)
-
-
 def build_system_prompt(*, role: str = "main", workspace_root: Path | None = None) -> str:
     identity = SUBAGENT_IDENTITY.get(role, IDENTITY)
     parts = [identity, build_environment_block(workspace_root)]
     if role == "main":
-        parts.append(build_collab_apps_block())
         memory = load_project_memory(workspace_root)
         if memory:
             parts.append(memory)

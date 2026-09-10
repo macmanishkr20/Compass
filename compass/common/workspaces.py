@@ -251,6 +251,34 @@ def git_diff(root: Path) -> str:
     return _run_git(["diff", "HEAD"], root)
 
 
+def git_discard(root: Path) -> dict:
+    """Throw away every uncommitted change in the working tree.
+
+    `checkout -- .` restores tracked files; `clean -fd` removes files and
+    directories git has never seen. Both are needed — either alone leaves half
+    the mess behind, and a person who asked for a clean tree and got a
+    half-clean one is worse off than before, because they now trust it.
+
+    Committed history is untouched: this reverts *to* HEAD, never past it.
+    Nothing here is recoverable through git, which is why the surface asks
+    first and reports what it removed.
+    """
+    import subprocess
+
+    summary = git_summary(root)
+    files = summary.get("files_changed", 0) + summary.get("untracked", 0)
+    try:
+        for args in (["checkout", "--", "."], ["clean", "-fd"]):
+            done = subprocess.run(
+                ["git", *args], cwd=root, capture_output=True, text=True, timeout=20
+            )
+            if done.returncode != 0:
+                return {"ok": False, "detail": (done.stderr or "git failed").strip()[:300]}
+    except (OSError, subprocess.TimeoutExpired) as err:
+        return {"ok": False, "detail": str(err)[:300]}
+    return {"ok": True, "discarded": files}
+
+
 def _compare_url(root: Path, branch: str) -> str:
     """github.com/owner/repo/compare/<branch>?expand=1 for manual PR creation."""
     remote = _origin_url(root)
@@ -258,10 +286,20 @@ def _compare_url(root: Path, branch: str) -> str:
     return f"{base}/compare/{branch}?expand=1" if base else ""
 
 
-def create_pull_request(root: Path, *, draft: bool = False, manual: bool = False) -> dict:
+def create_pull_request(
+    root: Path,
+    *,
+    draft: bool = False,
+    manual: bool = False,
+    title: str = "",
+    body: str = "",
+) -> dict:
     """Push the current branch, then either open a PR with the GitHub CLI
     (optionally as a draft) or, for `manual`, return the GitHub compare URL so
-    the user fills it in themselves. Raises RuntimeError on failure."""
+    the user fills it in themselves. `title`/`body` are what the user wrote in
+    the review dialog; when both are blank `gh --fill` writes them from the
+    commits, which is what every caller used to get. Raises RuntimeError on
+    failure."""
     import shutil
     import subprocess
 
@@ -292,7 +330,13 @@ def create_pull_request(root: Path, *, draft: bool = False, manual: bool = False
     gh = shutil.which("gh")
     if not gh:
         raise RuntimeError("GitHub CLI ('gh') not found on the server host")
-    cmd = [gh, "pr", "create", "--fill", "--head", branch]
+    cmd = [gh, "pr", "create", "--head", branch]
+    if title.strip():
+        # --title/--body and --fill are mutually exclusive in gh; a title with
+        # no body still needs a body flag or gh opens an editor and hangs.
+        cmd += ["--title", title.strip(), "--body", body]
+    else:
+        cmd.append("--fill")
     if draft:
         cmd.append("--draft")
     pr = subprocess.run(

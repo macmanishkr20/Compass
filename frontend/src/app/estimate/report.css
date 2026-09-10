@@ -286,12 +286,12 @@ svg { fill: none; }
 }
 .mod-b { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
 .mod-b i { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }
-.mod-h, .mod-w, .mod-$ {
+.mod-h, .mod-w, .mod-cost {
   font-family: var(--mono); font-size: 11.5px; text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .mod-w { color: var(--ink-3); }
-.mod-$ { color: var(--ink-2); }
+.mod-cost { color: var(--ink-2); }
 
 .subs-t { margin: 0 0 6px 32px; border-left: 1px solid var(--rule); padding-left: 12px; }
 .sub-r {
@@ -303,11 +303,11 @@ svg { fill: none; }
   font-family: var(--mono); font-size: 10px; color: var(--ink-3);
   background: var(--surface-2x); border-radius: 20px; padding: 1px 7px; text-align: center;
 }
-.sub-h, .sub-$ {
+.sub-h, .sub-cost {
   font-family: var(--mono); font-size: 11px; text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.sub-$ { color: var(--ink-3); }
+.sub-cost { color: var(--ink-3); }
 
 .assump { margin: 0; padding-left: 20px; }
 .assump li { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); margin-bottom: 5px; }

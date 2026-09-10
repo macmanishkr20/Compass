@@ -10,10 +10,10 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
-import { COLLAB_APPS, CollabApp } from './collab-apps.config';
 import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
+import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TiltDirective } from './tilt.directive';
 import { BlurOnChange } from './blur-on-change.directive';
 import { CompassMark } from './compass-mark/compass-mark';
@@ -99,6 +99,10 @@ function scrolledUp(el: HTMLElement): boolean {
 }
 
 
+/** How many conversations a page of the sidebar list shows. The list opens at
+ *  one page and grows by one; "Show less" folds it back to exactly this. */
+const CONV_PAGE = 4;
+
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -131,9 +135,6 @@ export class App {
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
   private readonly sanitizer = inject(DomSanitizer);
-
-  // Compass Collab — sibling apps launched from the sidebar.
-  readonly collabApps = COLLAB_APPS;
 
   /** What the topbar calls the thing you are looking at.
    *
@@ -201,7 +202,21 @@ export class App {
   // Home is a separate, tool-free surface (HomeChat) and Design its own
   // canvas surface; neither shares state with the console. All three are
   // switched via the top-bar control.
-  readonly section = signal<'home' | 'code' | 'design' | 'pipelines' | 'estimate'>('home');
+  readonly section = signal<ModuleKey>('home');
+  readonly turnNotify = inject(TurnNotifyService);
+  /** Clicking the toast takes you to whatever just finished, which is the only
+   *  thing anybody wants to do with it. */
+  jumpToFinishedTurn(section: ModuleKey): void {
+    this.turnNotify.dismiss();
+    ({
+      home: () => this.enterHome(),
+      code: () => this.enterCode(),
+      design: () => this.enterDesign(),
+      pipelines: () => this.enterPipelines(),
+      estimate: () => this.enterEstimate(),
+    })[section]?.();
+  }
+
   enterHome(): void {
     this.section.set('home');
     // Background tasks & the browser are Code-only surfaces — close them so
@@ -306,7 +321,7 @@ export class App {
   readonly homeSessions = signal<ChatCard[]>([]);
   readonly homeActiveId = signal<string | null>(null);
   // Show 4 initially; the down-arrow reveals 4 more at a time (like the agent).
-  readonly homeLimit = signal(4);
+  readonly homeLimit = signal(CONV_PAGE);
   // Home chats honour the same Group/Sort controls as the agent list.
   private readonly sortedHome = computed(() => {
     const list = [...this.homeSessions()];
@@ -348,8 +363,12 @@ export class App {
     return out;
   });
   readonly moreHome = computed(() => Math.max(0, this.homeSessions().length - this.homeLimit()));
+  readonly homeExpanded = computed(() => this.homeLimit() > CONV_PAGE);
   loadMoreHome(): void {
-    this.homeLimit.update((n) => n + 4);
+    this.homeLimit.update((n) => n + CONV_PAGE);
+  }
+  collapseHome(): void {
+    this.homeLimit.set(CONV_PAGE);
   }
 
   async loadHomeSessions(): Promise<void> {
@@ -486,6 +505,24 @@ export class App {
   private notifySince = Math.floor(Date.now() / 1000);
   readonly emailConfigured = signal(true); // false => show a hint in the builder
 
+  // -- the composer's three pickers ------------------------------------------
+  //
+  // Mode, model and effort were native <select>s, so each one dropped an OS
+  // menu into the middle of the app: a different typeface, a different metric,
+  // and on Windows a grey system list that looked nothing like the surface it
+  // came from. They are the three settings a turn runs under and they are read
+  // far more often than they are changed, so they are worth the custom menu.
+  //
+  // One signal rather than three booleans: opening any picker must close the
+  // other two, and three flags make that a rule you can forget to apply.
+  readonly pickMenu = signal<'mode' | 'model' | 'effort' | 'voice' | null>(null);
+
+  togglePick(kind: 'mode' | 'model' | 'effort' | 'voice'): void {
+    const next = this.pickMenu() === kind ? null : kind;
+    this.closeAllMenus();
+    this.pickMenu.set(next);
+  }
+
   readonly modes = MODES;
   readonly efforts = EFFORTS;
   readonly modeLabels: Record<string, string> = {
@@ -568,9 +605,67 @@ export class App {
   // -- git / PR status shown in the composer bar
   readonly gitStatus = signal<GitStatus | null>(null);
   readonly prBusy = signal(false);
+
+  // -- the pull request review dialog ----------------------------------------
+  //
+  // "Create PR" used to push and open the PR on the first click, with the
+  // title and body written from the commit messages and no chance to look at
+  // either. Opening a pull request is the one thing in this screen that other
+  // people see, so it gets a look first: what it will be called, what it says,
+  // and which files are in it.
+  readonly prModalOpen = signal(false);
+  readonly prTitle = signal('');
+  readonly prBody = signal('');
+
+  /** Draft a title and a description from what is actually there — the branch
+   *  name and the changed files. Nothing is asserted about the change beyond
+   *  the file list, because nothing else is known at this point. */
+  async openPrModal(): Promise<void> {
+    this.prMenuOpen.set(false);
+    if (this.prBusy()) return;
+    this.prModalOpen.set(true);
+    if (!this.railFiles().length) await this.loadRail();
+
+    const branch = this.gitStatus()?.branch || '';
+    const words = branch
+      .replace(/^(feature|feat|fix|chore|bugfix)\//, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
+    this.prTitle.set(words ? words.charAt(0).toUpperCase() + words.slice(1) : '');
+
+    const files = this.railFiles();
+    const lines = files
+      .slice(0, 20)
+      .map((f) => `- \`${f.path}\` (+${this.railAdded(f)} −${this.railRemoved(f)})`);
+    if (files.length > 20) lines.push(`- …and ${files.length - 20} more`);
+    this.prBody.set(
+      files.length
+        ? `Changes in this branch:\n\n${lines.join('\n')}`
+        : '',
+    );
+  }
+
+  /** Total +/− across the working copy, for the dialog's file heading. */
+  readonly prAdded = computed(() =>
+    this.railFiles().reduce((n, f) => n + this.railAdded(f), 0),
+  );
+  readonly prRemoved = computed(() =>
+    this.railFiles().reduce((n, f) => n + this.railRemoved(f), 0),
+  );
+
+  /** Confirmed from the dialog. */
+  async submitPr(draft = false): Promise<void> {
+    this.prModalOpen.set(false);
+    await this.createPr({ draft, title: this.prTitle(), body: this.prBody() });
+  }
   readonly prNotice = signal('');
+  /** The PR the last successful create opened, so the notice can link
+   *  to it rather than only naming it. */
+  readonly prUrl = signal('');
   readonly diffOpen = signal(false);
   readonly diffLines = signal<{ t: string; text: string }[]>([]);
+  /** Empty means the whole working tree; otherwise the file being read. */
+  readonly diffTitle = signal('');
   readonly diffBusy = signal(false);
   readonly prMenuOpen = signal(false);
   readonly repoMenuOpen = signal(false);
@@ -1037,6 +1132,37 @@ export class App {
     return this.sanitizer.bypassSecurityTrustHtml(html);
   }
 
+  /** The one argument that identifies a call, for the row: the command, the
+   *  path, the pattern. Long values are cut in the middle rather than the end
+   *  — the tail of a path is the part that says which file it was. */
+  toolArgLine(t: ToolCardVM): string {
+    const a = this.argObj(t);
+    const s = (v: unknown) => (typeof v === 'string' ? v : '');
+    const pick =
+      s(a['command']).split('\n')[0] ||
+      s(a['path']) ||
+      s(a['file_path']) ||
+      s(a['pattern']) ||
+      s(a['url']) ||
+      s(a['query']) ||
+      s(a['description']);
+    const v = (pick || t.args || '').trim();
+    if (v.length <= 64) return v;
+    return v.slice(0, 40) + '…' + v.slice(-20);
+  }
+
+  /** How long the call took, in the units somebody reads at a glance. Blank
+   *  while it is still running — a duration that ticks upward reads as a
+   *  finished number and would be wrong the moment it was believed. */
+  toolDuration(t: ToolCardVM): string {
+    const ms = t.durationMs;
+    if (t.status === 'running' || ms == null || ms < 0) return '';
+    if (ms < 1000) return Math.max(1, Math.round(ms)) + 'ms';
+    if (ms < 60_000) return (ms / 1000).toFixed(1) + 's';
+    const m = Math.floor(ms / 60_000);
+    return m + 'm ' + Math.round((ms % 60_000) / 1000) + 's';
+  }
+
   /** The raw command / args shown when a step is expanded. */
   stepDetail(t: ToolCardVM): string {
     const a = this.argObj(t);
@@ -1106,8 +1232,8 @@ export class App {
     return buckets;
   });
 
-  // -- conversation pagination: show N, "load more" reveals 4 at a time.
-  readonly convLimit = signal(4);
+  // -- conversation pagination: show N, "load more" reveals a page at a time.
+  readonly convLimit = signal(CONV_PAGE);
   readonly totalConvs = computed(() =>
     this.groups().reduce((n, g) => n + g.cards.length, 0),
   );
@@ -1124,8 +1250,15 @@ export class App {
     return out;
   });
   readonly moreConvs = computed(() => Math.max(0, this.totalConvs() - this.convLimit()));
+  /** Whether anything is currently hidden behind the collapse. */
+  readonly convsExpanded = computed(() => this.convLimit() > CONV_PAGE);
   loadMoreConvs(): void {
-    this.convLimit.update((n) => n + 4);
+    this.convLimit.update((n) => n + CONV_PAGE);
+  }
+  /** Fold the list back to its first page. Expanding was a one-way door: once
+   *  a long history was open the only way back was a reload. */
+  collapseConvs(): void {
+    this.convLimit.set(CONV_PAGE);
   }
 
   // -- active conversation's dot lights up in a random colour on open.
@@ -1173,6 +1306,9 @@ export class App {
 
   constructor() {
     void this.boot();
+    // Keep the notifier in step with what is on screen. It is the only thing
+    // that decides whether a finished turn is worth interrupting somebody for.
+    effect(() => this.turnNotify.activeSection.set(this.section()));
     effect(() => {
       this.timeline();
       this.thinking();
@@ -1445,6 +1581,109 @@ export class App {
     }
   }
   /** Bold question at the top of the card: "Allow Compass to run …?" */
+  /** "DEFAULT · GPT-5 · MEDIUM" — the settings the turn ran under, in the
+   *  order the composer shows them. Uppercased in CSS, not here, so the value
+   *  a screen reader announces is the one the controls use. */
+  readonly turnPills = computed(() => {
+    const model = this.activeModel() || 'model';
+    return [this.activeMode(), model, this.activeEffort()].join(' · ');
+  });
+
+  // -- the permission gate ---------------------------------------------------
+  //
+  // The card answers the three questions somebody actually has before they
+  // click: what is it about to do, how much could it cost me, and what does
+  // each button commit me to. Everything below is derived from the request
+  // itself — nothing is asserted that cannot be read off the command.
+
+  /** What kind of act is being asked for. */
+  permKind(p: PermissionVM): 'shell' | 'write' {
+    return p.toolName === 'bash' ? 'shell' : 'write';
+  }
+
+  permTitle(p: PermissionVM): string {
+    if (p.resolved) {
+      const noun = this.permKind(p) === 'shell' ? 'Shell command' : 'Writes';
+      return `${noun} ${p.resolved === 'deny' ? 'denied' : 'approved'}`;
+    }
+    if (this.permKind(p) === 'shell') return 'Compass wants to run a shell command';
+    const n = this.permPaths(p).length;
+    return n > 1 ? `Compass wants to write to ${n} files` : 'Compass wants to write a file';
+  }
+
+  /** Files a write request touches, for the title and the detail line. */
+  permPaths(p: PermissionVM): string[] {
+    try {
+      const a = JSON.parse(p.args);
+      if (Array.isArray(a?.paths)) return a.paths.filter((x: unknown) => typeof x === 'string');
+      if (typeof a?.path === 'string') return [a.path];
+    } catch {
+      /* fall through */
+    }
+    return [];
+  }
+
+  /** Low / medium / high, from what the request says about itself. Erring
+   *  upward: a gate that under-states risk is worse than one that nags. */
+  permRisk(p: PermissionVM): string {
+    const r = (p.reason || '').toLowerCase();
+    const cmd = this.permDetail(p).toLowerCase();
+    if (r.includes('destructive') || /\brm\s+-|\bgit\s+push|--force|\bdd\b|mkfs|shutdown/.test(cmd))
+      return 'high';
+    if (this.permKind(p) === 'write' || /\bsudo\b|>|\btee\b|\bmv\b|\bchmod\b/.test(cmd))
+      return 'medium';
+    return 'low';
+  }
+
+  /** The three facts the card states. Each is read off the command, and says
+   *  "possible" rather than "none" wherever the answer cannot be known —
+   *  claiming a command writes nothing when it might is the one mistake that
+   *  would make this row worth less than no row at all. */
+  permFacts(p: PermissionVM): { label: string; value: string }[] {
+    if (this.permKind(p) === 'write') {
+      return [
+        { label: 'Scope', value: 'workspace only' },
+        { label: 'Reversible', value: 'yes — discard' },
+        { label: 'Commit', value: 'not yet' },
+      ];
+    }
+    const cmd = this.permDetail(p);
+    const net = /\b(curl|wget|npm|pnpm|yarn|pip|git|ssh|scp|nc|brew|apt|docker)\b/.test(cmd);
+    const writes = />|>>|\btee\b|\brm\b|\bmv\b|\bcp\b|\bmkdir\b|\btouch\b|\bsed\s+-i/.test(cmd);
+    return [
+      { label: 'Network', value: net ? 'may be used' : 'not required' },
+      { label: 'File writes', value: writes ? 'possible' : 'none' },
+      { label: 'Working dir', value: './' },
+    ];
+  }
+
+  /** The prefix "always allow" would remember — the first word of a command,
+   *  or the tool for a write. Shown on the button so the promise is legible
+   *  before it is made. */
+  permAlwaysLabel(p: PermissionVM): string {
+    if (this.permKind(p) === 'write') return p.toolName;
+    const cmd = this.permDetail(p).trim();
+    const parts = cmd.split(/\s+/).slice(0, 2);
+    return parts.join(' ') || p.toolName;
+  }
+
+  /** What the resolved card says happened. */
+  permVerdict(p: PermissionVM): string {
+    if (p.resolved === 'deny') {
+      return this.permKind(p) === 'shell'
+        ? 'Denied by you — nothing was executed'
+        : 'Nothing was changed on disk.';
+    }
+    if (p.decision === 'allow_always') {
+      return `Always allowed for \`${this.permAlwaysLabel(p)}\` in this workspace`;
+    }
+    if (this.permKind(p) === 'write') {
+      const n = this.permPaths(p).length;
+      return `${n || 'The'} file${n === 1 ? '' : 's'} written to the working copy — not committed.`;
+    }
+    return `Allowed once by you${p.decidedAt ? ' · ' + p.decidedAt : ''}`;
+  }
+
   permQuestion(p: PermissionVM): string {
     if (p.toolName === 'bash') {
       const why = this.permReason(p).replace(/[.。]\s*$/, '');
@@ -1472,15 +1711,6 @@ export class App {
     if (p.toolName === 'file_write') return 'This creates a new file in your workspace.';
     if (p.toolName === 'file_edit') return 'This edits a file in your workspace.';
     return p.reason || 'This action needs your approval.';
-  }
-  permTitle(tool: string): string {
-    const t: Record<string, string> = {
-      bash: 'Compass wants to run a command',
-      file_write: 'Compass wants to create a file',
-      file_edit: 'Compass wants to edit a file',
-      screenshot: 'Compass wants to take a screenshot',
-    };
-    return t[tool] ?? `Compass wants to use “${tool}”`;
   }
   permBlurb(p: PermissionVM): string {
     if (p.toolName === 'bash')
@@ -1566,7 +1796,132 @@ export class App {
   }
 
   /** Show the working-tree diff (like Claude's inline diff view). */
+  // -- working copy rail ----------------------------------------------------
+  //
+  // The same changes the diff modal shows, kept open beside the conversation
+  // instead of behind a button. Watching files appear as the agent edits them
+  // is most of what the panel is for, and a modal you have to reopen after
+  // every turn cannot do that.
+
+  readonly railOpen = signal(false);
+  /** Files in the working copy, parsed out of the diff the server already
+   *  sends. No new endpoint: `git diff` names every file in its headers, so
+   *  the list and the per-file patch come from one request. */
+  readonly railFiles = signal<{ path: string; status: 'M' | 'A' | 'D'; body: string[] }[]>([]);
+  readonly railBusy = signal(false);
+  readonly railActive = signal('');
+
+  readonly railGroups = computed(() => {
+    const label: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted' };
+    return (['M', 'A', 'D'] as const)
+      .map((k) => ({ key: k, label: label[k], files: this.railFiles().filter((f) => f.status === k) }))
+      .filter((g) => g.files.length > 0);
+  });
+  /** The patch for whichever file is open, as classified lines. */
+  readonly railDiffLines = computed(() => {
+    const f = this.railFiles().find((x) => x.path === this.railActive());
+    if (!f) return [] as { t: string; text: string }[];
+    return f.body.map((text) => {
+      let t = 'ctx';
+      if (text.startsWith('@@')) t = 'hunk';
+      else if (text.startsWith('+++') || text.startsWith('---')) t = 'meta';
+      else if (text.startsWith('+')) t = 'add';
+      else if (text.startsWith('-')) t = 'del';
+      return { t, text: text || ' ' };
+    });
+  });
+
+  toggleRail(): void {
+    this.railOpen.update((v) => !v);
+    if (this.railOpen()) void this.loadRail();
+  }
+
+  /** Open one file's patch in the changes dialog — the same reader the diff
+   *  button uses, at full width. A 320px rail can show that a file changed;
+   *  it cannot show a diff anybody wants to read. */
+  openRailFile(path: string): void {
+    const f = this.railFiles().find((x) => x.path === path);
+    if (!f) return;
+    this.railActive.set(path);
+    this.diffTitle.set(path);
+    this.diffLines.set(
+      f.body.map((text) => {
+        let ty = 'ctx';
+        if (text.startsWith('@@')) ty = 'hunk';
+        else if (text.startsWith('+')) ty = 'add';
+        else if (text.startsWith('-')) ty = 'del';
+        return { t: ty, text: text || ' ' };
+      }),
+    );
+    this.diffBusy.set(false);
+    this.diffOpen.set(true);
+  }
+
+  // -- discarding the working copy -------------------------------------------
+  readonly discardAsk = signal(false);
+  readonly discardBusy = signal(false);
+
+  async confirmDiscard(): Promise<void> {
+    this.discardBusy.set(true);
+    try {
+      await this.api.discardChanges(this.activeWorkspaceId());
+      this.discardAsk.set(false);
+      this.railActive.set('');
+      await this.loadRail();
+      void this.loadGitStatus();
+    } catch (err) {
+      this.push({ kind: 'notice', id: crypto.randomUUID(), tone: 'error',
+                  text: 'Could not discard: ' + String(err) });
+      this.discardAsk.set(false);
+    } finally {
+      this.discardBusy.set(false);
+    }
+  }
+
+  /** Split `git diff` into one entry per file. */
+  async loadRail(): Promise<void> {
+    this.railBusy.set(true);
+    try {
+      const { diff } = await this.api.gitDiff(this.activeWorkspaceId());
+      const files: { path: string; status: 'M' | 'A' | 'D'; body: string[] }[] = [];
+      let cur: { path: string; status: 'M' | 'A' | 'D'; body: string[] } | null = null;
+      for (const line of diff.split('\n')) {
+        if (line.startsWith('diff --git ')) {
+          // "diff --git a/x b/x" — the b-side is the path after any rename.
+          const m = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+          cur = { path: m ? m[2] : line.slice(11), status: 'M', body: [] };
+          files.push(cur);
+        } else if (cur) {
+          if (line.startsWith('new file')) cur.status = 'A';
+          else if (line.startsWith('deleted file')) cur.status = 'D';
+          // `index`/`similarity` lines say nothing a reader wants; the ---/+++
+          // pair is already stated by the filename above the patch.
+          else if (!line.startsWith('index ') && !line.startsWith('--- ')
+                   && !line.startsWith('+++ ') && !line.startsWith('similarity ')
+                   && !line.startsWith('rename ') && !line.startsWith('old mode')
+                   && !line.startsWith('new mode')) {
+            cur.body.push(line);
+          }
+        }
+      }
+      this.railFiles.set(files);
+      if (!files.some((f) => f.path === this.railActive())) this.railActive.set('');
+    } catch {
+      this.railFiles.set([]);
+    } finally {
+      this.railBusy.set(false);
+    }
+  }
+
+  railAdded(f: { body: string[] }): number {
+    return f.body.filter((l) => l.startsWith('+')).length;
+  }
+  railRemoved(f: { body: string[] }): number {
+    return f.body.filter((l) => l.startsWith('-')).length;
+  }
+
   async openDiff(): Promise<void> {
+    this.diffTitle.set('');
     this.diffOpen.set(true);
     this.diffBusy.set(true);
     try {
@@ -1590,24 +1945,30 @@ export class App {
   }
 
   /** Push the branch and open a GitHub PR (backend runs gh). */
-  async createPr(opts: { draft?: boolean; manual?: boolean } = {}): Promise<void> {
+  async createPr(
+    opts: { draft?: boolean; manual?: boolean; title?: string; body?: string } = {},
+  ): Promise<void> {
     this.prMenuOpen.set(false);
     if (this.prBusy()) return;
     this.prBusy.set(true);
     this.prNotice.set('');
+    this.prUrl.set('');
     try {
       const res = await this.api.createPr(this.activeWorkspaceId(), opts);
+      const num = (res.url || '').match(/\/pull\/(\d+)/)?.[1] ?? '';
+      const named = num ? `PR #${num}` : 'PR';
       this.prNotice.set(
         res.manual
           ? 'Opening GitHub…'
           : res.existing
-            ? 'PR already open'
+            ? `${named} already open`
             : opts.draft
-              ? 'Draft PR created'
-              : 'PR created',
+              ? `${named} opened as draft`
+              : `${named} opened`,
       );
+      this.prUrl.set(res.url || '');
       if (res.url) window.open(res.url, '_blank', 'noopener');
-      setTimeout(() => this.prNotice.set(''), 4000);
+      setTimeout(() => this.prNotice.set(''), 8000);
     } catch (err: unknown) {
       const detail =
         (err as { error?: { detail?: string } })?.error?.detail ??
@@ -1798,13 +2159,6 @@ export class App {
     } finally {
       this.shotBusy.set(false);
     }
-  }
-
-  /** Launch a Compass Collab app in the in-app browser dock. */
-  launchCollab(app: CollabApp): void {
-    this.browserAddr.set(app.url);
-    this.navigateBrowser();
-    this.browserOpen.set(true);
   }
 
   // -- in-app browser ------------------------------------------------------
@@ -2872,6 +3226,7 @@ export class App {
     this.cbViewMenuOpen.set(false);
     this.plusMenuOpen.set(false);
     this.plusConnectorsOpen.set(false);
+    this.pickMenu.set(null);
   }
   onGlobalClick(): void {
     this.closeAllMenus();
@@ -3235,6 +3590,7 @@ export class App {
     this.currentBubble = null;
     this.turnStartMs = performance.now();
     this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
+    this.turnNotify.arm();
     this.elapsedMs.set(0);
     try {
       await start((ev) => this.onEvent(ev));
@@ -3252,10 +3608,14 @@ export class App {
       // never emits the assistant_message that would clear a bubble's
       // streaming flag, so clear them all here.
       this.clearStreamingFlags();
+      // Tell the person only if they were not watching Code when it landed.
+      this.turnNotify.finished('code', this.lastAssistantText || 'Turn finished.',
+                               !this.turnAborted);
       this.autoOpenArtifact();
       await this.backfillUuids(sid);
       await this.refreshSessions();
       void this.loadGitStatus();
+      if (this.railOpen()) void this.loadRail();
       void this.loadNextSuggestion(sid);
     }
   }
@@ -3358,7 +3718,10 @@ export class App {
     await this.api.resolvePermission(sid, perm.id, behavior);
     // 'allow_always' displays as allowed (and future calls stop prompting).
     const shown = behavior === 'deny' ? 'deny' : 'allow';
-    this.patch(perm.id, (p) => ({ ...(p as PermissionVM), resolved: shown }));
+    const at = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    this.patch(perm.id, (p) => ({
+      ...(p as PermissionVM), resolved: shown, decision: behavior, decidedAt: at,
+    }));
   }
 
   /** The newest unresolved permission — target of keyboard shortcuts. */
@@ -3395,6 +3758,11 @@ export class App {
       ev.preventDefault();
       this.plusMenuOpen.set(false);
       this.openAttachPicker();
+      return;
+    }
+    if (ev.key === 'Escape' && this.pickMenu()) {
+      ev.preventDefault();
+      this.pickMenu.set(null);
       return;
     }
     if (ev.key === 'Escape' && this.plusMenuOpen()) {

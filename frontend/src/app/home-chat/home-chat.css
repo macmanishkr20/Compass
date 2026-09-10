@@ -29,20 +29,37 @@
   text-align: center;
   padding: 24px 20px 10px;
 }
-.home-hero-mark { display: inline-flex; margin-bottom: 14px; }
+/* A soft halo behind the mark, so the emblem sits *on* the page rather than
+   floating above it. Built from the accent tint already in the theme — no new
+   colour, and it disappears entirely against either background. */
+.home-hero-mark {
+  position: relative;
+  display: inline-flex;
+  margin-bottom: 22px;
+}
+.home-hero-halo {
+  position: absolute; inset: -22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-tint) 0%, transparent 68%);
+  pointer-events: none;
+}
+/* Serif, and lighter than it was. At 2rem/600 the greeting read as a heading
+   in a settings page; at display size a regular weight is what stops one
+   sentence from shouting. */
 .home-greeting {
-  font-family: var(--sans);
-  font-size: 2rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-family: var(--serif);
+  font-size: 2.6rem;
+  font-weight: 400;
+  letter-spacing: -0.024em;
+  line-height: 1.06;
   color: var(--ink);
   margin: 0;
 }
 .home-tagline {
-  margin: 10px auto 0;
-  max-width: 460px;
-  font-size: 0.9rem;
-  line-height: 1.5;
+  margin: 14px auto 0;
+  max-width: 600px;
+  font-size: 0.875rem;
+  line-height: 1.6;
   color: var(--muted);
 }
 
@@ -55,7 +72,13 @@
   flex-direction: column;
   gap: 18px;
 }
-.crow { display: flex; gap: 11px; align-items: flex-start; }
+.crow { display: flex; gap: 11px; align-items: flex-start; flex-wrap: wrap; }
+/* The byline is a line of its own. Left inline, the mark, the name and the
+   settings chip eat the front of every answer and the prose wraps in a column
+   two-thirds its proper width. */
+.crow .a-name, .crow .a-pills { order: 1; align-self: center; }
+.crow > .cavatar { order: 0; }
+.crow.has-byline > .cwrap { order: 2; flex-basis: 100%; }
 .crow.mine { justify-content: flex-end; }
 .cavatar {
   flex: 0 0 auto;
@@ -182,9 +205,16 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .home-composer {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
+  border-radius: 18px;
+  box-shadow: var(--shadow-md);
   overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+/* The ring lands on the whole composer rather than the bare textarea, which is
+   what makes the box look like one control instead of a field inside a card. */
+.home-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px var(--accent-tint), var(--shadow-md);
 }
 .home-input {
   display: block;
@@ -220,6 +250,12 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 
 /* -- composer: drag-and-drop + attachments ------------------------------- */
 .home-composer { position: relative; }
+/* The composer clips to its 18px radius, which is right for the textarea, the
+   attachment strip and the drop hint — and wrong for a menu that has to stand
+   above it: the model picker opened upward and lost its header and first row
+   to the crop. The clip is lifted only while a picker is open, so the corners
+   still hold for everything that lives inside the box. */
+.home-composer.picking { overflow: visible; }
 .home-composer.drag { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
 .home-drop-hint {
   position: absolute; inset: 0; z-index: 3;
@@ -358,14 +394,19 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   display: inline-grid; place-items: center;
   width: 32px; height: 32px; border-radius: 9px;
   border: 0; cursor: pointer;
+  /* Dark ink, not white. The glyph is a stroke of currentColor on brass, and
+     white on #B8860B measures 1.87:1 — the arrow read as a dent in the button
+     rather than as a mark on it. Matches the treatment the brass buttons in
+     Pipelines take, and holds in dark theme too, where the brass is lighter
+     still and white would be worse. */
   background: var(--accent);
-  color: #fff;
+  color: #1a1205;
   transition: opacity 0.15s, transform 0.1s;
 }
 .home-send:hover { opacity: 0.9; }
 .home-send:active { transform: scale(0.95); }
 .home-send:disabled { opacity: 0.4; cursor: default; }
-.home-send.stop { background: var(--danger); }
+.home-send.stop { background: var(--danger); color: #fff; }
 
 .home-spin {
   width: 14px; height: 14px;
@@ -377,24 +418,56 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 @keyframes hspin { to { transform: rotate(360deg); } }
 
 /* -- ideas ---------------------------------------------------------------- */
-.home-ideas { padding: 18px 4px 2px; }
+.home-ideas { padding: 26px 4px 2px; }
+/* An eyebrow with a rule running off it, rather than a grey sentence: it reads
+   as a section marker instead of as a fourth, unclickable suggestion. */
 .home-ideas-label {
-  font-size: 0.78rem; color: var(--faint);
+  display: flex; align-items: center; gap: 11px;
   margin-bottom: 10px;
 }
+.home-ideas-label b {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--accent);
+}
+.home-ideas-rule { flex: 1; height: 1px; background: var(--border); }
+
 .home-idea {
   display: flex; align-items: center; gap: 12px;
   width: 100%;
-  border: 0; background: transparent; cursor: pointer;
+  cursor: pointer;
   text-align: left;
-  font-family: var(--sans); font-size: 0.95rem;
+  font-family: var(--sans); font-size: 0.845rem;
   color: var(--ink);
-  padding: 9px 8px;
-  border-radius: 10px;
-  transition: background 0.15s;
+  padding: 11px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s;
 }
-.home-idea:hover { background: var(--surface-2); }
-.home-idea svg { color: var(--muted); flex: 0 0 auto; }
+.home-idea:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+/* The glyph gets a tinted chip so it reads as an affordance rather than as
+   punctuation in front of the sentence. */
+.home-idea-ic {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--accent-tint);
+}
+.home-idea-ic svg { width: 13px; height: 13px; stroke: var(--accent); stroke-width: 1.8; }
+.home-idea-text { min-width: 0; }
+.home-idea-ar {
+  margin-left: auto; flex: 0 0 auto;
+  width: 13px; height: 13px;
+  stroke: var(--faint); stroke-width: 2.2;
+  transition: transform 0.16s, stroke 0.16s;
+}
+.home-idea:hover .home-idea-ar { stroke: var(--accent); transform: translateX(3px); }
 
 /* -- voice mode overlay -------------------------------------------------- */
 .voice-err { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 60; }

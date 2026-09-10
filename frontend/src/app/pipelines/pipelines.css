@@ -1415,13 +1415,17 @@
   color: var(--ink);
 }
 .pl-createbar-in::placeholder { color: var(--ink-3); }
+/* Brass carries dark ink, not white. White on #B8860B measures 1.87:1 — under
+   every threshold there is, and the label on the one button in the bar that
+   matters read as a smudge. The dark theme already solved this the same way
+   (#1a1205 on the lighter brass); doing it in light too reaches 5.7:1 and,
+   unlike darkening the fill, leaves the brass itself exactly as it is. */
 .pl-btn.pri {
   background: var(--brass);
   border-color: var(--brass);
-  color: #fff;
+  color: #1a1205;
 }
 .pl-btn.pri:hover:not(:disabled) { background: var(--brass-2); }
-:root[data-theme="dark"] .pl-btn.pri { color: #1a1205; }
 
 /* ── Filter chips, search, view toggle ─────────────────────────────────── */
 .pl-tools {
@@ -1997,10 +2001,9 @@
 .pl-bar .pl-btn.pri {
   background: var(--brass);
   border-color: transparent;
-  color: #fff;
+  color: #1a1205;
   font-weight: 600;
 }
-:root[data-theme="dark"] .pl-bar .pl-btn.pri { color: #1a1205; }
 .pl-bar .pl-btn.pri:hover:not(:disabled) { background: var(--brass-2); }
 .pl-bar .pl-btn:disabled { opacity: 0.4; pointer-events: none; }
 
@@ -2019,9 +2022,8 @@
   font-weight: 600;
   background: var(--brass);
   border-color: transparent;
-  color: #fff;
+  color: #1a1205;
 }
-:root[data-theme="dark"] .pl-setup-bar .pl-btn.pri { color: #1a1205; }
 
 /* ── Panes: builder, canvas, inspector — three cards in a row ──────────── */
 .pl-chat, .pl-side {

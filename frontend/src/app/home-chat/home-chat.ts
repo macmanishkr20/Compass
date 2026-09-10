@@ -12,6 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService } from '../compass-api.service';
 import { AuthService } from '../auth.service';
 import { BlurOnChange } from '../blur-on-change.directive';
@@ -84,10 +85,17 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
   imports: [FormsModule, BlurOnChange, CompassMark, Markdown],
   templateUrl: './home-chat.html',
   styleUrl: './home-chat.css',
+  host: {
+    // An outside click or Escape dismisses an open picker, the same bargain
+    // the Code composer's menus strike.
+    '(document:click)': 'pickMenu.set(null)',
+    '(document:keydown.escape)': 'pickMenu.set(null)',
+  },
 })
 export class HomeChat {
   private readonly api = inject(CompassApiService);
   private readonly auth = inject(AuthService);
+  private readonly turnNotify = inject(TurnNotifyService);
   readonly lightbox = inject(LightboxService);
 
   // Inputs from the shell so we don't duplicate health fetching.
@@ -113,6 +121,22 @@ export class HomeChat {
   readonly accept = ATTACH_ACCEPT;
   readonly activeModel = linkedSignal(() => this.deployment());
   readonly activeEffort = signal('medium');
+
+  /** "CHAT · GPT-5 · MEDIUM" — the settings the turn ran under, beside the
+   *  mark. Home is the chat surface, so the first pill is the surface's own
+   *  name rather than a setting: the Agent button switches consoles, it does
+   *  not change a mode within this one. */
+  readonly turnPills = computed(() =>
+    ['chat', this.activeModel() || 'model', this.activeEffort()].join(' · '),
+  );
+
+  /** Which of Home's two composer pickers is open. One signal rather than two
+   *  flags: opening either must close the other. */
+  readonly pickMenu = signal<'model' | 'effort' | null>(null);
+
+  togglePick(kind: 'model' | 'effort'): void {
+    this.pickMenu.update((cur) => (cur === kind ? null : kind));
+  }
 
   readonly draft = signal('');
   readonly messages = signal<ChatMsg[]>([]);
@@ -140,10 +164,14 @@ export class HomeChat {
   private smoother: SmoothText | null = null; // smooth token reveal
   private pendingSources: WorkIqSource[] | null = null; // Work IQ sources for the reply
 
-  readonly ideas = [
-    'Explain a tricky concept in simple terms',
-    'Brainstorm names for a new project',
-    'Draft a short message or email',
+  /** The starter prompts, each with the glyph that belongs to it. They were a
+   *  bare string list with one shared lightbulb; three identical icons in a
+   *  column is decoration rather than a signal, so the icon now says which
+   *  kind of thing the row is. */
+  readonly ideas: { text: string; icon: 'bulb' | 'branch' | 'pen' }[] = [
+    { text: 'Explain a tricky concept in simple terms', icon: 'bulb' },
+    { text: 'Brainstorm names for a new project', icon: 'branch' },
+    { text: 'Draft a short message or email', icon: 'pen' },
   ];
 
   readonly canSend = computed(
@@ -334,11 +362,20 @@ export class HomeChat {
     return '';
   }
 
+  /** The last thing the assistant said, for a notification's summary line. */
+  private lastAnswerText(): string {
+    for (let i = this.messages().length - 1; i >= 0; i--) {
+      const m = this.messages()[i];
+      if (m.role === 'assistant' && m.text) return m.text;
+    }
+    return 'Answer ready.';
+  }
+
   /** Time-aware greeting using the signed-in user's name. */
   readonly greeting = computed(() => {
     const h = new Date().getHours();
     const part = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening';
-    const name = this.auth.user()?.username || 'there';
+    const name = this.auth.displayName() || 'there';
     return `${part}, ${name}`;
   });
 
@@ -453,6 +490,7 @@ export class HomeChat {
     this.streaming.set(true);
     this.currentAssistant = null;
     this.pendingSources = null;
+    this.turnNotify.arm();
     try {
       await fn();
     } catch (err) {
@@ -463,6 +501,7 @@ export class HomeChat {
         streaming: false,
       });
     } finally {
+      this.turnNotify.finished('home', this.lastAnswerText());
       const pending = this.currentAssistant as ChatMsg | null;
       if (pending) {
         this.smoother?.finish();

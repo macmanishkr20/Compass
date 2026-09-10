@@ -24,6 +24,11 @@
      visibly a thing you type rather than a thing you read. Kept clear of
      the gold accent, which already means "Compass" everywhere else. */
   --code-ink: #9C3B27;
+  /* Reasoning prose. Darker than --muted, which had the narration reading as
+     a caption rather than as something worth following, and still a step back
+     from --ink so the answer below it stays the thing in front. Written as a
+     mix of the two so it follows the theme without a second definition. */
+  --think-ink: color-mix(in oklab, var(--ink) 70%, var(--muted));
 
   /* Semantic (separate from accent) */
   --success: #34C759;
@@ -39,6 +44,10 @@
 
   --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  /* The greeting only. A serif at display size reads as a masthead rather than
+     as another line of UI chrome, which is what a page with one sentence on it
+     needs. Every fallback is a system face, so nothing is fetched. */
+  --serif: "New York", ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
   --radius: 14px;
   --radius-sm: 9px;
 }
@@ -75,6 +84,88 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
+
+/* Which palette the browser paints its own widgets from. Left unset it
+   follows the OS, so with macOS or Windows in dark appearance and Compass in
+   its light theme the UA rendered `buttontext` white, native selects on a
+   near-black ground, and dark scrollbars — over a white page. Pinned to the
+   theme the app is actually showing, in all three states: the two explicit
+   choices, and the default where only the media query separates them. */
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* Controls take the page's ink and the page's typeface. A `<button>` does not
+   inherit either: unless its own rule says otherwise it renders in the UA's
+   button font at the UA's `buttontext`, which is a *system* colour and flips
+   with the OS appearance. That is how `Cancel`, `Save as draft`, `Create pull
+   request`, `Keep them`, the Design template picker and the composer's diff
+   button all came to be white text on a white button — invisible, while the
+   one button beside them that set its own colour stayed readable.
+
+   Colour and family only. Deliberately not `font: inherit`, which would also
+   reset font-size and resize the several dozen controls that currently lean
+   on the UA default. Any rule that sets its own colour still wins. */
+button,
+select,
+textarea,
+input,
+optgroup {
+  color: inherit;
+  font-family: inherit;
+}
+
+/* Cursors, once, for everything that can be clicked or typed into.
+   `cursor: pointer` was declared 224 times across the component stylesheets and
+   nowhere globally, so a control only got a hand if its own selector remembered
+   to ask — and a `<button>`'s browser default is an arrow, not a hand. Anything
+   missed showed the wrong cursor, which reads as "this isn't clickable".
+   Element selectors, so any component rule that deliberately wants something
+   else (zoom-in on the lightbox, grab on a canvas) still wins on specificity. */
+button,
+summary,
+select,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+[role="switch"],
+a[href],
+label[for],
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+input[type="color"],
+input[type="file"],
+input[type="submit"],
+input[type="button"] {
+  cursor: pointer;
+}
+
+/* The I-beam, for the same reason: a textarea styled with a custom background
+   and no border stops looking like somewhere you can type. */
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="password"],
+input[type="number"],
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+}
+
+/* Nothing to click here — said plainly rather than by leaving the hand on. */
+button:disabled,
+select:disabled,
+textarea:disabled,
+input:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
 body {
   background: var(--bg);
   color: var(--ink);
@@ -232,7 +323,7 @@ body {
   font-size: inherit;
   font-style: inherit;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--think-ink);
 }
 
 /* The thinking block's left rule, while the thinking is still arriving.
@@ -309,6 +400,12 @@ body {
 .prose ul, .prose ol { margin: 0 0 0.65em; padding-left: 1.3em; }
 .prose li { margin: 0.2em 0; }
 .prose li::marker { color: var(--accent); }
+/* Home's bullets sit in the text's own colour rather than brass. In a Code
+   transcript the brass marker ties a list back to the console's palette; in a
+   Home answer the list *is* the answer, and a coloured bullet pulls the eye
+   to the punctuation instead of the point. Scoped to Home so the Code console
+   keeps the marker its own mockups specify. */
+app-home-chat .prose li::marker { color: var(--ink); }
 .prose a { color: var(--accent); text-underline-offset: 2px; }
 .prose strong { font-weight: 700; }
 .prose code {
@@ -319,5 +416,134 @@ body {
   border: 1px solid var(--border);
   border-radius: 5px;
   padding: 0.08em 0.36em;
+  white-space: nowrap;
+}
+
+/* ===================== Composer pickers ===================== */
+/* Shared by both composers. Code's toolbar and Home's own row grew the same
+   four settings independently, and both reached for a native <select> — which
+   is why picking a model in Home still dropped a grey OS list into the middle
+   of the app after Code had been fixed. One definition, so the next composer
+   that needs a picker cannot quietly diverge again.
+
+   Global rather than component-scoped for the same reason: a rule written in
+   app.css carries the App component's attribute and cannot reach Home. */
+/* The trigger keeps .tb-seg's hover and metrics so the toolbar row is
+   unchanged; only what it opens is new. */
+.tb-pick-wrap { position: relative; display: inline-flex; }
+.pick-btn {
+  border: 0;
+  background: none;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 550;
+  color: var(--ink);
+}
+.pick-val { white-space: nowrap; }
+.pick-val.cap, .pick-item.cap .pick-label { text-transform: capitalize; }
+/* Model names get the first letter only. `capitalize` treats every hyphenated
+   part as a word and turned "gpt-4o-mini" into "Gpt-4o-Mini"; a deployment
+   name is one token, not three. */
+.pick-val.cap1, .pick-item.cap1 .pick-label { text-transform: none; display: inline-block; }
+.pick-val.cap1::first-letter,
+.pick-item.cap1 .pick-label::first-letter { text-transform: uppercase; }
+.pick-caret {
+  width: 12px; height: 12px;
+  flex: none;
+  color: var(--faint);
+  transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.pick-btn[aria-expanded="true"] .pick-caret { transform: rotate(180deg); }
+
+.pick-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 9px);
+  z-index: 70;
+  min-width: 176px;
+  padding: 9px 8px 7px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  /* Rises from the control it belongs to, so the motion says where it came
+     from. 150ms: long enough to read as a movement, short enough that a
+     setting you change often never feels like it is being waited on. */
+  transform-origin: bottom left;
+  animation: pick-in 0.15s cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* The right-hand pickers sit near the composer's edge; anchoring them by
+   their right edge keeps the card on screen instead of pushing the layout. */
+.pick-menu.right { left: auto; right: 0; transform-origin: bottom right; }
+@keyframes pick-in {
+  from { opacity: 0; transform: translateY(5px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Still appears, just does not travel. */
+  .pick-menu { animation: pick-fade 0.12s linear; }
+  .pick-caret { transition: none; }
+  @keyframes pick-fade { from { opacity: 0; } to { opacity: 1; } }
+}
+
+.pick-head {
+  padding: 3px 10px 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.pick-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  font-weight: 400;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s;
+}
+.pick-item:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+/* The chosen one, stated twice — weight and a tick. Weight alone is the kind
+   of difference you have to compare two rows to see. */
+.pick-item.on { color: var(--ink); font-weight: 650; }
+.pick-label { flex: 1 1 auto; }
+.pick-tick { width: 14px; height: 14px; flex: none; color: var(--accent); }
+
+/* ===================== Assistant byline ===================== */
+/* Shared by both consoles. Global rather than component-scoped: a rule in
+   app.css carries the App component's attribute and cannot reach Home, which
+   renders the same byline beside its own messages. */
+.a-name {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink);
+  align-self: center;
+  flex-shrink: 0;
+}
+.a-pills {
+  align-self: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   white-space: nowrap;
 }

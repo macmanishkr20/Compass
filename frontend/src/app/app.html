@@ -51,6 +51,29 @@
     <button (click)="routineToast.set('')" aria-label="Dismiss">✕</button>
   </div>
 }
+@if (turnNotify.toast(); as t) {
+  <div class="turn-toast" [class.warn]="!t.ok" role="status" aria-live="polite">
+    <button class="turn-toast-main" type="button"
+      (click)="jumpToFinishedTurn(t.section)"
+      [attr.aria-label]="t.title + '. Open ' + turnNotify.label(t.section)">
+      <span class="turn-toast-ico" aria-hidden="true">
+        @if (t.ok) {
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        } @else {
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 8v5" stroke-linecap="round"/><circle cx="12" cy="16.5" r="1.1" fill="currentColor" stroke="none"/><path d="M10.3 3.9L2.6 17.4A2 2 0 004.3 20.4h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke-linejoin="round"/></svg>
+        }
+      </span>
+      <span class="turn-toast-text">
+        <span class="turn-toast-title">{{ t.title }}</span>
+        @if (t.body) { <span class="turn-toast-body">{{ t.body }}</span> }
+      </span>
+    </button>
+    <button class="turn-toast-x" type="button" (click)="turnNotify.dismiss()"
+      aria-label="Dismiss notification">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+}
 @if (workIqToast(); as toast) {
   <div class="app-toast">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.6 3.6 3 8 3s8-1.4 8-3V5" stroke-linecap="round"/></svg>
@@ -78,6 +101,18 @@
         </button>
       </div>
       <div class="mem-body">
+        <div class="mem-cat">Notifications</div>
+        <label class="cz-toggle">
+          <input type="checkbox" [checked]="turnNotify.soundOn()"
+            (change)="turnNotify.setSound($any($event.target).checked)" />
+          <span class="cz-toggle-text">
+            <span class="cz-name">Sound when a turn finishes</span>
+            <span class="cz-detail">A short click with the notification, for a run
+              that lands while you are somewhere else. Off is silent — the toast
+              and the desktop notification still appear.</span>
+          </span>
+        </label>
+
         @if (customize(); as c) {
           <div class="mem-cat">Connectors</div>
           @for (x of c.connectors; track x.name) {
@@ -390,8 +425,10 @@
             }
           </div>
         }
-        @if (moreHome() > 0) {
-          <button class="conv-more" (click)="loadMoreHome()" [attr.aria-label]="'Show ' + (moreHome() < 4 ? moreHome() : 4) + ' more chats'">
+        @if (moreHome() > 0 || homeExpanded()) {
+          <button class="conv-more" [class.open]="moreHome() === 0"
+            (click)="moreHome() > 0 ? loadMoreHome() : collapseHome()">
+            {{ moreHome() > 0 ? 'Show ' + moreHome() + ' more' : 'Show less' }}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
           </button>
         }
@@ -420,8 +457,10 @@
           }
         </div>
       }
-      @if (moreConvs() > 0) {
-        <button class="conv-more" (click)="loadMoreConvs()" [attr.aria-label]="'Show ' + (moreConvs() < 4 ? moreConvs() : 4) + ' more conversations'">
+      @if (moreConvs() > 0 || convsExpanded()) {
+        <button class="conv-more" [class.open]="moreConvs() === 0"
+          (click)="moreConvs() > 0 ? loadMoreConvs() : collapseConvs()">
+          {{ moreConvs() > 0 ? 'Show ' + moreConvs() + ' more' : 'Show less' }}
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
       }
@@ -444,53 +483,6 @@
         </div>
       </nav>
     }
-
-    <div class="side-collab">
-      <span class="side-collab-head">Compass Collab</span>
-      <div class="collab-row">
-        <button class="collab-app" title="Cost Compass" (click)="launchCollab(collabApps[0])">
-          <span class="collab-ico">
-            <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
-              <defs>
-                <linearGradient id="cc-grad" x1="0" y1="0" x2="0.5" y2="1">
-                  <stop offset="0" stop-color="#FCE58A"/><stop offset="0.5" stop-color="#F2C63C"/><stop offset="1" stop-color="#D19A05"/>
-                </linearGradient>
-                <linearGradient id="cc-gloss" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect x="3" y="3" width="42" height="42" rx="11" fill="url(#cc-grad)"/>
-              <rect x="3" y="3" width="42" height="21" rx="11" fill="url(#cc-gloss)"/>
-              <rect x="3.6" y="3.6" width="40.8" height="40.8" rx="10.5" fill="none" stroke="#ffffff" stroke-opacity="0.45"/>
-              <circle cx="24" cy="24" r="10.5" fill="none" stroke="#4a3908" stroke-width="1.6" stroke-opacity="0.9"/>
-              <path d="M24 15l2.7 9-2.7 9-2.7-9z" fill="#4a3908"/>
-              <path d="M24 15l2.7 9H24z" fill="#6b520f"/>
-              <circle cx="24" cy="24" r="1.7" fill="#FCE58A"/>
-            </svg>
-          </span>
-          <span class="collab-name">Cost Compass</span>
-        </button>
-        <button class="collab-app" title="Pulse Compass" (click)="launchCollab(collabApps[1])">
-          <span class="collab-ico">
-            <svg width="44" height="44" viewBox="0 0 48 48" aria-hidden="true">
-              <defs>
-                <linearGradient id="pc-grad" x1="0" y1="0" x2="0.5" y2="1">
-                  <stop offset="0" stop-color="#7BA3F7"/><stop offset="0.5" stop-color="#436FE0"/><stop offset="1" stop-color="#274EC0"/>
-                </linearGradient>
-                <linearGradient id="pc-gloss" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect x="3" y="3" width="42" height="42" rx="11" fill="url(#pc-grad)"/>
-              <rect x="3" y="3" width="42" height="21" rx="11" fill="url(#pc-gloss)"/>
-              <rect x="3.6" y="3.6" width="40.8" height="40.8" rx="10.5" fill="none" stroke="#ffffff" stroke-opacity="0.4"/>
-              <path d="M12 25h5l2.3-6.5 4.2 13 2.6-9 1.6 2.5h6" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </span>
-          <span class="collab-name">Pulse Compass</span>
-        </button>
-      </div>
-    </div>
 
   </aside>
 
@@ -550,7 +542,7 @@
   </datalist>
 
   <!-- ============================ Main ============================ -->
-  <div class="main">
+  <div class="main" [class.rail-open]="section() === 'code' && view() === 'chat' && railOpen()">
     <header class="topbar">
       @if (!chromeless()) {
         <button class="icon-btn ghost side-toggle" [attr.aria-label]="sidebarOpen() ? 'Collapse sidebar' : 'Expand sidebar'" (click)="toggleSidebar()">
@@ -651,6 +643,10 @@
           <button class="icon-btn ghost" [class.on]="browserOpen()" aria-label="Compass browser"
             title="Compass browser" (click)="toggleBrowser()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn ghost" [class.on]="railOpen()" aria-label="Working copy"
+            title="Working copy" (click)="toggleRail()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg>
           </button>
         }
         <!-- Overflow menu: artifacts, files, background tasks, conversation
@@ -806,7 +802,7 @@
       @if (timeline().length === 0) {
         <section class="hero">
           <div class="hero-mark">
-            <span class="ring r1"></span><span class="ring r2"></span>
+            <span class="hero-halo" aria-hidden="true"></span>
             <app-compass-mark [size]="96" [active]="false" />
           </div>
           <h1>Set your bearing.</h1>
@@ -815,7 +811,13 @@
             compaction. Ask it to build, inspect, or run.</p>
           <div class="suggest">
             @for (s of suggestions; track s) {
-              <button class="chip" (click)="draft.set(s); send()"><span class="chip-arrow">→</span>{{ s }}</button>
+              <button class="chip" (click)="draft.set(s); send()">
+                <span class="chip-ic" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </span>
+                <span class="chip-text">{{ s }}</span>
+                <svg class="chip-ar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              </button>
             }
           </div>
         </section>
@@ -823,49 +825,48 @@
 
       @for (block of renderBlocks(); track trackBlock($index, block)) {
         @if (block.kind === 'activity') {
-          <div class="activity" [class.open]="isActivityExpanded(block.id)" [class.running]="block.running">
-            <button class="activity-head" (click)="toggleActivity(block.id)">
-              @if (block.running) {
-                <span class="activity-spin"></span>
-              }
-              <span class="activity-summary">{{ block.summary }}</span>
-              <!-- The summary already names what happened — "Ran 2 commands",
-                   "Read server.py, searched the code". A right-aligned step
-                   count restates it, and the terminal glyph that used to sit
-                   here labelled the row as machinery. What is left is the
-                   sentence and the way to open it. -->
-              <svg class="activity-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            @if (isActivityExpanded(block.id)) {
-              <div class="activity-body">
-                <div class="steps">
-                  @for (item of block.items; track item.id) {
-                    @if (item.kind === 'tool') {
-                      @let st = asTool(item);
-                      <div class="step" [class.open]="isActivityExpanded('step-' + st.id)">
-                        <button class="step-head" (click)="toggleActivity('step-' + st.id)">
-                          @if (st.agentId) { <span class="step-agent">subagent</span> }
-                          <span class="step-label">{{ stepLabel(st) }}</span>
-                          @if (st.status === 'running') { <span class="step-spin"></span> }
-                          <svg class="step-caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        @if (isActivityExpanded('step-' + st.id)) {
-                          <div class="step-body">
-                            @if (st.name === 'bash') {
-                              <pre class="step-cmd shellcmd"><span class="sh-prompt">$</span> <span [innerHTML]="shellHtml(stepDetail(st))"></span></pre>
-                            } @else {
-                              <pre class="step-cmd">{{ stepDetail(st) }}</pre>
-                            }
-                            <pre class="step-out">{{ st.output || (st.name === 'bash' ? '(Bash completed with no output)' : '(no output)') }}</pre>
-                          </div>
-                        }
-                      </div>
-                    } @else {
-                      <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: item }" />
-                    }
+          <!-- The tools a turn used, as a flat list that is simply there.
+               They used to sit behind a collapsed "Ran 2 commands" summary,
+               which meant the one thing a reader wants to check — what it
+               actually ran — took a click to see, and gave no sign of cost
+               until it was opened. Each row states the tool, its argument and
+               how long it took; the output is still one click away, because a
+               screenful of grep results in every row would bury the answer. -->
+          <div class="tools" [class.running]="block.running">
+            @for (item of block.items; track item.id) {
+              @if (item.kind === 'tool') {
+                @let st = asTool(item);
+                <div class="trow-wrap">
+                  <button class="trow" [class.ok]="st.status === 'ok'"
+                    [class.err]="st.status === 'error'"
+                    [class.open]="isActivityExpanded('step-' + st.id)"
+                    (click)="toggleActivity('step-' + st.id)">
+                    <span class="d" aria-hidden="true">
+                      @switch (st.status) {
+                        @case ('running') { <span class="d-spin"></span> }
+                        @case ('error') { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg> }
+                        @default { <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg> }
+                      }
+                    </span>
+                    <span class="tn">{{ st.name }}</span>
+                    @if (st.agentId) { <span class="step-agent">subagent</span> }
+                    <span class="ta">{{ toolArgLine(st) }}</span>
+                    <span class="td">{{ toolDuration(st) }}</span>
+                  </button>
+                  @if (isActivityExpanded('step-' + st.id)) {
+                    <div class="step-body">
+                      @if (st.name === 'bash') {
+                        <pre class="step-cmd shellcmd"><span class="sh-prompt">$</span> <span [innerHTML]="shellHtml(stepDetail(st))"></span></pre>
+                      } @else {
+                        <pre class="step-cmd">{{ stepDetail(st) }}</pre>
+                      }
+                      <pre class="step-out">{{ st.output || (st.name === 'bash' ? '(Bash completed with no output)' : '(no output)') }}</pre>
+                    </div>
                   }
                 </div>
-              </div>
+              } @else {
+                <ng-container [ngTemplateOutlet]="itemTpl" [ngTemplateOutletContext]="{ $implicit: item }" />
+              }
             }
           </div>
         } @else {
@@ -879,6 +880,7 @@
           @case ('bubble') {
             @let b = asBubble(item);
             <div class="row" [class.mine]="b.role === 'user'"
+              [class.has-byline]="b.role === 'assistant' && !!b.text"
               [attr.id]="b.role === 'user' ? 'msg-' + b.id : null">
               <!-- The mark belongs to what Compass said, not to every time it
                    thought. With reasoning shown per step, a turn that only
@@ -888,6 +890,12 @@
                 <span class="avatar">
                   <app-compass-mark [size]="22" />
                 </span>
+                <!-- Who answered, and under what settings. The mark alone said
+                     "Compass"; it did not say which model or how hard it was
+                     asked to think, which is the first thing anybody asks when
+                     an answer looks thin. -->
+                <span class="a-name">Compass</span>
+                <span class="a-pills">{{ turnPills() }}</span>
               }
               @if (b.editing) {
                 <div class="edit-box">
@@ -1103,28 +1111,50 @@
 
           @case ('permission') {
             @let p = asPerm(item);
-            <article class="card perm-card" [class.resolved]="p.resolved">
-              <p class="perm-q">{{ permQuestion(p) }}</p>
-              @if (permReason(p); as why) { <p class="perm-desc">{{ why }}</p> }
-              <p class="perm-why">{{ permWhy(p) }}</p>
-              <pre class="perm-cmd">{{ permDetail(p) }}</pre>
+            <article class="gate" [class.resolved]="p.resolved"
+              [class.denied]="p.resolved === 'deny'">
+              <div class="gate-head">
+                <span class="gate-ico" aria-hidden="true">
+                  @if (permKind(p) === 'shell') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1L18.5 8.5a2.1 2.1 0 0 0-3-3L5 16z"/><path d="M14.5 6.5 17.5 9.5"/></svg>
+                  }
+                </span>
+                <span class="gate-title">{{ permTitle(p) }}</span>
+                @if (!p.resolved) {
+                  <span class="gate-risk" [class]="'gate-risk r-' + permRisk(p)">{{ permRisk(p) }} risk</span>
+                }
+              </div>
+
+              <div class="gate-cmd">
+                @if (permKind(p) === 'shell') { <span class="gate-dollar">$</span> }
+                {{ permKind(p) === 'shell' ? permDetail(p) : permPaths(p).join('  ·  ') }}
+              </div>
+
               @if (!p.resolved) {
-                <div class="perm-actions">
-                  <button class="perm-btn deny" (click)="resolve(p, 'deny')">
-                    Deny <kbd>1</kbd>
+                <div class="gate-facts">
+                  @for (f of permFacts(p); track f.label) {
+                    <span>{{ f.label }} <b>{{ f.value }}</b></span>
+                  }
+                </div>
+                @if (permReason(p) || permWhy(p); as why) {
+                  <p class="gate-why">{{ permReason(p) || permWhy(p) }}</p>
+                }
+                <div class="gate-acts">
+                  <button class="gate-btn primary" (click)="resolve(p, 'allow')">
+                    {{ permKind(p) === 'shell' ? 'Allow once' : 'Allow the writes' }}
                   </button>
-                  <button class="perm-btn allow" (click)="resolve(p, 'allow')">
-                    Allow once <kbd>2 ⌘↵</kbd>
-                  </button>
-                  <button class="perm-btn allow-always" (click)="resolve(p, 'allow_always')"
-                    title="Allow this and don't ask again for it this session">
-                    Always allow <kbd>3</kbd>
-                  </button>
+                  @if (permKind(p) === 'shell') {
+                    <button class="gate-btn" (click)="resolve(p, 'allow_always')"
+                      title="Allow this and don't ask again for it this session">
+                      Always allow <span class="gate-mono">{{ permAlwaysLabel(p) }}</span>
+                    </button>
+                  }
+                  <button class="gate-btn danger" (click)="resolve(p, 'deny')">Deny</button>
                 </div>
               } @else {
-                <div class="perm-verdict" [class]="p.resolved">
-                  {{ p.resolved === 'allow' ? '✓ Allowed' : '✕ Denied' }}
-                </div>
+                <p class="gate-verdict">{{ permVerdict(p) }}</p>
               }
             </article>
           }
@@ -1203,7 +1233,12 @@
       @if (bgRunning().length) {
         <button class="run-indicator" (click)="toggleBgPanel()"
           title="Show background tasks">
-          <span class="run-star">✳</span>
+          <!-- The brand mark, sweeping. The asterisk that used to sit here was
+               a generic spinner glyph: it said "something is turning" without
+               saying whose work it was, next to a line that is Compass's own
+               running work. The mark's sweep ring already means "taking a
+               reading", so `active` is the same signal in the right voice. -->
+          <app-compass-mark class="run-mark" [size]="15" [active]="true" />
           {{ bgRunning().length }} running task{{ bgRunning().length === 1 ? '' : 's' }}
         </button>
       } @else if (bgFinished().length) {
@@ -1260,7 +1295,19 @@
           </button>
         }
         @if (prNotice()) {
-          <span class="cmp-note">{{ prNotice() }}</span>
+          <!-- A pull request that opened is worth more than a sentence that
+               fades: the number identifies it and the link reaches it, so the
+               notice becomes the way back to the thing it announced. Failures
+               and in-flight states stay plain text — there is nothing to go
+               to yet. -->
+          @if (prUrl(); as u) {
+            <a class="cmp-note ok" [href]="u" target="_blank" rel="noopener">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>
+              {{ prNotice() }}
+            </a>
+          } @else {
+            <span class="cmp-note">{{ prNotice() }}</span>
+          }
         } @else if (gitStatus()?.dirty) {
           <span class="cmp-warn" title="Uncommitted changes in the working tree">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9 16H3z" stroke-linejoin="round"/><path d="M12 10v4M12 17h.01" stroke-linecap="round"/></svg>
@@ -1270,7 +1317,7 @@
           <div class="cmp-pr-wrap">
             @if (prMenuOpen()) {
               <div class="cmp-pr-menu panel" (click)="prMenuOpen.set(false)">
-                <button (click)="createPr()">
+                <button (click)="openPrModal()">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-4 2.5-4 5.5" stroke-linecap="round"/></svg>
                   <span>Create PR</span>
                   <svg class="pr-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1286,7 +1333,7 @@
               </div>
             }
             <div class="cmp-pr" [class.busy]="prBusy()">
-              <button class="cmp-pr-main" (click)="createPr()" [disabled]="prBusy()" title="Push branch and open a pull request">
+              <button class="cmp-pr-main" (click)="openPrModal()" [disabled]="prBusy()" title="Review, then push the branch and open a pull request">
                 @if (prBusy()) { <span class="spin"></span> }
                 <span>Create PR</span>
               </button>
@@ -1359,11 +1406,28 @@
 
       <!-- Toolbar: mode · add · mic … model · effort -->
       <div class="cmp-toolbar">
-        <label class="tb-seg" title="Permission mode">
-          <select appBlurOnChange [ngModel]="activeMode()" (ngModelChange)="setMode($event)">
-            @for (m of modes; track m) { <option [value]="m">{{ modeLabels[m] }}</option> }
-          </select>
-        </label>
+        <span class="tb-pick-wrap">
+          @if (pickMenu() === 'mode') {
+            <div class="pick-menu panel" (click)="$event.stopPropagation()" role="menu"
+              aria-label="Permission mode">
+              <div class="pick-head">Permission mode</div>
+              @for (m of modes; track m) {
+                <button class="pick-item" [class.on]="activeMode() === m" role="menuitemradio"
+                  [attr.aria-checked]="activeMode() === m"
+                  (click)="setMode(m); pickMenu.set(null)">
+                  <span class="pick-label">{{ modeLabels[m] }}</span>
+                  @if (activeMode() === m) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                </button>
+              }
+            </div>
+          }
+          <button class="tb-seg pick-btn" title="Permission mode" aria-haspopup="menu"
+            [attr.aria-expanded]="pickMenu() === 'mode'"
+            (click)="$event.stopPropagation(); togglePick('mode')">
+            <span class="pick-val">{{ modeLabels[activeMode()] }}</span>
+            <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </span>
         <!-- The + opens a menu, not the workspace panel. Adding a folder is one
              of the things you can do from here, not the only one, and jumping
              straight into a modal hid the other two. -->
@@ -1418,28 +1482,131 @@
         </button>
         <span class="tb-div"></span>
         @if (health()?.tts && voices().length) {
-          <label class="tb-seg tb-mic" title="Read-aloud voice">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke-linecap="round"/></svg>
-            <select appBlurOnChange [ngModel]="activeVoice()" (ngModelChange)="setVoice($event)">
-              @for (v of voices(); track v) { <option [value]="v">{{ v }}</option> }
-            </select>
-          </label>
+          <span class="tb-pick-wrap">
+            @if (pickMenu() === 'voice') {
+              <div class="pick-menu panel" (click)="$event.stopPropagation()" role="menu"
+                aria-label="Read-aloud voice">
+                <div class="pick-head">Read-aloud voice</div>
+                @for (v of voices(); track v) {
+                  <button class="pick-item cap" [class.on]="activeVoice() === v" role="menuitemradio"
+                    [attr.aria-checked]="activeVoice() === v"
+                    (click)="setVoice(v); pickMenu.set(null)">
+                    <span class="pick-label">{{ v }}</span>
+                    @if (activeVoice() === v) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                  </button>
+                }
+              </div>
+            }
+            <button class="tb-seg tb-mic pick-btn" title="Read-aloud voice" aria-haspopup="menu"
+              [attr.aria-expanded]="pickMenu() === 'voice'"
+              (click)="$event.stopPropagation(); togglePick('voice')">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke-linecap="round"/></svg>
+              <span class="pick-val cap">{{ activeVoice() }}</span>
+              <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </span>
         }
         <span class="composer-spacer"></span>
-        <label class="tb-seg" title="Model">
-          <i class="tb-dot"></i>
-          <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="setModel($event)">
-            @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
-          </select>
-        </label>
-        <label class="tb-seg" title="Model effort">
-          <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="setEffort($event)">
-            @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
-          </select>
-        </label>
+        <span class="tb-pick-wrap">
+          @if (pickMenu() === 'model') {
+            <div class="pick-menu panel right" (click)="$event.stopPropagation()" role="menu"
+              aria-label="Model">
+              <div class="pick-head">Model</div>
+              @for (m of models(); track m) {
+                <button class="pick-item cap1" [class.on]="activeModel() === m" role="menuitemradio"
+                  [attr.aria-checked]="activeModel() === m"
+                  (click)="setModel(m); pickMenu.set(null)">
+                  <span class="pick-label">{{ m }}</span>
+                  @if (activeModel() === m) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                </button>
+              }
+            </div>
+          }
+          <button class="tb-seg pick-btn" title="Model" aria-haspopup="menu"
+            [attr.aria-expanded]="pickMenu() === 'model'"
+            (click)="$event.stopPropagation(); togglePick('model')">
+            <i class="tb-dot"></i>
+            <span class="pick-val cap1">{{ activeModel() }}</span>
+            <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </span>
+        <span class="tb-pick-wrap">
+          @if (pickMenu() === 'effort') {
+            <div class="pick-menu panel right" (click)="$event.stopPropagation()" role="menu"
+              aria-label="Reasoning effort">
+              <div class="pick-head">Reasoning effort</div>
+              @for (e of efforts; track e) {
+                <button class="pick-item cap" [class.on]="activeEffort() === e" role="menuitemradio"
+                  [attr.aria-checked]="activeEffort() === e"
+                  (click)="setEffort(e); pickMenu.set(null)">
+                  <span class="pick-label">{{ e }}</span>
+                  @if (activeEffort() === e) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                </button>
+              }
+            </div>
+          }
+          <button class="tb-seg pick-btn" title="Reasoning effort" aria-haspopup="menu"
+            [attr.aria-expanded]="pickMenu() === 'effort'"
+            (click)="$event.stopPropagation(); togglePick('effort')">
+            <span class="pick-val cap">{{ activeEffort() }}</span>
+            <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </span>
       </div>
       </div>
     </footer>
+    }
+
+    @if (section() === 'code' && view() === 'chat' && railOpen()) {
+      <aside class="wc-rail" aria-label="Working copy">
+        <div class="wc-head">
+          <h3>Working copy</h3>
+          <span class="wc-rule"></span>
+          @if (gitStatus(); as g) {
+            <span class="wc-branch">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-2.5 4.5-6 4.5"/></svg>{{ g.branch }}
+            </span>
+          }
+        </div>
+
+        <div class="wc-body">
+          @if (railBusy() && !railFiles().length) {
+            <div class="wc-empty"><span class="spin"></span></div>
+          } @else if (!railFiles().length) {
+            <div class="wc-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h4"/></svg>
+              <p>No changes in this session yet. Anything Compass edits will appear
+                here, file by file, before it can become a pull request.</p>
+            </div>
+          } @else {
+            @for (grp of railGroups(); track grp.key) {
+              <div class="wc-sec">{{ grp.label }}<span class="wc-rule"></span>{{ grp.files.length }}</div>
+              @for (f of grp.files; track f.path) {
+                <button class="wc-file" [class.on]="railActive() === f.path"
+                  (click)="openRailFile(f.path)" [title]="f.path">
+                  <span class="wc-badge" [class]="'wc-badge s-' + f.status">{{ f.status }}</span>
+                  <span class="wc-path">{{ f.path }}</span>
+                  <span class="wc-nums">
+                    <span class="cmp-add">+{{ railAdded(f) }}</span>
+                    <span class="cmp-rem">−{{ railRemoved(f) }}</span>
+                  </span>
+                </button>
+              }
+            }
+          }
+        </div>
+
+        <div class="wc-foot">
+          <button class="wc-btn primary" (click)="openPrModal()" [disabled]="prBusy() || !railFiles().length">
+            Create PR
+          </button>
+          <button class="wc-btn danger" (click)="discardAsk.set(true)"
+            [disabled]="!railFiles().length || discardBusy()"
+            title="Throw away every uncommitted change">
+            Discard all
+          </button>
+        </div>
+      </aside>
     }
 
     @if (section() === 'code' && view() === 'routines') {
@@ -2031,12 +2198,105 @@
   <app-lightbox />
 
 
+  @if (prModalOpen()) {
+    <div class="diff-overlay" (click)="prModalOpen.set(false)">
+      <div class="pr-modal panel" (click)="$event.stopPropagation()" role="dialog"
+        aria-label="Create pull request">
+        <header class="pr-head">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 3-4 2.5-4 5.5" stroke-linecap="round"/></svg>
+          <span class="pr-title-txt">Create pull request</span>
+          @if (gitStatus(); as g) {
+            <!-- The head branch only. The base is whatever GitHub has as the
+                 repository default, which this screen has no way to read —
+                 naming a branch it has not checked would be a guess. -->
+            <span class="pr-branch">from {{ g.branch }}</span>
+          }
+          <button class="pr-x" (click)="prModalOpen.set(false)" aria-label="Close">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </header>
+
+        <div class="pr-body">
+          <label class="pr-field">
+            <span>Title</span>
+            <input type="text" [value]="prTitle()"
+              (input)="prTitle.set($any($event.target).value)"
+              placeholder="Leave blank to use the commit message" />
+          </label>
+          <label class="pr-field">
+            <span>Description</span>
+            <textarea rows="6" [value]="prBody()"
+              (input)="prBody.set($any($event.target).value)"
+              placeholder="What this changes, and why"></textarea>
+          </label>
+
+          <div class="pr-files">
+            <div class="pr-files-head">
+              Files in this pull request
+              <span class="wc-rule"></span>
+              <span class="cmp-add">+{{ prAdded() }}</span>
+              <span class="cmp-rem">−{{ prRemoved() }}</span>
+            </div>
+            @if (!railFiles().length) {
+              <p class="pr-none">Nothing is uncommitted right now — the pull
+                request will contain whatever this branch already has committed.</p>
+            } @else {
+              @for (f of railFiles(); track f.path) {
+                <div class="pr-file">
+                  <span class="wc-badge" [class]="'wc-badge s-' + f.status">{{ f.status }}</span>
+                  <span class="wc-path">{{ f.path }}</span>
+                  <span class="wc-nums">
+                    <span class="cmp-add">+{{ railAdded(f) }}</span>
+                    <span class="cmp-rem">−{{ railRemoved(f) }}</span>
+                  </span>
+                </div>
+              }
+            }
+          </div>
+        </div>
+
+        <footer class="pr-foot">
+          <button class="wc-btn" (click)="prModalOpen.set(false)">Cancel</button>
+          <button class="wc-btn" [disabled]="prBusy()" (click)="submitPr(true)">
+            Save as draft
+          </button>
+          <button class="wc-btn primary" [disabled]="prBusy()" (click)="submitPr()">
+            Create pull request
+          </button>
+        </footer>
+      </div>
+    </div>
+  }
+
+  @if (discardAsk()) {
+    <div class="diff-overlay" (click)="discardAsk.set(false)">
+      <div class="confirm-modal panel" (click)="$event.stopPropagation()" role="alertdialog">
+        <h3>Discard all changes?</h3>
+        <p>
+          This throws away every uncommitted change in
+          <b>{{ railFiles().length }} file{{ railFiles().length === 1 ? '' : 's' }}</b>,
+          including files Compass has not committed yet. It cannot be undone —
+          git keeps no copy of work that was never committed.
+        </p>
+        <div class="confirm-acts">
+          <button class="wc-btn" (click)="discardAsk.set(false)">Keep them</button>
+          <button class="wc-btn danger solid" [disabled]="discardBusy()"
+            (click)="confirmDiscard()">
+            {{ discardBusy() ? 'Discarding…' : 'Discard all' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
   @if (diffOpen()) {
     <div class="diff-overlay" (click)="diffOpen.set(false)">
       <div class="diff-modal panel" (click)="$event.stopPropagation()">
         <div class="diff-head">
-          <span class="diff-title">Changes</span>
-          @if (gitStatus(); as g) {
+          <span class="diff-title">{{ diffTitle() || 'Changes' }}</span>
+          @if (diffTitle()) {
+            <span class="diff-stat">one file</span>
+          } @else if (gitStatus(); as g) {
             <span class="diff-stat"><span class="cmp-add">+{{ g.added }}</span> <span class="cmp-rem">−{{ g.removed }}</span> · {{ g.files_changed }} file{{ g.files_changed === 1 ? '' : 's' }}</span>
           }
           <span class="composer-spacer"></span>

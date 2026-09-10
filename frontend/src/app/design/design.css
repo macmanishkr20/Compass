@@ -118,8 +118,13 @@
   height: 38px;
   border: 0;
   border-radius: 11px;
+  /* Dark ink, not white. The glyph is a stroke of currentColor on brass, and
+     white on #B8860B measures 1.87:1 — the arrow read as a dent in the button
+     rather than as a mark on it. Matches the treatment the brass buttons in
+     Pipelines take, and holds in dark theme too, where the brass is lighter
+     still and white would be worse. */
   background: var(--accent);
-  color: #fff;
+  color: #1a1205;
   cursor: pointer;
   display: inline-flex;
   align-items: center;

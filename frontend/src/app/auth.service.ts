@@ -23,8 +23,33 @@ export class AuthService {
   readonly loginError = signal<string | null>(null);
   readonly busy = signal(false);
 
+  /** The username with any email domain removed.
+   *
+   *  People sign in with whatever their organisation issues, and that is
+   *  usually an email — so the greeting read "Afternoon, someone@example.com",
+   *  which is nobody's name and puts a full address on screen for anyone
+   *  standing behind them. The local part is the part that identifies a person
+   *  to other people, so that is what the shell shows.
+   *
+   *  Separators become spaces and the words are capitalised, because
+   *  "first.last" really is a name written with a dot in it. A handle with no
+   *  separators is left exactly as it is: "macmanishkr20" is not improved by
+   *  being retyped as "Macmanishkr20", and guessing at capitalisation for
+   *  something that is not a name makes it look mangled rather than friendly.
+   */
+  readonly displayName = computed(() => {
+    const raw = (this.user()?.username ?? '').trim();
+    const local = raw.split('@')[0];
+    if (!local) return '';
+    const words = local.split(/[._-]+/).filter(Boolean);
+    if (words.length < 2) return local;
+    return words
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  });
+
   readonly initials = computed(() => {
-    const name = this.user()?.username ?? '';
+    const name = this.displayName();
     const words = name.split(/[\s._-]+/).filter(Boolean);
     if (words.length >= 2) {
       return (words[0][0] + words[1][0]).toUpperCase();

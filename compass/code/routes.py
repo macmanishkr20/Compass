@@ -635,9 +635,36 @@ async def workspace_diff(
     return {"diff": git_diff(root)}
 
 
+class DiscardRequest(BaseModel):
+    """`confirm` has to be sent and true. A destructive endpoint that fires on
+    an empty body is one stray request away from deleting somebody's work."""
+
+    confirm: bool = False
+
+
+@router.post("/v1/workspaces/{workspace_id}/discard")
+async def workspace_discard(
+    workspace_id: str, body: DiscardRequest, user: str = Depends(require_user)
+) -> dict:
+    """Discard every uncommitted change in the working tree. Irreversible."""
+    from compass.common.workspaces import get_workspace_registry, git_discard
+
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="confirm must be true")
+    root = await get_workspace_registry().resolve_root(workspace_id)
+    result = git_discard(root)
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("detail", "discard failed"))
+    return result
+
+
 class CreatePrRequest(BaseModel):
     draft: bool = False
     manual: bool = False
+    #: Written in the review dialog before the PR is opened. Blank keeps the
+    #: old behaviour — `gh --fill` writes both from the commits.
+    title: str = ""
+    body: str = ""
 
 
 @router.post("/v1/workspaces/{workspace_id}/pr")
@@ -655,7 +682,13 @@ async def workspace_create_pr(
 
     root = await get_workspace_registry().resolve_root(workspace_id)
     try:
-        return create_pull_request(root, draft=body.draft, manual=body.manual)
+        return create_pull_request(
+            root,
+            draft=body.draft,
+            manual=body.manual,
+            title=body.title,
+            body=body.body,
+        )
     except RuntimeError as err:
         raise HTTPException(status_code=422, detail=str(err))
 

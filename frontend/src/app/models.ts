@@ -148,6 +148,10 @@ export interface PermissionVM {
   reason: string;
   agentId?: string | null;
   resolved?: PermissionBehavior;
+  /** Which button was pressed — 'allow' and 'allow_always' are
+   *  different promises and the resolved card says which. */
+  decision?: 'allow' | 'deny' | 'allow_always';
+  decidedAt?: string;
 }
 
 /** A question the model put to the person, and how it was settled. */

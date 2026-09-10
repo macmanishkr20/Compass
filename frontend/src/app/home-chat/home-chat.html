@@ -3,7 +3,8 @@
     @if (messages().length === 0) {
       <div class="home-hero">
         <div class="home-hero-mark">
-          <app-compass-mark [size]="46" [active]="streaming()" />
+          <span class="home-hero-halo" aria-hidden="true"></span>
+          <app-compass-mark [size]="52" [active]="streaming()" />
         </div>
         <h1 class="home-greeting">{{ greeting() }}</h1>
         <p class="home-tagline">Compass Chat — ask, brainstorm, or think it through. It can search the web and read a link you give it; it cannot touch your files.</p>
@@ -11,9 +12,15 @@
     } @else {
       <div class="chat-log">
         @for (m of messages(); track m.id; let last = $last) {
-          <div class="crow" [class.mine]="m.role === 'user'">
+          <div class="crow" [class.mine]="m.role === 'user'"
+            [class.has-byline]="m.role === 'assistant'">
             @if (m.role === 'assistant') {
               <span class="cavatar"><app-compass-mark [size]="22" /></span>
+              <!-- Who answered, and under what settings. The mark alone said
+                   "Compass"; it did not say which model or how hard it was
+                   asked to think. -->
+              <span class="a-name">Compass</span>
+              <span class="a-pills">{{ turnPills() }}</span>
             }
             <div class="cwrap" [class.mine]="m.role === 'user'">
               @if (m.role === 'assistant') {
@@ -143,7 +150,7 @@
 
     @if (attachError()) { <div class="home-attach-err">{{ attachError() }}</div> }
 
-    <div class="home-composer" [class.drag]="dragOver()">
+    <div class="home-composer" [class.drag]="dragOver()" [class.picking]="!!pickMenu()">
       @if (dragOver()) {
         <div class="home-drop-hint">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -195,22 +202,52 @@
         <span class="home-spacer"></span>
 
         @if (models().length) {
-          <label class="home-pick" title="Model">
-            <i class="home-dot"></i>
-            <span class="home-pick-val">{{ activeModel() }}</span>
-            <svg class="home-pick-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-            <select appBlurOnChange [ngModel]="activeModel()" (ngModelChange)="activeModel.set($event)">
-              @for (m of models(); track m) { <option [value]="m">{{ m }}</option> }
-            </select>
-          </label>
+          <span class="tb-pick-wrap">
+            @if (pickMenu() === 'model') {
+              <div class="pick-menu right" (click)="$event.stopPropagation()" role="menu"
+                aria-label="Model">
+                <div class="pick-head">Model</div>
+                @for (m of models(); track m) {
+                  <button class="pick-item cap1" type="button" role="menuitemradio"
+                    [class.on]="activeModel() === m" [attr.aria-checked]="activeModel() === m"
+                    (click)="activeModel.set(m); pickMenu.set(null)">
+                    <span class="pick-label">{{ m }}</span>
+                    @if (activeModel() === m) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                  </button>
+                }
+              </div>
+            }
+            <button class="home-pick pick-btn" type="button" title="Model" aria-haspopup="menu"
+              [attr.aria-expanded]="pickMenu() === 'model'"
+              (click)="$event.stopPropagation(); togglePick('model')">
+              <i class="home-dot"></i>
+              <span class="pick-val cap1">{{ activeModel() }}</span>
+              <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </span>
         }
-        <label class="home-pick" title="Effort">
-          <span class="home-pick-val">{{ activeEffort() }}</span>
-          <svg class="home-pick-caret" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
-          <select appBlurOnChange [ngModel]="activeEffort()" (ngModelChange)="activeEffort.set($event)">
-            @for (e of efforts; track e) { <option [value]="e">{{ e }}</option> }
-          </select>
-        </label>
+        <span class="tb-pick-wrap">
+          @if (pickMenu() === 'effort') {
+            <div class="pick-menu right" (click)="$event.stopPropagation()" role="menu"
+              aria-label="Reasoning effort">
+              <div class="pick-head">Reasoning effort</div>
+              @for (e of efforts; track e) {
+                <button class="pick-item cap" type="button" role="menuitemradio"
+                  [class.on]="activeEffort() === e" [attr.aria-checked]="activeEffort() === e"
+                  (click)="activeEffort.set(e); pickMenu.set(null)">
+                  <span class="pick-label">{{ e }}</span>
+                  @if (activeEffort() === e) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
+                </button>
+              }
+            </div>
+          }
+          <button class="home-pick pick-btn" type="button" title="Reasoning effort"
+            aria-haspopup="menu" [attr.aria-expanded]="pickMenu() === 'effort'"
+            (click)="$event.stopPropagation(); togglePick('effort')">
+            <span class="pick-val cap">{{ activeEffort() }}</span>
+            <svg class="pick-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </span>
 
         <button class="home-voice" type="button" (click)="openVoice()"
           aria-label="Use voice mode" title="Use voice mode">
@@ -231,11 +268,24 @@
 
     @if (messages().length === 0) {
       <div class="home-ideas">
-        <div class="home-ideas-label">Ideas for you</div>
-        @for (s of ideas; track s) {
-          <button class="home-idea" type="button" (click)="useIdea(s)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3a6 6 0 00-4 10.5c.6.6 1 1.3 1 2.1V17h6v-1.4c0-.8.4-1.5 1-2.1A6 6 0 0012 3z"/><path d="M9 21h6" stroke-linecap="round"/></svg>
-            <span>{{ s }}</span>
+        <div class="home-ideas-label"><b>Ideas for you</b><span class="home-ideas-rule"></span></div>
+        @for (s of ideas; track s.text) {
+          <button class="home-idea" type="button" (click)="useIdea(s.text)">
+            <span class="home-idea-ic" aria-hidden="true">
+              @switch (s.icon) {
+                @case ('bulb') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.6 10.8c-.6.5-.9 1.1-.9 1.7H9.3c0-.6-.3-1.2-.9-1.7A6 6 0 0 1 12 3z"/></svg>
+                }
+                @case ('branch') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="12" cy="18" r="2.4"/><path d="M7.6 8.7 10.7 16M16.4 8.7 13.3 16M8.4 7h7.2"/></svg>
+                }
+                @case ('pen') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1L18.5 8.5a2.1 2.1 0 0 0-3-3L5 16z"/><path d="M14.5 6.5 17.5 9.5"/></svg>
+                }
+              }
+            </span>
+            <span class="home-idea-text">{{ s.text }}</span>
+            <svg class="home-idea-ar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
         }
       </div>

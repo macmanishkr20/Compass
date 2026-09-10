@@ -315,6 +315,16 @@ export class CompassApiService {
     return firstValueFrom(this.http.get<{ diff: string }>(`/v1/workspaces/${id}/diff`));
   }
 
+  /** Throw away every uncommitted change in a workspace. Irreversible — the
+   *  `confirm` flag is required by the server, not decoration. */
+  discardChanges(id: string): Promise<{ ok: boolean; discarded: number }> {
+    return firstValueFrom(
+      this.http.post<{ ok: boolean; discarded: number }>(
+        `/v1/workspaces/${id}/discard`, { confirm: true },
+      ),
+    );
+  }
+
   screenshot(url: string, fullPage = false): Promise<{ image: string }> {
     return firstValueFrom(
       this.http.post<{ image: string }>('/v1/screenshot', { url, full_page: fullPage }),
@@ -323,7 +333,7 @@ export class CompassApiService {
 
   createPr(
     id: string,
-    opts: { draft?: boolean; manual?: boolean } = {},
+    opts: { draft?: boolean; manual?: boolean; title?: string; body?: string } = {},
   ): Promise<{ url: string; branch: string; existing: boolean; manual?: boolean }> {
     return firstValueFrom(
       this.http.post<{ url: string; branch: string; existing: boolean; manual?: boolean }>(

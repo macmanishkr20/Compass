@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 
+import { TurnNotifyService } from '../turn-notify.service';
 import { EstimateApi } from './estimate-api';
 import { EstimateReport } from './report';
 import {
@@ -54,6 +55,7 @@ const BUILD_HOURS: Record<string, number> = {
 })
 export class Estimate {
   private readonly api = inject(EstimateApi);
+  private readonly turnNotify = inject(TurnNotifyService);
 
   readonly view = signal<View>('portfolio');
   readonly loading = signal(false);
@@ -657,6 +659,7 @@ export class Estimate {
     this.error.set('');
     this.progress.set(0);
     this.stageLabel.set('Sending the brief…');
+    this.turnNotify.arm();
     try {
       const record = await this.api.stream(this.brief(), (frame) => {
         this.stage.set(frame.stage);
@@ -673,6 +676,12 @@ export class Estimate {
       this.error.set(this.message(err));
     } finally {
       this.running.set(false);
+      const rec = this.open();
+      this.turnNotify.finished(
+        'estimate',
+        rec ? `${rec.name || 'Estimate'} — costed` : 'Estimate finished.',
+        !this.error(),
+      );
     }
   }
 

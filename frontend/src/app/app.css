@@ -73,10 +73,14 @@
 
 /* ============================== Sidebar ============================== */
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   padding: 14px 12px;
+  /* So the brass edge below is clipped by the panel's own radius and curves
+     into both bottom corners instead of running past them. */
+  overflow: hidden;
   /* Its own surface panel, so the chat window on the right reads as a
      distinct section rather than blending into the background. */
   background: var(--surface);
@@ -84,6 +88,17 @@
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   transition: opacity 0.26s ease, transform 0.26s ease;
+}
+/* A brass edge along the bottom of the panel — the one piece of colour in an
+   otherwise neutral column, and what stops it dissolving into the page. */
+.sidebar::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 4px;
+  z-index: 3;
+  background: linear-gradient(90deg, var(--accent-strong), var(--accent));
+  pointer-events: none;
 }
 .side-head {
   display: flex;
@@ -192,15 +207,18 @@
   gap: 16px;
 }
 .hist-group { display: flex; flex-direction: column; gap: 5px; }
+/* Section headings in the sidebar: an eyebrow, not a sentence. At 0.82rem in
+   sentence case "Today" sat at the same weight as the conversations under it
+   and read as one of them. */
 .hist-label {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.82rem;
-  text-transform: none;
-  letter-spacing: 0;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
   color: var(--faint);
-  font-weight: 500;
+  font-weight: 700;
   padding: 6px 10px 8px;
 }
 .hist-label svg { color: var(--accent); }
@@ -219,21 +237,30 @@
   transition: background 0.15s, color 0.15s;
 }
 .conv:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+/* "Show 4 more" / "Show less". It used to be a bare chevron with the count
+   only in its aria-label, so a sighted reader could not tell how much was
+   hidden — or that anything was. The chevron turns over when the list is
+   open, which is the only cue that the same control now folds it back. */
 .conv-more {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   width: 100%;
-  margin-top: 4px;
-  padding: 6px;
+  margin-top: 6px;
+  padding: 7px;
   border: none;
   border-radius: 8px;
   background: none;
+  font-size: 0.72rem;
+  font-weight: 500;
   color: var(--faint);
   cursor: pointer;
   transition: background 0.14s, color 0.14s;
 }
 .conv-more:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); color: var(--ink); }
+.conv-more svg { flex-shrink: 0; transition: transform 0.22s; }
+.conv-more.open svg { transform: rotate(180deg); }
 .conv.active { background: color-mix(in oklab, var(--ink) 9%, transparent); color: var(--ink); }
 .conv-rail {
   width: 7px;
@@ -324,53 +351,6 @@
 .conv-menu button:hover { background: color-mix(in oklab, var(--ink) 7%, transparent); }
 .conv-menu button.danger:hover { background: var(--danger-tint); color: var(--danger); }
 .menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
-
-/* Compass Collab — sibling app launchers */
-.side-collab {
-  padding-top: 12px;
-  margin-top: 10px;
-  border-top: 1px solid var(--border);
-}
-.side-collab-head {
-  display: block;
-  text-align: center;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--faint);
-  padding: 0 4px 10px;
-}
-.collab-row { display: flex; gap: 10px; justify-content: center; }
-.collab-app {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  padding: 6px 4px;
-  border: none;
-  background: none;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.14s, transform 0.14s;
-}
-.collab-app:hover { background: color-mix(in oklab, var(--ink) 6%, transparent); }
-.collab-app:active { transform: scale(0.96); }
-.collab-ico { display: inline-flex; }
-.collab-ico svg { display: block; filter: drop-shadow(0 4px 9px rgba(0, 0, 0, 0.32)); }
-.collab-app:hover .collab-ico svg { filter: drop-shadow(0 6px 13px rgba(0, 0, 0, 0.4)); }
-.collab-name {
-  font-size: 0.64rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
 
 .side-foot {
   padding-top: 12px;
@@ -496,6 +476,162 @@
 .stat.err .dot { background: var(--danger); }
 
 /* ============================ Main column ============================ */
+
+/* The discard confirmation. Its own dialog rather than window.confirm: this
+   deletes work that git has no copy of, and the count is the only thing that
+   tells somebody how much. */
+.confirm-modal {
+  width: min(420px, 92vw);
+  padding: 20px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+}
+.confirm-modal h3 { margin: 0 0 8px; font-size: 1rem; font-weight: 650; }
+.confirm-modal p { margin: 0; font-size: 0.82rem; line-height: 1.6; color: var(--muted); }
+.confirm-modal b { color: var(--ink); font-weight: 650; }
+.confirm-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.wc-btn.danger.solid {
+  background: var(--danger); border-color: var(--danger); color: #fff;
+}
+.wc-btn.danger.solid:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* ===================== Working copy rail ===================== */
+/* The changes the diff modal shows, kept open beside the conversation. A
+   modal cannot show files appearing as the agent writes them, which is most
+   of what anybody wants from this panel. Its own grid column, so opening it
+   narrows the conversation instead of covering it. */
+.main.rail-open { grid-template-columns: minmax(0, 1fr) 320px; }
+.main.rail-open > .topbar { grid-column: 1 / -1; }
+.wc-rail {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0 0 0 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.wc-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.wc-head h3 {
+  margin: 0;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--faint);
+}
+.wc-rule { flex: 1; height: 1px; background: var(--border); }
+.wc-branch {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+  color: var(--muted);
+  padding: 3px 8px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.wc-body { flex: 1; overflow-y: auto; min-height: 0; }
+.wc-empty {
+  padding: 40px 24px; text-align: center; color: var(--faint);
+  display: flex; flex-direction: column; align-items: center;
+}
+.wc-empty svg {
+  width: 32px; height: 32px;
+  stroke: var(--faint); stroke-width: 1.3; opacity: 0.55;
+  margin-bottom: 11px;
+}
+.wc-empty p { margin: 0; font-size: 0.75rem; line-height: 1.55; }
+
+.wc-sec {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px 6px;
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--faint);
+}
+.wc-file {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; text-align: left;
+  padding: 8px 14px;
+  border: none; background: none;
+  border-left: 2px solid transparent;
+  font-size: 0.76rem; color: var(--ink);
+  cursor: pointer; transition: background 0.13s, border-color 0.13s;
+}
+.wc-file:hover { background: var(--surface); }
+.wc-file.on { background: var(--surface); border-left-color: var(--accent); }
+.wc-badge {
+  flex-shrink: 0;
+  width: 16px; height: 16px; border-radius: 4px;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 0.58rem; font-weight: 700;
+}
+.wc-badge.s-M { background: var(--accent-tint); color: var(--accent); }
+.wc-badge.s-A { background: color-mix(in oklab, var(--success) 16%, transparent); color: var(--success); }
+.wc-badge.s-D { background: color-mix(in oklab, var(--danger) 15%, transparent); color: var(--danger); }
+.wc-path {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 0.7rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;   /* keep the filename when a path is long */
+}
+.wc-nums {
+  flex-shrink: 0; display: inline-flex; gap: 6px;
+  font-family: var(--mono); font-size: 0.64rem; font-weight: 700;
+}
+.wc-diff {
+  margin: 0; padding: 8px 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  max-height: 320px; overflow: auto;
+  font-family: var(--mono); font-size: 0.66rem; line-height: 1.5;
+}
+.wc-diff code { display: block; }
+
+.wc-foot {
+  border-top: 1px solid var(--border);
+  padding: 11px 14px;
+  display: flex; gap: 7px; flex-shrink: 0;
+}
+.wc-btn {
+  padding: 6px 11px; border-radius: 8px;
+  font-size: 0.72rem; font-weight: 500;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.wc-btn:hover:not(:disabled) { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+/* Dimmed, not erased. At 0.45 over the UA's already-faded disabled
+   `buttontext` the label came out at roughly a tenth of full contrast — the
+   rail's "Create PR" read as an empty white pill rather than as a button that
+   is off. Holding the colour and easing the fade keeps it legible as a
+   disabled control, which is the thing it is meant to say. */
+.wc-btn:disabled { opacity: 0.55; cursor: not-allowed; color: var(--faint); }
+/* The affirmative action, filled. It carried the name "primary" and none of
+   the appearance: no background and no colour, so it rendered identically to
+   Cancel beside it and nothing in the row said which button was the one. */
+.wc-btn.primary {
+  background: var(--accent-strong);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+.wc-btn.primary:hover:not(:disabled) { background: var(--accent); border-color: transparent; }
+.wc-btn.primary:disabled { color: #fff; }
+/* Full width only in the rail, where it is the row's one action. In the pull
+   request footer it sits beside Cancel and Save as draft, and `flex: 1` there
+   stretched "Create pull request" to 391px against Cancel's 62px. */
+.wc-foot > .wc-btn.primary { flex: 1; text-align: center; }
+.wc-btn.danger { color: var(--danger); }
+.wc-btn.danger:hover:not(:disabled) { border-color: var(--danger); }
+.wc-btn.danger:disabled { color: var(--danger); }
+
 .main {
   position: relative;
   display: grid;
@@ -901,79 +1037,127 @@
 :root[data-theme="dark"] .log { background: color-mix(in oklab, var(--surface) 55%, transparent); }
 
 /* ---- Hero (empty state) ---- */
+/* The Code empty state, to the same measure as Home: one 720px column, so the
+   greeting, the sentence and the starters share an edge instead of each
+   being centred to a different width. */
 .hero {
   margin: auto;
-  max-width: 560px;
+  max-width: 720px;
+  width: 100%;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 30px 0;
+  padding: 30px 24px;
 }
+/* A halo rather than two concentric rings. The rings drew a target around the
+   emblem and pulled the eye to the frame instead of the needle. */
 .hero-mark {
   position: relative;
   display: grid;
   place-items: center;
-  width: 168px;
-  height: 168px;
-  margin-bottom: 4px;
+  width: 96px;
+  height: 96px;
+  margin-bottom: 24px;
 }
-.hero-mark .ring {
+.hero-halo {
   position: absolute;
+  inset: -26px;
   border-radius: 50%;
-  border: 1px solid var(--border-strong);
+  background: radial-gradient(circle, var(--accent-tint) 0%, transparent 68%);
+  pointer-events: none;
 }
-.hero-mark .r1 { width: 140px; height: 140px; opacity: 0.7; }
-.hero-mark .r2 { width: 168px; height: 168px; opacity: 0.4; animation: breathe 5s ease-in-out infinite; }
-@keyframes breathe { 50% { transform: scale(1.05); opacity: 0.15; } }
-.hero-mark app-compass-mark { filter: drop-shadow(0 6px 20px color-mix(in oklab, var(--accent) 30%, transparent)); }
+.hero-mark app-compass-mark {
+  position: relative;
+  filter: drop-shadow(0 6px 20px color-mix(in oklab, var(--accent) 22%, transparent));
+}
+/* Serif and regular weight: at 700 in the UI sans this read as a section
+   heading, which is not what a page holding one sentence wants. */
 .hero h1 {
-  font-size: clamp(1.6rem, 3.4vw, 2.15rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-size: 2.75rem;
+  font-weight: 400;
+  letter-spacing: -0.024em;
+  line-height: 1.05;
+  margin: 0;
 }
-.hero p { color: var(--muted); max-width: 46ch; margin: 0; }
-.suggest { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; width: 100%; max-width: 380px; }
+.hero p {
+  color: var(--muted);
+  max-width: 600px;
+  margin: 15px auto 0;
+  font-size: 0.875rem;
+  line-height: 1.62;
+}
+.suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: 28px;
+  width: 100%;
+  max-width: none;
+}
 .chip {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 12px;
   text-align: left;
-  font-size: 0.86rem;
+  font-size: 0.845rem;
   font-weight: 450;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 12px 15px;
   box-shadow: var(--shadow-sm);
   cursor: pointer;
   transition: border-color 0.16s, transform 0.16s, box-shadow 0.16s;
 }
 .chip:hover {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
-.chip-arrow {
-  width: 22px;
-  height: 22px;
+/* A drawn glyph in a tinted chip, not a "→" character: the text arrow
+   inherited the font's metrics and sat off-centre in its square. */
+.chip-ic {
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--accent-tint);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
-  font-weight: 700;
-  font-size: 0.78rem;
-  line-height: 1;
 }
+.chip-ic svg { width: 12px; height: 12px; stroke: var(--accent); stroke-width: 2.3; }
+.chip-text { min-width: 0; }
+/* The trailing arrow is what says the row goes somewhere. */
+.chip-ar {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  stroke: var(--faint);
+  stroke-width: 2.2;
+  transition: transform 0.16s, stroke 0.16s;
+}
+.chip:hover .chip-ar { stroke: var(--accent); transform: translateX(3px); }
 
 /* ============================= Bubbles ============================= */
-.row { display: flex; gap: 10px; align-items: flex-start; }
+.row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+/* The byline is a line of its own. Left inline, the mark, the name and the
+   settings chip ate roughly 290px off the front of every assistant message,
+   so the answer wrapped in a column two-thirds its proper width. Making the
+   header take the full row puts the text back at full measure and reads the
+   way a byline is meant to: who is speaking, then what they said. */
+.row .a-name, .row .a-pills { order: 1; }
+.row > .avatar { order: 0; }
+/* No indent under the byline: the reasoning block, the tool list and the
+   permission gate are siblings of this row and start at the avatar's left
+   edge, so indenting only the prose would set the answer one step to the
+   right of everything the answer is about. */
+.row.has-byline > .bubble-wrap,
+.row.has-byline > .edit-box { order: 2; flex-basis: 100%; }
 .row.mine { justify-content: flex-end; }
 .bubble-wrap { display: flex; flex-direction: column; gap: 4px; max-width: min(70ch, 82%); }
 .bubble-wrap.mine { align-items: flex-end; }
@@ -1429,6 +1613,229 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .fe-diff .dl-sign { display: inline-block; width: 1em; color: var(--faint); user-select: none; }
 
 /* Claude-style approval dialog (see Image 5) */
+/* ===================== Create-PR dialog ===================== */
+.pr-modal {
+  width: min(600px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.pr-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+.pr-title-txt { font-size: 0.9rem; font-weight: 650; color: var(--ink); }
+.pr-branch {
+  font-family: var(--mono); font-size: 0.66rem;
+  padding: 2px 8px; border-radius: 5px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--faint);
+}
+.pr-x {
+  margin-left: auto; display: flex; padding: 4px;
+  border: 0; background: none; color: var(--faint); cursor: pointer;
+  border-radius: 6px;
+}
+.pr-x:hover { background: var(--surface-2); color: var(--ink); }
+
+.pr-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.pr-field { display: flex; flex-direction: column; gap: 6px; }
+.pr-field > span {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--faint);
+}
+.pr-field input, .pr-field textarea {
+  width: 100%; padding: 9px 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--ink);
+  font: inherit; font-size: 0.84rem; line-height: 1.55;
+  resize: vertical;
+}
+.pr-field textarea { font-family: var(--mono); font-size: 0.76rem; }
+.pr-field input:focus, .pr-field textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.pr-files {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); overflow: hidden;
+}
+.pr-files-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; border-bottom: 1px solid var(--border);
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--faint);
+}
+.pr-files-head .cmp-add, .pr-files-head .cmp-rem {
+  font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0;
+}
+.pr-file {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 11px;
+  font-family: var(--mono); font-size: 0.7rem;
+}
+.pr-file + .pr-file { border-top: 1px solid var(--border); }
+.pr-none { margin: 0; padding: 11px; font-size: 0.76rem; line-height: 1.55; color: var(--muted); }
+
+.pr-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px; border-top: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+/* ===================== Tool rows ===================== */
+/* A bordered list, always open. Nothing here is a disclosure widget: the
+   list itself is the disclosure, and the row is a button only because the
+   output underneath is worth a click. */
+.tools {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin-bottom: 13px;
+}
+.trow-wrap + .trow-wrap .trow,
+.trow-wrap:not(:first-child) > .trow { border-top: 1px solid var(--border); }
+.trow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.trow:hover { background: var(--surface); }
+.trow.open { background: var(--surface); }
+/* The status dot. Grey while it runs, green when it lands, red when it
+   does not — the only three states a reader has to tell apart. */
+.trow .d {
+  width: 14px; height: 14px; flex-shrink: 0;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, var(--faint) 22%, transparent);
+  color: var(--faint);
+}
+.trow .d svg { width: 9px; height: 9px; }
+.trow.ok .d {
+  background: color-mix(in oklab, var(--success) 20%, transparent);
+  color: var(--success);
+}
+.trow.err .d {
+  background: color-mix(in oklab, var(--danger) 20%, transparent);
+  color: var(--danger);
+}
+.d-spin {
+  width: 8px; height: 8px; border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--accent) 35%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+.trow .tn { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+.trow .ta {
+  color: var(--muted);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trow .td {
+  color: var(--faint);
+  font-size: 0.66rem;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.trow-wrap > .step-body { border-top: 1px solid var(--border); }
+
+/* ===================== Permission gate ===================== */
+/* Amber and bordered while it is asking, quiet and grey once it is answered.
+   The card used to keep its full weight after the decision, so a page of
+   settled gates shouted as loudly as the one still waiting. */
+.gate {
+  border: 1px solid var(--warn, #d99a2b);
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--warn, #d99a2b) 9%, transparent);
+  padding: 14px 15px;
+  margin-bottom: 13px;
+}
+.gate.resolved {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.gate-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.gate-ico {
+  width: 26px; height: 26px; flex-shrink: 0;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--warn, #d99a2b);
+  color: #fff;
+}
+.gate-ico svg { width: 14px; height: 14px; stroke-width: 2.2; }
+/* Answered: green for allowed, red for denied — the icon is the fastest way
+   to read a settled card at a glance. */
+.gate.resolved .gate-ico { background: var(--success); }
+.gate.denied .gate-ico { background: var(--danger); }
+.gate-title { font-size: 0.79rem; font-weight: 700; color: var(--ink); }
+.gate-risk {
+  margin-left: auto;
+  padding: 2px 8px; border-radius: 20px;
+  background: var(--surface);
+  font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn, #d99a2b);
+}
+.gate-risk.r-high { color: var(--danger); }
+.gate-risk.r-low { color: var(--success); }
+.gate-cmd {
+  font-family: var(--mono); font-size: 0.75rem; line-height: 1.5;
+  padding: 9px 11px; border-radius: 9px;
+  background: var(--surface); border: 1px solid var(--border);
+  margin-bottom: 10px;
+  overflow-x: auto; white-space: nowrap;
+}
+.gate-dollar { color: var(--faint); margin-right: 6px; }
+.gate-facts { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.gate-facts span {
+  font-size: 0.7rem; color: var(--muted);
+  display: flex; align-items: center; gap: 5px;
+}
+.gate-facts b { font-family: var(--mono); font-size: 0.65rem; font-weight: 700; color: var(--ink); }
+.gate-why { margin: 0 0 12px; font-size: 0.72rem; line-height: 1.55; color: var(--muted); }
+.gate-acts { display: flex; gap: 7px; flex-wrap: wrap; }
+.gate-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px;
+  font-size: 0.72rem; font-weight: 500;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.gate-btn:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.gate-btn.primary {
+  background: var(--accent-strong); border-color: transparent;
+  color: #fff; font-weight: 600;
+}
+.gate-btn.primary:hover { background: var(--accent); }
+.gate-btn.danger { color: var(--danger); }
+.gate-btn.danger:hover { border-color: var(--danger); }
+.gate-mono { font-family: var(--mono); font-size: 0.64rem; }
+.gate-verdict { margin: 0; font-size: 0.72rem; color: var(--faint); }
+
 .perm-card {
   border: 1px solid var(--border-strong);
   border-radius: 14px;
@@ -1742,6 +2149,17 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .cmp-rem { color: var(--danger); }
 .cmp-warn { display: inline-flex; color: var(--warn, #d99a2b); }
 .cmp-note { font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+/* The opened-PR pill: green because it succeeded, a link because the number
+   it names is somewhere you now want to go. */
+a.cmp-note.ok {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px;
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--success) 34%, transparent);
+  color: var(--success);
+  font-weight: 600; text-decoration: none;
+}
+a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transparent); }
 .cmp-pr-wrap { position: relative; flex-shrink: 0; }
 /* Split button: main action + caret, sharing one bordered pill. */
 .cmp-pr {
@@ -1908,19 +2326,27 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   border: none;
-  background: color-mix(in oklab, var(--ink) 8%, transparent);
-  color: var(--muted);
+  /* Filled brass. As a grey chip it was the quietest thing in a row of
+     controls, when it is the one that actually sends. */
+  /* Dark ink, not white. The glyph is a stroke of currentColor on brass, and
+     white on #B8860B measures 1.87:1 — the arrow read as a dent in the button
+     rather than as a mark on it. Matches the treatment the brass buttons in
+     Pipelines take, and holds in dark theme too, where the brass is lighter
+     still and white would be worse. */
+  background: var(--accent);
+  color: #1a1205;
   cursor: pointer;
   margin-bottom: 4px;
   border-radius: 9px;
-  transition: color 0.14s, background 0.14s;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s, transform 0.15s;
 }
-.cmp-enter:hover:not(:disabled) { background: color-mix(in oklab, var(--ink) 15%, transparent); color: var(--ink); }
-.cmp-enter:disabled { opacity: 0.55; cursor: default; }
+.cmp-enter:hover:not(:disabled) { background: var(--accent-strong); transform: translateY(-1px); }
+.cmp-enter:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
 .cmp-toolbar { display: flex; align-items: center; gap: 3px; padding: 2px 10px 8px; }
 .tb-div { width: 1px; height: 15px; background: var(--border-strong); margin: 0 5px; flex-shrink: 0; }
@@ -2780,9 +3206,14 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .side-routine-item:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); color: var(--ink); }
 .side-routine-item.active { background: var(--accent-tint); color: var(--ink); }
+/* Filled green, not a hollow grey ring: a routine in this list is enabled and
+   scheduled, and the dot is the only thing that says so. The conversation
+   rows above use the hollow ring, so the two stop looking like the same kind
+   of row with a different label. */
 .side-routine-dot {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
-  border: 1.5px solid var(--faint);
+  background: var(--success);
+  border: 1.5px solid var(--success);
 }
 .side-routine-item.active .side-routine-dot { border-color: var(--accent); background: var(--accent); }
 .side-routine-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2810,6 +3241,62 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .app-toast button { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; }
 .app-toast button:hover { color: var(--ink); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+/* The finished-turn toast.
+   A row of three: status icon, the text block, then the dismiss — pinned to
+   the right edge rather than trailing the sentence, so it lands in the same
+   place whatever the summary says. The first version put a tick in the icon
+   *and* a tick in the title, and let the ✕ float wherever the truncated body
+   happened to end. */
+.turn-toast {
+  position: fixed;
+  top: 18px; right: 20px;
+  z-index: 1000;
+  display: flex; align-items: stretch;
+  width: min(380px, calc(100vw - 40px));
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: toastIn 0.2s ease;
+}
+.turn-toast-main {
+  flex: 1; min-width: 0;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px 6px 12px 14px;
+  border: none; background: none; cursor: pointer; text-align: left;
+  font: inherit; color: inherit;
+}
+.turn-toast-main:hover { background: color-mix(in oklab, var(--ink) 4%, transparent); }
+/* Nudged onto the title's baseline: centring it against a two-line block
+   leaves it floating between the two lines. */
+.turn-toast-ico {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 19px; color: var(--success);
+}
+.turn-toast.warn .turn-toast-ico { color: var(--warn, #d99a2b); }
+.turn-toast-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.turn-toast-title {
+  font-size: 0.875rem; font-weight: 650; color: var(--ink); line-height: 1.35;
+}
+.turn-toast-body {
+  font-size: 0.8rem; line-height: 1.45; color: var(--muted);
+  /* Two lines, then ellipsis — one line cuts most summaries mid-phrase and
+     three turns a notification into something you have to read. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.turn-toast-x {
+  flex-shrink: 0;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12px 12px 0 6px;
+  border: none; background: none; cursor: pointer; color: var(--muted);
+}
+.turn-toast-x:hover { color: var(--ink); }
 
 /* ===================== Conversation search (command palette) ===================== */
 .search-overlay {
@@ -2926,10 +3413,10 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   color: var(--muted); font: inherit; font-size: 0.85rem;
 }
 .run-indicator:hover { color: var(--ink); }
-.run-star {
-  color: var(--accent); font-size: 1rem; line-height: 1;
-  animation: spin 3.2s linear infinite;
-}
+/* The mark carries its own colours; it needs only to sit on the text's
+   baseline rather than on the line box's, which is what a 15px block inside a
+   0.85rem row otherwise does. */
+.run-mark { flex: none; }
 /* The same line, once nothing is running: a tick rather than a spinner, and
    quieter, because finished work should be findable without competing with
    the conversation for attention. */
@@ -2971,6 +3458,25 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   padding: 9px 12px; margin-bottom: 6px;
   border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
 }
+/* The one row in Customize that is a control rather than a status readout —
+   same card as the rest so it does not read as a different kind of thing. */
+.cz-toggle {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 12px; margin-bottom: 6px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  cursor: pointer;
+}
+.cz-toggle input { margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+.cz-toggle-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* `.cz-detail` is built for the status rows, where it right-aligns itself and
+   clamps to one ellipsised line. Stacked under a label it has to do the
+   opposite: sit where it is put and wrap. */
+.cz-toggle .cz-detail {
+  margin-left: 0; max-width: none;
+  white-space: normal; overflow: visible; text-overflow: clip;
+  line-height: 1.5;
+}
+
 .cz-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--faint);
@@ -3173,7 +3679,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .cthink-body {
   margin: 4px 0 2px;
-  color: var(--muted);
+  color: var(--think-ink);
   font-size: 0.84rem;
   font-style: italic;
   line-height: 1.55;
@@ -3274,12 +3780,20 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
    card: being asked to approve something and being asked to decide something
    are different experiences, and the permission card's Deny/Allow vocabulary
    would be wrong for a choice between designs. */
+/* A proposal, not a notice. The dashed brass edge says the same thing the
+   wording does — this is Compass offering something and waiting, rather than
+   reporting something it has already done — and it is the one card in the
+   transcript that is still owed an answer. Solid borders are for things that
+   happened; a dash is for a thing that has not. */
 .ask-card {
   padding: 16px 18px;
-  border: 1px solid var(--border-strong);
+  border: 1px dashed var(--accent-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: color-mix(in oklab, var(--accent) 5%, var(--surface));
 }
+/* The options sit on the card, so they take the plain surface: tinting both
+   would flatten the two into one block and lose the selected state. */
+.ask-card .ask-option { background: var(--surface); }
 .ask-top { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
 .ask-chip {
   align-self: flex-start;
@@ -3339,7 +3853,8 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   font: inherit; font-size: 0.82rem; cursor: pointer;
 }
 .ask-btn.submit {
-  background: var(--ink); color: var(--surface); border-color: var(--ink);
+  background: var(--accent-strong); color: #fff;
+  border-color: transparent; font-weight: 600;
 }
 .ask-btn:disabled { opacity: 0.45; cursor: default; }
 .ask-btn:hover:not(:disabled) { filter: brightness(1.08); }

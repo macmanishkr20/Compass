@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { JsonPipe } from '@angular/common';
+import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService } from '../compass-api.service';
 import {
   ConnectionKind,
@@ -53,6 +54,7 @@ import { EstimateSummary } from '../estimate/models';
 })
 export class Pipelines {
   private readonly api = inject(CompassApiService);
+  private readonly turnNotify = inject(TurnNotifyService);
   /** The Estimate module's own service, injected rather than duplicated. The
    *  dependency points one way and only from here: Estimate does not know
    *  Pipelines exists. */
@@ -880,6 +882,7 @@ export class Pipelines {
     if (this.dirty()) await this.save();
     this.busy.set(mode === 'mock' ? 'Dry running…' : 'Running…');
     this.error.set('');
+    this.turnNotify.arm();
     try {
       this.run.set(await this.api.runPipeline(pipeline.id, {}, mode));
       this.logsOpen.set(true);
@@ -888,6 +891,12 @@ export class Pipelines {
       this.error.set(this.message(err));
     } finally {
       this.busy.set('');
+      const status = this.run()?.status ?? '';
+      this.turnNotify.finished(
+        'pipelines',
+        `${pipeline.name} — ${status || 'run finished'}`,
+        status !== 'failed' && !this.error(),
+      );
     }
   }
 

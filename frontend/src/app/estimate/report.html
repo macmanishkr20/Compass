@@ -121,7 +121,7 @@
                 <span class="mod-b"><i [style.width.%]="m.hours / widestModule() * 100"></i></span>
                 <span class="mod-h">{{ num(m.hours) }} h</span>
                 <span class="mod-w">{{ m.weeks }} wks</span>
-                <span class="mod-$">{{ money(m.cost) }}</span>
+                <span class="mod-cost">{{ money(m.cost) }}</span>
               </button>
               @if (isOpen(m.name)) {
                 <div class="subs-t">
@@ -130,7 +130,7 @@
                       <span class="sub-n">{{ s.name }}</span>
                       <span class="sub-s">{{ sizeLabel(s.size, s.units) }}</span>
                       <span class="sub-h">{{ s.hours }} h</span>
-                      <span class="sub-$">{{ money(s.cost) }}</span>
+                      <span class="sub-cost">{{ money(s.cost) }}</span>
                     </div>
                   }
                 </div>
