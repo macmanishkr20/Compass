@@ -51,6 +51,10 @@ export interface Module {
   name: string;
   phase: number;
   sub_features: SubFeature[];
+  /** What the module is built with — the names skill scores are entered against. */
+  technologies?: string[];
+  /** 'implied' when a document reader planned it because the document implies it. */
+  source?: 'stated' | 'implied';
 }
 
 export interface FeatureItem {
@@ -136,6 +140,10 @@ export interface ProjectInput {
   volume_and_scale: VolumeAndScale;
   /** Null uses the platform baselines. */
   cost_assumptions?: CostAssumptions | null;
+  /** Who is available and how well they know the stack. */
+  team?: TeamProfile | null;
+  /** What reading an uploaded BRD found. */
+  brd_analysis?: BrdAnalysis | null;
   // Enhancement-only. Absent on a new build.
   repo_url?: string | null;
   repo_branch?: string | null;
@@ -247,6 +255,8 @@ export interface SubFeatureEstimate {
   units: number;
   hours: number;
   cost: number;
+  /** Before skill scores. 0 on records written before scores existed. */
+  base_hours?: number;
 }
 
 export interface ModuleEstimate {
@@ -259,6 +269,10 @@ export interface ModuleEstimate {
   /** Elapsed weeks for one engineer. */
   weeks: number;
   sub_features: SubFeatureEstimate[];
+  base_hours?: number;
+  skill_factor?: number;
+  technologies?: string[];
+  source?: string;
 }
 
 export interface PhaseEstimate {
@@ -268,6 +282,8 @@ export interface PhaseEstimate {
   /** Elapsed weeks for the whole team. */
   weeks: number;
   modules: ModuleEstimate[];
+  /** With a team entered, the discipline whose work sets the phase's length. */
+  bottleneck?: string;
 }
 
 export interface WorkBreakdown {
@@ -279,6 +295,68 @@ export interface WorkBreakdown {
   team_size: number;
   /** Sub-features at the ceiling — the lines to break down before committing. */
   at_ceiling: string[];
+  /** With a team entered, the plan by discipline. */
+  roles?: RoleLoad[];
+  bottleneck?: string;
+  /** Hours the skill scores added (positive) or saved (negative). */
+  skill_adjustment_hours?: number;
+}
+
+export interface RoleLoad {
+  role: 'development' | 'testing' | 'analysis_design' | string;
+  label: string;
+  share_percent: number;
+  hours: number;
+  headcount: number;
+  weeks: number;
+}
+
+/** 1 novice · 2 beginner · 3 competent · 4 proficient · 5 expert. */
+export interface SkillScore {
+  technology: string;
+  score: number;
+}
+
+/** Who is available — an organisation's fact, entered, never drafted. */
+export interface TeamProfile {
+  developers: number;
+  testers: number;
+  analysts_designers: number;
+  skills: SkillScore[];
+}
+
+export interface BrdQuestion {
+  question: string;
+  why_it_matters: string;
+  assumed_answer: string;
+}
+
+export interface BrdRisk {
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+  mitigation: string;
+}
+
+export interface BrdTechnology {
+  name: string;
+  category: string;
+  reason: string;
+}
+
+/** What reading the uploaded requirements document found. */
+export interface BrdAnalysis {
+  document_name: string;
+  summary: string;
+  functional_requirements: string[];
+  non_functional_requirements: string[];
+  user_roles: string[];
+  integrations: string[];
+  scenarios: string[];
+  edge_cases: string[];
+  out_of_scope: string[];
+  risks: BrdRisk[];
+  open_questions: BrdQuestion[];
+  technologies: BrdTechnology[];
 }
 
 export interface CostBreakdown {

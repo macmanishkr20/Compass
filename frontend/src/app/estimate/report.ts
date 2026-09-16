@@ -52,6 +52,35 @@ export class EstimateReport {
   readonly tab = signal<Tab>('summary');
 
   readonly est = computed(() => this.record().result);
+  /** What reading the BRD found, when the estimate came from one. */
+  readonly analysis = computed(() => this.record().brief?.brd_analysis ?? null);
+
+  /** "2 dev · 1 test · 1 BA/UX", or the rate card's headcount. */
+  teamPhrase(): string {
+    const w = this.wbs();
+    if (w.roles?.length) return w.roles.map((r) => `${r.headcount} ${this.roleShort(r.role)}`).join(' · ');
+    return `${w.team_size} people`;
+  }
+
+  roleShort(role: string): string {
+    return ({ development: 'dev', testing: 'test', analysis_design: 'BA/UX' } as Record<string, string>)[role] ?? role;
+  }
+
+  roleLabel(role: string): string {
+    return this.wbs().roles?.find((r) => r.role === role)?.label ?? role;
+  }
+
+  hasRole(role: string): boolean {
+    return !!this.wbs().roles?.some((r) => r.role === role);
+  }
+
+  sharesText(): string {
+    return (this.wbs().roles ?? []).map((r) => `${r.label.toLowerCase()} ${r.share_percent}%`).join(', ');
+  }
+
+  abs(n: number): number {
+    return Math.abs(n);
+  }
   readonly currency = computed(() => this.est().cost_breakdown.currency);
 
   /** Export links, not fetches. A download is what an anchor is for, and

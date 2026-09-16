@@ -171,8 +171,152 @@
               Volume figures are only filled in where you state them; the rate card is never touched.
             </span>
           </div>
+
+          <!-- Or the whole requirements document. Read at high effort, the way an
+               architect reads one before pricing it; the team and skills are
+               asked of the person afterwards, because no document knows them. -->
+          <div class="brd">
+            <div class="brd-or"><span class="tk"></span><span>or upload the BRD</span><span class="tk"></span></div>
+            <p class="help">Upload the business requirements document. Compass reads all of it the way a
+              senior architect would — requirements, scenarios, edge cases, risks and open questions — and
+              fills the form below. You then add who is available and how well they know the stack.</p>
+            <div class="brd-row">
+              <label class="btn" [class.dis]="readingBrd()">
+                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
+                {{ brdFile() ? 'Choose another file' : 'Upload BRD' }}
+                <input type="file" hidden accept=".pdf,.docx,.md,.markdown,.txt"
+                  [disabled]="readingBrd()" (change)="onBrdChosen($event)" />
+              </label>
+              @if (brdFile(); as f) {
+                <span class="brd-file" [title]="f.name">
+                  <span class="brd-name">{{ f.name }}</span>
+                  <span class="brd-size">{{ brdSize(f.size) }}</span>
+                  @if (!readingBrd()) {
+                    <button class="brd-x" type="button" (click)="clearBrd()" aria-label="Remove this file">×</button>
+                  }
+                </span>
+                <button class="btn pri" type="button" [class.dis]="readingBrd()" (click)="readBrd()">
+                  <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+                  {{ readingBrd() ? 'Reading the BRD…' : 'Analyse & fill the form' }}
+                </button>
+              } @else {
+                <span class="brd-hint">PDF, Word (.docx), Markdown or text · up to 20 MB</span>
+              }
+            </div>
+            @if (readingBrd()) {
+              <p class="brd-wait" role="status">Reading every section, working through scenarios, edge cases
+                and risks, then breaking the work down. A long document takes a few minutes.</p>
+            }
+          </div>
         </div>
       }
+
+      @if (analysis(); as a) {
+        <div class="card brd-read">
+          <div class="card-h">
+            <span class="sec-lab">The architect's read</span><span class="tk"></span>
+            <span class="hint">{{ a.document_name }}</span>
+            <button class="btn sm ghost" type="button" (click)="analysisOpen.set(!analysisOpen())">
+              {{ analysisOpen() ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+          @if (a.summary) { <p class="brd-sum">{{ a.summary }}</p> }
+          @if (analysisOpen()) {
+            @if (a.open_questions.length) {
+              <div class="brd-block">
+                <h4>Open questions <span>{{ a.open_questions.length }} · answer these before committing to the number</span></h4>
+                <ol class="brd-qs">
+                  @for (q of a.open_questions; track $index) {
+                    <li>
+                      <b>{{ q.question }}</b>
+                      @if (q.why_it_matters) { <span class="why">{{ q.why_it_matters }}</span> }
+                      @if (q.assumed_answer) { <span class="assumed">Priced as: {{ q.assumed_answer }}</span> }
+                    </li>
+                  }
+                </ol>
+              </div>
+            }
+            @if (a.risks.length) {
+              <div class="brd-block">
+                <h4>Risks <span>{{ a.risks.length }}</span></h4>
+                @for (r of a.risks; track $index) {
+                  <div class="brd-risk">
+                    <span class="sev" [attr.data-sev]="r.severity">{{ r.severity }}</span>
+                    <div>
+                      <b>{{ r.description }}</b>
+                      @if (r.mitigation) { <span class="why">Mitigation: {{ r.mitigation }}</span> }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+            <div class="brd-grid">
+              @for (sec of analysisLists(a); track sec.label) {
+                @if (sec.items.length) {
+                  <div class="brd-block">
+                    <h4>{{ sec.label }} <span>{{ sec.items.length }}</span></h4>
+                    <ul>
+                      @for (it of sec.items; track $index) { <li>{{ it }}</li> }
+                    </ul>
+                  </div>
+                }
+              }
+            </div>
+          }
+        </div>
+      }
+
+      <div class="card" id="s-team">
+        <div class="card-h"><span class="sec-lab">Team &amp; skills</span><span class="tk"></span></div>
+        <p class="help">Who is available to build this, and how well they know each technology.
+          Headcount does not change the hours — it changes how long each phase takes, and a phase runs as
+          long as its slowest discipline. Skill scores change the effort on the modules built with that
+          technology.</p>
+        <div class="row3">
+          <div class="fg"><label for="t-dev">Developers</label>
+            <input id="t-dev" class="inp" type="number" min="0" max="500" [value]="developers()"
+              (input)="setHeadcount('developers', +$any($event.target).value)" /></div>
+          <div class="fg"><label for="t-test">Testers</label>
+            <input id="t-test" class="inp" type="number" min="0" max="500" [value]="testers()"
+              (input)="setHeadcount('testers', +$any($event.target).value)" /></div>
+          <div class="fg"><label for="t-ba">BA / UX designers</label>
+            <input id="t-ba" class="inp" type="number" min="0" max="500" [value]="analysts()"
+              (input)="setHeadcount('analysts', +$any($event.target).value)" /></div>
+        </div>
+        @if (testers() + analysts() > 0 && developers() === 0) {
+          <p class="team-warn">At least one developer is assumed — nobody else can build the modules.</p>
+        }
+        <div class="skills">
+          @if (skills().length) {
+            <div class="skills-h"><span>Technology</span><span>Team skill</span></div>
+          }
+          @for (s of skills(); track $index; let i = $index) {
+            <div class="skill-r">
+              <input class="inp" [value]="s.technology" placeholder="e.g. Angular"
+                (input)="patchSkill(i, { technology: $any($event.target).value })" />
+              <div class="lvl" role="radiogroup" [attr.aria-label]="'Team skill in ' + (s.technology || 'this technology')">
+                @for (l of skillLevels; track l.score) {
+                  <button type="button" role="radio" [attr.aria-checked]="s.score === l.score"
+                    [class.on]="s.score === l.score" [title]="l.score + ' — ' + l.label"
+                    (click)="patchSkill(i, { score: l.score })">{{ l.score }}</button>
+                }
+              </div>
+              <span class="lvl-name">{{ skillLabel(s.score) }}</span>
+              <button class="del" type="button" (click)="dropSkill(i)" aria-label="Remove this technology">
+                <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            </div>
+          }
+          <button class="addsub" type="button" (click)="addSkill()">+ Technology</button>
+          @if (!skills().length) {
+            <p class="emptyline">No technologies yet. Upload a BRD and they are listed from it, or add the
+              stack yourself.</p>
+          }
+        </div>
+        <span class="lh skills-note">1 Novice +20% · 2 Beginner +9% · 3 Competent, as sized · 4 Proficient −9% ·
+          5 Expert −16%. These are COCOMO II's language and tool experience multipliers, averaged across the
+          technologies a module is tagged with below.</span>
+      </div>
 
       <div class="card" id="s-project">
         <div class="card-h"><span class="sec-lab">The project</span><span class="tk"></span></div>
@@ -248,6 +392,19 @@
                 <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
               </button>
             </div>
+            @if (techNames().length || m.source === 'implied') {
+              <div class="mod-tech">
+                @if (m.source === 'implied') {
+                  <span class="implied"
+                    title="Not named in the document — planned because the document implies it. Remove it if it does not apply.">implied</span>
+                }
+                @for (t of techNames(); track t) {
+                  <button type="button" class="tchip" [class.on]="(m.technologies ?? []).includes(t)"
+                    [attr.aria-pressed]="(m.technologies ?? []).includes(t)"
+                    (click)="toggleModuleTech(mi, t)">{{ t }}</button>
+                }
+              </div>
+            }
 
             @for (s of m.sub_features; track s.id; let si = $index) {
               <div class="item sub-edit">

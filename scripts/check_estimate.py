@@ -1406,6 +1406,221 @@ def check_the_ramp_up_is_booked() -> None:
        "to it would be a fourth deliberate break rather than a third")
 
 
+def check_team_and_skills() -> None:
+    """Who is available changes how long; how well they know the stack changes
+    how much. Both are the person's inputs and both are arithmetic.
+
+    Headcount never changes an hour. A band's hours are already the whole of
+    delivering the line — analysis, build, test, review, deployment — so the
+    team is a way of *dividing* them, 62/23/15 across development, testing and
+    analysis-and-design, and a phase lasts as long as its slowest discipline:
+    three developers done in a week do not finish a phase that one tester has
+    two weeks of work left in.
+
+    Skill is the one input allowed to move hours, and only by a published
+    multiplier — COCOMO II's language and tool experience factor, 1.20 for a
+    novice team to 0.84 for an expert one, applied per line to the modules
+    tagged with that technology. The model names the technologies; it never
+    says how well anybody knows them.
+
+    Every figure below is hand-computed. The team shapes avoid landing exactly
+    on a half-hundredth, where a binary float and the round-half-up engine
+    could legitimately disagree with the arithmetic written here.
+    """
+    print("\nthe team and its skills are priced from what a person entered")
+    base = {
+        "project_name": "Team check", "project_type": "new", "scale": "medium",
+        "cost_assumptions": {
+            "dev_hourly_rate": 115, "maint_hourly_rate": 95, "effective_hours_per_week": 32,
+            "team_size": 3, "include_ramp_up": False, "loaded_hourly_rate": 75,
+            "automation_rate_percent": 35, "benefit_ramp_months": 6,
+        },
+        "modules": [
+            {"id": "m1", "name": "Portal", "phase": 1, "technologies": ["Angular"],
+             "sub_features": [{"id": "s1", "name": "Claim list", "size": "m"},
+                              {"id": "s2", "name": "Claim editor", "size": "l"}]},
+            {"id": "m2", "name": "API", "phase": 1, "technologies": [".NET", "Azure"],
+             "sub_features": [{"id": "s3", "name": "Extraction service", "size": "xl"}]},
+        ],
+    }
+
+    def breakdown(extra: dict):
+        est = asyncio.run(run_estimate(ProjectInput.model_validate({**base, **extra}),
+                                       "est_team", "2026-06-20T00:00:00+00:00"))
+        return est.cost_breakdown.development.work_breakdown
+
+    plain = breakdown({})
+    #   m=4u=36h + l=5u=45h = 81h ; xl=7u=63h ; 144h over the rate card's 3: 144/96 = 1.5
+    eq(plain.total_hours, 144, "without a team, the breakdown is priced exactly as before")
+    eq(plain.phases[0].weeks, 1.5, "and the phase is the rate card's team of three")
+    eq((plain.roles, plain.skill_adjustment_hours), ([], 0),
+       "with no disciplines reported and nothing adjusted")
+
+    skills = [{"technology": "Angular", "score": 2}, {"technology": ".NET", "score": 5},
+              {"technology": "azure", "score": 3}]
+    t = breakdown({"team": {"developers": 2, "testers": 1, "analysts_designers": 1, "skills": skills}})
+    portal = next(m for m in t.phases[0].modules if m.name == "Portal")
+    api = next(m for m in t.phases[0].modules if m.name == "API")
+    #   Angular at 2 is LTEX "low", x1.09:  36x1.09 = 39.24 -> 39 ; 45x1.09 = 49.05 -> 49
+    eq([s.hours for s in portal.sub_features], [39, 49],
+       "a beginner team takes 9% longer on each Angular line")
+    eq((portal.base_hours, portal.hours, portal.skill_factor), (81, 88, 1.09),
+       "and the module says what it was sized at before the adjustment")
+    #   .NET at 5 is x0.84 ; "azure" matches "Azure" at 3, x1.00 ; mean 0.92 ; 63x0.92 = 57.96 -> 58
+    eq((api.hours, api.skill_factor), (58, 0.92),
+       "a module on two technologies takes the mean of their multipliers, "
+       "and a score matches its technology whatever the capitalisation")
+    eq(t.total_hours, 146, "the plan is still the sum of its lines")
+    eq(t.skill_adjustment_hours, 2,
+       "and says how far skill moved it: +7 on the portal, -5 on the API")
+    eq(t.total_cost, engine.jround(146 * 115), "priced at the same delivery rate")
+    eq(t.team_size, 4, "the team size is the people entered")
+    #   146h split 62/23/15 ; development 90.52h/(2x32) = 1.414 -> 1.41 ;
+    #   testing 33.58h/(1x32) = 1.049 -> 1.05 ; BA/UX 21.9h/(1x32) = 0.684 -> 0.68
+    eq([(r.role, r.hours, r.headcount, r.weeks) for r in t.roles],
+       [("development", 91, 2, 1.41), ("testing", 34, 1, 1.05), ("analysis_design", 22, 1, 0.68)],
+       "each discipline's share of the hours, over its own people")
+    eq((t.phases[0].weeks, t.phases[0].bottleneck), (1.41, "development"),
+       "and a phase runs as long as its slowest discipline")
+
+    faster = breakdown({"team": {"developers": 4, "testers": 1, "analysts_designers": 1, "skills": skills}})
+    #   development 90.52h/(4x32) = 0.707 -> 0.71 ; testing still 1.05 ; BA/UX 0.68
+    eq((faster.phases[0].weeks, faster.phases[0].bottleneck), (1.05, "testing"),
+       "doubling the developers moves the constraint to the one tester")
+    eq(faster.total_hours, 146, "and changes no hour")
+
+    alone = breakdown({"team": {"developers": 2, "testers": 0, "analysts_designers": 0, "skills": []}})
+    #   nobody to hand testing or analysis to: all 144h on the developers ; 144/(2x32) = 2.25
+    eq([(r.role, r.share_percent) for r in alone.roles], [("development", 100.0)],
+       "a discipline with nobody in it is carried by the developers, not dropped")
+    eq(alone.phases[0].weeks, 2.25, "so two developers on their own take 2.25 weeks")
+
+    skills_only = breakdown({"team": {"developers": 0, "testers": 0, "analysts_designers": 0,
+                                      "skills": skills}})
+    eq((skills_only.total_hours, skills_only.phases[0].weeks, skills_only.roles), (146, 1.52, []),
+       "skill scores apply without headcount, and the weeks fall back to the rate "
+       "card's team: 146/96 = 1.52")
+
+
+def check_a_brd_can_be_read() -> None:
+    """A requirements document fills the form the way a paragraph does, on the
+    same side of the same line.
+
+    It lives in the drafter, not beside it: reading a BRD is drafting from a
+    longer and more careful input, and the checked list of files that may call
+    a model stays at three. It reads harder — high effort, where the paragraph
+    drafter is deliberately low — because pricing a raw requirement is
+    deduction: the scenarios the document does not walk through, the edge
+    cases that break naive builds, the questions whose answers move the
+    number. What it may return is the drafter's schema plus that analysis and a
+    module's technology *names*. No team, no skill, no rate card: those are
+    facts about an organisation that no document contains, and they are asked
+    of the person in the form.
+    """
+    import json
+
+    from compass.estimate import intake
+
+    print("\na requirements document can be read")
+    src = (ROOT / "compass/estimate/intake.py").read_text()
+    joined = src.replace("\\\n", "")
+    routes = (ROOT / "compass/estimate/routes.py").read_text()
+
+    ok("async def analyse_brd(" in src,
+       "reading a BRD is in the drafter, so model use stays in three files")
+    ok(intake._BRD_SYSTEM.endswith(intake._SYSTEM),
+       "and it carries the drafter's band rules verbatim — the part that was measured")
+    for phrase, what in (
+        ("edge_cases:", "it asks for the edge cases that break naive builds"),
+        ("open_questions:", "and the ambiguities that would move the number, each with the assumption priced under"),
+        ("scenarios:", "and each journey's alternate and failure path"),
+        ('`source: "implied"`', "an area the document implies but never names is marked, so a person can strike it"),
+        ("usually four to eight, never a parts list.",
+         "technologies are the skill areas a team is rated on, not a list of services — measured on a "
+         "real BRD, a parts list gave nineteen rows and a team scored weak on Azure moved the plan by "
+         "under 2%, because every module was tagged with a service still sitting at the default"),
+        ("Never state or imply hours, days, cost, a timeline, a team size, headcount or anyone's skill level.",
+         "and it may not state hours, cost, timeline, headcount or skill"),
+    ):
+        ok(phrase in joined, what)
+
+    props = intake._BRD_SCHEMA["properties"]
+    ok(not {"cost_assumptions", "team"} & set(props),
+       "the schema has no rate card and no team")
+    module = props["modules"]["items"]["properties"]
+    ok("technologies" in module and not {"hours", "units", "skill", "score"} & set(module),
+       "a module names its technologies and nothing that is a number")
+    ok("cost_assumptions" not in intake._SCHEMA["properties"],
+       "and building it did not add anything to the paragraph drafter's schema")
+
+    ok('@router.post("/v1/estimates/brd")' in routes and "extract_document_text" in routes,
+       "the route reads the file through the shared extractor, without rendering pages")
+    ok("status_code=415" in routes and "no text layer" in routes,
+       "and refuses what it cannot read — an image, a scan — saying which")
+
+    canned = {
+        "project_name": "Claims intake", "description": "Portal and extraction for claim packs.",
+        "industry_domain": "Insurance", "target_users": "Adjusters", "scale": "medium",
+        "modules": [
+            {"name": "Claim intake", "phase": 1, "technologies": ["angular", "Kubernetes", "\\.NET"], "source": "stated",
+             "sub_features": [{"name": "Upload claim pack", "description": "PDF upload", "size": "m", "ai_candidate": False}]},
+            {"name": "Sign-in and roles", "phase": 1, "technologies": ["Azure"], "source": "implied",
+             "sub_features": [{"name": "Entra ID sign-in", "description": "Section 4.2 names adjusters and supervisors", "size": "s", "ai_candidate": False}]},
+        ],
+        "assumptions": ["English only"],
+        "volume_and_scale": {"expected_daily_users": None, "requests_per_day": 900, "data_volume_gb": None,
+                             "peak_load_pattern": "", "growth_rate_percent": None},
+        "ai_use_cases": [{"name": "Field extraction", "description": "Read key fields", "task_type": "document_analysis",
+                          "priority": "must_have"}],
+        "analysis": {
+            "summary": "An intake portal.", "functional_requirements": ["Upload a claim pack"],
+            "non_functional_requirements": [], "user_roles": ["Adjuster"], "integrations": ["Claims system"],
+            "scenarios": ["Upload; alternate: scan; failure: low confidence"], "edge_cases": ["Duplicate upload"],
+            "out_of_scope": [], "risks": [{"description": "Scans", "severity": "high", "mitigation": "OCR"}],
+            "open_questions": [{"question": "Which identity provider?", "why_it_matters": "Sign-in scope",
+                                "assumed_answer": "Assume single sign-on via Entra ID"}],
+            "technologies": [{"name": "Angular", "category": "Frontend", "reason": "Stated"},
+                             {"name": "Azure", "category": "Cloud", "reason": "Assumed"},
+                             {"name": "\\.NET", "category": "Backend", "reason": "Stated"}],
+        },
+    }
+
+    class StandIn:
+        seen: tuple = ()
+
+        async def complete_utility(self, prompt, text, **kw):
+            StandIn.seen = (prompt, text, kw)
+            return json.dumps(canned)
+
+    real = intake.get_model_client
+    intake.get_model_client = lambda: StandIn()
+    try:
+        brief = asyncio.run(intake.analyse_brd("The claims portal must…", "claims-brd.pdf", "new"))
+    finally:
+        intake.get_model_client = real
+
+    prompt, text, kw = StandIn.seen
+    eq((kw.get("effort"), kw.get("schema") is intake._BRD_SCHEMA), ("high", True),
+       "it is read at high effort, against the document schema")
+    ok(prompt == intake._BRD_SYSTEM and "claims-brd.pdf" in text,
+       "with the architect's prompt, and the document named")
+    eq([m.id for m in brief.modules], ["m1", "m2"], "ids are minted rather than asked for")
+    eq(brief.modules[0].technologies, ["Angular", ".NET"],
+       "a module keeps only technologies the analysis lists, spelled the analysis's way, "
+       "with the Markdown escape a real read left on \\.NET taken off")
+    eq([x.name for x in brief.brd_analysis.technologies][-1], ".NET",
+       "and the skill table gets the plain name too")
+    eq(brief.modules[1].source, "implied", "and an implied area stays marked")
+    ok(all(u.minutes_per_call is None for u in brief.ai_use_cases),
+       "the ROI dial stays at its default, as in the paragraph drafter")
+    ok(brief.team is None and brief.cost_assumptions is None,
+       "no team and no rate card come out of a document")
+    ok("Assume single sign-on via Entra ID" in brief.assumptions and "English only" in brief.assumptions,
+       "every assumed answer becomes a stated assumption, beside the ones the model listed")
+    eq((brief.brd_analysis.document_name, len(brief.brd_analysis.open_questions)), ("claims-brd.pdf", 1),
+       "and the analysis travels with the brief to the report")
+
+
 def main() -> int:
     est = asyncio.run(run_estimate(
         ProjectInput.model_validate(BRIEF), "est_check", "2026-06-20T00:00:00+00:00"))
@@ -1415,6 +1630,7 @@ def main() -> int:
     check_development(est)
     check_effort_scales_with_reach()
     check_work_breakdown()
+    check_team_and_skills()
     check_the_ramp_up_is_booked()
     check_the_section_renders_on_an_older_browser()
     check_infrastructure(est)
@@ -1431,6 +1647,7 @@ def main() -> int:
     check_the_screens_match_the_mockup()
     check_the_two_charts_are_drawn_to_spec()
     check_the_brief_can_be_written_in_prose()
+    check_a_brd_can_be_read()
     check_an_estimate_can_leave_the_app()
     check_the_architect_asks_once()
     check_the_rate_card_is_kept()

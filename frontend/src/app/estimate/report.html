@@ -93,7 +93,7 @@
       <div class="panel" style="margin-bottom:12px">
         <h3>Development — module by module<span class="tk"></span>
           <span class="plain">{{ num(w.total_hours) }} h · {{ w.total_weeks }} wks
-            with {{ w.team_size }} people · {{ w.unit_hours }}h unit</span>
+            with {{ teamPhrase() }} · {{ w.unit_hours }}h unit</span>
           <button class="btn sm" type="button"
             (click)="openModules().size ? collapseAll() : expandAll()">
             {{ openModules().size ? 'Collapse all' : 'Expand all' }}
@@ -108,6 +108,9 @@
               <span class="phase-m">{{ num(p.hours) }} h</span>
               <span class="phase-m">{{ money(p.cost) }}</span>
               <span class="phase-m wks">{{ p.weeks }} wks</span>
+              @if (p.bottleneck) {
+                <span class="phase-m bott" [title]="roleLabel(p.bottleneck) + ' sets this phase\'s length'">{{ roleShort(p.bottleneck) }}-bound</span>
+              }
             </div>
 
             @for (m of p.modules; track m.name) {
@@ -119,7 +122,8 @@
                 }</span>
                 <span class="mod-c">{{ m.sub_features.length }}</span>
                 <span class="mod-b"><i [style.width.%]="m.hours / widestModule() * 100"></i></span>
-                <span class="mod-h">{{ num(m.hours) }} h</span>
+                <span class="mod-h">{{ num(m.hours) }} h@if (m.base_hours && m.base_hours !== m.hours) {<span class="skill-d"
+                  [title]="'Sized at ' + m.base_hours + ' h, ×' + m.skill_factor + ' for team skill in ' + (m.technologies ?? []).join(', ')">{{ m.hours > m.base_hours ? '+' : '−' }}{{ abs(m.hours - m.base_hours) }}</span>}</span>
                 <span class="mod-w">{{ m.weeks }} wks</span>
                 <span class="mod-cost">{{ money(m.cost) }}</span>
               </button>
@@ -146,6 +150,32 @@
             project does and no requirement ever asks for, so it is booked rather
             than left silently out. Switch it off in the rate card if this team is
             already running on the stack.
+          </div>
+        }
+
+        @if (w.roles?.length) {
+          <div class="team-t">
+            <div class="team-h"><span>Discipline</span><span>Share</span><span>Hours</span><span>People</span><span>Weeks of work</span></div>
+            @for (r of w.roles; track r.role) {
+              <div class="team-r" [class.bott]="r.role === w.bottleneck">
+                <span>{{ r.label }}</span><span>{{ r.share_percent }}%</span><span>{{ num(r.hours) }} h</span>
+                <span>{{ r.headcount }}</span><span>{{ r.weeks }} wks</span>
+              </div>
+            }
+          </div>
+          <div class="note" style="margin-top:10px">
+            <b>{{ roleLabel(w.bottleneck ?? '') }} sets the pace.</b>
+            Headcount does not change the hours; it changes how long each phase takes, and a phase runs as
+            long as its slowest discipline. The hours are split {{ sharesText() }}@if (!hasRole('testing')) {;
+            with no testers entered, developers carry the testing}@if (!hasRole('analysis_design')) {; with no
+            analysts or designers entered, developers carry that work too}.
+          </div>
+        }
+        @if (w.skill_adjustment_hours) {
+          <div class="note" style="margin-top:10px">
+            <b>Team skill moves the plan by {{ w.skill_adjustment_hours > 0 ? '+' : '−' }}{{ num(abs(w.skill_adjustment_hours)) }} h.</b>
+            Each module's lines are scaled by COCOMO II's language and tool experience multiplier for the
+            technologies it is built with — 1.20 for a novice team down to 0.84 for an expert one.
           </div>
         }
 
@@ -237,6 +267,31 @@
           @for (a of e.assumptions; track a) { <li>{{ a }}</li> }
         </ol>
       </div>
+    }
+
+    @if (analysis(); as a) {
+      @if (a.open_questions.length || a.risks.length) {
+        <div class="panel" style="margin-bottom:12px">
+          <h3>From the requirements document<span class="tk"></span>
+            <span class="plain">{{ a.document_name }} · {{ a.open_questions.length }} open
+              question{{ a.open_questions.length === 1 ? '' : 's' }} · {{ a.risks.length }}
+              risk{{ a.risks.length === 1 ? '' : 's' }}</span></h3>
+          @if (a.open_questions.length) {
+            <ol class="assump">
+              @for (q of a.open_questions; track $index) {
+                <li><b>{{ q.question }}</b>@if (q.assumed_answer) { — priced as: {{ q.assumed_answer }}}</li>
+              }
+            </ol>
+          }
+          @if (a.risks.length) {
+            <ul class="brd-risks">
+              @for (r of a.risks; track $index) {
+                <li><span class="sev" [attr.data-sev]="r.severity">{{ r.severity }}</span>{{ r.description }}@if (r.mitigation) { <i>— {{ r.mitigation }}</i>}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
     }
 
     <div class="panel" style="margin-bottom:12px">

@@ -438,3 +438,270 @@ async def draft_brief(description: str, project_type: str = "new") -> ProjectInp
     # Validated through the same model the endpoint accepts, so a draft cannot
     # carry a shape a typed brief could not.
     return ProjectInput.model_validate(data)
+
+
+# ─────────────────────────────────────────────────── reading a requirements document
+#
+# The same act as drafting from a paragraph, on a longer and more careful
+# input — which is why it lives here rather than in a file of its own. The
+# list of files that may call a model is a checked, deliberate three, and a
+# document reader is not a new kind of model use: it fills the same form,
+# under the same rules, for a person to correct.
+#
+# What it adds is the reading. A paragraph is already somebody's summary; a
+# BRD is the raw requirement, and pricing it well is the job a senior
+# architect does before anyone opens a spreadsheet — finding the scenarios the
+# document walks through and the ones it does not, the edge cases that break
+# naive builds, the questions whose answers move the number, and the stack.
+# So it runs at high effort, where the paragraph drafter runs at low: that one
+# is enumeration, this one is deduction.
+#
+# It still never states a figure. Headcount and skill are asked of the person,
+# because they are facts about the organisation that no document contains.
+
+_BRD_ARCHITECT = """\
+You are a senior solution architect preparing a delivery estimate from a \
+business requirements document (BRD). Read the whole document before you \
+write anything. You produce two things: an analysis a delivery lead would \
+walk the client through, and the structured brief the estimate is costed \
+from. A person reads and corrects both before anything is priced.
+
+Think the way an architect who has delivered systems like this thinks. For \
+every capability ask who uses it, what data it touches, what happens when \
+that goes wrong, and what the document leaves unsaid.
+
+**The analysis.**
+- summary: three to five sentences — what is being built, for whom, and why.
+- functional_requirements: the capabilities, one per line. Stated ones first; \
+start an implied one with "(implied)".
+- user_roles: every role, and what it may and may not do.
+- scenarios: the key journeys, each with its alternate and failure path — \
+"Adjuster uploads a claim pack, fields are extracted, the adjuster corrects \
+them; alternate: the pack is a scan; failure: extraction confidence is too \
+low to trust".
+- edge_cases: the situations that break naive builds and that this document \
+makes likely. Consider, and keep only what applies: concurrent edits, \
+duplicate submissions and idempotency, partial failure and retries, very \
+large inputs and pagination, time zones and dates, localisation, \
+accessibility, bad or missing data, permission boundaries, audit and \
+traceability, retention and deletion, migrating existing data, the limits of \
+the systems being integrated, and scheduled or batch work.
+- non_functional_requirements: security and privacy, compliance, \
+performance, availability and recovery, scalability, observability, \
+accessibility, supported browsers and devices, data residency — as the \
+document states or clearly implies them.
+- integrations: each external system, what flows which way, and what is \
+unknown about it.
+- risks: what could move the estimate or sink the delivery, each with a \
+severity and a mitigation.
+- open_questions: every ambiguity that would change the estimate if it were \
+answered differently. For each, why it matters and the assumption you are \
+pricing under. Every assumed answer must also appear in `assumptions`, so the \
+estimate says what it rests on.
+- out_of_scope: what the document excludes, or what you exclude and why.
+- technologies: the skill areas a delivery lead would rate a team on — \
+usually four to eight, never a parts list. People score their team's skill \
+against each one, so name them at that level: "Azure" covers App Service, \
+Functions, Service Bus, Blob Storage, Key Vault and monitoring; ".NET", \
+"Angular", "React", "Python" and "SQL Server" are each one area. Give a \
+service its own row only when it needs expertise the platform does not imply \
+— "Azure AI" for Azure OpenAI and Document Intelligence, "Power BI", \
+"Kubernetes". Put the specific services in `reason`, not in the name. Name \
+what the document states; where it states nothing, name what the context most \
+plausibly implies and say in `reason` that it is assumed.
+
+**The brief.**
+The brief follows the rules below, which were written for a short \
+description; here the document is the description. Two additions:
+
+- A module the document does not name but clearly implies — sign-in and \
+roles, an audit trail, administration, notifications, reporting, migrating \
+existing data, environments and deployment pipelines, performance testing, \
+user acceptance support — is planned the way an architect plans it and marked \
+`source: "implied"`, with the evidence in its sub-feature descriptions. Add \
+one only when the document gives a reason for it; an implied module with no \
+evidence behind it is an invented one. Everything the document names is \
+`source: "stated"`.
+- Each module lists the `technologies` it is built with, using only names \
+from your `technologies` list.
+
+Never state or imply hours, days, cost, a timeline, a team size, headcount or \
+anyone's skill level. People enter who is available and how well they know \
+each technology, and a deterministic engine turns that and your breakdown \
+into every figure.
+
+## Rules for the brief
+
+"""
+
+#: The architect's reading, then the drafter's rules verbatim — the band
+#: guidance is the part that was measured against a real sheet, and a second
+#: paraphrase of it would drift from the first.
+_BRD_SYSTEM = _BRD_ARCHITECT + _SYSTEM
+
+#: The most of a document read in one pass. About forty thousand tokens —
+#: a long BRD, with room left for the reasoning and a full breakdown. A longer
+#: one is read to here and the estimate says so rather than silently pricing
+#: the first half.
+BRD_MAX_CHARS = 150_000
+
+
+def _brd_schema() -> dict:
+    """The drafter's schema, plus the analysis and a module's technologies and
+    source. Built from `_SCHEMA` rather than copied, so a field added to the
+    paragraph drafter reaches the document reader too — and so the rate card
+    and the team stay out of both for the same reason."""
+    import copy
+
+    schema = copy.deepcopy(_SCHEMA)
+    module = schema["properties"]["modules"]["items"]
+    module["properties"]["technologies"] = {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "Names taken from analysis.technologies.",
+    }
+    module["properties"]["source"] = {"type": "string", "enum": ["stated", "implied"]}
+    module["required"] = [*module["required"], "technologies", "source"]
+
+    lines = {"type": "array", "items": {"type": "string"}}
+
+    def objects(fields: dict) -> dict:
+        return {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": fields,
+                "required": list(fields),
+                "additionalProperties": False,
+            },
+        }
+
+    analysis = {
+        "summary": {"type": "string"},
+        "functional_requirements": lines,
+        "non_functional_requirements": lines,
+        "user_roles": lines,
+        "integrations": lines,
+        "scenarios": lines,
+        "edge_cases": lines,
+        "out_of_scope": lines,
+        "risks": objects({
+            "description": {"type": "string"},
+            "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+            "mitigation": {"type": "string"},
+        }),
+        "open_questions": objects({
+            "question": {"type": "string"},
+            "why_it_matters": {"type": "string"},
+            "assumed_answer": {"type": "string"},
+        }),
+        "technologies": objects({
+            "name": {"type": "string"},
+            "category": {"type": "string"},
+            "reason": {"type": "string"},
+        }),
+    }
+    schema["properties"]["analysis"] = {
+        "type": "object",
+        "properties": analysis,
+        "required": list(analysis),
+        "additionalProperties": False,
+    }
+    schema["required"] = [*schema["required"], "analysis"]
+    return schema
+
+
+_BRD_SCHEMA = _brd_schema()
+
+
+def _unescape(name: str) -> str:
+    """Drop Markdown backslash escapes: `\\.NET` -> `.NET`, `C\\#` -> `C#`."""
+    import re
+
+    return re.sub(r"\\(.)", r"\1", name or "").strip()
+
+
+def _tech_key(name: str) -> str:
+    return " ".join((name or "").casefold().split())
+
+
+async def analyse_brd(document: str, document_name: str = "",
+                      project_type: str = "new") -> ProjectInput:
+    """Read a requirements document the way a senior architect would, and
+    draft the brief from it. Raises on failure — the caller says so.
+
+    Returns a brief carrying `brd_analysis`, and nothing costed: the same
+    two-step as the paragraph drafter, for the same reason. No team and no
+    rate card come out of a document, whatever it says about either.
+    """
+    text = (document or "").strip()
+    truncated = len(text) > BRD_MAX_CHARS
+    if truncated:
+        text = text[:BRD_MAX_CHARS]
+
+    raw = await get_model_client().complete_utility(
+        _BRD_SYSTEM,
+        f"Document: {document_name or 'requirements document'}\n\n{text}",
+        # An analysis and a full breakdown, after the thinking a whole
+        # document deserves. The paragraph drafter's 16,000 was set after a
+        # reasoning model spent most of a 4,000 budget thinking and returned
+        # JSON cut off mid-string; this output is roughly twice that one.
+        max_tokens=32_000,
+        effort="high",
+        schema=_BRD_SCHEMA,
+        schema_name="brd_brief",
+    )
+    data = json.loads(raw)
+    analysis = data.pop("analysis", None) or {}
+
+    # A module may only name technologies the analysis lists, spelled the way
+    # the analysis spells them: the skill table is built from that list, and a
+    # tag with no row beside it is a score nobody can enter.
+    # Names arrive with the odd Markdown escape left in — measured on a real
+    # read, ".NET" came back as "\\.NET" and went straight into the skill table.
+    for tech in analysis.get("technologies") or []:
+        tech["name"] = _unescape(tech.get("name") or "")
+    known = {_tech_key(t["name"]): t["name"]
+             for t in analysis.get("technologies") or [] if t["name"]}
+    for i, m in enumerate(data.get("modules") or []):
+        m["id"] = f"m{i + 1}"
+        tags: list[str] = []
+        for name in m.get("technologies") or []:
+            canonical = known.get(_tech_key(_unescape(name)))
+            if canonical and canonical not in tags:
+                tags.append(canonical)
+        m["technologies"] = tags
+        for j, sub in enumerate(m.get("sub_features") or []):
+            sub["id"] = f"m{i + 1}s{j + 1}"
+    for i, u in enumerate(data.get("ai_use_cases") or []):
+        u["id"] = f"u{i + 1}"
+        u["linked_feature_ids"] = []
+        # The ROI dial stays at the task type's default, as in draft_brief.
+        u["minutes_per_call"] = None
+
+    # Every question's assumed answer is an assumption the estimate rests on.
+    # The prompt asks for them in both places; this makes it true when it
+    # forgets, because a priced-under answer missing from the assumptions list
+    # is the one disagreement nobody can find later.
+    assumptions = [a.strip() for a in data.get("assumptions") or [] if (a or "").strip()]
+    seen = {a.casefold() for a in assumptions}
+    for q in analysis.get("open_questions") or []:
+        answer = (q.get("assumed_answer") or "").strip()
+        if answer and answer.casefold() not in seen:
+            assumptions.append(answer)
+            seen.add(answer.casefold())
+    if truncated:
+        assumptions.append(
+            f"Only the first {BRD_MAX_CHARS:,} characters of the document were "
+            "read; anything after that is not in this estimate."
+        )
+    data["assumptions"] = assumptions
+
+    if not (data.get("project_name") or "").strip():
+        stem = (document_name or "").rsplit(".", 1)[0].strip()
+        data["project_name"] = stem[:58] or "Untitled project"
+
+    data["project_type"] = project_type
+    analysis["document_name"] = document_name
+    data["brd_analysis"] = analysis
+    return ProjectInput.model_validate(data)

@@ -27,6 +27,7 @@ import {
   SizeBand,
   SubFeature,
 } from './models';
+import type { BrdAnalysis, SkillScore } from './models';
 
 /** Which surface is showing. The section has three and no router: Compass
  *  navigates by signal, and adding a route table for one module would put this
@@ -120,6 +121,7 @@ export class Estimate {
 
   readonly sections = [
     { id: 's-describe', label: 'Describe it' },
+    { id: 's-team', label: 'Team & skills' },
     { id: 's-project', label: 'The project' },
     { id: 's-features', label: 'Work breakdown' },
     { id: 's-assumptions', label: 'Assumptions' },
@@ -135,6 +137,37 @@ export class Estimate {
   readonly prose = signal('');
   readonly drafting = signal(false);
   readonly drafted = signal(false);
+
+  // -- the requirements document --------------------------------------------
+  /** The uploaded BRD, held as the data URL the server reads. */
+  readonly brdFile = signal<{ name: string; mime: string; data_url: string; size: number } | null>(null);
+  readonly readingBrd = signal(false);
+  /** What reading the BRD found. Carried with the brief, so the report can
+   *  show the questions and risks the numbers were priced under. */
+  readonly analysis = signal<BrdAnalysis | null>(null);
+  readonly analysisOpen = signal(true);
+  private readonly brdMaxBytes = 20 * 1024 * 1024;
+
+  // -- who is available -----------------------------------------------------
+  // Asked of the person, never drafted: how many people an organisation has
+  // and how well they know a stack are not facts any document contains.
+  readonly developers = signal(0);
+  readonly testers = signal(0);
+  readonly analysts = signal(0);
+  readonly skills = signal<SkillScore[]>([]);
+  readonly teamEntered = computed(() =>
+    this.developers() + this.testers() + this.analysts() > 0 ||
+    this.skills().some((s) => s.technology.trim()));
+  readonly skillLevels = [
+    { score: 1, label: 'Novice' },
+    { score: 2, label: 'Beginner' },
+    { score: 3, label: 'Competent' },
+    { score: 4, label: 'Proficient' },
+    { score: 5, label: 'Expert' },
+  ];
+  /** What a module can be tagged with: every technology that has a score row. */
+  readonly techNames = computed(() =>
+    this.skills().map((s) => s.technology.trim()).filter(Boolean));
 
   readonly name = signal('');
   readonly projectType = signal<ProjectType>('new');
@@ -246,7 +279,8 @@ export class Estimate {
 
   sectionDone(id: string): boolean {
     return ({
-      's-describe': !!this.prose().trim(),
+      's-describe': !!this.prose().trim() || !!this.analysis(),
+      's-team': this.teamEntered(),
       's-project': !!this.name().trim(),
       's-features': this.hasWork(),
       's-assumptions': this.assumptionRows().some((a) => a.text.trim()),
@@ -556,6 +590,15 @@ export class Estimate {
         growth_rate_percent: this.growthPercent(),
       },
       cost_assumptions: this.currentRateCard(),
+      team: this.teamEntered() ? {
+        developers: this.developers(),
+        testers: this.testers(),
+        analysts_designers: this.analysts(),
+        skills: this.skills()
+          .filter((s) => s.technology.trim())
+          .map((s) => ({ technology: s.technology.trim(), score: s.score })),
+      } : null,
+      brd_analysis: this.analysis(),
       ...(enhancement ? {
         repo_url: this.repoUrl().trim() || null,
         current_architecture: {
@@ -608,6 +651,122 @@ export class Estimate {
     }
   }
 
+  onBrdChosen(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.error.set('');
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!['pdf', 'docx', 'md', 'markdown', 'txt'].includes(ext)) {
+      this.error.set('Upload the BRD as a PDF, Word (.docx), Markdown or text file.');
+      return;
+    }
+    if (file.size > this.brdMaxBytes) {
+      this.error.set(`That file is ${this.brdSize(file.size)} — the limit is 20 MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => this.brdFile.set({
+      name: file.name, mime: file.type, data_url: String(reader.result), size: file.size,
+    });
+    reader.onerror = () => this.error.set('Could not read that file from disk.');
+    reader.readAsDataURL(file);
+  }
+
+  clearBrd(): void {
+    this.brdFile.set(null);
+  }
+
+  async readBrd(): Promise<void> {
+    const file = this.brdFile();
+    if (!file || this.readingBrd()) return;
+    this.readingBrd.set(true);
+    this.error.set('');
+    this.turnNotify.arm();
+    try {
+      const { brief } = await this.api.readBrd(
+        { name: file.name, mime: file.mime, data_url: file.data_url }, this.projectType());
+      this.applyBrief(brief);
+      this.drafted.set(true);
+      this.analysisOpen.set(true);
+      // Straight to the questions only a person can answer.
+      this.goToSection('s-team');
+    } catch (err) {
+      this.error.set(this.message(err));
+    } finally {
+      this.readingBrd.set(false);
+      this.turnNotify.finished(
+        'estimate',
+        this.error() ? 'Could not read the BRD.' : `${this.name() || 'BRD'} — read. Add the team and skills.`,
+        !this.error(),
+      );
+    }
+  }
+
+  brdSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  analysisLists(a: BrdAnalysis): { label: string; items: string[] }[] {
+    return [
+      { label: 'Functional requirements', items: a.functional_requirements ?? [] },
+      { label: 'Scenarios', items: a.scenarios ?? [] },
+      { label: 'Edge cases', items: a.edge_cases ?? [] },
+      { label: 'Non-functional requirements', items: a.non_functional_requirements ?? [] },
+      { label: 'User roles', items: a.user_roles ?? [] },
+      { label: 'Integrations', items: a.integrations ?? [] },
+      { label: 'Out of scope', items: a.out_of_scope ?? [] },
+    ];
+  }
+
+  setHeadcount(which: 'developers' | 'testers' | 'analysts', value: number): void {
+    const n = Number.isFinite(value) ? Math.floor(value) : 0;
+    this[which].set(Math.max(0, Math.min(500, n)));
+  }
+
+  addSkill(): void {
+    this.skills.update((rows) => [...rows, { technology: '', score: 3 }]);
+  }
+
+  patchSkill(index: number, patch: Partial<SkillScore>): void {
+    const before = this.skills()[index]?.technology ?? '';
+    this.skills.update((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    // A renamed technology keeps the modules tagged with it pointing at it.
+    const after = patch.technology;
+    if (after !== undefined && before && before !== after) {
+      this.modules.update((ms) => ms.map((m) => ({
+        ...m,
+        technologies: (m.technologies ?? []).map((x) => (x === before.trim() ? after.trim() : x)),
+      })));
+    }
+  }
+
+  dropSkill(index: number): void {
+    const gone = this.skills()[index]?.technology.trim();
+    this.skills.update((rows) => rows.filter((_, i) => i !== index));
+    if (gone) {
+      this.modules.update((ms) => ms.map((m) => ({
+        ...m, technologies: (m.technologies ?? []).filter((x) => x !== gone),
+      })));
+    }
+  }
+
+  toggleModuleTech(index: number, tech: string): void {
+    const m = this.modules()[index];
+    if (!m) return;
+    const tags = m.technologies ?? [];
+    this.patchModule(index, {
+      technologies: tags.includes(tech) ? tags.filter((x) => x !== tech) : [...tags, tech],
+    });
+  }
+
+  skillLabel(score: number): string {
+    return this.skillLevels.find((l) => l.score === score)?.label ?? '';
+  }
+
   async draftFromProse(): Promise<void> {
     const text = this.prose().trim();
     if (!text || this.drafting()) return;
@@ -650,6 +809,23 @@ export class Estimate {
     }
     // The rate card is never in a draft — it is what the organisation pays its
     // own people — so it is left exactly as the person last set it.
+    this.analysis.set(b.brd_analysis ?? null);
+    if (b.team) {
+      // A stored brief: the team as it was entered.
+      this.developers.set(b.team.developers ?? 0);
+      this.testers.set(b.team.testers ?? 0);
+      this.analysts.set(b.team.analysts_designers ?? 0);
+      this.skills.set((b.team.skills ?? []).map((s) => ({ technology: s.technology, score: s.score })));
+    } else if (b.brd_analysis?.technologies?.length) {
+      // A fresh read: one row per technology the document uses, keeping any
+      // score already entered against the same name. Headcount is left alone —
+      // the document does not know it, and the person may already have said.
+      const had = new Map(this.skills().map((s) => [s.technology.trim().toLowerCase(), s.score]));
+      this.skills.set(b.brd_analysis.technologies.map((x) => ({
+        technology: x.name,
+        score: had.get(x.name.trim().toLowerCase()) ?? 3,
+      })));
+    }
   }
 
   async estimate(): Promise<void> {
@@ -688,6 +864,13 @@ export class Estimate {
   private reset(): void {
     this.prose.set('');
     this.drafted.set(false);
+    this.brdFile.set(null);
+    this.analysis.set(null);
+    this.analysisOpen.set(true);
+    this.developers.set(0);
+    this.testers.set(0);
+    this.analysts.set(0);
+    this.skills.set([]);
     this.preview.set(null);
     this.name.set('');
     this.description.set('');

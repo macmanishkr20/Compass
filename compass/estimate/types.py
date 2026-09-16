@@ -102,6 +102,14 @@ class Module(EstimateModel):
     name: str = ""
     phase: int = 1
     sub_features: list[SubFeature] = Field(default_factory=list)
+    #: What this module is built with, named from the project's stack. Labels,
+    #: not figures: they select which of the team's skill scores apply to it.
+    technologies: list[str] = Field(default_factory=list)
+    #: "implied" when a document reader planned this area because the document
+    #: implies it — sign-in, an audit trail, environments — without naming it.
+    #: Marked so a person can strike it, the same courtesy the report extends
+    #: to the ramp-up line the engine books.
+    source: Literal["stated", "implied"] = "stated"
 
 
 class CostAssumptions(EstimateModel):
@@ -183,6 +191,63 @@ class IntegrationConstraints(EstimateModel):
     timeline_weeks: int = 0
 
 
+class SkillScore(EstimateModel):
+    """How well the available team knows one technology."""
+
+    technology: str = ""
+    #: 1 novice · 2 beginner · 3 competent · 4 proficient · 5 expert.
+    score: int = Field(default=3, ge=1, le=5)
+
+
+class TeamProfile(EstimateModel):
+    """Who is available to build it. An organisation's fact, like the rate
+    card — entered by a person, never drafted by a model."""
+
+    developers: int = Field(default=0, ge=0, le=500)
+    testers: int = Field(default=0, ge=0, le=500)
+    analysts_designers: int = Field(default=0, ge=0, le=500)
+    skills: list[SkillScore] = Field(default_factory=list)
+
+
+class BrdQuestion(EstimateModel):
+    question: str = ""
+    why_it_matters: str = ""
+    #: The answer the estimate was priced under until somebody gives a real one.
+    assumed_answer: str = ""
+
+
+class BrdRisk(EstimateModel):
+    description: str = ""
+    severity: Literal["low", "medium", "high"] = "medium"
+    mitigation: str = ""
+
+
+class BrdTechnology(EstimateModel):
+    name: str = ""
+    category: str = ""
+    #: Where the document says so, or why the stack is assumed when it does not.
+    reason: str = ""
+
+
+class BrdAnalysis(EstimateModel):
+    """What a read of the uploaded requirements document found. Carried with
+    the brief so the report can show the questions and risks an estimate was
+    priced under; never read by the engine."""
+
+    document_name: str = ""
+    summary: str = ""
+    functional_requirements: list[str] = Field(default_factory=list)
+    non_functional_requirements: list[str] = Field(default_factory=list)
+    user_roles: list[str] = Field(default_factory=list)
+    integrations: list[str] = Field(default_factory=list)
+    scenarios: list[str] = Field(default_factory=list)
+    edge_cases: list[str] = Field(default_factory=list)
+    out_of_scope: list[str] = Field(default_factory=list)
+    risks: list[BrdRisk] = Field(default_factory=list)
+    open_questions: list[BrdQuestion] = Field(default_factory=list)
+    technologies: list[BrdTechnology] = Field(default_factory=list)
+
+
 class ProjectInput(EstimateModel):
     project_name: str = "Untitled project"
     project_type: ProjectType = "new"
@@ -207,6 +272,11 @@ class ProjectInput(EstimateModel):
     volume_and_scale: Optional[VolumeAndScale] = None
     # Overridable rate card / resourcing dials; None uses platform baselines.
     cost_assumptions: Optional[CostAssumptions] = None
+    #: Who is available, and how well they know the stack. None reproduces
+    #: every figure exactly as a brief without a team always produced.
+    team: Optional[TeamProfile] = None
+    #: What reading the uploaded requirements document found.
+    brd_analysis: Optional[BrdAnalysis] = None
     # Enhancement-specific
     repo_url: Optional[str] = None
     repo_branch: Optional[str] = None
@@ -275,6 +345,9 @@ class SubFeatureEstimate(EstimateModel):
     units: int
     hours: int
     cost: int
+    #: Units × unit hours, before the team's skill scores. Equal to `hours`
+    #: when no score applies; zero on records written before scores existed.
+    base_hours: int = 0
 
 
 class ModuleEstimate(EstimateModel):
@@ -290,6 +363,11 @@ class ModuleEstimate(EstimateModel):
     #: the phase below is what the team does at once.
     weeks: float
     sub_features: list[SubFeatureEstimate] = Field(default_factory=list)
+    base_hours: int = 0
+    #: The mean skill multiplier across the module's scored technologies.
+    skill_factor: float = 1.0
+    technologies: list[str] = Field(default_factory=list)
+    source: str = "stated"
 
 
 class PhaseEstimate(EstimateModel):
@@ -299,6 +377,20 @@ class PhaseEstimate(EstimateModel):
     #: Elapsed weeks for the whole team working this phase.
     weeks: float
     modules: list[ModuleEstimate] = Field(default_factory=list)
+    #: With a team entered, the discipline whose work sets this phase's length.
+    bottleneck: str = ""
+
+
+class RoleLoad(EstimateModel):
+    """One discipline's part of the plan: its share of the hours, the people
+    in it, and how many weeks of work that is for them."""
+
+    role: str
+    label: str
+    share_percent: float
+    hours: int
+    headcount: int
+    weeks: float
 
 
 class WorkBreakdown(EstimateModel):
@@ -318,6 +410,11 @@ class WorkBreakdown(EstimateModel):
     #: reached the edge of what it understands, and those lines are the ones to
     #: break down before anyone commits to the number.
     at_ceiling: list[str] = Field(default_factory=list)
+    #: With a team entered, the plan by discipline. Empty otherwise.
+    roles: list[RoleLoad] = Field(default_factory=list)
+    bottleneck: str = ""
+    #: Hours the skill scores added (positive) or saved (negative).
+    skill_adjustment_hours: int = 0
 
 
 class DevBreakdownItem(EstimateModel):

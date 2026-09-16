@@ -116,6 +116,36 @@ SIZE_BAND_UNITS: dict[str, int] = {
 #: The ceiling, in units. A sub-feature above it is not estimated, it is split.
 MAX_SUB_FEATURE_UNITS = 10
 
+#: How a line's all-in hours divide between the disciplines that deliver it.
+#: A band's hours are already analysis, build, test, review and deployment
+#: together (see COMPLEXITY_HOURS), so this apportions them rather than adding
+#: anything on top: headcount changes how long a phase takes, never how many
+#: hours it is. The split sits inside the usual planning ranges — testing
+#: 20-30% of delivery effort, requirements and design 10-20% — and it is
+#: stated in the report beside every figure it produces.
+ROLE_SHARES: dict[str, float] = {
+    "development": 0.62,
+    "testing": 0.23,
+    "analysis_design": 0.15,
+}
+ROLE_LABELS: dict[str, str] = {
+    "development": "Development",
+    "testing": "Testing",
+    "analysis_design": "Business analysis & UX",
+}
+
+#: What a team's familiarity with a technology does to the effort of building
+#: with it, by score 1-5. These are COCOMO II's Language and Tool Experience
+#: (LTEX) effort multipliers, very low to very high, rather than numbers made
+#: up for the occasion: a band is sized for a competent team, so 3 is 1.00.
+SKILL_EFFORT_MULTIPLIER: dict[int, float] = {
+    1: 1.20,
+    2: 1.09,
+    3: 1.00,
+    4: 0.91,
+    5: 0.84,
+}
+
 #: Units of ramp-up, by how many areas the plan has. Understanding a
 #: requirement and standing up an environment is work that every project does
 #: and no description ever asks for — measured across twelve drafts of one

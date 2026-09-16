@@ -76,6 +76,19 @@ export class EstimateApi {
     );
   }
 
+  /** Read an uploaded requirements document and draft the brief from it.
+   *  Returns the brief — carrying what the reading found — and nothing else:
+   *  nothing costed, nothing stored. */
+  readBrd(
+    file: { name: string; mime: string; data_url: string },
+    project_type: ProjectType,
+  ): Promise<{ brief: ProjectInput; characters: number }> {
+    return firstValueFrom(
+      this.http.post<{ brief: ProjectInput; characters: number }>('/v1/estimates/brd',
+        { ...file, project_type }),
+    );
+  }
+
   remove(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(
       this.http.delete<{ deleted: boolean }>(`/v1/estimates/${id}`),

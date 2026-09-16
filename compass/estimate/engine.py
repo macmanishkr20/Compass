@@ -53,6 +53,9 @@ from .types import ProjectInput
 
 # ── Parity helpers ──────────────────────────────────────────────────
 
+from .catalog import ROLE_LABELS, ROLE_SHARES, SKILL_EFFORT_MULTIPLIER  # noqa: E402
+
+
 def jround(n: float) -> int:
     """JS Math.round (half-up). All engine inputs are non-negative."""
     return math.floor(n + 0.5)
@@ -126,10 +129,84 @@ def _benefit_dials(inp: ProjectInput) -> tuple[float, float]:
     return loaded, auto
 
 
+def _team(inp: ProjectInput):
+    """The entered team, if anyone is in it. A profile of zeros is no profile:
+    it changes nothing, rather than dividing a phase by nobody."""
+    t = inp.team
+    if t is None or (t.developers + t.testers + t.analysts_designers) <= 0:
+        return None
+    return t
+
+
 def _team_size(inp: ProjectInput) -> float:
+    t = _team(inp)
+    if t is not None:
+        return float(max(1, t.developers + t.testers + t.analysts_designers))
     ca = inp.cost_assumptions
     value = ca.team_size if ca and ca.team_size is not None else 3
     return max(1.0, float(value))
+
+
+def _skill_key(name: str) -> str:
+    """One spelling per technology: "Azure", "azure" and " AZURE " are one
+    row, so a score entered against any of them applies to all three tags."""
+    return " ".join((name or "").casefold().split())
+
+
+def _skill_factor(inp: ProjectInput, technologies: list[str]) -> float:
+    """The effort multiplier for a module built with `technologies`.
+
+    The mean of the multipliers for the technologies that have a score; 1.0
+    when none do. A mean rather than the worst score, because a module's work
+    is spread across what it is built with — the portal half of a feature is
+    not slowed by the team's weakness in the database half. Scores apply
+    whether or not headcount was entered: how well people know a stack and how
+    many of them there are are separate facts.
+    """
+    t = inp.team
+    if t is None or not t.skills or not technologies:
+        return 1.0
+    scores = {_skill_key(s.technology): s.score for s in t.skills if _skill_key(s.technology)}
+    hits = [SKILL_EFFORT_MULTIPLIER[max(1, min(5, int(scores[key])))]
+            for key in (_skill_key(x) for x in technologies) if key in scores]
+    if not hits:
+        return 1.0
+    return round(sum(hits) / len(hits), 4)
+
+
+def _role_loads(hours: float, crew, hours_per_week: float) -> list[dict]:
+    """How `hours` fall across the disciplines, and how long each takes with
+    the people this team has.
+
+    A discipline nobody was entered for does not make its work vanish: the
+    developers carry it, which is what happens on a team with no tester. At
+    least one developer is assumed whenever a team is entered, because nobody
+    else can build the modules.
+    """
+    heads = {
+        "development": max(1, crew.developers),
+        "testing": crew.testers,
+        "analysis_design": crew.analysts_designers,
+    }
+    share = dict(ROLE_SHARES)
+    for role in ("testing", "analysis_design"):
+        if heads[role] <= 0:
+            share["development"] += share[role]
+            share[role] = 0.0
+    loads = []
+    for role in ("development", "testing", "analysis_design"):
+        if share[role] <= 0:
+            continue
+        role_hours = hours * share[role]
+        loads.append({
+            "role": role,
+            "label": ROLE_LABELS[role],
+            "share_percent": round2(share[role] * 100),
+            "hours": jround(role_hours),
+            "headcount": heads[role],
+            "weeks": round2(role_hours / (heads[role] * hours_per_week)),
+        })
+    return loads
 
 
 def _units_for(sub) -> int:
@@ -202,6 +279,7 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
             "units": part,
             "hours": hours,
             "cost": jround(hours * dev_rate),
+            "base_hours": hours,
         })
     hours = sum(s["hours"] for s in subs)
     return {
@@ -212,6 +290,10 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
         "cost": jround(hours * dev_rate),
         "weeks": round2(hours / hours_per_week) if hours_per_week else 0,
         "sub_features": subs,
+        "base_hours": hours,
+        "skill_factor": 1.0,
+        "technologies": [],
+        "source": "stated",
     }
 
 
@@ -249,10 +331,16 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
 
     by_phase: dict[int, list] = {}
     for i, module in enumerate(modules):
+        # The team's skill with what this module is built with. Applied per
+        # line, so a module is still the sum of its lines and a phase the sum
+        # of its modules — there is no level where an adjustment appears that
+        # was not added up from the level below.
+        factor = _skill_factor(inp, module.technologies)
         subs = []
         for j, sub in enumerate(module.sub_features):
             units = _units_for(sub)
-            hours = units * EFFORT_UNIT_HOURS
+            base = units * EFFORT_UNIT_HOURS
+            hours = base if factor == 1.0 else jround(base * factor)
             if units >= MAX_SUB_FEATURE_UNITS:
                 at_ceiling.append(f"{module.name} — {sub.name}")
             subs.append({
@@ -265,6 +353,7 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
                 "units": units,
                 "hours": hours,
                 "cost": jround(hours * dev_rate),
+                "base_hours": base,
             })
         module_hours = sum(s["hours"] for s in subs)
         by_phase.setdefault(max(1, module.phase), []).append({
@@ -275,6 +364,10 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
             "cost": jround(module_hours * dev_rate),
             "weeks": round2(module_hours / hours_per_week) if hours_per_week else 0,
             "sub_features": subs,
+            "base_hours": sum(s["base_hours"] for s in subs),
+            "skill_factor": factor,
+            "technologies": list(module.technologies),
+            "source": module.source,
         })
 
     # Booked before the roll-up, so it is inside its phase's hours and weeks
@@ -284,19 +377,37 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         by_phase[first].insert(0, _ramp_up_module(
             len(modules), first, dev_rate, hours_per_week))
 
+    # With a team entered, a phase takes as long as its slowest discipline:
+    # three developers finish their share in a week, and the phase is still
+    # not done while one tester has two weeks of testing in front of them.
+    # Without one, the legacy figure — the hours over the rate card's team —
+    # exactly as every earlier estimate computed it.
+    crew = _team(inp)
     phases = []
     for number in sorted(by_phase):
         mods = by_phase[number]
         phase_hours = sum(m["hours"] for m in mods)
+        bottleneck = ""
+        if crew is not None and hours_per_week:
+            loads = _role_loads(phase_hours, crew, hours_per_week)
+            slowest = max(loads, key=lambda load: load["weeks"])
+            weeks = slowest["weeks"]
+            bottleneck = slowest["role"]
+        else:
+            weeks = round2(phase_hours / (team * hours_per_week)) if hours_per_week else 0
         phases.append({
             "phase": number,
             "hours": phase_hours,
             "cost": jround(phase_hours * dev_rate),
-            "weeks": round2(phase_hours / (team * hours_per_week)) if hours_per_week else 0,
+            "weeks": weeks,
             "modules": mods,
+            "bottleneck": bottleneck,
         })
 
     total_hours = sum(p["hours"] for p in phases)
+    roles = (_role_loads(total_hours, crew, hours_per_week)
+             if crew is not None and hours_per_week and total_hours else [])
+    base_total = sum(m["base_hours"] for p in phases for m in p["modules"])
     return {
         "phases": phases,
         "total_hours": total_hours,
@@ -306,6 +417,9 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         "unit_hours": EFFORT_UNIT_HOURS,
         "team_size": team,
         "at_ceiling": at_ceiling,
+        "roles": roles,
+        "bottleneck": max(roles, key=lambda load: load["weeks"])["role"] if roles else "",
+        "skill_adjustment_hours": total_hours - base_total,
     }
 
 

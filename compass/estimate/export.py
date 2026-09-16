@@ -224,7 +224,7 @@ def to_html(est: Estimation) -> str:
         parts.append(
             "<section><h2>Development — module by module</h2>"
             f"<p class='sub'>One unit = {wbs.unit_hours}h · elapsed weeks assume "
-            f"{_e(_num(wbs.team_size))} engineers in parallel</p>"
+            f"{_team_phrase(wbs, html=True)}</p>"
             "<table><thead><tr><th>Line</th><th>Size</th><th class='num'>Hours</th>"
             "<th class='num'>Cost</th><th class='num'>Weeks</th></tr></thead>"
             f"<tbody>{''.join(body)}</tbody>"
@@ -310,6 +310,17 @@ def to_html(est: Estimation) -> str:
         "brief produces the same estimate.</p>"
     )
     return "".join(parts)
+
+
+def _team_phrase(wbs, *, html: bool) -> str:
+    """What the elapsed weeks assume. The team as entered, by discipline, when
+    there is one; the rate card's parallel engineers otherwise."""
+    if wbs.roles:
+        people = " · ".join(f"{r.headcount} {r.label.lower()}" for r in wbs.roles)
+        people = _e(people) if html else people
+        return f"the team entered ({people}); a phase runs as long as its slowest discipline"
+    count = _e(_num(wbs.team_size)) if html else _num(wbs.team_size)
+    return f"{count} engineers in parallel"
 
 
 async def to_pdf(est: Estimation) -> bytes:
@@ -451,7 +462,7 @@ def to_excel(est: Estimation) -> bytes:
             ws.cell(row=ws.max_row, column=col).font = bold
         ws.append([])
         ws.append(["", f"One unit = {wbs.unit_hours}h · weeks assume "
-                       f"{_num(wbs.team_size)} engineers in parallel"])
+                       f"{_team_phrase(wbs, html=False)}"])
         if wbs.at_ceiling:
             ws.append([])
             ws.append(["", f"At the {wbs.unit_hours * 10}-hour ceiling — "

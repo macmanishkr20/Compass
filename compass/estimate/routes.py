@@ -167,6 +167,73 @@ async def draft(body: DraftRequest, user: str = Depends(require_user)) -> dict:
     return {"brief": brief.model_dump()}
 
 
+class BrdRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=260)
+    mime: str = Field(default="", max_length=200)
+    #: The file as a data URL. Twenty megabytes of document is about 27 MB
+    #: of base64.
+    data_url: str = Field(min_length=1, max_length=28_000_000)
+    project_type: str = "new"
+
+
+#: What a requirements document arrives as. Images are refused rather than
+#: read: a photographed BRD is a scan, and a scan extracts to nothing.
+_BRD_EXTENSIONS = {"pdf", "docx", "md", "markdown", "txt"}
+
+
+@router.post("/v1/estimates/brd")
+async def read_brd(body: BrdRequest, user: str = Depends(require_user)) -> dict:
+    """Read an uploaded requirements document and draft the brief from it.
+
+    Returns the brief — carrying what the reading found — and nothing else,
+    exactly as `/draft` does: nothing costed, nothing stored, no id. The team
+    and skill scores are asked of the person afterwards, in the form.
+    """
+    if not get_settings().estimate.draft:
+        raise HTTPException(status_code=501, detail="Drafting is switched off on this server")
+    ext = body.name.rsplit(".", 1)[-1].lower() if "." in body.name else ""
+    if ext not in _BRD_EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail="Upload the BRD as a PDF, Word (.docx), Markdown or text file.",
+        )
+
+    import asyncio
+
+    from compass.common.attachments import extract_document_text
+
+    text = await asyncio.to_thread(extract_document_text, body.name, body.mime, body.data_url)
+    note = text.strip()
+    # The extractor never raises; it writes a bracketed note instead. Each is
+    # turned into something a person can act on rather than passed to a model
+    # as if it were the requirement.
+    if not note:
+        raise HTTPException(status_code=422, detail="The document is empty.")
+    if note.endswith("had no extractable text]"):
+        raise HTTPException(
+            status_code=422,
+            detail="This document has no text layer — it looks scanned. Upload the "
+                   "Word version, or export the PDF with its text.",
+        )
+    if "No module named 'docx'" in note:
+        raise HTTPException(
+            status_code=422,
+            detail="This server cannot read Word files yet (python-docx is not "
+                   "installed). Upload the BRD as a PDF instead.",
+        )
+    if note.startswith("[could not read"):
+        raise HTTPException(status_code=422,
+                            detail=f"Could not read the document: {note.strip('[]')}")
+
+    try:
+        brief = await intake.analyse_brd(text, body.name, body.project_type)
+    except Exception as exc:  # noqa: BLE001 - the surface says what went wrong
+        logger.warning("brd analysis failed: %s", exc)
+        raise HTTPException(status_code=502,
+                            detail=f"Could not analyse the document: {exc}") from exc
+    return {"brief": brief.model_dump(), "characters": len(text)}
+
+
 # --------------------------------------------------------------------------- preview
 
 

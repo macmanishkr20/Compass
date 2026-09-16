@@ -193,6 +193,28 @@ def _extract_zip(data: bytes) -> str:
     return "\n\n".join(out)
 
 
+def extract_document_text(name: str, mime: str, data_url: str) -> str:
+    """The text of one uploaded document, for a caller that reads rather than
+    looks: PDF and DOCX extracted, anything else decoded as text.
+
+    No page rendering — that is for a model being shown the pages, and a
+    forty-page requirements document rendered to images is slow work nobody
+    reads. Never raises: a file that cannot be read comes back as the same
+    bracketed note the other paths use, so the caller can say why.
+    """
+    ext = _ext(name)
+    mime = (mime or "").lower()
+    try:
+        data = _decode_data_url(data_url)
+    except Exception as err:  # noqa: BLE001
+        return f"[could not read the upload: {err}]"
+    if ext == "pdf" or mime == "application/pdf":
+        return _extract_pdf(data)
+    if ext == "docx" or "wordprocessingml" in mime:
+        return _extract_docx(data)
+    return _clip(_as_text(data))
+
+
 def process_attachment(att: dict) -> dict | None:
     """Normalize one raw upload `{name, mime, data_url}` into either
     `{kind:'image', name, data_url}` or `{kind:'text', name, text}`."""
