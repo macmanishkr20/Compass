@@ -922,18 +922,25 @@
                     </div>
                   }
                   @if (b.role === 'assistant' && b.thinking) {
-                    <!-- No header. Reasoning is narration, and a label saying
-                         "Thought about it" above every passage of it is a
-                         caption on each paragraph of a story. What it cost is
-                         still worth knowing, so it sits underneath and comes
-                         out on hover, beside the other things you can do with
-                         a message rather than on top of the thing itself. -->
-                    <div class="cthink" [class.live]="b.thinkingLive">
-                      <div class="cthink-body"><app-markdown [text]="b.thinking!" /></div>
-                      @if (b.thinkingTokens) {
-                        <div class="cthink-foot">
-                          <span class="msg-act cthink-tokens">{{ b.thinkingTokens }} tokens used</span>
-                        </div>
+                    <!-- Labelled and foldable. Unlabelled, a passage of
+                         narration in the same column as the answer reads as
+                         part of the answer; the header says which is which,
+                         and the caret is there because a long think is
+                         sometimes not what you came back to read. -->
+                    <div class="cthink" [class.live]="b.thinkingLive"
+                      [class.folded]="isActivityExpanded('think-' + b.id)">
+                      <button class="cthink-head" (click)="toggleActivity('think-' + b.id)"
+                        [attr.aria-expanded]="!isActivityExpanded('think-' + b.id)">
+                        <svg class="cthink-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                        <span>Reasoning</span>
+                      </button>
+                      @if (!isActivityExpanded('think-' + b.id)) {
+                        <div class="cthink-body"><app-markdown [text]="b.thinking!" /></div>
+                        @if (b.thinkingTokens) {
+                          <div class="cthink-foot">
+                            <span class="msg-act cthink-tokens">{{ b.thinkingTokens }} tokens used</span>
+                          </div>
+                        }
                       }
                     </div>
                   }
@@ -1258,7 +1265,7 @@
           <span class="cmp-repo-wrap">
             @if (repoMenuOpen()) {
               <div class="ctx-menu panel" (click)="repoMenuOpen.set(false)">
-                <button (click)="revealWorkspace()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg><span>Show in Finder</span></button>
+                <button (click)="revealWorkspace()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke-linejoin="round"/></svg><span>{{ isWindowsClient ? 'Show in Explorer' : fileManagerName === 'Finder' ? 'Show in Finder' : 'Show in file manager' }}</span></button>
                 <button (click)="copyRepoPath()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 012-2h10" stroke-linecap="round"/></svg><span>Copy path</span></button>
                 @if (gitStatus()?.remote) {
                   <button (click)="openRepoInGithub()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Open repo in GitHub</span></button>
@@ -1558,7 +1565,8 @@
     }
 
     @if (section() === 'code' && view() === 'chat' && railOpen()) {
-      <aside class="wc-rail" aria-label="Working copy">
+      <aside class="wc-rail" aria-label="Working copy"
+        animate.enter="panel-in" animate.leave="panel-out">
         <div class="wc-head">
           <h3>Working copy</h3>
           <span class="wc-rule"></span>
@@ -1940,7 +1948,8 @@
   </div>
 
   @if (artifacts.isOpen() || browserOpen() || bgOpen() || filesOpen()) {
-    <aside class="right-dock">
+    <aside class="right-dock"
+      animate.enter="panel-in" animate.leave="panel-out">
       @if (browserOpen()) {
       <div class="cb-window panel">
         <div class="cb-bar">
@@ -2217,6 +2226,18 @@
         </header>
 
         <div class="pr-body">
+          @if (prBlocked(); as why) {
+            <p class="pr-warn" role="status">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9 16H3z" stroke-linejoin="round"/><path d="M12 10v4M12 17h.01" stroke-linecap="round"/></svg>
+              <span>{{ why }}</span>
+            </p>
+          }
+          @if (prError(); as err) {
+            <p class="pr-err" role="alert">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16h.01"/></svg>
+              <span>{{ err }}</span>
+            </p>
+          }
           <label class="pr-field">
             <span>Title</span>
             <input type="text" [value]="prTitle()"
@@ -2257,11 +2278,12 @@
 
         <footer class="pr-foot">
           <button class="wc-btn" (click)="prModalOpen.set(false)">Cancel</button>
-          <button class="wc-btn" [disabled]="prBusy()" (click)="submitPr(true)">
+          <button class="wc-btn" [disabled]="prBusy() || !!prBlocked()" (click)="submitPr(true)">
             Save as draft
           </button>
-          <button class="wc-btn primary" [disabled]="prBusy()" (click)="submitPr()">
-            Create pull request
+          <button class="wc-btn primary" [disabled]="prBusy() || !!prBlocked()"
+            (click)="submitPr()">
+            {{ prBusy() ? 'Opening…' : 'Create pull request' }}
           </button>
         </footer>
       </div>
@@ -2337,12 +2359,19 @@
         </div>
         <div class="ws-sub">Add an existing folder</div>
         <div class="ws-add">
-          <input class="ws-input" placeholder="/absolute/path/to/folder"
+          <input class="ws-input"
+            [placeholder]="isWindowsClient ? 'C:\\Users\\you\\project' : '/absolute/path/to/folder'"
             [value]="newFolderPath()" (input)="newFolderPath.set($any($event.target).value)"
             (keydown.enter)="addFolderPath()" />
-          <button class="btn xs" (click)="pickWorkspaceFolder()" title="Choose a folder in Finder">Browse…</button>
+          <button class="btn xs" (click)="pickWorkspaceFolder()" [disabled]="pickingFolder()"
+            title="Choose a folder on this computer">{{ pickingFolder() ? 'Waiting…' : 'Browse…' }}</button>
           <button class="btn xs primary" (click)="addFolderPath()" [disabled]="!newFolderPath().trim()">Add</button>
         </div>
+        @if (pickingFolder()) {
+          <p class="ws-hint ws-pick-note" role="status">A folder window is open. If you can't see it, check the taskbar.</p>
+        } @else if (pickFolderError(); as e) {
+          <p class="ws-pick-err" role="alert">{{ e }}</p>
+        }
         <div class="ws-sub">Create a new folder</div>
         <div class="ws-add">
           <input class="ws-input" placeholder="New folder name…"

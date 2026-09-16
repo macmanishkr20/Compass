@@ -656,7 +656,7 @@ def check_thinking_cost_is_a_hover() -> None:
     calls has no answer bubble, so without it the flex column shrink-wraps to
     about 200px and takes the thinking block with it.
     """
-    print("\nthe thinking carries no header, and its cost is a hover")
+    print("\nthe thinking's header is a fold, and its cost is a hover")
     code = (ROOT / "frontend/src/app/app.css").read_text()
     home = (ROOT / "frontend/src/app/home-chat/home-chat.css").read_text()
     code_html = (ROOT / "frontend/src/app/app.html").read_text()
@@ -670,13 +670,23 @@ def check_thinking_cost_is_a_hover() -> None:
        "Home also keeps its bubbles shrink-wrapped, since .cbubble is "
        "max-width: 100% and would otherwise stretch with the column")
 
-    gone = ("cthink-head", "cthink-caret", "cthink-cost", "cthink-label")
+    # The header came back, on instruction: "REASONING" with a caret, to match
+    # the supplied design. It returns as a label and a fold rather than the old
+    # caption — no cost printed on it, the cost still a hover underneath — so
+    # the two parts that were removed for being noise stay removed.
+    gone = ("cthink-cost", "cthink-label")
     for name, text in (("app.html", code_html), ("app.css", code),
                        ("home-chat.html", home_html),
                        ("home-chat.css", home)):
         for dead in gone:
             ok(dead not in text,
                f"{name}: no {dead} — removed, not left dead")
+    ok("<button class=\"cthink-head\" (click)=\"toggleActivity('think-' + b.id)\"" in code_html,
+       "app.html: the REASONING header is a real control, and it folds the block")
+    ok(".cthink-head {" in code and ".cthink-caret {" in code,
+       "app.css: styled, not left as bare markup")
+    ok("cthink-head" not in home_html and "cthink-head" not in home,
+       "Home renders no reasoning, so it has no header either")
 
     # The reveal, and the surface each one hangs off: the Code console's row
     # is .row, Home's is .crow, and Home's span carries no .msg-act to
@@ -965,7 +975,13 @@ def check_shell_class_does_not_collide() -> None:
        "every rule that styled it followed the rename")
     ok(".step-cmd.shell " not in css, "with none left on the old name")
     # The frame itself is untouched — it is the thing that was right.
-    ok(".shell {" in css and "grid-template-columns: 272px 1fr" in css,
+    # Three tracks since the panels animate: the dock's track is declared at
+    # zero rather than left out, because CSS cannot interpolate a change in the
+    # number of tracks. The sidebar is still 272px and the frame still fills
+    # the viewport.
+    shell = section(css, ".shell {", "\n}")
+    ok("height: 100dvh" in shell
+       and "grid-template-columns: 272px minmax(0px, 1fr) minmax(0px, 0fr)" in shell,
        "the application shell keeps its layout")
 
 
@@ -2212,7 +2228,7 @@ def check_reasoning_is_visible_by_default() -> None:
         short = page.rsplit("/", 1)[-1]
         body = section(css, ".cthink-body {", "\n}")
         ok("font-style: italic" in body, f"{short}: it reads as narration")
-        ok("var(--muted)" in body, f"{short}: set back from the answer")
+        ok("var(--think-ink)" in body, f"{short}: set back from the answer")
         ok("max-height" not in body,
            f"{short}: with no inner scroller — a scrollbox inside a scrolling "
            "transcript is a trap once the thing is open by default")
@@ -2222,9 +2238,9 @@ def check_reasoning_is_visible_by_default() -> None:
 
     # The headings the model writes inside its own reasoning — in practice
     # `**bold**`, not `#` — belong to the same voice as the thought around
-    # them. Measured on both surfaces, light and dark: identical colour,
-    # style and size to the narration, weight 600 against 400. Dark comes out
-    # rgb(185,185,192) for both, light rgb(81,81,84).
+    # them. Measured: identical colour, style and size to the narration,
+    # weight 600 against 400. Faded on instruction to a mix of --muted and
+    # --faint: light rgb(107,107,111), dark rgb(154,154,162), for both.
     global_css = (ROOT / "frontend/src/styles.css").read_text()
     heads = section(global_css, ".cthink-body .prose :is(", "\n}")
     ok(".cthink-body .prose :is(" in global_css,
@@ -2232,8 +2248,11 @@ def check_reasoning_is_visible_by_default() -> None:
        "specificity rather than on source order")
     ok("font-style: inherit" in heads,
        "a heading inside the reasoning is italic like the rest of it")
-    ok("color: var(--muted)" in heads,
+    ok("color: var(--think-ink)" in heads,
        "and the same faded colour, so it is set in the thought not on it")
+    ok("--think-ink: color-mix(in oklab, var(--muted) 50%, var(--faint));" in global_css,
+       "a colour between --muted and --faint: fainter than the answer's ink, "
+       "which is what sets the narration back from it")
     ok("font-weight: 600" in heads,
        "heavier only by enough to divide the text — 700 upright was what "
        "made it read as a caption stamped on top")
@@ -2266,11 +2285,17 @@ def check_narration_carries_no_chrome() -> None:
     ok("activity-count" not in css and "activity-ico" not in css,
        "with the rules for both removed rather than left dead")
 
-    head = section(html, '<button class="activity-head"', "</button>")
-    ok(head.index("activity-summary") < head.index("activity-caret"),
-       "the words come first and the caret follows them, as a phrase you click")
-    ok("activity-spin" in head,
-       "while a running group still shows that it is running")
+    # The collapsed "Ran 2 commands" header gave way, on instruction, to the
+    # calls themselves listed as cards: what was run is the thing a reader
+    # checks, and it took a click to see. The sentence became a row, and the
+    # row still leads with words rather than chrome.
+    ok('<button class="activity-head"' not in html,
+       "the calls are listed rather than summarised behind a click")
+    row = section(html, '<button class="trow"', "</button>")
+    ok(0 <= row.index('class="tn"') < row.index('class="ta"') < row.index('class="td"'),
+       "each call reads tool, argument, duration — the name first, as the thing you scan for")
+    ok("@case ('running') { <span class=\"d-spin\"></span> }" in row,
+       "and a call still running shows that it is running")
 
 
 def check_plus_menu() -> None:
@@ -3026,13 +3051,18 @@ def check_editor_layout() -> None:
     # only ever says "pick something" is a third of the width spent on an
     # instruction — so it is back to appearing with a selection, and the
     # canvas takes the space until then.
-    ok('@if (selectedNode(); as n) {\n        <aside class="pl-side">' in html,
+    ok('@if (selectedNode(); as n) {\n        <aside class="pl-side"' in html,
        "the inspector appears with a selection, rather than sitting empty "
        "telling you to make one")
     ok('class="pl-side-empty"' not in html,
        "and there is no blank state to show, because there is no blank pane")
-    ok(".pl-work { grid-template-columns: 296px minmax(0, 1fr); }" in css
-       and ".pl-work.inspecting { grid-template-columns: 296px minmax(0, 1fr) 312px; }" in css,
+    # The inspector's track is declared at 0px until a step is picked, so
+    # opening it animates — CSS cannot interpolate a change in how many tracks
+    # there are. The canvas reaches across the gap that empty track would
+    # otherwise hold, so the unselected layout is still two columns wide.
+    ok(".pl-work { grid-template-columns: 296px minmax(0, 1fr) 0px; }" in css
+       and ".pl-work.inspecting { grid-template-columns: 296px minmax(0, 1fr) 312px; }" in css
+       and ".pl-work:not(.inspecting) > .pl-canvas { margin-right: -12px; }" in css,
        "two columns until a step is picked, three after — at the chart's own "
        "296 and 312")
 
@@ -3052,8 +3082,11 @@ def check_editor_layout() -> None:
     # has gone with the pane cannot hold the button that brings it back.
     ok('class="pl-collapse"' in html and "builderOpen()" in html,
        "the builder collapses, from a control that survives its collapsing")
-    ok(".pl-work.no-builder { grid-template-columns: minmax(0, 1fr); }" in css
-       and ".pl-work.no-builder.inspecting {" in css,
+    # Collapsed to a 0px track rather than removed, for the same reason, with
+    # the canvas reaching over its gap — still no rail, and nothing kept.
+    ok(".pl-work.no-builder { grid-template-columns: 0px minmax(0, 1fr) 0px; }" in css
+       and ".pl-work.no-builder.inspecting {" in css
+       and ".pl-work.no-builder > .pl-canvas { margin-left: -12px; }" in css,
        "and the canvas takes the width, in both the selected and unselected "
        "case — a rail would have kept the cost and lost the use")
     # After a run, the drawer decided the layout and the panes took what was

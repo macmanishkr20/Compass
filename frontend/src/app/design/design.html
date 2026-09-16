@@ -65,7 +65,8 @@
     <div class="ds-body" [class.no-rail]="!railOpen()">
       <!-- ---------- context rail ---------- -->
       @if (railOpen()) {
-        <aside class="ds-rail">
+        <aside class="ds-rail"
+          animate.enter="panel-in-left" animate.leave="panel-out-left">
           <div class="ds-rail-mid">
             <h2>Start with context</h2>
             <p class="ds-rail-sub">Designs grounded in real context turn out better.</p>
@@ -590,7 +591,7 @@
         </div>
       </section>
     } @else if (chatOpen()) {
-      <section class="dz-chat">
+      <section class="dz-chat" animate.enter="panel-in-left">
         <header class="dz-chat-head">
           <button class="dz-icon" (click)="close()" title="Back to Design" aria-label="Back">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>

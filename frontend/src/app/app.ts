@@ -623,6 +623,7 @@ export class App {
   async openPrModal(): Promise<void> {
     this.prMenuOpen.set(false);
     if (this.prBusy()) return;
+    this.prError.set('');
     this.prModalOpen.set(true);
     if (!this.railFiles().length) await this.loadRail();
 
@@ -653,10 +654,34 @@ export class App {
     this.railFiles().reduce((n, f) => n + this.railRemoved(f), 0),
   );
 
-  /** Confirmed from the dialog. */
+  /** Why this branch cannot open a pull request, or '' if it can. Checked
+   *  before the request so the dialog can say so while there is still
+   *  something the person can do about it, rather than after they have
+   *  written a title and pressed the button. */
+  readonly prBlocked = computed(() => {
+    const b = this.gitStatus()?.branch ?? '';
+    if (b === 'main' || b === 'master') {
+      return `You're on ${b}. A pull request needs a branch to merge from — ` +
+        `create a feature branch, commit to it, then open the PR.`;
+    }
+    return '';
+  });
+
+  /** The last failure from the create attempt. Held until the next attempt
+   *  rather than timed out: the dialog stays open on failure, and an error
+   *  that erases itself while you are still reading it is worse than none. */
+  readonly prError = signal('');
+
+  /** Confirmed from the dialog. The dialog closes on success only — closing it
+   *  first meant a rejected push reported itself as a line of grey text in the
+   *  status bar that cleared after six seconds, which is indistinguishable
+   *  from the button having done nothing at all. */
   async submitPr(draft = false): Promise<void> {
-    this.prModalOpen.set(false);
-    await this.createPr({ draft, title: this.prTitle(), body: this.prBody() });
+    this.prError.set('');
+    const ok = await this.createPr({
+      draft, title: this.prTitle(), body: this.prBody(),
+    });
+    if (ok) this.prModalOpen.set(false);
   }
   readonly prNotice = signal('');
   /** The PR the last successful create opened, so the notice can link
@@ -1772,9 +1797,21 @@ export class App {
     this.repoMenuOpen.set(false);
     try {
       await this.api.revealWorkspace(this.activeWorkspaceId());
-    } catch {
-      /* host-only */
+    } catch (err: unknown) {
+      // Said, not swallowed — the same silent catch hid every Browse failure
+      // on Windows. Safe to surface now that a successful reveal on Windows no
+      // longer comes back as an error.
+      const detail = (err as { error?: { detail?: string } })?.error?.detail;
+      this.push({ kind: 'notice', id: crypto.randomUUID(), tone: 'error',
+                  text: detail || `Could not open the folder in ${this.fileManagerName}.` });
     }
+  }
+
+  /** The host file manager's own name, for the menu label. */
+  get fileManagerName(): string {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    if (/Windows/i.test(ua)) return 'File Explorer';
+    return /Mac/i.test(ua) ? 'Finder' : 'the file manager';
   }
   async openWorkspaceTerminal(): Promise<void> {
     this.repoMenuOpen.set(false);
@@ -1947,9 +1984,9 @@ export class App {
   /** Push the branch and open a GitHub PR (backend runs gh). */
   async createPr(
     opts: { draft?: boolean; manual?: boolean; title?: string; body?: string } = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.prMenuOpen.set(false);
-    if (this.prBusy()) return;
+    if (this.prBusy()) return false;
     this.prBusy.set(true);
     this.prNotice.set('');
     this.prUrl.set('');
@@ -1969,12 +2006,15 @@ export class App {
       this.prUrl.set(res.url || '');
       if (res.url) window.open(res.url, '_blank', 'noopener');
       setTimeout(() => this.prNotice.set(''), 8000);
+      return true;
     } catch (err: unknown) {
       const detail =
         (err as { error?: { detail?: string } })?.error?.detail ??
         'Could not create PR';
+      this.prError.set(detail);
       this.prNotice.set(detail);
       setTimeout(() => this.prNotice.set(''), 6000);
+      return false;
     } finally {
       this.prBusy.set(false);
     }
@@ -3231,13 +3271,34 @@ export class App {
   onGlobalClick(): void {
     this.closeAllMenus();
   }
-  /** Open the host's native folder chooser (macOS Finder) and fill the path. */
+  /** Open the host's native folder chooser (Finder / File Explorer) and fill the path. */
+  /** True while the host's folder window is open. The request does not
+   *  return until a folder is chosen or the window is cancelled, so without
+   *  this the button looked dead for as long as the window stayed open —
+   *  which, when the window opened behind the browser, was indefinitely. */
+  readonly pickingFolder = signal(false);
+  readonly pickFolderError = signal('');
+  /** Only for the placeholder: a Windows user pasting a path should be shown
+   *  a Windows path. The picker itself runs on the backend host. */
+  readonly isWindowsClient =
+    typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+
   async pickWorkspaceFolder(): Promise<void> {
+    if (this.pickingFolder()) return;
+    this.pickingFolder.set(true);
+    this.pickFolderError.set('');
     try {
       const { path } = await this.api.pickFolder();
       if (path) this.newFolderPath.set(path);
-    } catch {
-      /* host-only / cancelled */
+    } catch (err: unknown) {
+      // Said, not swallowed. Every Windows failure used to land in an empty
+      // catch here, which is why the button appeared to do nothing at all.
+      const detail = (err as { error?: { detail?: string } })?.error?.detail;
+      this.pickFolderError.set(
+        detail || 'Could not open the folder picker. Paste the folder path instead.',
+      );
+    } finally {
+      this.pickingFolder.set(false);
     }
   }
 

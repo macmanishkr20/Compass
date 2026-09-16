@@ -11,27 +11,36 @@
   z-index: 1;
   height: 100dvh;
   display: grid;
-  grid-template-columns: 272px 1fr;
+  /* Three tracks always, the third empty until the dock opens, and both
+     fluid tracks written as minmax() so every state interpolates against
+     every other. A bare `0` here is a length against the open state's
+     minmax(), which does not interpolate and snapped the dock open. */
+  grid-template-columns: 272px minmax(0px, 1fr) minmax(0px, 0fr);
   gap: 12px;
   padding: 12px;
+  /* Every panel in the app opens by changing a track on this grid — the
+     sidebar, the right dock, the browser, files, background tasks. None of it
+     was transitioned, so the sidebar's contents faded politely while the
+     layout underneath them snapped, which is the part the eye actually
+     follows. One declaration here animates all of them. */
+  transition: grid-template-columns var(--panel-ms) var(--panel-ease);
 }
-.shell.sidebar-collapsed { grid-template-columns: 0 1fr; }
+.shell.sidebar-collapsed { grid-template-columns: 0px minmax(0px, 1fr) minmax(0px, 0fr); }
 .shell.sidebar-collapsed .sidebar {
   opacity: 0;
   transform: translateX(-14px);
   pointer-events: none;
-  transition: opacity 0.25s, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* Right dock open: chat keeps a readable min width, the panel takes the rest. */
 .shell.right-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
-.shell.right-open.sidebar-collapsed { grid-template-columns: 0 minmax(360px, 1fr) minmax(420px, 1.15fr); }
+.shell.right-open.sidebar-collapsed { grid-template-columns: 0px minmax(360px, 1fr) minmax(420px, 1.15fr); }
 /* Expanded dock panel (Background tasks or the in-app Browser): it FLOATS OVER
    the chat (like claude.ai) rather than reflowing the grid. The underlying grid
    returns to its normal two-column layout so the chat stays fully intact
    underneath, and the dock is lifted out of flow as an absolute overlay beside
    the sidebar. */
-.shell.right-open.dock-expanded { grid-template-columns: 272px 1fr; }
-.shell.right-open.dock-expanded.sidebar-collapsed { grid-template-columns: 0 1fr; }
+.shell.right-open.dock-expanded { grid-template-columns: 272px minmax(0px, 1fr) minmax(0px, 0fr); }
+.shell.right-open.dock-expanded.sidebar-collapsed { grid-template-columns: 0px minmax(0px, 1fr) minmax(0px, 0fr); }
 .shell.dock-expanded .right-dock {
   position: absolute;
   top: 12px;
@@ -63,10 +72,10 @@
 }
 @media (max-width: 1100px) {
   /* On narrower screens the dock takes over the main area. */
-  .shell.right-open { grid-template-columns: 272px 0 1fr; }
+  .shell.right-open { grid-template-columns: 272px minmax(0px, 0fr) minmax(0px, 1fr); }
   .shell.right-open .main {
   position: relative; /* anchors the jump-to-latest chevron */ display: none; }
-  .shell.right-open.sidebar-collapsed { grid-template-columns: 0 0 1fr; }
+  .shell.right-open.sidebar-collapsed { grid-template-columns: 0px minmax(0px, 0fr) minmax(0px, 1fr); }
 }
 
 .panel { border-radius: var(--radius); }
@@ -87,7 +96,10 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  transition: opacity 0.26s ease, transform 0.26s ease;
+  /* One clock with the track it sits in, so the panel and the space it
+     occupies arrive and leave together instead of racing. */
+  transition: opacity var(--panel-ms) var(--panel-ease),
+              transform var(--panel-ms) var(--panel-ease);
 }
 /* A brass edge along the bottom of the panel — the one piece of colour in an
    otherwise neutral column, and what stops it dissolving into the page. */
@@ -502,8 +514,26 @@
    modal cannot show files appearing as the agent writes them, which is most
    of what anybody wants from this panel. Its own grid column, so opening it
    narrows the conversation instead of covering it. */
-.main.rail-open { grid-template-columns: minmax(0, 1fr) 320px; }
-.main.rail-open > .topbar { grid-column: 1 / -1; }
+/* One source of truth for the rail's width: the grid track below and the
+   two overlays that have to dodge it both read this. */
+.main { --rail-w: 0px; }
+/* The rail's track is declared even when it is empty. CSS interpolates a
+   track list only when both sides have the same number of tracks *and* the
+   same track types — going from one track to two snapped the rail into place
+   at full width, however long the transition said it was. Measured: 1->2
+   tracks gives one step, 0px->320px with both declared gives six. */
+.main.rail-open { --rail-w: 320px; }
+.main > *:not(.wc-rail) { grid-column: 1; }
+.main > .topbar { grid-column: 1 / -1; }
+/* A declared-but-empty track still collects the grid's gap. Keeping the
+   rail's track (and the shell's dock track) permanently declared is what
+   lets them animate, and it quietly cost 12px: .main ended at 1476 on a
+   1500px window instead of 1488, and the conversation column was 12px
+   narrower with the rail shut. The gap is withheld whenever its track is
+   empty, on the same clock, so every settled layout is the original one. */
+.main:not(.rail-open) { column-gap: 0px; }
+.shell:not(.right-open) > .main,
+.shell.right-open.dock-expanded > .main { margin-right: -12px; }
 .wc-rail {
   grid-column: 2;
   grid-row: 2 / 4;
@@ -635,10 +665,14 @@
 .main {
   position: relative;
   display: grid;
+  /* Same reason as .shell: the working-copy rail is a track on this grid. */
+  transition: grid-template-columns var(--panel-ms) var(--panel-ease),
+              column-gap var(--panel-ms) var(--panel-ease),
+              margin-right var(--panel-ms) var(--panel-ease);
   grid-template-rows: auto 1fr auto;
-  /* Constrain the single implicit column to the cell width so a crowded
-     topbar wraps instead of overflowing into the artifact panel. */
-  grid-template-columns: minmax(0, 1fr);
+  /* Constrain the conversation column to the cell width so a crowded topbar
+     wraps instead of overflowing into the rail. */
+  grid-template-columns: minmax(0, 1fr) var(--rail-w);
   min-width: 0;
   min-height: 0;
   gap: 12px;
@@ -956,7 +990,9 @@
 /* Prompt navigator: right-edge ticks that expand to prompt previews. */
 .pnav {
   position: absolute;
-  right: 8px;
+  /* Clears the rail for the same reason — anchored to .main's right edge, the
+     ticks were drawn on top of the working-copy panel. */
+  right: calc(8px + var(--rail-w, 0px));
   top: 50%;
   transform: translateY(-50%);
   z-index: 25;
@@ -967,6 +1003,12 @@
   align-items: flex-end;
   gap: 4px;
   padding: 8px 4px;
+  /* Invisible until hovered, but the card's shape is declared here so the
+     open state animates into it rather than appearing on top of the ticks. */
+  border: 1px solid transparent;
+  border-radius: 14px;
+  transition: background 0.18s ease, border-color 0.18s ease,
+              box-shadow 0.18s ease, padding 0.18s ease, gap 0.18s ease;
 }
 .pnav-tick {
   display: flex;
@@ -1001,16 +1043,53 @@
   border-radius: 7px;
   transition: max-width 0.16s ease, opacity 0.16s, padding 0.16s, background 0.16s;
 }
-.pnav:hover { overflow: visible; }
+/* Open: one card holding the whole list, not a column of separate chips.
+   Each label used to carry its own border and shadow, so hovering the rail
+   produced a stack of loose pills of different widths — and nothing tied
+   them together as one table of contents. Now the rail itself becomes the
+   card and the rows sit inside it, which is also what makes a highlighted
+   row possible: a row can only be marked against a surface it shares. */
+.pnav:hover {
+  overflow-y: auto;
+  align-items: stretch;
+  gap: 1px;
+  padding: 8px;
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--shadow-lg);
+}
+.pnav:hover .pnav-tick {
+  justify-content: flex-start;
+  width: 100%;
+  gap: 11px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  transition: background 0.13s;
+}
+.pnav:hover .pnav-tick:hover { background: color-mix(in oklab, var(--ink) 5%, transparent); }
+/* Where you are now. Stated three ways — a filled row, the heavier dash it
+   already had, and the weight — because in a list of similar sentences one
+   of them alone is easy to miss. */
+/* --surface-2 is all but white against the card, so the current row read as
+   fainter than whichever row the mouse was passing over — where you are
+   should never be quieter than where the pointer happens to be. */
+.pnav:hover .pnav-tick.on { background: color-mix(in oklab, var(--ink) 9%, transparent); }
+.pnav:hover .pnav-tick.on:hover { background: color-mix(in oklab, var(--ink) 12%, transparent); }
 .pnav:hover .pnav-label {
   max-width: 260px;
   opacity: 1;
-  padding: 5px 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: var(--muted);
 }
-.pnav:hover .pnav-line { opacity: 0.75; }
+.pnav:hover .pnav-tick.on .pnav-label { color: var(--ink); font-weight: 650; }
+.pnav:hover .pnav-line { opacity: 0.55; }
+.pnav:hover .pnav-tick.on .pnav-line { opacity: 1; height: 2.5px; }
+@media (prefers-reduced-motion: reduce) {
+  .pnav, .pnav .pnav-tick, .pnav .pnav-label, .pnav .pnav-line { transition: none; }
+}
 @media (max-width: 1100px) { .pnav { display: none; } }
 
 .log {
@@ -1645,6 +1724,33 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .pr-x:hover { background: var(--surface-2); color: var(--ink); }
 
+/* Why the button will not work, said before it is pressed; and what went
+   wrong, said after — both inside the dialog, which is where the person is
+   looking. */
+.pr-warn, .pr-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.pr-warn svg, .pr-err svg { flex: none; margin-top: 1px; }
+.pr-warn {
+  background: color-mix(in oklab, var(--warn, #d99a2b) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--warn, #d99a2b) 34%, transparent);
+  color: var(--ink);
+}
+.pr-warn svg { color: var(--warn, #d99a2b); }
+.pr-err {
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger) 34%, transparent);
+  color: var(--ink);
+}
+.pr-err svg { color: var(--danger); }
+
 .pr-body { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
 .pr-field { display: flex; flex-direction: column; gap: 6px; }
 .pr-field > span {
@@ -1695,15 +1801,26 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 /* A bordered list, always open. Nothing here is a disclosure widget: the
    list itself is the disclosure, and the row is a button only because the
    output underneath is worth a click. */
+/* One card per call, with air between them — not a single bordered list with
+   hairline dividers. A divider says "these are rows of one thing"; a gap says
+   "these are separate things that happened in order", which is what a run of
+   tool calls is. It also lets a call's output sit inside its own card instead
+   of pushing the row below it around. */
 .tools {
+  display: flex;
+  flex-direction: column;
+  /* 13px, the same step the gate and the reasoning block use, so a run of
+     calls keeps one rhythm instead of clustering tightly and then jumping
+     whenever a permission card lands between two of them. */
+  gap: 13px;
+  margin-bottom: 13px;
+}
+.trow-wrap {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface-2);
   overflow: hidden;
-  margin-bottom: 13px;
 }
-.trow-wrap + .trow-wrap .trow,
-.trow-wrap:not(:first-child) > .trow { border-top: 1px solid var(--border); }
 .trow {
   width: 100%;
   display: flex;
@@ -1745,8 +1862,12 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
   animation: spin 0.7s linear infinite;
 }
 .trow .tn { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+/* The argument carries the ink: which file, which command, which pattern is
+   the part of the row anybody actually reads. It used to sit at --muted,
+   lighter than the narration above it, which put the emphasis exactly the
+   wrong way round. */
 .trow .ta {
-  color: var(--muted);
+  color: var(--ink);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -2728,6 +2849,10 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px;
 }
 .ws-hint { font-size: 0.74rem; color: var(--faint); margin: 0; line-height: 1.5; }
+/* Under the Browse row: what is happening while the host's folder window is
+   open, or why it did not open. Tucked up against the row it belongs to. */
+.ws-pick-note { margin: -6px 0 12px; }
+.ws-pick-err { margin: -6px 0 12px; font-size: 0.74rem; line-height: 1.5; color: var(--danger); }
 .ws-hint code { font-family: var(--mono); font-size: 0.68rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
 .ws-repo {
   display: flex; align-items: center; gap: 8px;
@@ -3390,7 +3515,12 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
 
 /* Jump-to-latest chevron, shown while auto-follow is detached. */
 .jump-bottom {
-  position: absolute; left: 50%; transform: translateX(-50%);
+  /* Centred on the conversation, not on .main. .main is this button's offset
+     parent and it grows by the rail's width when the working copy opens, so a
+     bare `left: 50%` drifted 160px to the right and left the button sitting
+     over the edge of the transcript instead of above it. */
+  position: absolute; left: calc(50% - var(--rail-w, 0px) / 2);
+  transform: translateX(-50%);
   bottom: 132px; z-index: 30;
   display: grid; place-items: center;
   width: 38px; height: 38px; border-radius: 12px; cursor: pointer;
@@ -3677,6 +3807,31 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
      animation was carrying. */
   .cthink.live { animation: none; border-left-color: var(--accent); }
 }
+/* The label. Small, spaced and quiet: it names the block without competing
+   with either the reasoning under it or the answer after it. */
+.cthink-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--faint);
+  font-family: var(--sans);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.cthink-head:hover { color: var(--muted); }
+.cthink-caret {
+  width: 12px; height: 12px;
+  flex: none;
+  transition: transform 0.16s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.cthink.folded .cthink-caret { transform: rotate(-90deg); }
+
 .cthink-body {
   margin: 4px 0 2px;
   color: var(--think-ink);

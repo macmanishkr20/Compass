@@ -446,7 +446,8 @@
       [class.no-builder]="!builderOpen()">
 
       @if (builderOpen()) {
-      <aside class="pl-chat">
+      <aside class="pl-chat"
+        animate.enter="panel-in-left" animate.leave="panel-out-left">
         <header class="pl-chat-head">
           <h3 class="pl-side-h">Builder</h3>
           <span class="pl-sheet-spacer"></span>
@@ -537,7 +538,8 @@
       </div>
 
       @if (selectedNode(); as n) {
-        <aside class="pl-side">
+        <aside class="pl-side"
+          animate.enter="panel-in" animate.leave="panel-out">
           <header class="pl-side-bar">
             <h3 class="pl-side-h">Inspector</h3>
             <span class="pl-bar-space"></span>

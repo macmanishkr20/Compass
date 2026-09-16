@@ -610,13 +610,20 @@
 .dz-work {
   display: grid;
   grid-template-columns: minmax(300px, 380px) 1fr;
+  /* Same treatment as the context rail: the chat's track is kept at
+     minmax(0px, 0px) when solo, the same shape as its open state, so the
+     canvas widens smoothly rather than jumping. */
+  transition: grid-template-columns var(--panel-ms) var(--panel-ease);
   height: 100%;
   min-height: 0;
   border-radius: 16px 16px 0 0;   /* the workspace is a card, not a slab */
   overflow: hidden;
 }
 
-.dz-work.solo { grid-template-columns: 1fr; }
+.dz-work.solo { grid-template-columns: minmax(0px, 0px) 1fr; }
+.dz-work > .dz-chat,
+.dz-work > .dz-edit { grid-column: 1; min-width: 0; overflow-x: clip; }
+.dz-work > .dz-canvas-wrap { grid-column: 2; }
 
 .dz-chat {
   display: flex;
@@ -1291,6 +1298,11 @@
 
 @media (max-width: 900px) {
   .dz-work { grid-template-columns: 1fr; grid-template-rows: minmax(0, 40%) 1fr; }
+  /* Stacked here, one column: undo the two-track pinning above. */
+  .dz-work.solo { grid-template-columns: 1fr; }
+  .dz-work > .dz-chat,
+  .dz-work > .dz-edit,
+  .dz-work > .dz-canvas-wrap { grid-column: 1; }
   .dz-chat { border-right: 0; border-bottom: 1px solid var(--border); }
   .dz-tiles { grid-template-columns: repeat(3, 1fr); }
 }
@@ -1373,9 +1385,17 @@
   min-height: 0;
   display: grid;
   grid-template-columns: 300px 1fr;
+  /* The rail's track stays declared when it is shut, at 0px, so opening
+     it interpolates. 300px 1fr -> 1fr changes the track count, which CSS
+     cannot animate: the rail used to snap in and out at full width. */
+  transition: grid-template-columns var(--panel-ms) var(--panel-ease);
 }
 
-.ds-body.no-rail { grid-template-columns: 1fr; }
+.ds-body.no-rail { grid-template-columns: 0px 1fr; }
+/* Pinned, because the rail's track exists even when the rail does not:
+   left to auto-placement, the document would drop into the empty one. */
+.ds-body > .ds-rail { grid-column: 1; min-width: 0; overflow-x: clip; }
+.ds-body > :not(.ds-rail) { grid-column: 2; }
 
 /* -- context rail */
 .ds-rail {
@@ -4019,8 +4039,11 @@ select.dz-ed-in {
 .dz-tpl-in .dz-glyph svg { width: 19px; height: 19px; display: block; }
 .dz-tpl-lb {
   font-size: 8.5px;
-  font-weight: 600;
-  color: var(--ink-3);
+  /* Full ink at 700. At 8.5px the old --faint / 600 measured 3.62:1 against
+     the tile — under the 4.5:1 floor, and at this size weight carries as much
+     of the legibility as colour does. */
+  font-weight: 700;
+  color: var(--ink);
   text-align: center;
   line-height: 1.15;
   padding: 0 4px;
@@ -4039,7 +4062,9 @@ select.dz-ed-in {
   background: var(--brass-soft);
   box-shadow: 0 0 0 3px var(--brass-soft), var(--sh-2);
 }
-.dz-tpl.sel .dz-tpl-lb { color: var(--brass); }
+/* Still brass, so the chosen tile reads as chosen — but pulled toward ink:
+   plain brass on its own brass tint was the faintest label on the rose. */
+.dz-tpl.sel .dz-tpl-lb { color: color-mix(in oklab, var(--brass-2) 70%, var(--ink)); }
 
 /* ── The list, which is the grid this replaced ─────────────────────────── */
 .dz-tpl-list {

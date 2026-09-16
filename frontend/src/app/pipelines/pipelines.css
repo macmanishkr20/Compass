@@ -233,6 +233,7 @@
      step is picked. */
   grid-template-columns: 320px minmax(0, 1fr) 312px;
   gap: 12px;
+  transition: grid-template-columns var(--panel-ms) var(--panel-ease);
 }
 .pl-work.inspecting { grid-template-columns: 320px minmax(0, 1fr) 312px; }
 /* Narrow windows keep all three columns and let the canvas take the loss.
@@ -2119,7 +2120,12 @@
 .pl-logs { margin: 0; }
 
 /* The chart's own column widths. */
-.pl-work { grid-template-columns: 296px minmax(0, 1fr); }
+/* The empty inspector track is declared, at 0px, so the grid has three
+   tracks in every state and opening the inspector or collapsing the builder
+   interpolates. Two tracks here against three everywhere else made both
+   snap; the canvas's negative margin below returns the 12px gap the empty
+   track would otherwise hold, so the settled layout is unchanged. */
+.pl-work { grid-template-columns: 296px minmax(0, 1fr) 0px; }
 .pl-work.inspecting { grid-template-columns: 296px minmax(0, 1fr) 312px; }
 
 /* Zoom: a single control, out / level / in / fit, floating on the canvas. */
@@ -2162,7 +2168,7 @@
 .cv-tools .cv-fit svg { width: 12px; height: 12px; }
 
 @media (max-width: 1180px) {
-  .pl-work { grid-template-columns: 260px minmax(0, 1fr); }
+  .pl-work { grid-template-columns: 260px minmax(0, 1fr) 0px; }
   .pl-work.inspecting { grid-template-columns: 240px minmax(0, 1fr) 260px; }
 }
 
@@ -2172,10 +2178,25 @@
    is a strip of nothing that still costs width, and the reason to collapse
    the builder is to give that width to the canvas.
 */
-.pl-work.no-builder { grid-template-columns: minmax(0, 1fr); }
-.pl-work.no-builder.inspecting { grid-template-columns: minmax(0, 1fr) 312px; }
+/* Three tracks in every state, the empty ones at 0px, so collapsing the
+   builder or dismissing the inspector interpolates. A one-track list here
+   could not animate against the default, which has a track per pane. */
+.pl-work.no-builder { grid-template-columns: 0px minmax(0, 1fr) 0px; }
+.pl-work.no-builder.inspecting { grid-template-columns: 0px minmax(0, 1fr) 312px; }
 
-.pl-canvas { position: relative; min-width: 0; }
+.pl-canvas {
+  position: relative;
+  min-width: 0;
+  grid-column: 2;
+  transition: margin var(--panel-ms) var(--panel-ease);
+}
+.pl-work > .pl-chat { grid-column: 1; min-width: 0; }
+.pl-work > .pl-side { grid-column: 3; min-width: 0; overflow-x: clip; }
+/* An empty 0px track still takes the 12px gap beside it. The canvas reaches
+   across whichever gap its empty neighbour would otherwise leave, so the
+   settled widths are exactly what the old one- and two-track grids gave. */
+.pl-work.no-builder > .pl-canvas { margin-left: -12px; }
+.pl-work:not(.inspecting) > .pl-canvas { margin-right: -12px; }
 
 .pl-collapse {
   position: absolute;
@@ -2205,7 +2226,7 @@
 }
 
 @media (max-width: 1180px) {
-  .pl-work.no-builder.inspecting { grid-template-columns: minmax(0, 1fr) 260px; }
+  .pl-work.no-builder.inspecting { grid-template-columns: 0px minmax(0, 1fr) 260px; }
 }
 
 /* ── The drawer takes a fixed height, not a share of the window ────────── */

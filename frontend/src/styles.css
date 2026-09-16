@@ -24,11 +24,18 @@
      visibly a thing you type rather than a thing you read. Kept clear of
      the gold accent, which already means "Compass" everywhere else. */
   --code-ink: #9C3B27;
-  /* Reasoning prose. Darker than --muted, which had the narration reading as
-     a caption rather than as something worth following, and still a step back
-     from --ink so the answer below it stays the thing in front. Written as a
-     mix of the two so it follows the theme without a second definition. */
-  --think-ink: color-mix(in oklab, var(--ink) 70%, var(--muted));
+  /* One clock and one curve for every panel that opens or closes, so the
+     sidebar, the right dock and the working-copy rail cannot drift apart.
+     The curve decelerates hard at the end, which is what makes a panel read
+     as settling into place rather than stopping. */
+  --panel-ms: 320ms;
+  --panel-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Reasoning prose: faded, and clearly lighter than both the answer it
+     precedes and the tool arguments beside it. It sat at 70% ink for a while,
+     which made narration and answer near enough the same weight that the eye
+     had nothing to sort them by. Between --muted and --faint, expressed as a
+     mix so it follows the theme without a second definition. */
+  --think-ink: color-mix(in oklab, var(--muted) 50%, var(--faint));
 
   /* Semantic (separate from accent) */
   --success: #34C759;
@@ -546,4 +553,43 @@ app-home-chat .prose li::marker { color: var(--ink); }
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* ===================== Panel motion ===================== */
+/* Panels that are added and removed rather than resized. They travel in the
+   direction their track opens, on the same clock as that track, so the panel
+   and the space it occupies move as one thing. Global, not in app.css: Design
+   and Pipelines are separate components, and a keyframe written in app.css is
+   renamed into the App component's scope where neither can reach it. */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes panel-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(18px); }
+}
+@keyframes panel-in-left {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes panel-out-left {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(-18px); }
+}
+.panel-in { animation: panel-in var(--panel-ms) var(--panel-ease); }
+.panel-out { animation: panel-out var(--panel-ms) var(--panel-ease); }
+.panel-in-left { animation: panel-in-left var(--panel-ms) var(--panel-ease); }
+.panel-out-left { animation: panel-out-left var(--panel-ms) var(--panel-ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Movement off, the change itself still legible. !important because the
+     grids it silences are declared in component styles, whose scoping
+     attribute outranks a global selector. */
+  .shell, .main, .sidebar, .ds-body, .dz-work, .pl-work, .pl-canvas {
+    transition-duration: 0.01ms !important;
+  }
+  .panel-in, .panel-in-left { animation: panel-fade var(--panel-ms) linear; }
+  .panel-out, .panel-out-left { animation: panel-fade var(--panel-ms) linear reverse; }
+  @keyframes panel-fade { from { opacity: 0; } to { opacity: 1; } }
 }
