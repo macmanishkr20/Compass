@@ -391,7 +391,18 @@ def reveal_in_file_manager(path: Path) -> str:
         )
         return f"Finder: {p}"
     if system == "Windows":  # pragma: no cover
-        _run(["explorer", p])
+        # Not _run(["explorer", p]): explorer.exe exits 1 even when it opens the
+        # window, so its exit code cannot tell success from failure, and _run
+        # reported every reveal on Windows as an error. os.startfile goes
+        # through ShellExecute instead, which raises on a real failure (folder
+        # gone, access denied) and returns quietly when the window opens.
+        import os
+
+        try:
+            os.startfile(p)  # type: ignore[attr-defined]
+        except OSError as err:
+            raise RuntimeError(f"Could not open File Explorer: {err}")
+        return f"Explorer: {p}"
     else:
         _run(["xdg-open", p])
     return p
@@ -457,6 +468,78 @@ def open_in_vscode(path: Path) -> str:
     raise RuntimeError(last_err)
 
 
+# The Windows folder dialog. Everything in here answers one report — "Browse
+# does nothing on Windows" — whose usual cause is that the dialog did open, but
+# behind the browser: a FolderBrowserDialog shown from a background process with
+# no owner window does not come to the front, and the request simply waited.
+# A transparent, top-most owner form, shown and activated first, is what makes
+# the dialog appear above everything else.
+_WINDOWS_PICKER = r"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.FormBorderStyle = 'None'
+$owner.Opacity = 0
+$owner.StartPosition = 'CenterScreen'
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+$owner.Show()
+$owner.Activate()
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = 'Select a folder for Compass'
+$dialog.ShowNewFolderButton = $true
+try {
+  if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::Out.Write($dialog.SelectedPath)
+  }
+} finally {
+  $dialog.Dispose()
+  $owner.Close()
+  $owner.Dispose()
+}
+"""
+
+
+def _windows_powershell() -> str:
+    """Absolute path to a PowerShell that can load WinForms. The in-box one
+    lives at a fixed place under SystemRoot, which is looked at first rather
+    than trusting PATH: a server started from some shells or IDEs does not have
+    System32 on it, and a bare "powershell" then failed with nothing shown."""
+    import os
+    import shutil
+
+    root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
+    inbox = os.path.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    if os.path.isfile(inbox):
+        return inbox
+    for name in ("powershell", "pwsh"):
+        found = shutil.which(name)
+        if found:
+            return found
+    raise RuntimeError(
+        "Could not find PowerShell, which Compass uses to show the Windows "
+        "folder picker. Paste the folder path into the box instead."
+    )
+
+
+def _powershell_error(stderr: str) -> str:
+    """The first line of what went wrong, readable. PowerShell writes errors to
+    a redirected stderr as CLIXML, so the raw stream is XML, not a message."""
+    import html
+    import re
+
+    text = (stderr or "").strip()
+    if text.startswith("#< CLIXML"):
+        text = "".join(re.findall(r'<S S="Error">(.*?)</S>', text, re.S))
+        text = re.sub(r"_x([0-9A-Fa-f]{4})_", lambda m: chr(int(m.group(1), 16)), text)
+        text = html.unescape(text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else ""
+
+
 def choose_folder() -> str:
     """Show the host's native folder chooser and return the selected absolute
     path (empty string if cancelled). Works when the backend shares the user's
@@ -480,18 +563,37 @@ def choose_folder() -> str:
         )
         return out.stdout.strip() if out.returncode == 0 else ""
     if system == "Windows":  # pragma: no cover - platform-specific
-        # WinForms FolderBrowserDialog via PowerShell (STA required for a dialog).
-        ps = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
-            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
-            "$d.Description = 'Select a folder for Compass';"
-            "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)"
-            " { [Console]::Out.Write($d.SelectedPath) }"
-        )
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-STA", "-Command", ps],
-            capture_output=True, text=True, timeout=300,
-        )
+        import base64
+
+        exe = _windows_powershell()
+        # -EncodedCommand rather than -Command: the script travels as base64
+        # UTF-16, so no quote or semicolon in it can be re-split by the Windows
+        # command line on the way to PowerShell.
+        encoded = base64.b64encode(_WINDOWS_PICKER.encode("utf-16-le")).decode("ascii")
+        try:
+            out = subprocess.run(
+                [exe, "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass",
+                 "-EncodedCommand", encoded],
+                capture_output=True,
+                # The script writes UTF-8; decoding with the ANSI code page
+                # (what text=True did) mangled any path outside it — "Résumé",
+                # or a user folder in a non-Latin script.
+                encoding="utf-8", errors="replace",
+                timeout=300,
+                # No console window flashing up behind the dialog. This only
+                # suppresses the console; the WinForms dialog still shows.
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(
+                "The folder window was open for five minutes without a choice, "
+                "so Compass closed it. Click Browse to try again."
+            )
+        except OSError as err:
+            raise RuntimeError(f"Could not start the Windows folder picker: {err}")
+        if out.returncode != 0:
+            reason = _powershell_error(out.stderr) or f"exit code {out.returncode}"
+            raise RuntimeError(f"The Windows folder picker failed: {reason}")
         return out.stdout.strip()
     # Linux: zenity if present.
     if shutil.which("zenity"):  # pragma: no cover - platform-specific

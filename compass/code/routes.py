@@ -795,7 +795,8 @@ async def search_files(
 async def reveal_workspace(
     workspace_id: str, user: str = Depends(require_user)
 ) -> dict:
-    """Reveal the workspace folder in the host's file manager (Finder)."""
+    """Reveal the workspace folder in the host's file manager (Finder on
+    macOS, File Explorer on Windows)."""
     from compass.common.workspaces import (
         get_workspace_registry,
         reveal_in_file_manager,
