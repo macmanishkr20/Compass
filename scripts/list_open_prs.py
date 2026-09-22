@@ -14,7 +14,11 @@ UA = "Compass-PR-Reporter/1.0 (+https://github.com/macmanishkr20/Compass)"
 
 
 def http_get(url: str) -> Dict[str, Any]:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/vnd.github+json"})
+    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json"}
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
         data = resp.read().decode(charset)
@@ -197,7 +201,7 @@ def main():
     for r in all_rows:
         warn = " ⚠️" if r["age_days"] > 3.0 else ""
         conflicts = "Yes" if r["merge_conflicts"] else "No"
-        pr_link = f"[#${r['number']}]({r['html_url']}) {r['title']}" if r.get("html_url") else f"#{r['number']} {r['title']}"
+        pr_link = f"[#{r['number']}]({r['html_url']}) {r['title']}" if r.get("html_url") else f"#{r['number']} {r['title']}"
         print(f"| {r['repo']} | {pr_link}{warn} | {r['author']} | {r['age_str']} | {r['review_status']} | {r['ci_status']} | {conflicts} |")
 
 
