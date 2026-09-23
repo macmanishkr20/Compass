@@ -101,6 +101,26 @@
         </button>
       </div>
       <div class="mem-body">
+        <div class="mem-cat">What Compass calls you</div>
+        <div class="cz-name-row">
+          <!-- `change` rather than a key binding: the browser fires it on
+               Enter and on leaving a field that was edited, which is exactly
+               when a name should be saved, and it does not depend on how a
+               given keyboard reports the Return key. `blur` is the safety
+               net and costs nothing — an unchanged name returns early.
+               The value is read off the field rather than mirrored into a
+               signal first: one source of truth for something this small. -->
+          <input class="cz-name-input" type="text" maxlength="60"
+            placeholder="Your name" [value]="auth.user()?.displayName || ''"
+            (change)="saveDisplayName($any($event.target).value)"
+            (blur)="saveDisplayName($any($event.target).value)"
+            aria-label="What Compass calls you" />
+          @if (nameSaved()) { <span class="cz-name-ok">Saved</span> }
+        </div>
+        <p class="cz-detail cz-name-hint">Used in the greeting on the Home
+          screen. Leave it empty and Compass greets you without a name rather
+          than by your sign-in address.</p>
+
         <div class="mem-cat">Notifications</div>
         <label class="cz-toggle">
           <input type="checkbox" [checked]="turnNotify.soundOn()"
@@ -1363,11 +1383,23 @@
       }
       @if (attachError()) { <div class="cmp-attach-err">{{ attachError() }}</div> }
       @if (attachments().length) {
-        <div class="cmp-atts">
+        <!-- Scrolls sideways rather than wrapping; see Home's composer. -->
+        <div class="atts-wrap" [class.at-start]="attsAtStart()" [class.at-end]="attsAtEnd()">
+          @if (attsOverflow()) {
+            <button class="atts-nav prev" type="button" [disabled]="attsAtStart()"
+              (click)="scrollAtts(-1)" aria-label="Scroll attachments left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <button class="atts-nav next" type="button" [disabled]="attsAtEnd()"
+              (click)="scrollAtts(1)" aria-label="Scroll attachments right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          }
+        <div class="cmp-atts" #attStrip (scroll)="measureAtts()">
           @for (a of attachments(); track a.id) {
             <div class="cmp-att">
               @if (a.kind === 'image') {
                 <img class="cmp-att-thumb" [src]="a.dataUrl" [alt]="a.name" />
+              } @else if (a.kind === 'audio') {
+                <span class="cmp-att-ico audio" title="Transcribed when you send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>
+              } @else if (a.kind === 'video') {
+                <span class="cmp-att-ico video" title="Can be cut into a video"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6a1 1 0 011-1h10a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1z" stroke-linejoin="round"/><path d="M15 10l6-3v10l-6-3z" stroke-linejoin="round"/></svg></span>
               } @else {
                 <span class="cmp-att-ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg></span>
               }
@@ -1380,6 +1412,7 @@
               </button>
             </div>
           }
+        </div>
         </div>
       }
       @if (browserSelectSvc.picks().length) {

@@ -52,6 +52,120 @@ _TEXT_EXTS = {
 }
 
 
+#: Audio containers the transcription models accept. `webm` and `mp4` are
+#: video containers too; their audio track is what gets transcribed.
+_AUDIO_EXTS = {
+    "mp3", "m4a", "wav", "webm", "ogg", "oga", "flac", "aac", "mpga", "mpeg", "mp4",
+}
+
+#: Files that are worth keeping as files, because something can be made from
+#: them — see `home.media`, which stores them, and `common.video`, which
+#: renders them. Classification lives here because this module is already
+#: where "what kind of upload is this" is decided, and two answers to that
+#: question in two places is how an .mp4 ends up being transcribed by one and
+#: filmed by the other.
+IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "bmp", "gif", "tiff", "tif",
+              "heic", "heif", "avif"}
+VIDEO_EXTS = {"mp4", "mov", "m4v", "webm", "avi", "mkv", "3gp", "3gpp", "mpg",
+              "mpeg", "m2ts", "mts", "wmv", "flv"}
+SOUND_EXTS = {"mp3", "m4a", "wav", "aac", "flac", "ogg", "oga", "opus", "aiff",
+              "aif", "amr", "wma", "mpga", "caf", "weba"}
+
+#: Containers that carry either, so the extension cannot settle it. A WhatsApp
+#: voice note arrives as `.mpeg`, an iPhone screen recording as `.mp4`, and a
+#: browser records both to `.webm`. For these the reported type decides, and
+#: the extension is only the fallback.
+_AMBIGUOUS_EXTS = {"mp4": "video", "webm": "video", "mpeg": "video",
+                   "mpg": "video", "ogg": "sound", "3gp": "video",
+                   "3gpp": "video", "m4v": "video"}
+
+
+def media_kind(name: str, mime: str = "") -> str:
+    """image | video | sound | other.
+
+    The name is trusted before the type for unambiguous extensions, because a
+    browser reports `video/mp4` for a file it recognises and
+    `application/octet-stream` for the same file dragged in from somewhere it
+    does not. Where the container holds either — see `_AMBIGUOUS_EXTS` — that
+    is reversed: a `.mpeg` voice note classified as footage is a file nobody
+    can use as music, and the type is the only thing that knows which it is.
+    """
+    ext = _ext(name)
+    mime = (mime or "").lower()
+    if ext in _AMBIGUOUS_EXTS:
+        for prefix, kind in (("audio/", "sound"), ("video/", "video")):
+            if mime.startswith(prefix):
+                return kind
+        return _AMBIGUOUS_EXTS[ext]
+    if ext in IMAGE_EXTS:
+        return "image"
+    if ext in VIDEO_EXTS:
+        return "video"
+    if ext in SOUND_EXTS:
+        return "sound"
+    if mime.startswith("image/"):
+        return "image"
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("audio/"):
+        return "sound"
+    return "other"
+
+
+def is_audio(name: str, mime: str = "") -> bool:
+    return _ext(name) in _AUDIO_EXTS or (mime or "").lower().startswith("audio/")
+
+
+async def transcribe_attachments(raw: list[dict] | None) -> list[dict] | None:
+    """Turn attached audio into text before the message is built.
+
+    A model cannot listen to an upload, and decoding an MP3 as text inlines
+    kilobytes of noise — so audio is transcribed here, the same bargain a PDF
+    gets: read, rather than shown. This runs before `build_user_message`,
+    which stays synchronous, and the transcript replaces the file entirely, so
+    nothing downstream needs to know audio ever arrived.
+
+    Never raises. A file that cannot be transcribed is named in the turn with
+    the reason — an unconfigured server, a file too large — because a turn that
+    silently drops what somebody attached is worse than one that says why.
+    """
+    if not raw:
+        return raw
+    from compass.common import speech
+
+    out: list[dict] = []
+    for att in raw:
+        name = (att.get("name") or "audio").strip()
+        mime = att.get("mime") or ""
+        # A video is left alone even though `.mp4` is on the audio list: it is
+        # kept as a file to be cut into something, and transcribing every clip
+        # somebody attaches is a slow, paid round trip for a soundtrack nobody
+        # asked about. A voice note — .m4a, .mp3, .wav — still goes through.
+        if media_kind(name, mime) == "video":
+            out.append(att)
+            continue
+        if att.get("text") is not None or not is_audio(name, mime):
+            out.append(att)
+            continue
+        try:
+            spoken = await speech.transcribe(_decode_data_url(att.get("data_url") or ""), name)
+        except Exception as err:  # noqa: BLE001 - the turn says what went wrong
+            # One line, not a wall. A music track attached to be played under
+            # a video goes through here too, and a failure to find speech in
+            # it is not an error the person needs explained at length — the
+            # file itself is still perfectly usable.
+            body = f"[{name} — audio. Not transcribed: {err}]"
+        else:
+            body = (f"Transcript of the attached audio ({name}):\n\n{spoken}"
+                    if spoken else f"[{name} — audio. No speech in it.]")
+        out.append({
+            "name": name,
+            "mime": att.get("mime") or "",
+            "text": body,
+        })
+    return out
+
+
 def _ext(name: str) -> str:
     return name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
@@ -230,6 +344,14 @@ def process_attachment(att: dict) -> dict | None:
         return {"kind": "image", "name": name, "data_url": data_url}
 
     data = _decode_data_url(data_url)
+    if media_kind(name, mime) == "video":
+        # Not decoded, not described as "[binary file, 202023 bytes]" — which
+        # is what a clip used to become, wasting a paragraph to say nothing.
+        # A video is attached to be used, and the surfaces that can use it
+        # (see home.media) are handed the file itself.
+        return {"kind": "text", "name": name,
+                "text": f"[{name} — video, {len(data) / 1_048_576:.1f} MB. "
+                        "A file, not text: its contents cannot be read here.]"}
     if ext == "pdf" or mime == "application/pdf":
         # Both: the text for quoting and searching, the pages for looking at.
         return {"kind": "text", "name": name, "text": _extract_pdf(data),

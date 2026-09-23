@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from compass.common.config import get_settings
 from compass.common.gateway import limits
@@ -82,6 +82,11 @@ class StageReport:
     stage: str
     tokens_before: int
     tokens_after: int
+    #: False when the stage degraded — a summary that could not be
+    #: written, images dropped to fit. The turn continues either way, but
+    #: the person is told rather than left to find it in the transcript.
+    ok: bool = True
+    detail: str = ""
 
     @property
     def changed(self) -> bool:
@@ -151,20 +156,97 @@ async def autocompact_if_needed(
         return messages, None
 
     transcript = _render_for_summary(visible)
+    ok = True
+    detail = ""
     try:
         summary = await client.complete_utility(SUMMARY_PROMPT, transcript)
     except Exception as err:  # noqa: BLE001 — degrade, don't die mid-turn
         logger.error("autocompact summarization failed: %s", err)
         summary = "Summarization failed; history was truncated for length."
+        ok = False
+        detail = (
+            "The history could not be summarised, so older turns were dropped "
+            f"instead ({err.__class__.__name__}). Anything the model needs from "
+            "earlier in this session may have to be repeated."
+        )
 
-    boundary = compact_boundary_message(summary)
     # Keep the trailing slice (most recent exchange) after the boundary so
     # in-flight work isn't summarized out from under the model.
     tail = _protected_tail(visible)
+    # Images are the reason a session reaches this point at all: thirty photos
+    # on one turn is tens of megabytes re-sent on every request afterwards,
+    # which is what makes a prompt too large to summarise and a request large
+    # enough to be dropped mid-flight. Past the boundary the model keeps a few
+    # and is told the rest exist.
+    tail, dropped = _cap_images(tail, MAX_IMAGES_PAST_BOUNDARY)
+    if dropped:
+        summary = (
+            f"{summary}\n\n[{dropped} attached image"
+            f"{'' if dropped == 1 else 's'} dropped from the model's view here "
+            "to fit the context window. They remain in the transcript; if they "
+            "matter, save them into the workspace and refer to them by path.]"
+        )
+        detail = detail or (
+            f"{dropped} attached image{'' if dropped == 1 else 's'} dropped from "
+            "the model's view to fit the context window — they are still in the "
+            "transcript. Files in the workspace are read by path and cost nothing "
+            "to keep."
+        )
+
+    boundary = compact_boundary_message(summary)
     new_messages = messages + [boundary] + tail
     stage = "reactive" if force else "autocompact"
-    report = StageReport(stage, before, estimate_tokens([boundary] + tail))
+    report = StageReport(stage, before, estimate_tokens([boundary] + tail),
+                         ok=ok, detail=detail)
     return new_messages, report
+
+
+#: How many images survive a compaction. Enough to keep a conversation about a
+#: picture working; few enough that the prompt stops growing without bound.
+MAX_IMAGES_PAST_BOUNDARY = 4
+
+_OMITTED_IMAGES = (
+    "[earlier attached image omitted here to fit the context window]"
+)
+
+
+def _cap_images(messages: list[Message], keep: int) -> tuple[list[Message], int]:
+    """Keep the newest `keep` image parts; replace the rest with a line saying
+    what was there. Returns the messages and how many were dropped.
+
+    Newest-first because the image someone just attached is the one being
+    discussed; the ones from twenty turns ago have already been described in
+    the text that followed them.
+    """
+    seen = 0
+    dropped = 0
+    out: list[Message] = []
+    for m in reversed(messages):
+        content = m.content
+        if not isinstance(content, list):
+            out.append(m)
+            continue
+        parts = []
+        for part in reversed(content):
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                seen += 1
+                if seen <= keep:
+                    parts.append(part)
+                else:
+                    dropped += 1
+                    continue
+            else:
+                parts.append(part)
+        parts.reverse()
+        if len(parts) == len(content):
+            out.append(m)
+            continue
+        parts.append({"type": "text", "text": _OMITTED_IMAGES})
+        # replace() so uuid, timestamp and is_error survive — these messages are
+        # the same messages, with fewer pictures.
+        out.append(replace(m, content=parts, meta={**m.meta, "images_capped": True}))
+    out.reverse()
+    return out, dropped
 
 
 def _protected_tail(visible: list[Message]) -> list[Message]:

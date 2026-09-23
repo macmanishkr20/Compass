@@ -177,6 +177,8 @@
 a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-line); }
 
 .cthinking { display: flex; gap: 6px; align-items: center; padding: 8px 2px; }
+/* Inside the bubble it is the bubble's own padding that spaces it. */
+.cthinking.in-bubble { padding: 2px 0; }
 .cthinking-label { font-size: 0.85rem; color: var(--muted); margin-left: 4px; }
 .cthinking-meta {
   font-size: 0.75rem; color: var(--faint);
@@ -276,10 +278,21 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 }
 
 .home-atts {
-  display: flex; flex-wrap: wrap; gap: 8px;
+  display: flex;
+  /* nowrap is the fix: the row scrolls, it does not grow downward. */
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  /* A sideways flick here must not page the conversation behind it. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   padding: 12px 12px 2px;
 }
 .home-att {
+  /* Never squeezed to fit — the row scrolls instead. */
+  flex: 0 0 auto;
   display: inline-flex; align-items: center; gap: 8px;
   max-width: 240px;
   background: var(--bg-2);
@@ -570,3 +583,102 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 /* No .cthink rules here. Home does not render the reasoning block — see the
    note in home-chat.html — so the styles for it were removed rather than left
    to rot. The Code console keeps both the block and its styles. */
+
+/* ── The attachment strip: one row that scrolls ─────────────────────────── */
+/* Attachments used to wrap, so thirty photos became fifteen rows and pushed
+   the composer off the screen. One row, scrolled sideways, keeps the composer
+   the same height whatever is attached. */
+.atts-wrap { position: relative; }
+.atts-wrap::before,
+.atts-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42px;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.atts-wrap::before { left: 0; background: linear-gradient(to right, var(--surface), transparent); }
+.atts-wrap::after { right: 0; background: linear-gradient(to left, var(--surface), transparent); }
+/* The fade is the honest part: it is there only while something is hidden. */
+.atts-wrap.at-start::before, .atts-wrap.at-end::after { opacity: 0; }
+.atts-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, opacity 0.16s;
+}
+.atts-nav svg { width: 13px; height: 13px; }
+.atts-nav.prev { left: 5px; }
+.atts-nav.next { right: 5px; }
+.atts-nav:hover:not(:disabled) { color: var(--ink); border-color: var(--border-strong); }
+.atts-nav:disabled { opacity: 0; pointer-events: none; }
+
+.home-atts::-webkit-scrollbar { height: 7px; }
+.home-atts::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.home-atts::-webkit-scrollbar-track { background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .home-atts { scroll-behavior: auto; }
+}
+
+/* An attached recording: transcribed on send, so the words reach the model. */
+.home-att-ico.audio,
+.home-att-ico.video { color: var(--accent); }
+
+/* What Compass is doing inside a turn — a render, a fetch. Sits above the
+   answer in the same bubble, quiet enough to read past once the answer
+   arrives and present enough that a two-minute render is visibly work. */
+.ctools {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.ctool {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  min-width: 0;
+}
+.ctool-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+  transform: translateY(-1px);
+}
+.ctool.running .ctool-dot {
+  background: var(--accent);
+  animation: ctool-pulse 1.4s ease-in-out infinite;
+}
+.ctool.failed .ctool-dot { background: var(--danger, #b5462f); }
+.ctool-label { color: var(--ink); }
+.ctool-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+@keyframes ctool-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctool.running .ctool-dot { animation: none; }
+}

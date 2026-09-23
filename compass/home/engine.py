@@ -1,21 +1,25 @@
-"""Home/Chat workflow — a separate, tool-free conversational engine.
+"""Home/Chat workflow — a separate conversational engine with almost no tools.
 
 This is deliberately NOT the agent console. `QueryEngine` (query_engine.py)
 owns the Code/Agent Console: all tools, the permission gate, workspace
 scoping, routines, git/PR. `ChatEngine` here owns the Home/Chat section and
 shares none of that — it reuses only the shared low-level `query()` streaming
-loop, invoked with an **empty tool list** and a conversational system prompt.
+loop, with a short tool list and a conversational system prompt.
 
-The tool list is deliberately tiny — `memory` and `web_fetch`, both read-only
-and neither touching the machine — rather than empty:
+The list is three, and what they have in common is that none of them can
+reach anything of yours: `memory` remembers, `web_fetch` reads a page, and
+`make_video` cuts a film out of the files attached to the conversation it is
+running in (compass/home/video_tool.py).
   * no file, shell or workspace tool is ever offered, so Home cannot read or
     change anything on disk.
-  * no `PermissionRequest` is ever emitted; both tools are read-only, so they
-    are auto-allowed and the auto_deny broker is never consulted.
-  * no workspace root is attached — pure conversation, no file access.
+  * no `PermissionRequest` is ever emitted: the two read-only tools are
+    auto-allowed, and `make_video` allows itself for its own directory, so
+    the auto_deny broker is never consulted.
+  * no workspace root is attached — conversation, plus what you hand it.
 
 Chat transcripts persist to their own `sessions_dir/chat/` namespace so they
-never appear in the agent's Conversations list.
+never appear in the agent's Conversations list; uploads live beside them
+under `sessions_dir/chat_media/`.
 """
 
 from __future__ import annotations
@@ -32,8 +36,13 @@ from compass.common.agent.query_loop import query
 from compass.common.gateway.cost_tracker import CostTracker
 from compass.common.models import events
 from compass.common.models.messages import Message
-from compass.common.attachments import build_user_message
+from compass.common.attachments import build_user_message, transcribe_attachments
 from compass.common.tools.base import PermissionBroker, ToolUseContext
+import logging
+
+from compass.home import media
+
+logger = logging.getLogger("compass.home")
 
 @dataclass
 class _WorkIqSources:
@@ -50,10 +59,11 @@ class _WorkIqSources:
 
 CHAT_SYSTEM_PROMPT = (
     "You are Compass Chat — a friendly, knowledgeable conversational assistant "
-    "running on Azure OpenAI (gpt-5). This is a plain chat, with three ways to "
+    "running on Azure OpenAI (gpt-5). This is a plain chat, with four ways to "
     "reach beyond it: `memory` (to remember durable facts about the user), "
-    "`web_fetch` (to read a web page when you have its address), and web "
-    "search (to find pages when you do not). Use them when the answer depends "
+    "`web_fetch` (to read a web page when you have its address), web "
+    "search (to find pages when you do not), and `make_video` (to cut a video "
+    "from what the user has attached). Use them when the answer depends "
     "on something you cannot know — anything current, anything at a link the "
     "user gives you — and not otherwise; most questions want an answer, not a "
     "search. You have no file access and cannot run commands or make changes. "
@@ -65,6 +75,76 @@ CHAT_SYSTEM_PROMPT = (
     "tools and your approval. Be concise by default and expand when the user "
     "wants depth."
 )
+
+# Said twice, and in the second person, because saying it once in the first
+# did not hold. Asked to build a video from uploaded photos, the model replied
+# "I'm switching to the Agent Console to run the workflow… I'll start now and
+# report back when the render completes" — and then, of course, nothing ran.
+# The prompt above already said it cannot run commands; what it did not say is
+# that it cannot *go anywhere else to run them either*, and "point the user to
+# the Code section" is a short step from "I'll head over there myself".
+CHAT_SYSTEM_PROMPT += (
+    "\n\nYou cannot switch sections, open the Agent Console, start a job "
+    "there, or watch one finish. You have no way to act outside this "
+    "conversation and no way to come back to it later. Never say you are "
+    "switching to the Agent Console, that you are starting a run, that work "
+    "is under way, or that you will report back when something completes — "
+    "the person waits for a thing that is never going to happen. When a "
+    "request needs running code, editing files or inspecting a repository, "
+    "say in one line that this chat cannot do it, then hand it over in a form "
+    "that can be used: the exact command or steps, and a note to open the "
+    "Code (Agent Console) tab — or the Agent toggle beside this box — where "
+    "Compass runs tools with their approval."
+)
+
+# Video is the one thing in that list this chat *can* now do, so it is carved
+# out explicitly — the paragraph above spent three sentences teaching the model
+# to refuse this kind of request, and a tool it has been told it cannot use is
+# a tool it will not call.
+CHAT_SYSTEM_PROMPT += (
+    "\n\nVideo is the exception. `make_video` renders a real MP4 — a teaser, "
+    "a montage, a recap — from the photos, clips and audio attached to this "
+    "conversation, and the file it produces is played in the chat. When "
+    "someone asks for one and there are attachments to build it from, cut it: "
+    "choose the order, the pacing, the captions and the music yourself the way "
+    "an editor would, call the tool, then say in a sentence or two what you "
+    "chose and offer to change it. Do not interview them shot by shot first, "
+    "and do not send them to the Agent Console for it.\n"
+    "It cuts on the beat of whatever music is attached, sets captions in "
+    "the language they were spoken in — Kannada, Hindi, Tamil and the rest, "
+    "with the English underneath — frames photographs into collages, and "
+    "lays a vignette and drifting light over the whole thing. Use those: a "
+    "teaser in someone's own language, cut to their own music, is the point "
+    "of the feature.\n"
+    "Two honest limits, said plainly when they bite. It edits what was "
+    "uploaded; it cannot invent footage, generate imagery or animate a "
+    "photograph into something that was never photographed — if that is what "
+    "they want, say so rather than rendering a slideshow and calling it what "
+    "they asked for. And it needs something to work with: with nothing "
+    "attached, ask for the photos or clips instead of guessing."
+)
+
+
+def _media_catalogue(session_id: str) -> str:
+    """The photos, clips and recordings this thread is holding, as the model
+    needs to see them: ids, because ids are what `make_video` takes."""
+    files = media.listing(session_id)
+    if not files:
+        return ""
+    lines = "\n".join(f"  {f.describe()}" for f in files)
+    return (
+        "Files attached to this conversation and kept for rendering "
+        "(`make_video` takes these ids, exactly as written):\n" + lines +
+        "\nThese are the only files you can use. Anything rendered earlier in "
+        "this thread is in the list too, so a second version can be cut from "
+        "the same material without asking for the uploads again.\n"
+        "Each line says what the picture is of and which beat of a "
+        "celebration it belongs to. Use that: order the film by what happens "
+        "in it — arrival, ritual, the procession, the dancing — rather than "
+        "by the order the files were uploaded, and close on something that "
+        "reads as an ending. Keep upright photographs upright; they are the "
+        "right shape for a reel already."
+    )
 
 
 def _content_text(content: Any) -> str:
@@ -234,8 +314,8 @@ class ChatSession:
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def make_context(self) -> ToolUseContext:
-        """Home carries two tools, and the bar both clear is the same one:
-        touches no files, runs no commands, needs no approval.
+        """Home carries three tools, and the bar they clear is the same one:
+        nothing on this machine is readable or runnable through them.
 
         `memory`, so Compass can save what it learns while you chat (Claude's
         memory behaviour). And `web_fetch`, because Home can already search the
@@ -244,17 +324,28 @@ class ChatSession:
         cannot read. Searching for a page you have the address of is a poor
         substitute for opening it.
 
-        Everything else stays out and Home remains pure conversation: no files,
-        no commands, no workspace. The broker is still auto_deny as a
-        belt-and-braces guard — both tools are read-only so they are
-        auto-allowed and the broker is never consulted, but anything that
-        somehow asked for permission is refused rather than silently granted."""
+        `make_video` is the exception that proves the rule, and it was added
+        because the alternative was worse: asked to cut a teaser out of the
+        photos somebody had just attached, Home's only honest answer was "go
+        to the Agent Console", and its dishonest answer — the one it kept
+        giving — was to promise a render that never happened. It takes no
+        paths and no commands, only ids of files uploaded to this
+        conversation, and writes only into that conversation's own folder. It
+        is not read-only, so it allows itself explicitly (see its
+        `check_tool_permissions`) rather than being waved through by the gate.
+
+        Everything else stays out and Home remains conversation: no shell, no
+        workspace, nothing of yours it can open. The broker is still auto_deny
+        as a belt-and-braces guard — anything that asked for permission
+        without having granted itself any is refused rather than silently
+        allowed."""
         from compass.common.tools.memory import MemoryTool
         from compass.common.tools.web_fetch import WebFetchTool
+        from compass.home.video_tool import VideoTool
 
         return ToolUseContext(
             session_id=self.id,
-            tools=[MemoryTool(), WebFetchTool()],
+            tools=[MemoryTool(), WebFetchTool(), VideoTool()],
             broker=PermissionBroker(policy="auto_deny"),
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,
@@ -282,6 +373,22 @@ class ChatEngine:
         async with session.turn_lock:
             session.abort_event.clear()
             rollback = list(session.messages)
+            # Photos, clips and recordings are written down before anything
+            # else touches them: what the model is shown is a copy scaled for
+            # vision or a transcript, and neither can be cut into a film. Kept
+            # first so this happens whatever transcription does next.
+            media.keep(session.id, attachments)
+            # Looked at once, here, so that a reel asked for three turns later
+            # can be ordered by what is in the photographs rather than by
+            # their filenames. Never fatal: undescribed pictures still work.
+            try:
+                from compass.home import vision
+
+                await vision.describe_new(session.id)
+            except Exception:  # noqa: BLE001
+                logger.warning("could not describe the new photos", exc_info=True)
+            # Audio is transcribed first; the model reads it, it cannot hear it.
+            attachments = await transcribe_attachments(attachments)
             message = build_user_message(user_input, attachments)
             session.messages.append(message)
             self.store.append(session.id, message)
@@ -382,6 +489,15 @@ class ChatEngine:
         mem = await memory_prompt(GLOBAL_SCOPE)
         if mem:
             system_prompt = f"{system_prompt}\n\n{mem}"
+
+        # What this thread has to work with, by id. In the per-turn prompt
+        # rather than in the user's message, for two reasons: a note appended
+        # to what somebody typed shows up in their own chat bubble, and the
+        # list has to be right on every turn, not only on the turn the files
+        # arrived. Costs one line when there are no uploads: nothing.
+        catalogue = _media_catalogue(session.id)
+        if catalogue:
+            system_prompt = f"{system_prompt}\n\n{catalogue}"
 
         ctx = session.make_context()
         try:

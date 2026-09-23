@@ -39,6 +39,11 @@ class AzureOpenAISettings(BaseModel):
     # Voice for TTS: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
     # shimmer. "coral" and "sage" are the warm, expressive ones.
     tts_voice: str = "coral"
+    # Speech-to-text deployment (e.g. gpt-4o-transcribe or whisper). Empty =
+    # an attached audio file is named in the turn rather than transcribed,
+    # because a model cannot listen to an upload. Shares the TTS resource's
+    # endpoint and key: both are audio models and usually live together.
+    transcribe_deployment: str = ""
     # Realtime (speech-to-speech) — powers the Home "voice mode" via the Azure
     # OpenAI Realtime API/WebRTC. A SEPARATE deployment from the chat model
     # (e.g. gpt-4o-realtime-preview). Empty = voice mode unavailable.
@@ -48,6 +53,14 @@ class AzureOpenAISettings(BaseModel):
     @property
     def realtime_configured(self) -> bool:
         return bool(self.endpoint and self.api_key and self.realtime_deployment)
+
+    @property
+    def transcribe_configured(self) -> bool:
+        return bool(
+            self.transcribe_deployment
+            and self.tts_endpoint_effective
+            and self.tts_api_key_effective
+        )
 
     @property
     def tts_endpoint_effective(self) -> str:

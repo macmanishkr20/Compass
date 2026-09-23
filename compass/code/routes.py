@@ -24,6 +24,7 @@ from compass.common.agent.steering import steer
 from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
 from compass.common.ownership import owned, owner_for, visible_to
+from compass.common.sse import with_heartbeat
 from compass.common.paths import _SKIP_DIRS, _safe_join
 from compass.code.engine import QueryEngine, Session
 from compass.common.models.events import ErrorEvent
@@ -261,8 +262,10 @@ def _sse(gen) -> StreamingResponse:
             logger.exception("turn failed")
             yield ErrorEvent(message=str(err)).to_sse()
 
+    # Pinged while quiet, so silence on the wire means the turn is gone
+    # rather than merely thinking. See compass.common.sse.
     return StreamingResponse(
-        stream(),
+        with_heartbeat(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

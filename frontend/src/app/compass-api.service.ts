@@ -1031,11 +1031,13 @@ export class CompassApiService {
   ): Promise<void> {
     // Raw fetch (EventSource can't POST, HttpClient buffers) — the auth cookie
     // rides along via credentials; the interceptor can't see this call.
+    const controller = new AbortController();
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'include',
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     if (res.status === 401) {
       this.auth.sessionExpired();
@@ -1051,7 +1053,7 @@ export class CompassApiService {
     const decoder = new TextDecoder();
     let buffer = '';
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await this.readOrGiveUp(reader, controller);
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let idx: number;
@@ -1062,6 +1064,44 @@ export class CompassApiService {
         if (event) onEvent(event);
       }
     }
+  }
+
+  /** How long a stream may say nothing at all before we treat it as dead.
+   *
+   *  A turn is allowed to be silent — a long shell command says nothing for
+   *  minutes — so a timer on its own would kill honest work. The server pings
+   *  every 15s for as long as a turn is alive (compass/common/sse.py), which
+   *  is what makes silence meaningful: this is five missed pings, not a limit
+   *  on how long a turn may take.
+   *
+   *  Without it, a request the gateway drops mid-flight leaves the browser
+   *  waiting on a socket nobody will write to again — a spinner that ran for
+   *  half an hour with a stop button that looked like progress. */
+  private static readonly STREAM_IDLE_MS = 75_000;
+
+  /** `reader.read()`, but it eventually gives up.
+   *
+   *  Rejecting is the point: the callers all reset their streaming state in a
+   *  `catch`/`finally`, so an abandoned turn stops looking like a live one. */
+  private readOrGiveUp(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    controller: AbortController,
+  ): Promise<ReadableStreamReadResult<Uint8Array>> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(
+          'the connection went quiet and the turn was lost — nothing further ' +
+          'is coming. The work up to here is saved; send the message again to ' +
+          'carry on.',
+        ));
+      }, CompassApiService.STREAM_IDLE_MS);
+      const stop = () => clearTimeout(timer);
+      reader.read().then(
+        (result) => { stop(); resolve(result); },
+        (err) => { stop(); reject(err); },
+      );
+    });
   }
 
   private parseFrame(frame: string): CompassEvent | null {

@@ -7,7 +7,7 @@
           <app-compass-mark [size]="52" [active]="streaming()" />
         </div>
         <h1 class="home-greeting">{{ greeting() }}</h1>
-        <p class="home-tagline">Compass Chat — ask, brainstorm, or think it through. It can search the web and read a link you give it; it cannot touch your files.</p>
+        <p class="home-tagline">Compass Chat — ask, brainstorm, or think it through. It can search the web, read a link you give it, and cut a video from photos and clips you attach; it cannot touch your files.</p>
       </div>
     } @else {
       <div class="chat-log">
@@ -44,7 +44,33 @@
                       }
                     </div>
                   }
-                  <app-markdown [text]="m.text || '…'" />
+                  @if (m.toolActivity?.length) {
+                    <div class="ctools">
+                      @for (a of m.toolActivity!; track a.id) {
+                        <div class="ctool" [class.running]="a.running" [class.failed]="a.failed">
+                          <span class="ctool-dot" aria-hidden="true"></span>
+                          <span class="ctool-label">{{ a.label }}</span>
+                          @if (a.detail) { <span class="ctool-detail">{{ a.detail }}</span> }
+                        </div>
+                      }
+                    </div>
+                  }
+                  @if (m.streaming && !m.text) {
+                    <!-- Still working, and it has to look like it. This used to
+                         fall back to a static "…": the live indicator above is
+                         gated on the last message still being the user's, so the
+                         moment this empty bubble appeared the dots stopped and a
+                         long think looked like a finished, empty answer. -->
+                    <div class="cthinking in-bubble" role="status">
+                      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+                      <span class="cthinking-label">{{ workingMsg() }}</span>
+                      @if (elapsedMs() > 2000) {
+                        <span class="cthinking-meta">{{ formatElapsed(elapsedMs()) }}</span>
+                      }
+                    </div>
+                  } @else if (m.text) {
+                    <app-markdown [text]="m.text" />
+                  }
                   @if (m.sources?.length) {
                     <div class="wiq-sources">
                       <span class="wiq-sources-head">
@@ -159,11 +185,24 @@
       }
 
       @if (attachments().length) {
-        <div class="home-atts">
+        <!-- One row that scrolls, never a block that grows. Thirty photos used
+             to wrap into fifteen rows and push the composer off the screen. -->
+        <div class="atts-wrap" [class.at-start]="attsAtStart()" [class.at-end]="attsAtEnd()">
+          @if (attsOverflow()) {
+            <button class="atts-nav prev" type="button" [disabled]="attsAtStart()"
+              (click)="scrollAtts(-1)" aria-label="Scroll attachments left"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <button class="atts-nav next" type="button" [disabled]="attsAtEnd()"
+              (click)="scrollAtts(1)" aria-label="Scroll attachments right"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+          }
+        <div class="home-atts" #attStrip (scroll)="measureAtts()">
           @for (a of attachments(); track a.id) {
             <div class="home-att" [class.img]="a.kind === 'image'">
               @if (a.kind === 'image') {
                 <img class="home-att-thumb" [src]="a.dataUrl" [alt]="a.name" />
+              } @else if (a.kind === 'audio') {
+                <span class="home-att-ico audio" title="Transcribed when you send"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg></span>
+              } @else if (a.kind === 'video') {
+                <span class="home-att-ico video" title="Can be cut into a video"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6a1 1 0 011-1h10a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1z" stroke-linejoin="round"/><path d="M15 10l6-3v10l-6-3z" stroke-linejoin="round"/></svg></span>
               } @else {
                 <span class="home-att-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg></span>
               }
@@ -176,6 +215,7 @@
               </button>
             </div>
           }
+        </div>
         </div>
       }
 
@@ -281,6 +321,9 @@
                 }
                 @case ('pen') {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1L18.5 8.5a2.1 2.1 0 0 0-3-3L5 16z"/><path d="M14.5 6.5 17.5 9.5"/></svg>
+                }
+                @case ('film') {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="12" height="14" rx="1.4"/><path d="M15 10.2 21 7v10l-6-3.2z"/></svg>
                 }
               }
             </span>

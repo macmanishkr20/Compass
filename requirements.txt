@@ -16,6 +16,14 @@ pypdfium2>=4.0            # PDF page rendering, so charts and scans are seen
                           # attachments fall back to text extraction alone.
 python-docx>=1.1          # .docx text extraction
 
+# Video rendering (Home's make_video). ffmpeg itself is a system install, not
+# a wheel — the tool says how to get it when it is missing.
+uharfbuzz>=0.39           # shaping, so a caption in Kannada, Devanagari or
+freetype-py>=2.4          # Arabic joins and reorders the way the script does.
+                          # Optional: without them compass.common.textkit uses
+                          # Pillow's own layout, which is right for Latin and
+                          # visibly broken for the rest, and the render says so.
+
 # Design exports — optional; a missing one answers 501 rather than failing late
 python-pptx>=1.0          # slide decks (PDF/PNG come from Playwright)
 openpyxl>=3.1             # Estimate's workbook export (its PDF is Playwright too)

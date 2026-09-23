@@ -730,6 +730,20 @@ class AzureModelClient:
             raise last
         return ""
 
+    async def transcribe_audio(self, data: bytes, filename: str, *,
+                               deployment: str) -> str:
+        """The words in one audio file, through the audio resource's client.
+
+        Azure takes the file as multipart, so the bytes go as a (name, bytes)
+        tuple — nothing is written to disk on the way past.
+        """
+        client = self._get_tts_client()
+        result = await client.audio.transcriptions.create(
+            model=deployment,
+            file=(filename or "audio", data),
+        )
+        return (getattr(result, "text", "") or "").strip()
+
     async def synthesize_speech(
         self, text: str, voice: str, instructions: str | None
     ) -> bytes:

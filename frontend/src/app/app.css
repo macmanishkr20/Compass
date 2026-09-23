@@ -2375,10 +2375,21 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   padding: 6px 10px; border-radius: 8px;
 }
 .cmp-atts {
-  display: flex; flex-wrap: wrap; gap: 8px;
+  display: flex;
+  /* nowrap is the fix: the row scrolls, it does not grow downward. */
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  /* A sideways flick here must not page the conversation behind it. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
   padding: 12px 12px 0;
 }
 .cmp-att {
+  /* Never squeezed to fit — the row scrolls instead. */
+  flex: 0 0 auto;
   display: inline-flex; align-items: center; gap: 8px; max-width: 240px;
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 10px; padding: 6px 8px;
@@ -4119,4 +4130,98 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
+}
+
+/* ── The attachment strip: one row that scrolls ─────────────────────────── */
+/* Attachments used to wrap, so thirty photos became fifteen rows and pushed
+   the composer off the screen. One row, scrolled sideways, keeps the composer
+   the same height whatever is attached. */
+.atts-wrap { position: relative; }
+.atts-wrap::before,
+.atts-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 42px;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.atts-wrap::before { left: 0; background: linear-gradient(to right, var(--surface), transparent); }
+.atts-wrap::after { right: 0; background: linear-gradient(to left, var(--surface), transparent); }
+/* The fade is the honest part: it is there only while something is hidden. */
+.atts-wrap.at-start::before, .atts-wrap.at-end::after { opacity: 0; }
+.atts-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: color 0.14s, border-color 0.14s, opacity 0.16s;
+}
+.atts-nav svg { width: 13px; height: 13px; }
+.atts-nav.prev { left: 5px; }
+.atts-nav.next { right: 5px; }
+.atts-nav:hover:not(:disabled) { color: var(--ink); border-color: var(--border-strong); }
+.atts-nav:disabled { opacity: 0; pointer-events: none; }
+
+.cmp-atts::-webkit-scrollbar { height: 7px; }
+.cmp-atts::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+.cmp-atts::-webkit-scrollbar-track { background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .cmp-atts { scroll-behavior: auto; }
+}
+
+/* An attached recording: transcribed on send, so the words reach the model. */
+.cmp-att-ico.audio,
+.cmp-att-ico.video { color: var(--accent); }
+
+/* Customize → what Compass calls you. Sized like the toggles beside it so the
+   section reads as one list rather than a form dropped into it. */
+.cz-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 4px;
+}
+.cz-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.cz-name-input:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
+}
+.cz-name-ok {
+  font-size: 12px;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+/* `.cz-detail` is built for the one-line rows beside it, where it truncates.
+   This one is a sentence and has to wrap. */
+.cz-name-hint {
+  display: block;
+  margin: 0 0 4px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+  margin-left: 0;
 }

@@ -10,7 +10,7 @@ export interface UiAttachment {
   id: string;
   name: string;
   mime: string;
-  kind: 'image' | 'file';
+  kind: 'image' | 'audio' | 'video' | 'file';
   size: number;
   dataUrl: string;
 }
@@ -23,6 +23,14 @@ export interface WireAttachment {
 }
 
 export const MAX_ATTACH_BYTES = 25 * 1024 * 1024; // 25 MB per file
+
+/** Audio containers the server can transcribe. */
+const AUDIO_EXT = /\.(mp3|m4a|wav|ogg|oga|flac|aac|mpga)$/i;
+
+/** Containers the server keeps as footage. Listed before audio because
+ *  `.mp4` and `.webm` are on both lists and a clip somebody attached to be
+ *  filmed is not a voice note to be transcribed. */
+const VIDEO_EXT = /\.(mp4|mov|m4v|webm|avi|mkv)$/i;
 
 function toDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,11 +55,16 @@ export async function readFiles(
     try {
       const dataUrl = await toDataUrl(file);
       const isImage = file.type.startsWith('image/') && file.type !== 'image/svg+xml';
+      // Audio is its own kind so the chip can say so; the server transcribes
+      // it and the model reads the words.
+      const isVideo = file.type.startsWith('video/') || VIDEO_EXT.test(file.name || '');
+      const isAudio =
+        !isVideo && (file.type.startsWith('audio/') || AUDIO_EXT.test(file.name || ''));
       added.push({
         id: crypto.randomUUID(),
         name: file.name || 'file',
         mime: file.type || 'application/octet-stream',
-        kind: isImage ? 'image' : 'file',
+        kind: isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file',
         size: file.size,
         dataUrl,
       });
@@ -74,4 +87,6 @@ export function formatSize(bytes: number): string {
 
 /** Broad accept string covering images and text/code/document/zip formats. */
 export const ATTACH_ACCEPT =
-  'image/*,.txt,.md,.markdown,.rst,.log,.csv,.tsv,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.scss,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.java,.kt,.c,.h,.cpp,.cc,.hpp,.cs,.go,.rs,.rb,.php,.swift,.sh,.bash,.zsh,.sql,.graphql,.proto,.svg,.pdf,.docx,.zip';
+  'image/*,.txt,.md,.markdown,.rst,.log,.csv,.tsv,.json,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.scss,.js,.jsx,.ts,.tsx,.vue,.svelte,.py,.java,.kt,.c,.h,.cpp,.cc,.hpp,.cs,.go,.rs,.rb,.php,.swift,.sh,.bash,.zsh,.sql,.graphql,.proto,.svg,.pdf,.docx,.zip,' +
+  // Audio: transcribed server-side on send, so the words reach the model.
+  'audio/*,.mp3,.m4a,.wav,.ogg,.oga,.flac,.aac,.webm';

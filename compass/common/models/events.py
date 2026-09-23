@@ -184,6 +184,9 @@ class Compaction(Event):
     stage: str = ""  # "tool_result_budget" | "microcompact" | "autocompact" | "reactive"
     tokens_before: int = 0
     tokens_after: int = 0
+    #: False when the stage degraded rather than succeeded.
+    ok: bool = True
+    detail: str = ""
 
 
 @dataclass

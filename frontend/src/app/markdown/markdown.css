@@ -116,3 +116,38 @@
 .artifact-sub { font-size: 0.74rem; color: var(--muted); }
 .artifact-open { color: var(--faint); flex-shrink: 0; }
 .artifact-card:hover .artifact-open { color: var(--accent); }
+
+/* A video the assistant rendered. Sized like a photograph in the transcript
+   rather than like a player: capped by height, because a 9:16 teaser at full
+   width would push everything said about it off the screen. */
+.md-video {
+  margin: 12px 0;
+  max-width: 100%;
+}
+.md-video video {
+  display: block;
+  max-width: 100%;
+  max-height: 460px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #000;
+}
+.md-video figcaption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.md-video-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-video figcaption a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-video figcaption a:hover { color: var(--ink); }

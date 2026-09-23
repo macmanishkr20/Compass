@@ -29,6 +29,26 @@ interface WorkIqSource {
   url: string;
 }
 
+/** What each tool is called in the transcript. The tool's own name is a
+ *  function name; this is what a person would say it was doing. */
+const TOOL_LABELS: Record<string, string> = {
+  make_video: 'Making a video',
+  memory: 'Remembering',
+  web_fetch: 'Reading a page',
+};
+
+/** One tool running inside a turn, as the reader sees it. */
+interface ToolActivity {
+  id: string;
+  label: string;
+  /** The tool's latest progress line, replaced as it arrives rather than
+   *  stacked: a render reports every shot, and thirty lines of that is a log,
+   *  not a status. */
+  detail: string;
+  running: boolean;
+  failed?: boolean;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'assistant';
@@ -42,6 +62,11 @@ interface ChatMsg {
    *  executing Python should not be the one thing on screen that leaves no
    *  trace. Pages that were opened also become `sources`; this is the rest. */
   serverActivity?: string[];
+  /** What Compass itself is doing this turn — a video being rendered, a page
+   *  being fetched. Home had no tools when it was written, so a turn that
+   *  called one finished its bubble while it was still empty and then spent
+   *  minutes rendering with nothing on screen at all. */
+  toolActivity?: ToolActivity[];
   /** The model's reasoning, when it reasoned. Arrives before the answer and
    *  is kept apart from it: this is the working, not the reply. A turn the
    *  model answered outright has none, which is normal. */
@@ -90,6 +115,7 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
     // the Code composer's menus strike.
     '(document:click)': 'pickMenu.set(null)',
     '(document:keydown.escape)': 'pickMenu.set(null)',
+    '(window:resize)': 'measureAtts()',
   },
 })
 export class HomeChat {
@@ -168,10 +194,13 @@ export class HomeChat {
    *  bare string list with one shared lightbulb; three identical icons in a
    *  column is decoration rather than a signal, so the icon now says which
    *  kind of thing the row is. */
-  readonly ideas: { text: string; icon: 'bulb' | 'branch' | 'pen' }[] = [
+  readonly ideas: { text: string; icon: 'bulb' | 'branch' | 'pen' | 'film' }[] = [
     { text: 'Explain a tricky concept in simple terms', icon: 'bulb' },
     { text: 'Brainstorm names for a new project', icon: 'branch' },
     { text: 'Draft a short message or email', icon: 'pen' },
+    // Rendering is the one thing here that is not obviously a chat's job, so
+    // it is the one that has to be said out loud.
+    { text: 'Cut a teaser from photos I attach', icon: 'film' },
   ];
 
   readonly canSend = computed(
@@ -261,6 +290,11 @@ export class HomeChat {
 
   constructor() {
     setInterval(() => this.nowTick.set(Date.now()), 30_000);
+    // One more file can be the one that makes the row scrollable.
+    effect(() => {
+      this.attachments();
+      queueMicrotask(() => this.measureAtts());
+    });
     effect(() => {
       this.messages();
       queueMicrotask(() => {
@@ -332,6 +366,15 @@ export class HomeChat {
         // left. The sealed reasoning stays on the server — this is the summary.
         const meta = (m['meta'] ?? {}) as Record<string, unknown>;
         const usage = (meta['usage'] ?? {}) as Record<string, unknown>;
+        // A stored assistant message with no text is the model asking for a
+        // tool, not an answer. Kept in the transcript because that is the
+        // record; left out of the thread because on screen it is an empty
+        // bubble with a Copy button under it.
+        //
+        // Reasoning is no reason to keep one: Home does not draw reasoning at
+        // all (see the note in the template above the bubble), so a
+        // thinking-only message has nothing to render either.
+        if (m.role === 'assistant' && !text.trim()) continue;
         msgs.push({
           id: m.uuid || crypto.randomUUID(),
           role: m.role,
@@ -371,12 +414,16 @@ export class HomeChat {
     return 'Answer ready.';
   }
 
-  /** Time-aware greeting using the signed-in user's name. */
+  /** Time-aware greeting, by name only when a name is actually known.
+   *
+   *  "Evening, macmanishkr20" greeted somebody by the handle in their email
+   *  address. Where no name has been given, the hour alone is the greeting:
+   *  warm, correct, and not a login on display. Set one in Customize. */
   readonly greeting = computed(() => {
     const h = new Date().getHours();
     const part = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening';
-    const name = this.auth.displayName() || 'there';
-    return `${part}, ${name}`;
+    const name = this.auth.displayName();
+    return name ? `${part}, ${name}` : part;
   });
 
   onKeydown(ev: KeyboardEvent): void {
@@ -427,6 +474,37 @@ export class HomeChat {
     ev.preventDefault();
     this.dragOver.set(false);
     if (ev.dataTransfer?.files?.length) void this.addFiles(ev.dataTransfer.files);
+  }
+
+
+  // -- the attachment strip -------------------------------------------------
+  // It scrolls sideways instead of wrapping, so the composer keeps its height
+  // however many files are attached. The arrows exist because a mouse has no
+  // obvious way to scroll horizontally; they appear only when there is
+  // something past the edge.
+  private readonly attStrip = viewChild<ElementRef<HTMLElement>>('attStrip');
+  readonly attsOverflow = signal(false);
+  readonly attsAtStart = signal(true);
+  readonly attsAtEnd = signal(true);
+
+  /** Live geometry, read from the element rather than derived from the count:
+   *  how many chips fit depends on their names and the window's width. */
+  measureAtts(): void {
+    const el = this.attStrip()?.nativeElement;
+    if (!el) {
+      this.attsOverflow.set(false);
+      return;
+    }
+    const slack = el.scrollWidth - el.clientWidth;
+    this.attsOverflow.set(slack > 4);
+    this.attsAtStart.set(el.scrollLeft <= 2);
+    this.attsAtEnd.set(el.scrollLeft >= slack - 2);
+  }
+
+  scrollAtts(direction: -1 | 1): void {
+    const el = this.attStrip()?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.max(180, el.clientWidth * 0.8), behavior: 'smooth' });
   }
 
   removeAttachment(id: string): void {
@@ -825,7 +903,14 @@ export class HomeChat {
         this.smoother.push((ev['text'] as string) ?? '');
         break;
       }
-      case 'assistant_message':
+      case 'assistant_message': {
+        // A message carrying tool calls is the model asking for work, not
+        // answering. Finalising the bubble here is what left an empty one on
+        // screen with a Copy button under it while the tool was still
+        // running — the answer arrives in a later message, into this same
+        // bubble.
+        const calls = (ev['tool_calls'] as unknown[]) ?? [];
+        if (calls.length) break;
         if (this.currentAssistant) {
           const id = this.currentAssistant.id;
           this.smoother?.finish();
@@ -834,6 +919,46 @@ export class HomeChat {
           this.currentAssistant = null;
         }
         break;
+      }
+      case 'tool_call_started': {
+        const bubble = this.ensureAssistant();
+        const id = (ev['tool_call_id'] as string) ?? crypto.randomUUID();
+        const label = TOOL_LABELS[(ev['tool_name'] as string) ?? ''] ??
+                      ((ev['tool_name'] as string) ?? 'Working');
+        this.patch(bubble.id, (m) => ({
+          ...m,
+          toolActivity: [...(m.toolActivity ?? []),
+                         { id, label, detail: '', running: true }],
+        }));
+        break;
+      }
+      case 'tool_progress': {
+        if (!this.currentAssistant) break;
+        const id = ev['tool_call_id'] as string;
+        // The last non-empty line of the chunk: a render sends "Rendering 5
+        // shots…\n" then a line per shot, and the newest one is the status.
+        const detail = String(ev['data'] ?? '').split('\n')
+          .map((l) => l.trim()).filter(Boolean).pop() ?? '';
+        if (!detail) break;
+        this.patch(this.currentAssistant.id, (m) => ({
+          ...m,
+          toolActivity: (m.toolActivity ?? []).map((a) =>
+            a.id === id ? { ...a, detail } : a),
+        }));
+        break;
+      }
+      case 'tool_result': {
+        if (!this.currentAssistant) break;
+        const id = ev['tool_call_id'] as string;
+        const failed = Boolean(ev['is_error']);
+        this.patch(this.currentAssistant.id, (m) => ({
+          ...m,
+          toolActivity: (m.toolActivity ?? []).map((a) =>
+            a.id === id ? { ...a, running: false, failed,
+                            detail: failed ? 'could not finish' : '' } : a),
+        }));
+        break;
+      }
       case 'refused': {
         // Not an error: the request was fine and the model declined. Shown
         // as its own note so the reader knows the turn was stopped rather
@@ -862,6 +987,24 @@ export class HomeChat {
         });
         break;
     }
+  }
+
+  /** The bubble this turn is writing into, opening one if the turn has not
+   *  produced anything yet. A tool call can be the first thing that happens
+   *  in a turn, and it needs somewhere to say so. */
+  private ensureAssistant(): ChatMsg {
+    if (!this.currentAssistant) {
+      this.currentAssistant = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: '',
+        streaming: true,
+        sources: this.pendingSources ?? undefined,
+      };
+      this.push(this.currentAssistant);
+      this.pendingSources = null;
+    }
+    return this.currentAssistant;
   }
 
   private push(m: ChatMsg): void {

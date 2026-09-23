@@ -38,6 +38,11 @@ class UserRecord:
     """One person, as seen by the login endpoint."""
 
     id: str  # the canonical identity — what stores stamp as `owner`
+    #: What this person would like to be called. Empty until they say, and
+    #: never guessed from the login: an organisation issues addresses like
+    #: `macmanishkr20@…`, and greeting somebody by the handle their IT
+    #: department gave them is not friendlier than not greeting them by name.
+    display_name: str = ""
     logins: list[str] = field(default_factory=list)  # names they signed in as
     first_seen: float = field(default_factory=time.time)
     last_login: float = field(default_factory=time.time)
@@ -106,6 +111,24 @@ class UserStore:
                 row.logins.append(username)
             row.last_login = time.time()
             row.login_count += 1
+            rows[identity] = row
+            self._write(rows)
+            return row
+
+    async def set_display_name(self, identity: str, name: str) -> UserRecord:
+        """Record what this person would like to be called.
+
+        Creates the row if it is not there: with auth disabled everyone is
+        `guest`, and a guest who has told Compass their name should still be
+        greeted by it.
+        """
+        identity = canonical(identity)
+        # A name, not an essay, and not markup: this is rendered in a heading.
+        clean = " ".join(str(name).split())[:60]
+        async with self._lock:
+            rows = self._read()
+            row = rows.get(identity) or UserRecord(id=identity)
+            row.display_name = clean
             rows[identity] = row
             self._write(rows)
             return row

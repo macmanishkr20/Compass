@@ -43,6 +43,45 @@ class SpeechDisabledError(RuntimeError):
     pass
 
 
+class TranscriptionDisabledError(RuntimeError):
+    pass
+
+
+#: Azure's transcription endpoint caps the upload at 25 MB, which is also the
+#: composer's own per-file limit — so a file the UI accepted always fits.
+MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
+
+
+async def transcribe(data: bytes, filename: str = "audio") -> str:
+    """The words in an audio file. Raises rather than guessing when it cannot.
+
+    The mirror of `synthesize`: same audio resource, same shape of failure.
+    Speech-to-text has its own deployment because it is its own model — a TTS
+    deployment cannot transcribe, and quietly reusing it would fail at the API
+    with something far less legible than this.
+    """
+    settings = get_settings()
+    if not settings.azure.transcribe_deployment:
+        raise TranscriptionDisabledError(
+            "Speech-to-text is not configured on this server. Set "
+            "AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT to a deployed transcription "
+            "model (e.g. gpt-4o-transcribe or whisper)."
+        )
+    client = get_model_client()
+    if not isinstance(client, AzureModelClient):
+        raise TranscriptionDisabledError("Transcription is unavailable in mock model mode.")
+    if not data:
+        raise TranscriptionDisabledError("The audio file is empty.")
+    if len(data) > MAX_TRANSCRIBE_BYTES:
+        raise TranscriptionDisabledError(
+            f"{filename} is {len(data) / 1024 / 1024:.1f} MB; transcription "
+            "takes files up to 25 MB."
+        )
+    return await client.transcribe_audio(
+        data, filename, deployment=settings.azure.transcribe_deployment
+    )
+
+
 async def synthesize(text: str, *, voice: str | None = None) -> bytes:
     settings = get_settings()
     if not settings.azure.tts_deployment:

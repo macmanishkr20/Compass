@@ -486,6 +486,8 @@ def _compaction(report, ctx: ToolUseContext) -> events.Compaction:
         stage=report.stage,
         tokens_before=report.tokens_before,
         tokens_after=report.tokens_after,
+        ok=getattr(report, "ok", True),
+        detail=getattr(report, "detail", ""),
         agent_id=ctx.agent_id,
     )
 

@@ -115,7 +115,7 @@ export interface UiAttachmentVM {
   id: string;
   name: string;
   mime: string;
-  kind: 'image' | 'file';
+  kind: 'image' | 'audio' | 'video' | 'file';
   size: number;
   dataUrl: string;
 }

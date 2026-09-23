@@ -25,7 +25,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from compass.common.config import get_settings
 from compass.common.telemetry import log_event
@@ -149,7 +149,33 @@ async def logout(response: Response) -> dict:
 
 @router.get("/me")
 async def me(username: str = Depends(require_user)) -> dict:
-    return {"username": username, "auth_enabled": get_settings().auth.enabled}
+    from compass.common.users import get_user_store
+
+    row = await get_user_store().get(username)
+    return {"username": username,
+            "display_name": (row.display_name if row else ""),
+            "auth_enabled": get_settings().auth.enabled}
+
+
+class DisplayNameRequest(BaseModel):
+    name: str = Field(default="", description="What Compass should call you. "
+                                              "Empty clears it.")
+
+
+@router.post("/me/name")
+async def set_display_name(
+    body: DisplayNameRequest, username: str = Depends(require_user)
+) -> dict:
+    """Set what this person is called.
+
+    Kept apart from the credential map on purpose: that map says who may sign
+    in, and this says how to address them. Changing one should never be a way
+    to change the other.
+    """
+    from compass.common.users import get_user_store
+
+    row = await get_user_store().set_display_name(username, body.name)
+    return {"display_name": row.display_name}
 
 
 @router.get("/users")

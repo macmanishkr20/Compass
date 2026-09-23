@@ -1,7 +1,7 @@
 """Home/Chat REST surface — a self-contained router, mounted by server.py.
 
 Entirely separate from the agent console's /v1/sessions/* endpoints: its own
-engine (ChatEngine, tool-free), its own in-memory session registry, and its
+engine (ChatEngine), its own in-memory session registry, and its
 own transcript namespace. Nothing here touches the console code paths.
 
     POST /v1/chat/sessions                     create or resume a chat thread
@@ -9,20 +9,24 @@ own transcript namespace. Nothing here touches the console code paths.
     POST /v1/chat/sessions/{sid}/abort         cancel the running turn
     GET  /v1/chat/sessions/{sid}/transcript    replay the stored thread
     GET  /v1/chat/sessions                     list stored chat threads
+    GET  /v1/chat/sessions/{sid}/media/{name}  an upload, or a render made from one
 """
 
 from __future__ import annotations
 
 import logging
+import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.common.agent.steering import steer
 from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
 from compass.common.ownership import owned, owner_for, visible_to
+from compass.common.sse import with_heartbeat
+from compass.home import media
 from compass.home.engine import ChatEngine, ChatSession
 from compass.common.models.events import ErrorEvent
 
@@ -88,8 +92,10 @@ def _sse(gen) -> StreamingResponse:
             logger.exception("chat turn failed")
             yield ErrorEvent(message=str(err)).to_sse()
 
+    # Pinged while quiet, so silence on the wire means the turn is gone
+    # rather than merely thinking. See compass.common.sse.
     return StreamingResponse(
-        stream(),
+        with_heartbeat(stream()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -214,6 +220,34 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
         raise HTTPException(status_code=404, detail="unknown chat session")
     messages = await chat_engine.store.load(session_id)
     return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
+
+
+@router.get("/sessions/{session_id}/media/{filename}")
+async def chat_media(
+    session_id: str, filename: str, user: str = Depends(require_user)
+):
+    """Serve one of this thread's files — an upload, or something rendered
+    from them by `make_video`.
+
+    Ownership is checked first and a miss is a 404 either way, so this cannot
+    be used to find out whether a thread exists. `media.resolve` does the
+    containment check: it takes the basename, joins it to this thread's
+    directory and re-checks after resolving, which is what stops `..` and a
+    symlink alike. FileResponse handles Range requests, which is what lets
+    someone scrub a video rather than wait for the whole file.
+    """
+    await _owned_chat(session_id, user)
+    path = media.resolve(session_id, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="no such file")
+    return FileResponse(
+        path,
+        media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        # The name it was uploaded as, not the numbered one on disk, so a
+        # download lands in someone's folder called what they called it.
+        filename=path.name.split("-", 1)[-1],
+        content_disposition_type="inline",
+    )
 
 
 @router.get("/work-iq")

@@ -127,6 +127,7 @@ const CONV_PAGE = 4;
   host: {
     '(document:keydown)': 'onGlobalKeydown($event)',
     '(document:click)': 'onGlobalClick()',
+    '(window:resize)': 'measureAtts()',
   },
 })
 export class App {
@@ -774,6 +775,37 @@ export class App {
     this.agentDragOver.set(false);
     if (ev.dataTransfer?.files?.length) void this.addAttachFiles(ev.dataTransfer.files);
   }
+
+  // -- the attachment strip -------------------------------------------------
+  // Scrolls sideways instead of wrapping, so the composer keeps its height
+  // however many files are attached. The arrows exist because a mouse has no
+  // obvious way to scroll horizontally, and appear only when something sits
+  // past the edge.
+  private readonly attStrip = viewChild<ElementRef<HTMLElement>>('attStrip');
+  readonly attsOverflow = signal(false);
+  readonly attsAtStart = signal(true);
+  readonly attsAtEnd = signal(true);
+
+  /** Live geometry, read from the element rather than derived from the count:
+   *  how many chips fit depends on their names and the window's width. */
+  measureAtts(): void {
+    const el = this.attStrip()?.nativeElement;
+    if (!el) {
+      this.attsOverflow.set(false);
+      return;
+    }
+    const slack = el.scrollWidth - el.clientWidth;
+    this.attsOverflow.set(slack > 4);
+    this.attsAtStart.set(el.scrollLeft <= 2);
+    this.attsAtEnd.set(el.scrollLeft >= slack - 2);
+  }
+
+  scrollAtts(direction: -1 | 1): void {
+    const el = this.attStrip()?.nativeElement;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.max(180, el.clientWidth * 0.8), behavior: 'smooth' });
+  }
+
   removeAttachment(id: string): void {
     this.attachments.update((list) => list.filter((a) => a.id !== id));
   }
@@ -1334,6 +1366,11 @@ export class App {
     // Keep the notifier in step with what is on screen. It is the only thing
     // that decides whether a finished turn is worth interrupting somebody for.
     effect(() => this.turnNotify.activeSection.set(this.section()));
+    // One more file can be the one that makes the row scrollable.
+    effect(() => {
+      this.attachments();
+      queueMicrotask(() => this.measureAtts());
+    });
     effect(() => {
       this.timeline();
       this.thinking();
@@ -2510,6 +2547,18 @@ export class App {
         : document.querySelector('.mem-body .cz-row');
       target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }, 80);
+  }
+
+  // What Compass calls you. Written on blur or Enter rather than on every
+  // keystroke, so a name is one request and not one per letter.
+  readonly nameSaved = signal(false);
+
+  async saveDisplayName(value: string): Promise<void> {
+    const next = (value ?? '').trim();
+    if (next === (this.auth.user()?.displayName ?? '').trim()) return;
+    await this.auth.setDisplayName(next);
+    this.nameSaved.set(true);
+    setTimeout(() => this.nameSaved.set(false), 1600);
   }
 
   async openCustomize(): Promise<void> {
@@ -4105,14 +4154,22 @@ export class App {
           agentId,
         });
         break;
-      case 'compaction':
+      case 'compaction': {
+        // A compaction that degraded — no summary written, images dropped —
+        // still lets the turn continue, so it has to say so here. Buried in
+        // the transcript it reads as normal housekeeping while every later
+        // request quietly goes out oversized.
+        const detail = (ev['detail'] as string) ?? '';
+        const failed = ev['ok'] === false;
         this.push({
           kind: 'notice',
           id: crypto.randomUUID(),
-          tone: 'compaction',
-          text: `context compacted (${ev['stage']}): ${ev['tokens_before']} → ${ev['tokens_after']} tokens`,
+          tone: failed ? 'warn' : 'compaction',
+          text: `context compacted (${ev['stage']}): ${ev['tokens_before']} → ${ev['tokens_after']} tokens`
+            + (detail ? ` — ${detail}` : ''),
         });
         break;
+      }
       case 'usage_report':
         this.usage.set({
           promptTokens: (ev['prompt_tokens'] as number) ?? 0,

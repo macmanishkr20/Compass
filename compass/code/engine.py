@@ -25,7 +25,7 @@ from compass.common.persistence.base import TranscriptStore
 from compass.common.persistence.factory import get_transcript_store
 from compass.common.persistence.session_meta import SessionMeta, get_meta_store
 from compass.common.policy.hooks import HookEvent, get_hook_registry
-from compass.common.attachments import build_user_message
+from compass.common.attachments import build_user_message, transcribe_attachments
 from compass.common.tools.base import PermissionBroker, ToolUseContext, QuestionBroker
 from compass.code.tools.registry import get_all_tools
 from compass.common.tools.shelf import Shelf
@@ -194,7 +194,7 @@ class QueryEngine:
             # inlined) are folded into the user message by the shared builder;
             # with no attachments this is exactly user_message(user_input).
             message = (
-                build_user_message(user_input, attachments)
+                build_user_message(user_input, await transcribe_attachments(attachments))
                 if attachments
                 else user_message(user_input)
             )

@@ -4,6 +4,8 @@ import { firstValueFrom } from 'rxjs';
 
 export interface AuthUser {
   username: string;
+  /** What this person asked to be called. Empty until they say. */
+  displayName?: string;
 }
 
 /**
@@ -23,33 +25,45 @@ export class AuthService {
   readonly loginError = signal<string | null>(null);
   readonly busy = signal(false);
 
-  /** The username with any email domain removed.
+  /** What to call this person, or '' when nobody has said.
    *
-   *  People sign in with whatever their organisation issues, and that is
-   *  usually an email — so the greeting read "Afternoon, someone@example.com",
-   *  which is nobody's name and puts a full address on screen for anyone
-   *  standing behind them. The local part is the part that identifies a person
-   *  to other people, so that is what the shell shows.
+   *  A name someone has given (Customize → "What Compass calls you") wins
+   *  over anything derived from the login, because it is the only one of the
+   *  two that is actually their name.
    *
-   *  Separators become spaces and the words are capitalised, because
-   *  "first.last" really is a name written with a dot in it. A handle with no
-   *  separators is left exactly as it is: "macmanishkr20" is not improved by
-   *  being retyped as "Macmanishkr20", and guessing at capitalisation for
-   *  something that is not a name makes it look mangled rather than friendly.
+   *  Failing that, a login is used only when it reads like a name. Stripping
+   *  the domain off an address was not enough: `macmanishkr20@gmail.com`
+   *  became "Evening, macmanishkr20", which is not a name, is an account
+   *  handle on screen for whoever is standing behind them, and is worse than
+   *  no greeting at all. So a handle carrying digits, or one that is a single
+   *  opaque run of letters, is treated as not-a-name and the greeting simply
+   *  leaves it out. `first.last` and `alice` still come through, because
+   *  those are names people chose to be known by.
    */
   readonly displayName = computed(() => {
-    const raw = (this.user()?.username ?? '').trim();
-    const local = raw.split('@')[0];
-    if (!local) return '';
+    const given = (this.user()?.displayName ?? '').trim();
+    if (given) return given;
+
+    const local = (this.user()?.username ?? '').trim().split('@')[0];
+    if (!local || /\d/.test(local)) return '';
     const words = local.split(/[._-]+/).filter(Boolean);
-    if (words.length < 2) return local;
+    if (words.length < 2) {
+      // A single word is a name only if it looks like one — short enough to
+      // be read aloud, and not an obvious identifier.
+      return local.length <= 12
+        ? local.charAt(0).toUpperCase() + local.slice(1)
+        : '';
+    }
     return words
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ');
   });
 
   readonly initials = computed(() => {
-    const name = this.displayName();
+    // Falls back to the login where the greeting does not: two letters in an
+    // avatar is a monogram, not an address on display, and an empty circle
+    // tells nobody which account they are in.
+    const name = this.displayName() || (this.user()?.username ?? '').split('@')[0];
     const words = name.split(/[\s._-]+/).filter(Boolean);
     if (words.length >= 2) {
       return (words[0][0] + words[1][0]).toUpperCase();
@@ -67,14 +81,24 @@ export class AuthService {
         return;
       }
       const me = await firstValueFrom(
-        this.http.get<{ username: string }>('/v1/auth/me'),
+        this.http.get<{ username: string; display_name?: string }>('/v1/auth/me'),
       );
-      this.user.set({ username: me.username });
+      this.user.set({ username: me.username, displayName: me.display_name ?? '' });
     } catch {
       this.user.set(null); // no/invalid cookie — fall through to login
     } finally {
       this.checking.set(false);
     }
+  }
+
+  /** Tell the server what to call this person. Empty clears it and the
+   *  greeting goes back to having no name in it. */
+  async setDisplayName(name: string): Promise<void> {
+    const res = await firstValueFrom(
+      this.http.post<{ display_name: string }>('/v1/auth/me/name', { name }),
+    );
+    const current = this.user();
+    if (current) this.user.set({ ...current, displayName: res.display_name });
   }
 
   async login(username: string, password: string): Promise<boolean> {
