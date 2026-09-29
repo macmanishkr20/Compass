@@ -1410,8 +1410,24 @@ export class App {
   readonly activeVoice = signal(this.loadVoicePref());
   private turnAborted = false;
 
+  /** Below this the sidebar is a drawer over the content rather than a
+   *  column beside it — a 264px panel on a 390px screen is the screen. */
+  private static readonly NARROW = 840;
+
   constructor() {
     void this.boot();
+    // The sidebar starts closed on a narrow window, and closes itself when a
+    // window becomes narrow. It is never reopened automatically: somebody who
+    // opened it on a wide screen did not ask for it back, and a panel that
+    // reappears on every resize is worse than one that stays where it was put.
+    const narrow = () => window.innerWidth <= App.NARROW;
+    if (narrow()) this.sidebarOpen.set(false);
+    let wasNarrow = narrow();
+    window.addEventListener('resize', () => {
+      const now = narrow();
+      if (now && !wasNarrow) this.sidebarOpen.set(false);
+      wasNarrow = now;
+    });
     // Keep the notifier in step with what is on screen. It is the only thing
     // that decides whether a finished turn is worth interrupting somebody for.
     effect(() => this.turnNotify.activeSection.set(this.section()));

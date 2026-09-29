@@ -591,7 +591,7 @@
           [style.font-weight]="section() === 'home' ? 600 : 400"
           style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 11l9-8 9 8M5 9.5V20a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V9.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Home
+          <span class="hc-tab-label">Home</span>
         </button>
         <button type="button" role="tab" [attr.aria-selected]="section() === 'code'"
           (click)="enterCode()"
@@ -600,7 +600,7 @@
           [style.font-weight]="section() === 'code' ? 600 : 400"
           style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Code
+          <span class="hc-tab-label">Code</span>
         </button>
         <button type="button" role="tab" [attr.aria-selected]="section() === 'design'"
           (click)="enterDesign()"
@@ -609,7 +609,7 @@
           [style.font-weight]="section() === 'design' ? 600 : 400"
           style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.6 5.6L21 9.4l-4.5 4.3 1.1 6.3L12 17l-5.6 3 1.1-6.3L3 9.4l6.4-.8z" stroke-linejoin="round"/></svg>
-          Design
+          <span class="hc-tab-label">Design</span>
         </button>
         <!-- Only when the module is actually mounted. The server decides;
              the nav does not guess, so a build with Pipelines off shows the
@@ -622,7 +622,7 @@
             [style.font-weight]="section() === 'pipelines' ? 600 : 400"
             style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="12" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.6 6H12a3 3 0 013 3v.4M8.6 18H12a3 3 0 003-3v-.4" stroke-linecap="round"/></svg>
-            Pipelines
+            <span class="hc-tab-label">Pipelines</span>
           </button>
         }
         <!-- Estimate, on the same terms: the server says whether it exists. -->
@@ -634,7 +634,7 @@
             [style.font-weight]="section() === 'estimate' ? 600 : 400"
             style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke-linecap="round"/></svg>
-            Estimate
+            <span class="hc-tab-label">Estimate</span>
           </button>
         }
         <!-- Missions, on the same terms as the two above: the server says
@@ -647,7 +647,7 @@
             [style.font-weight]="section() === 'missions' ? 600 : 400"
             style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6L12 15.8 6.9 18.4 8 12.8 4 8.9l5.6-.7z" stroke-linejoin="round"/></svg>
-            Missions
+            <span class="hc-tab-label">Missions</span>
           </button>
         }
       </div>

@@ -4271,3 +4271,103 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   .mission-offer { flex-wrap: wrap; }
   .mission-offer-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* ═══════════ The top bar at every width ═══════════
+   The constraint on this row is never the window. It is the width of the
+   column the row sits in, and that changes without the window changing at
+   all: open the background-tasks dock on a 1440px screen and the column goes
+   from 1156px to 521px. Measured in that state, `.topbar` had a clientWidth
+   of 521 and a scrollWidth of 589 — 68px of nav spilling out over the dock,
+   which is why the Missions tab was sitting underneath it.
+
+   So these are container queries, not media queries. A `@media` rule cannot
+   see the dock, and every viewport breakpoint written for this row has been
+   wrong in one of the four sidebar/dock combinations since the dock existed. */
+.main {
+  container-type: inline-size;
+  container-name: main;
+}
+
+/* Nothing in the row may push the row wider than the column. */
+.topbar > * { min-width: 0; }
+.hc-switch { flex: 0 1 auto; min-width: 0; }
+
+/* Tab labels are the first thing to go: six words are most of the row's
+   width, and the icons alone are still six distinct shapes in a fixed order.
+   The selected tab keeps its label, because "which one am I in" is the one
+   thing the strip exists to answer. */
+@container main (max-width: 760px) {
+  .hc-tab-label { display: none; }
+  .hc-switch button[aria-selected="true"] .hc-tab-label { display: inline; }
+  .hc-switch button { padding-left: 9px !important; padding-right: 9px !important; }
+}
+
+/* Then the conversation title, which is repeated in the sidebar. */
+@container main (max-width: 560px) {
+  .topbar-title { display: none; }
+}
+
+/* Then the labels go entirely — at this width the selected tab's own word is
+   worth less than the row fitting. */
+@container main (max-width: 430px) {
+  .hc-switch button[aria-selected="true"] .hc-tab-label { display: none; }
+}
+
+/* ═══════════ Phones and small tablets ═══════════
+   A block for this already existed at 840px and was being overruled. It set
+   `.shell { grid-template-columns: 1fr }`, but `.shell.right-open` in the
+   1100px block is a more specific selector, so opening the dock on a phone
+   put three tracks back — 272px of sidebar, a main column and a 420px dock
+   inside 390px of screen. Measured at 390px: the sidebar filled the window,
+   main was hidden and the dock was somewhere off the right edge.
+
+   Specificity is answered with specificity: every state that sets tracks
+   above is set back to one track here. */
+@media (max-width: 840px) {
+  .shell,
+  .shell.sidebar-collapsed,
+  .shell.right-open,
+  .shell.right-open.sidebar-collapsed,
+  .shell.right-open.dock-expanded,
+  .shell.right-open.dock-expanded.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+  /* One column means one occupant: whichever of the two the person opened. */
+  .shell.right-open > .main { display: none; }
+  .shell.right-open > .main,
+  .shell:not(.right-open) > .main { margin-right: 0; }
+  .right-dock { grid-column: 1; }
+
+  /* The sidebar is a drawer over the content, not a track beside it. It was
+     already fixed-position here; what it lacked was somewhere to go when the
+     window is narrower than the sidebar plus anything else. */
+  .sidebar { width: min(264px, calc(100vw - 24px)); }
+}
+
+/* Below this the drawer is the whole screen, so it closes over the top
+   rather than shouldering the content aside. */
+@media (max-width: 480px) {
+  .sidebar { inset: 8px auto 8px 8px; width: calc(100vw - 16px); }
+}
+
+/* ═══════════ The composer toolbar in a narrow column ═══════════
+   Measured at 479px: the row wanted 471px inside a 372px box, so the model
+   and effort pills sat outside it — visible in a screenshot, unreachable
+   with a pointer, because nothing scrolled and nothing wrapped.
+
+   Wrapping rather than scrolling: these are controls, and a control you have
+   to find by dragging a row sideways is one most people never find. The
+   divider goes when the row wraps, since it separates two things that are no
+   longer side by side. Keyed to the column, like the top bar — the artifact
+   dock narrows this row without touching the window. */
+@container main (max-width: 620px) {
+  .cmp-toolbar { flex-wrap: wrap; row-gap: 4px; }
+  .cmp-toolbar .tb-div { display: none; }
+}
+
+/* Narrower still: the labels inside the pills go and the icons carry them. */
+@container main (max-width: 430px) {
+  .cmp-toolbar .tb-seg { padding: 4px 6px; }
+}
