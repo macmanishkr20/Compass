@@ -212,27 +212,47 @@ the anchor, and your job is in two parts.
 
 FIRST, decide which numbered prompts belong to the same thread as the anchor.
 
-  * A prompt belongs if it develops the anchor's request: it adds a
-    requirement, narrows or corrects it, or answers a question you asked
-    about it.
-  * A prompt does not belong merely because it sits next to the anchor.
-    Conversations change subject constantly. Judge by subject matter, not by
-    position.
+A thread is one line of enquiry: what the person was trying to find out or
+get done around the anchor. It is not only a request and its refinements.
+Ask yourself what a reader would say the person was doing across these
+turns, and include every prompt that is part of it. A prompt belongs when:
+
+  * it refines the anchor — adds a requirement, narrows it, corrects it;
+  * it continues the same subject — a further question about the topic the
+    anchor opened, or about something that topic leads straight into. "What
+    is GenAI?" followed by "are agents good for complex tasks?" is one
+    person working through one subject, not two subjects. Neither one
+    develops the other as a request, and they still belong together;
+  * it supplies something the anchor needed — a place, a name, a file, a
+    choice you asked them for. "What is today's weather?" followed by
+    "Bangalore 562125" is one thread: the second is the answer that
+    completes the first;
+  * it is the request a bare opener was leading up to.
+
+A prompt does not belong merely because it sits next to the anchor.
+Conversations change subject constantly, and position proves nothing. Judge
+by subject matter.
+
   * A thread can pause and resume. If prompts 1 and 2 are about a parser,
     3 to 7 are about something else, and 8 returns to the parser, then 8
     belongs and 3 to 7 do not.
   * A thread can start before the anchor as well as after it.
-  * If nothing else develops the anchor, the thread is the anchor alone.
-    This is a normal and common answer. Do not reach for loosely related
-    prompts to pad it out.
+  * If nothing belongs, the anchor alone is the thread. This is a normal and
+    common answer. Do not reach for a different subject to pad it out.
 
-One exception to that last rule, and it is not optional. An anchor with no
-subject of its own — a greeting, an acknowledgement, a nudge: "hi", "hello",
-"hey", "ok", "thanks", "are you there", "can you help" — cannot stand alone,
-because there is nothing in it to save. Its thread is the request the person
-went on to make, and you must include that request and everything developing
-it. Returning a bare greeting as the merged prompt is always wrong; if the
-conversation contains no request at all, use the nearest thing to one.
+One exception to that last rule, and it is not optional. Some prompts carry
+no subject of their own and cannot stand alone, because there is nothing in
+them to save:
+
+  * greetings and acknowledgements — "hi", "hello", "ok", "thanks", "are you
+    there", "can you help";
+  * bare answers — a place, a number, a name, a yes or no, given because you
+    asked for it: "Bangalore 562125", "the second one", "yes, do that".
+
+When the anchor is one of these, its meaning lives in the turns around it.
+Its thread is the question or request it belongs to, and you must include
+that. Returning a bare greeting or a lone postcode as the saved prompt is
+always wrong.
 
 SECOND, write one prompt covering everything the selected thread asked for,
 as if the person had known at the start what they wanted.
@@ -243,6 +263,9 @@ in a prompt you selected.
   * Do not turn a question into a specification. If the thread is one short
     prompt, your prompt is that prompt, give or take a word. Never add
     sub-topics, examples, deliverables or "include X and Y" lists.
+  * A thread of questions becomes one prompt that asks all of them, in their
+    own words. "What is GenAI?" with "are agents good for complex tasks?"
+    becomes a prompt asking both — not an essay brief about either.
   * Your prompt should be about as long as the selected prompts put
     together, and no longer. If it is longer, you have invented something.
   * Do not carry over the assistant's suggestions — a library it proposed,
@@ -319,6 +342,36 @@ def _used_from(raw: object, anchor: int, count: int) -> list[int]:
     return sorted(out)
 
 
+#: Openers and acknowledgements. A closed set, so this is decided in code
+#: rather than left to the model to notice: the instruction not to return a
+#: greeting is one rule among many in a long prompt, and measured over five
+#: runs it was obeyed unreliably — four replies carried "Hi." into the saved
+#: prompt and one returned the greeting alone. What can be detected should
+#: not be hoped for.
+_GREETINGS = frozenset({
+    "hi", "hii", "hiii", "hello", "helo", "hey", "heya", "yo", "hiya",
+    "good morning", "good afternoon", "good evening", "morning", "evening",
+    "ok", "okay", "k", "kk", "sure", "right", "cool", "nice", "great",
+    "thanks", "thank you", "thankyou", "ty", "cheers", "ta",
+    "please", "pls", "yes", "yeah", "yep", "no", "nope",
+    "are you there", "you there", "can you help", "help", "hi there",
+    "hello there", "test", "testing",
+})
+
+
+def is_opener(text: str) -> bool:
+    """Whether a prompt is a greeting or acknowledgement and nothing else.
+
+    Deliberately narrow: it only fires on a short phrase that is entirely one
+    of the known openers once punctuation is stripped. "hi, can you read this
+    file" is a real request that happens to start with a greeting, and must
+    not be caught.
+    """
+    stripped = " ".join((text or "").lower().replace("!", " ").replace(".", " ")
+                        .replace(",", " ").replace("?", " ").split())
+    return bool(stripped) and stripped in _GREETINGS
+
+
 async def sharpen(text: str, context: str = "",
                   turns: list[dict] | None = None) -> dict:
     """One prompt merged from the selected prompt's thread.
@@ -338,6 +391,16 @@ async def sharpen(text: str, context: str = "",
         body, anchor, count = _transcript(turns, text)
         ask = (f"The conversation, oldest first:\n{body}\n\n"
                f"The anchor is prompt {anchor}. Select its thread and merge it.")
+        if is_opener(text):
+            # Said here, about this conversation, rather than relied upon from
+            # the system prompt — a specific instruction about the case in
+            # hand is obeyed where a general one is not.
+            ask += (f"\n\nNote: prompt {anchor} is a greeting. It asks for "
+                    f"nothing, so it cannot be the saved prompt and none of "
+                    f"its words belong in your answer — do not open with "
+                    f"\"Hi\" or \"Hello\". Its thread is the first real "
+                    f"question or request the person made after it, together "
+                    f"with anything continuing that. Merge those.")
     elif context.strip():
         # The older shape, kept so an out-of-date client still gets a rewrite.
         ask = (f"The prompt to rewrite:\n{text}\n\n"
@@ -357,12 +420,35 @@ async def sharpen(text: str, context: str = "",
         parsed = _parse(collected)
         if parsed:
             parsed["used"] = _used_from(parsed.get("used"), anchor, count) if count else []
-            return parsed
-        logger.info("prompt sharpening returned nothing usable")
+            parsed["text"] = _strip_opener(parsed["text"])
+            if is_opener(parsed["text"]):
+                # A greeting in, a greeting out: the one answer that is always
+                # wrong. Better to hand back the original and let the person
+                # write it than to save a prompt that asks for nothing.
+                logger.info("sharpening returned an opener; keeping the original")
+            else:
+                return parsed
+        else:
+            logger.info("prompt sharpening returned nothing usable")
     except Exception:  # noqa: BLE001 — an optional nicety must not fail a save
         logger.exception("prompt sharpening failed")
     return {"title": _title_from(text), "text": text,
             "used": [anchor] if anchor else []}
+
+
+def _strip_opener(text: str) -> str:
+    """Drop a greeting the model put at the front of an otherwise good prompt.
+
+    "Hi. What is meant by GenAI?" is the right thread with a word in it that
+    asks for nothing. Only the first clause is considered, and only when it
+    is entirely an opener, so a prompt that genuinely begins "Hello world" is
+    left alone.
+    """
+    for sep in (". ", "! ", ", ", " - ", " — "):
+        head, found, tail = text.partition(sep)
+        if found and tail.strip() and is_opener(head):
+            return tail.strip()
+    return text
 
 
 def _parse(raw: str) -> dict | None:
