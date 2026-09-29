@@ -380,6 +380,16 @@ class SavePromptRequest(BaseModel):
     session_id: str = Field(default="", description="Where it came from, if anywhere.")
 
 
+class PromptOrderRequest(BaseModel):
+    order: list[str] = Field(
+        default_factory=list,
+        description="Every row, in the order to show them. A saved prompt's "
+                    "id, or the name of one of the client's built-in "
+                    "starters; keys that match nothing are ignored when the "
+                    "list is drawn.",
+    )
+
+
 class SharpenTurn(BaseModel):
     role: str = ""
     text: str = ""
@@ -404,8 +414,31 @@ class SharpenRequest(BaseModel):
 async def list_prompts(user: str = Depends(require_user)) -> dict:
     from compass.home.prompts import ON_SCREEN, get_prompt_library
 
-    rows = await get_prompt_library().list()
-    return {"prompts": [r.to_dict() for r in rows], "on_screen": ON_SCREEN}
+    library = get_prompt_library()
+    rows = await library.list()
+    return {
+        "prompts": [r.to_dict() for r in rows],
+        "on_screen": ON_SCREEN,
+        # The arrangement, if one was ever set. Sent alongside rather than
+        # applied here: it also covers the client's own built-in starters,
+        # which the server has never seen.
+        "order": await library.order(),
+    }
+
+
+@router.put("/prompts/order")
+async def set_prompt_order(body: PromptOrderRequest,
+                           user: str = Depends(require_user)) -> dict:
+    """The order the prompts are shown in, saved so it outlives the tab.
+
+    Takes the whole arrangement rather than a move, because a move is only
+    meaningful against the list the browser was looking at, and two tabs
+    disagreeing about that is how a list ends up shuffled. The last writer
+    wins, which is the right answer for one person's own library.
+    """
+    from compass.home.prompts import get_prompt_library
+
+    return {"order": await get_prompt_library().set_order(body.order)}
 
 
 @router.post("/prompts")

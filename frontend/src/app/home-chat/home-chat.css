@@ -482,6 +482,34 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 }
 .home-idea:hover .home-idea-ar { stroke: var(--accent); transform: translateX(3px); }
 
+/* -- dragging a list into order ------------------------------------------ */
+/* `pan-y` and not `none`: a finger that moves is scrolling the list, and a
+   drag begins from one that stayed put. Taking the gesture outright would
+   mean a list of prompts you cannot scroll past on a phone. */
+.home-idea, .pl-row { touch-action: pan-y; }
+
+/* Hover lifts a card by a pixel, which is a transform, which is the same
+   channel the drag moves it on. While a drag is in flight the pointer is
+   over rows it is only passing across, so hover has to let go of it. */
+.reordering .home-idea:hover { transform: none; box-shadow: var(--shadow-sm); }
+.reordering .home-idea:hover .home-idea-ar { transform: none; stroke: var(--faint); }
+.reordering { cursor: grabbing; user-select: none; }
+.reordering .home-idea, .reordering .pl-row { cursor: grabbing; }
+
+/* The row in hand: off the page rather than in the list, so the space it
+   left reads as a space it could come back to. */
+.home-idea.dragging {
+  box-shadow: var(--shadow-lg, var(--shadow-md));
+  border-color: var(--accent);
+  opacity: 0.97;
+}
+.pl-row.dragging {
+  background: var(--surface);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  border-bottom-color: transparent;
+}
+
 /* -- voice mode overlay -------------------------------------------------- */
 .voice-err { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 60; }
 

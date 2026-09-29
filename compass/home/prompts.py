@@ -40,6 +40,12 @@ ON_SCREEN = 4
 MAX_TITLE = 80
 MAX_TEXT = 4000
 
+#: An arrangement is a list of keys: a saved prompt's id, or the name of one
+#: of the client's built-in starters. Both are short, and neither the count
+#: nor the length is anything the browser needs to argue about.
+MAX_KEY = 64
+MAX_ORDER = 500
+
 
 @dataclass
 class SavedPrompt:
@@ -86,17 +92,47 @@ def _clean(value: str, cap: int) -> str:
     return " ".join((value or "").split())[:cap]
 
 
+def _clean_keys(keys: object) -> list[str]:
+    """The stored arrangement, with anything that is not a key dropped.
+
+    Deduplicated because a key appearing twice would put one row in two
+    places, and capped because this is written from the browser and a list
+    of keys has no business being longer than a library.
+    """
+    if not isinstance(keys, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for key in keys:
+        if not isinstance(key, str):
+            continue
+        key = _clean(key, MAX_KEY)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+        if len(out) >= MAX_ORDER:
+            break
+    return out
+
+
 class PromptLibrary:
     """Saved prompts on disk, newest first."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
 
-    def _path(self) -> Path:
+    def _folder(self) -> Path:
         settings = get_settings()
         folder = settings.workspace_root / settings.data_dir
         folder.mkdir(parents=True, exist_ok=True)
-        return folder / "prompts.json"
+        return folder
+
+    def _path(self) -> Path:
+        return self._folder() / "prompts.json"
+
+    def _order_path(self) -> Path:
+        return self._folder() / "prompt_order.json"
 
     def _read(self) -> list[SavedPrompt]:
         path = self._path()
@@ -177,6 +213,39 @@ class PromptLibrary:
                 return False
             self._write(kept)
         return True
+
+    # ── the order they are shown in ─────────────────────────────────────
+    #
+    # Kept apart from the prompts themselves, as a list of keys, because the
+    # arrangement covers rows this file knows nothing about: the built-in
+    # starters live in the client and are draggable alongside saved ones. A
+    # key here is a saved prompt's id or a starter's name, and the library
+    # does not care which — it stores the sequence and lets the client say
+    # what the names mean. Anything it cannot match is skipped when the list
+    # is drawn, so a deleted prompt or a retired starter leaves no hole.
+
+    def _read_order(self) -> list[str]:
+        path = self._order_path()
+        if not path.exists():
+            return []
+        try:
+            keys = json.loads(path.read_text() or "[]")
+        except (OSError, json.JSONDecodeError):
+            logger.warning("prompt order unreadable at %s", path)
+            return []
+        return _clean_keys(keys)
+
+    async def order(self) -> list[str]:
+        async with self._lock:
+            return self._read_order()
+
+    async def set_order(self, keys: list[str]) -> list[str]:
+        clean = _clean_keys(keys)
+        async with self._lock:
+            tmp = self._order_path().with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(clean, indent=1))
+            tmp.replace(self._order_path())
+        return clean
 
 
 def _title_from(text: str) -> str:

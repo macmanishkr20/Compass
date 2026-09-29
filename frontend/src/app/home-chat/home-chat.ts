@@ -18,6 +18,7 @@ import { AuthService } from '../auth.service';
 import { BlurOnChange } from '../blur-on-change.directive';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
+import { Reorder } from '../reorder/reorder';
 import { SavedPrompt } from '../models';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
@@ -108,7 +109,7 @@ const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
 @Component({
   selector: 'app-home-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, BlurOnChange, CompassMark, Markdown],
+  imports: [FormsModule, BlurOnChange, CompassMark, Markdown, Reorder],
   templateUrl: './home-chat.html',
   styleUrl: './home-chat.css',
   host: {
@@ -195,13 +196,17 @@ export class HomeChat {
    *  bare string list with one shared lightbulb; three identical icons in a
    *  column is decoration rather than a signal, so the icon now says which
    *  kind of thing the row is. */
-  readonly builtInIdeas: { text: string; icon: 'bulb' | 'branch' | 'pen' | 'film' }[] = [
-    { text: 'Explain a tricky concept in simple terms', icon: 'bulb' },
-    { text: 'Brainstorm names for a new project', icon: 'branch' },
-    { text: 'Draft a short message or email', icon: 'pen' },
+  /** `key` names the row for as long as it exists, which is what an
+   *  arrangement is stored against. Deliberately not the text: rewording a
+   *  starter would otherwise move it back to where it began. */
+  readonly builtInIdeas:
+    { key: string; text: string; icon: 'bulb' | 'branch' | 'pen' | 'film' }[] = [
+    { key: 'builtin:explain', text: 'Explain a tricky concept in simple terms', icon: 'bulb' },
+    { key: 'builtin:names', text: 'Brainstorm names for a new project', icon: 'branch' },
+    { key: 'builtin:draft', text: 'Draft a short message or email', icon: 'pen' },
     // Rendering is the one thing here that is not obviously a chat's job, so
     // it is the one that has to be said out loud.
-    { text: 'Cut a teaser from photos I attach', icon: 'film' },
+    { key: 'builtin:teaser', text: 'Cut a teaser from photos I attach', icon: 'film' },
   ];
 
   // ── the prompt library ──────────────────────────────────────────────
@@ -231,17 +236,42 @@ export class HomeChat {
   readonly savingPrompt = signal(false);
   readonly promptError = signal('');
 
+  /** The arrangement, as a list of keys, if one was ever dragged into place.
+   *  Empty means nobody has said otherwise and the default below stands. */
+  readonly order = signal<string[]>([]);
+
   /** What the Home screen offers: saved prompts first, then the built-ins to
    *  fill the row. A library with four entries is the person's own; an empty
-   *  one should still suggest something rather than show a blank space. */
-  readonly ideas = computed<{ text: string; icon: string; id: string; title: string }[]>(() => {
+   *  one should still suggest something rather than show a blank space.
+   *
+   *  Once anything has been dragged, that arrangement wins — but it is read
+   *  as a preference about the rows it names, not as the whole truth, since
+   *  the library changes underneath it. A row it does not mention is one
+   *  saved or shipped since: a new prompt of your own goes to the top, where
+   *  a just-saved thing belongs and where Home's four will actually show it,
+   *  and a starter added in some later version goes to the bottom rather
+   *  than pushing into an arrangement somebody chose. Keys naming rows that
+   *  no longer exist simply fail to match, so a deleted prompt leaves no
+   *  gap, and the next drag writes the list back without them. */
+  readonly ideas = computed<
+    { key: string; text: string; icon: string; id: string; title: string }[]
+  >(() => {
     const mine = this.saved().map((p) => ({
-      text: p.text, icon: p.icon, id: p.id, title: p.title,
+      key: p.id, text: p.text, icon: p.icon, id: p.id, title: p.title,
     }));
     const builtIn = this.builtInIdeas.map((s) => ({
-      text: s.text, icon: s.icon, id: '', title: s.text,
+      key: s.key, text: s.text, icon: s.icon, id: '', title: s.text,
     }));
-    return [...mine, ...builtIn];
+    const order = this.order();
+    if (!order.length) return [...mine, ...builtIn];
+
+    const byKey = new Map([...mine, ...builtIn].map((i) => [i.key, i]));
+    const placed = new Set(order);
+    return [
+      ...mine.filter((i) => !placed.has(i.key)),
+      ...order.map((k) => byKey.get(k)).filter((i) => !!i),
+      ...builtIn.filter((i) => !placed.has(i.key)),
+    ];
   });
 
   /** The first few, which is all Home shows. */
@@ -254,9 +284,36 @@ export class HomeChat {
     try {
       const res = await this.api.savedPrompts();
       this.saved.set(res.prompts ?? []);
+      this.order.set(res.order ?? []);
       if (res.on_screen) this.onScreen.set(res.on_screen);
     } catch {
       /* the built-in starters stand on their own */
+    }
+  }
+
+  /** Drop a row at `to`, and remember where everything ended up.
+   *
+   *  Both lists index into `ideas()` — Home shows the first few of exactly
+   *  that array — so one method serves the row on screen and the dialog
+   *  behind it.
+   *
+   *  The whole arrangement is written, not the move: it is what makes the
+   *  stored list self-healing, since keys for prompts since deleted are not
+   *  in `ideas()` and so do not survive the round trip. The list moves first
+   *  and is put back if the write fails, because a row that springs back to
+   *  where it was is the only honest way to say the order was not kept. */
+  async moveIdea(from: number, to: number): Promise<void> {
+    const keys = this.ideas().map((i) => i.key);
+    if (from === to || from < 0 || to < 0 || from >= keys.length || to >= keys.length) return;
+    const previous = this.order();
+    const [moved] = keys.splice(from, 1);
+    keys.splice(to, 0, moved);
+    this.order.set(keys);
+    try {
+      await this.api.setPromptOrder(keys);
+    } catch {
+      this.order.set(previous);
+      this.promptError.set('That order could not be saved.');
     }
   }
 

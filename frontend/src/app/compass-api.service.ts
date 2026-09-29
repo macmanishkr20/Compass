@@ -499,9 +499,17 @@ export class CompassApiService {
   }
 
   // -- the prompt library: things worth asking again ------------------------
-  savedPrompts(): Promise<{ prompts: SavedPrompt[]; on_screen: number }> {
+  savedPrompts(): Promise<{ prompts: SavedPrompt[]; on_screen: number; order?: string[] }> {
     return firstValueFrom(
-      this.http.get<{ prompts: SavedPrompt[]; on_screen: number }>('/v1/chat/prompts'),
+      this.http.get<{ prompts: SavedPrompt[]; on_screen: number; order?: string[] }>(
+        '/v1/chat/prompts'),
+    );
+  }
+
+  /** The whole arrangement, not a move: see the route. */
+  setPromptOrder(order: string[]): Promise<{ order: string[] }> {
+    return firstValueFrom(
+      this.http.put<{ order: string[] }>('/v1/chat/prompts/order', { order }),
     );
   }
 

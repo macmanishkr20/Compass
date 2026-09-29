@@ -343,7 +343,12 @@
             </button>
           }
         </div>
-        @for (s of ideasOnScreen(); track s.text) {
+        <!-- Rows carry the arrangement, so `track` has to be the key and not
+             the text: tracking by text re-creates a row whose wording was
+             edited, and the drag loses the element under the pointer. -->
+        <div class="home-idea-list" appReorder=".home-idea"
+          (reordered)="moveIdea($event.from, $event.to)">
+        @for (s of ideasOnScreen(); track s.key) {
           <button class="home-idea" type="button" (click)="useIdea(s.text)">
             <span class="home-idea-ic" aria-hidden="true">
               @switch (s.icon) {
@@ -374,6 +379,7 @@
             <svg class="home-idea-ar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
         }
+        </div>
       </div>
     }
   </div>
@@ -478,8 +484,9 @@
           <svg viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
-      <div class="pl-list">
-        @for (p of ideas(); track p.text) {
+      <div class="pl-list" appReorder=".pl-row"
+        (reordered)="moveIdea($event.from, $event.to)">
+        @for (p of ideas(); track p.key) {
           <div class="pl-row">
             <button class="pl-row-main" type="button"
               (click)="libraryOpen.set(false); useIdea(p.text)">

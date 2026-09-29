@@ -202,10 +202,11 @@
   "POST /v1/workspaces/{workspace_id}/pr",
   "POST /v1/workspaces/{workspace_id}/reveal",
   "POST /v1/workspaces/{workspace_id}/terminal",
+  "PUT /v1/chat/prompts/order",
   "PUT /v1/estimates/rate-card",
   "WS /v1/browser/ws"
  ],
- "schema": "2536234ce9b2035f",
+ "schema": "0e5b4f9f457cadc0",
  "smoke": {
   "/": "200",
   "/docs": "200",
