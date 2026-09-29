@@ -142,23 +142,29 @@ export class App {
 
   /** What the topbar calls the thing you are looking at.
    *
-   *  Written as a switch rather than a chain of ternaries because the chain
-   *  had a fall-through: every section that was not Home or Design ended up
-   *  showing the Code console's active conversation, so Pipelines displayed a
-   *  title from another module. A switch with a branch per section cannot
-   *  develop that fault when a fifth one is added. */
-  readonly sectionTitle = computed(() => {
-    switch (this.section()) {
-      case 'home':
-        return 'Compass Chat';
-      case 'design':
-        return 'Compass Design';
-      case 'pipelines':
-        return 'Compass Pipelines';
-      default:
-        return this.capFirst(this.activeCard()?.title) || 'New conversation';
-    }
-  });
+   *  A total map over ModuleKey, not a switch with a default. The switch this
+   *  replaces was itself written to cure a fall-through, and claimed a branch
+   *  per section could not develop one again — then Estimate and Missions were
+   *  added, landed in `default`, and wore the Code console's conversation
+   *  title. Standing in Missions, which has no conversations at all, the
+   *  topbar read "New conversation". A map cannot fall through: a seventh
+   *  ModuleKey fails to compile until it is named here.
+   *
+   *  Every section now says its own name, so the label always agrees with the
+   *  lit tab beside it. Code's active conversation is not lost by this — the
+   *  sidebar list and ⌘K search both name it, and they mark which one is open,
+   *  which the crumb never did. Home reads "Chat" because that is what the
+   *  section is called on screen. */
+  private static readonly TITLES: Record<ModuleKey, string> = {
+    home: 'Compass Chat',
+    code: 'Compass Code',
+    design: 'Compass Design',
+    pipelines: 'Compass Pipelines',
+    estimate: 'Compass Estimate',
+    missions: 'Compass Missions',
+  };
+
+  readonly sectionTitle = computed(() => App.TITLES[this.section()]);
 
   // In-app browser ("Compass's own browser", like Claude's preview pane).
   readonly browserOpen = signal(false);
