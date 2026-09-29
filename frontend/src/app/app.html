@@ -564,20 +564,24 @@
   <!-- ============================ Main ============================ -->
   <div class="main" [class.rail-open]="section() === 'code' && view() === 'chat' && railOpen()">
     <header class="topbar">
+      <!-- The mark normally lives in the sidebar's brand. Design and Pipelines
+           have no sidebar at all, and on Home and Code the brand goes with the
+           sidebar when it is collapsed — either way this corner would open on a
+           blank edge with nothing identifying the app, so the mark stands in
+           for the brand here. It leads the row in both cases: in a chromeless
+           section there is no toggle to follow, and where there is one the mark
+           still reads as the app before the controls that act on it. -->
+      @if (chromeless() || !sidebarOpen()) {
+        <span class="topbar-mark" title="Compass">
+          <app-compass-mark [size]="24" [active]="false" />
+        </span>
+      }
       @if (!chromeless()) {
         <button class="icon-btn ghost side-toggle" [attr.aria-label]="sidebarOpen() ? 'Collapse sidebar' : 'Expand sidebar'" (click)="toggleSidebar()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16" stroke-linecap="round"/></svg>
         </button>
-      }
-      <!-- Design and Pipelines have no sidebar, so this corner is the first
-           thing on screen — and neither section has conversations to search,
-           which is what the magnifier offered. The mark identifies the app
-           instead; ⌘K still opens search from anywhere. -->
-      @if (chromeless()) {
-        <span class="topbar-mark" title="Compass">
-          <app-compass-mark [size]="24" [active]="false" />
-        </span>
-      } @else {
+        <!-- Neither chromeless section has conversations to search, which is
+             what the magnifier offered; ⌘K still opens search from anywhere. -->
         <button class="icon-btn ghost" aria-label="Search conversations" title="Search conversations (⌘K)" (click)="openSearch()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3" stroke-linecap="round"/></svg>
         </button>
@@ -608,7 +612,7 @@
           [style.color]="section() === 'design' ? 'var(--ink)' : 'var(--muted)'"
           [style.font-weight]="section() === 'design' ? 600 : 400"
           style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.6 5.6L21 9.4l-4.5 4.3 1.1 6.3L12 17l-5.6 3 1.1-6.3L3 9.4l6.4-.8z" stroke-linejoin="round"/></svg>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8z" stroke-linejoin="round"/><path d="M3.5 13.5L12 18l8.5-4.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="hc-tab-label">Design</span>
         </button>
         <!-- Only when the module is actually mounted. The server decides;
@@ -646,7 +650,7 @@
             [style.color]="section() === 'missions' ? 'var(--ink)' : 'var(--muted)'"
             [style.font-weight]="section() === 'missions' ? 600 : 400"
             style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6L12 15.8 6.9 18.4 8 12.8 4 8.9l5.6-.7z" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 21V4.5M5 5h13l-2.6 4L18 13H5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="hc-tab-label">Missions</span>
           </button>
         }
@@ -1454,7 +1458,7 @@
       @if (missionOffer(); as offer) {
         <div class="mission-offer">
           <span class="mission-offer-ic" aria-hidden="true">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6L12 15.8 6.9 18.4 8 12.8 4 8.9l5.6-.7z" stroke-linejoin="round"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 21V4.5M5 5h13l-2.6 4L18 13H5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </span>
           <span class="mission-offer-text">
             <b>This looks like a build, not a task</b>
