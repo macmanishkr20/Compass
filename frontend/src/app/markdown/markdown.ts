@@ -42,6 +42,31 @@ const MEDIA_LINE =
   /^\s*\[([^\]]+)\]\((\/v1\/chat\/sessions\/[\w-]+\/media\/[^)\s]+\.(?:mp4|webm|m4v|mov))\)\s*$/i;
 
 /**
+ * The host a citation names, or "" when the link is ordinary prose.
+ *
+ * Models cite by writing the bare domain as the label — `[timeanddate.com]
+ * (https://…)`. That is the whole signal, and it is a narrow one on purpose:
+ * a label with words in it is a sentence the person is meant to read, and
+ * turning it into a chip would eat the sentence.
+ */
+function citeHost(label: string, url: string): string {
+  const text = label.trim().replace(/^www\./, '');
+  // A bare host: letters, digits, hyphens and dots, ending in a real TLD.
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(text)) return '';
+  if (!/^https?:\/\//i.test(url)) return '';
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    // The label has to actually be the link's host, or something close to it
+    // — otherwise it is a domain being talked about, not a source.
+    return host === text || host.endsWith('.' + text) || text.endsWith('.' + host)
+      ? host
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Dependency-free, streaming-safe Markdown renderer for assistant messages.
  * Handles fenced code blocks (with a language chip + copy button), headings,
  * bold/italic, inline code, links, and bullet/numbered lists. HTML is escaped
@@ -253,11 +278,38 @@ export class Markdown {
         ? `<img class="md-img" src="${url}" alt="${alt}" loading="lazy" />`
         : m,
     );
-    // links [label](url)
+    // links [label](url) — a citation becomes a chip, everything else an
+    // ordinary link. A citation is recognised by its label being a bare host,
+    // which is how a model writes one: [timeanddate.com](https://…). Anything
+    // with real words in the label is prose and stays prose.
     t = t.replace(
       /\[([^\]]+)\]\(([^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener">$1</a>',
+      (whole: string, label: string, url: string) => {
+        const host = citeHost(label, url);
+        if (!host) return `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+        // The icon is fetched by the server, so the browser never contacts
+        // the cited site.
+        //
+        // The fallback is done with layout rather than an onerror handler,
+        // because this HTML goes through Angular's sanitizer and every event
+        // attribute is stripped from it — a handler here would look right in
+        // the source and never fire. So the letter is real content and the
+        // image is laid over it: when the fetch 404s the image has no size
+        // and the letter shows through.
+        const icon = `/v1/chat/favicon?url=${encodeURIComponent(url)}`;
+        return (
+          `<a class="md-cite" href="${url}" target="_blank" rel="noopener" title="${host}">` +
+          `<span class="md-cite-ico"><i>${host[0].toUpperCase()}</i>` +
+          `<img src="${icon}" alt="" loading="lazy" /></span>` +
+          `<span class="md-cite-host">${host}</span></a>`
+        );
+      },
     );
+    // A citation the model wrapped in its own brackets — "… breeze.
+    // (timeanddate.com)" — keeps the brackets around a chip that no longer
+    // needs them. Only a pair holding exactly one chip and nothing else is
+    // removed, so "(see timeanddate.com and the IMD page)" is left intact.
+    t = t.replace(/\(\s*(<a class="md-cite"[\s\S]*?<\/a>)\s*\)/g, '$1');
     // bold, then italic
     t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     t = t.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');

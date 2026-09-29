@@ -453,3 +453,27 @@ async def sharpen_prompt(body: SharpenRequest,
 
     return await sharpen(body.text, body.context,
                          [t.model_dump() for t in body.turns])
+
+
+@router.get("/favicon")
+async def source_favicon(url: str, user: str = Depends(require_user)):
+    """The site icon for a cited source, fetched and cached by the server.
+
+    Served from here rather than linked directly in the page so the browser
+    never contacts the sites in a list of sources: which of them somebody is
+    reading is private until they click one. A site with no usable icon gets
+    a 404 and the page draws a lettered monogram instead.
+    """
+    from fastapi.responses import FileResponse, Response
+
+    from compass.home import favicons
+
+    host = favicons.host_of(url)
+    if not host:
+        raise HTTPException(status_code=400, detail="not a host")
+    path = await favicons.fetch(host)
+    if path is None:
+        # 404 rather than a placeholder image: the page has a nicer fallback
+        # than anything that could be sent here, and a cached 404 is cheap.
+        return Response(status_code=404, headers={"Cache-Control": "public, max-age=86400"})
+    return FileResponse(path, headers={"Cache-Control": "public, max-age=604800"})

@@ -593,3 +593,63 @@ app-home-chat .prose li::marker { color: var(--ink); }
   .panel-out, .panel-out-left { animation: panel-fade var(--panel-ms) linear reverse; }
   @keyframes panel-fade { from { opacity: 0; } to { opacity: 1; } }
 }
+
+/* ── a cited source, inline ──────────────────────────────────────────── */
+/* Reads as one object in the sentence rather than a bare URL in brackets.
+   Global, not in markdown.css: prose is bound through [innerHTML], and
+   Angular stamps its encapsulation attribute only on template elements —
+   so a component rule never matches injected markup. `.md-img` is here
+   for the same reason. */
+.md-cite {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 15rem;
+  padding: 1px 7px 1px 3px;
+  margin: 0 1px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.82em;
+  line-height: 1.5;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition: border-color 0.14s, color 0.14s;
+}
+.md-cite:hover { border-color: var(--accent-line); color: var(--ink); }
+
+/* The letter is real content and the image is laid over it, so a source with
+   no icon degrades to a monogram instead of a broken picture. */
+.md-cite-ico {
+  position: relative;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--accent-tint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.md-cite-ico i {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent);
+}
+.md-cite-ico img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--surface);
+}
+.md-cite-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

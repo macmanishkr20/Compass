@@ -79,9 +79,24 @@
                       </span>
                       @for (s of m.sources!; track s.n) {
                         @if (s.url) {
-                          <a class="wiq-source" [href]="s.url" target="_blank" rel="noopener">[{{ s.n }}] {{ s.title }}</a>
+                          <a class="wiq-source" [href]="s.url" target="_blank" rel="noopener">
+                            <!-- Same mark as the inline citation, same
+                                 server-side fetch, same monogram when the
+                                 site has no icon. A Work IQ document has no
+                                 host, so it keeps the numbered form. -->
+                            @if (faviconOf(s.url); as icon) {
+                              <span class="wiq-ico"><i>{{ initialOf(s.url) }}</i>
+                                <img [src]="icon" alt="" loading="lazy" /></span>
+                            } @else {
+                              <span class="wiq-n">[{{ s.n }}]</span>
+                            }
+                            <span class="wiq-source-name">{{ s.title }}</span>
+                          </a>
                         } @else {
-                          <span class="wiq-source">[{{ s.n }}] {{ s.title }}</span>
+                          <span class="wiq-source">
+                            <span class="wiq-n">[{{ s.n }}]</span>
+                            <span class="wiq-source-name">{{ s.title }}</span>
+                          </span>
                         }
                       }
                     </div>

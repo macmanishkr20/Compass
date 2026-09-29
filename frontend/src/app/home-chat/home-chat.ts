@@ -319,6 +319,29 @@ export class HomeChat {
     }
   }
 
+  /** The server-side icon for a cited page, or '' when there is no host to
+   *  ask about — a Work IQ document is a file in a knowledge base, not a
+   *  site, and keeps its numbered form. */
+  faviconOf(url: string): string {
+    const host = this.hostOf(url);
+    return host ? `/v1/chat/favicon?url=${encodeURIComponent(url)}` : '';
+  }
+
+  /** The letter shown under the icon, so a site with none still has a mark. */
+  initialOf(url: string): string {
+    return (this.hostOf(url)[0] || '?').toUpperCase();
+  }
+
+  private hostOf(url: string): string {
+    try {
+      const h = new URL(url, location.origin).hostname.replace(/^www\./, '');
+      // Same-origin means this server's own media, not a cited site.
+      return h && h !== location.hostname ? h : '';
+    } catch {
+      return '';
+    }
+  }
+
   /** Which prompts went into the build, said plainly.
    *
    *  "this prompt alone" is a real and common answer — most prompts do not
