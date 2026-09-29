@@ -5,3 +5,6 @@ venv/
 .env
 data/
 .DS_Store
+# Written when something builds a session-file path out of a SQLite
+# ":memory:" DSN, so the literal string lands in the filename.
+:memory:.ses
