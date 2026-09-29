@@ -210,6 +210,10 @@ export class HomeChat {
   /** How many fit on the Home screen before "Show all" takes over. */
   readonly onScreen = signal(4);
   readonly libraryOpen = signal(false);
+  /** Whether the editor was opened from the library, so closing it goes back
+   *  there rather than dumping you on Home. Editing one of several is the
+   *  normal reason to be in that list. */
+  private returnToLibrary = false;
 
   /** The save dialog: null when closed, otherwise what it is editing. */
   readonly saveDialog = signal<{
@@ -271,6 +275,10 @@ export class HomeChat {
     this.saveDialog.set(null);
     this.sharpening.set(false);
     this.promptError.set('');
+    if (this.returnToLibrary) {
+      this.returnToLibrary = false;
+      this.libraryOpen.set(true);
+    }
   }
 
   patchDialog(patch: Partial<{ title: string; text: string }>): void {
@@ -345,10 +353,18 @@ export class HomeChat {
     }
   }
 
-  /** The library dialog lists ideas, not raw records, so it acts by id. */
+  /** The library dialog lists ideas, not raw records, so it acts by id.
+   *
+   *  It also closes the library on the way. Left open, the two dialogs
+   *  stacked — and since the library is written second in the template it
+   *  painted over the editor, so the thing you had just asked for was the
+   *  thing you could not see. */
   editSavedById(id: string): void {
     const row = this.saved().find((p) => p.id === id);
-    if (row) this.editSaved(row);
+    if (!row) return;
+    this.returnToLibrary = this.libraryOpen();
+    this.libraryOpen.set(false);
+    this.editSaved(row);
   }
 
   removeSavedById(id: string): void {

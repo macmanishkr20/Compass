@@ -446,7 +446,11 @@
   }
 
   <!-- ══════ the whole library ══════ -->
-  @if (libraryOpen()) {
+  <!-- Never while the editor is up. The bookkeeping in `editSavedById`
+       already closes it, but one dialog covering another is the kind of
+       thing a future state bug reintroduces silently, so the template makes
+       it impossible rather than merely unlikely. -->
+  @if (libraryOpen() && !saveDialog()) {
     <div class="pl-veil" (click)="libraryOpen.set(false)"></div>
     <div class="pl-modal wide" role="dialog" aria-modal="true" aria-label="Your prompt library">
       <div class="pl-head">
