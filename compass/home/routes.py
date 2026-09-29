@@ -367,3 +367,76 @@ async def delete_chat_session(session_id: str, user: str = Depends(require_user)
     await chat_engine.store.delete(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}
+
+
+# ── the prompt library ──────────────────────────────────────────────────
+#: Saved prompts are per-install rather than per-conversation: the point of
+#: keeping one is that it outlives the chat it came from.
+
+
+class SavePromptRequest(BaseModel):
+    title: str = Field(default="", description="A label. Derived from the text when empty.")
+    text: str = Field(description="The prompt itself.")
+    session_id: str = Field(default="", description="Where it came from, if anywhere.")
+
+
+class SharpenRequest(BaseModel):
+    text: str = Field(description="The prompt as it was typed.")
+    context: str = Field(
+        default="",
+        description="A little of what was on screen around it, so a prompt "
+                    "that refers to something can be made to stand alone.")
+
+
+@router.get("/prompts")
+async def list_prompts(user: str = Depends(require_user)) -> dict:
+    from compass.home.prompts import ON_SCREEN, get_prompt_library
+
+    rows = await get_prompt_library().list()
+    return {"prompts": [r.to_dict() for r in rows], "on_screen": ON_SCREEN}
+
+
+@router.post("/prompts")
+async def save_prompt(body: SavePromptRequest,
+                      user: str = Depends(require_user)) -> dict:
+    from compass.home.prompts import get_prompt_library
+
+    try:
+        row = await get_prompt_library().add(
+            title=body.title, text=body.text, session_id=body.session_id)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return row.to_dict()
+
+
+@router.patch("/prompts/{prompt_id}")
+async def edit_prompt(prompt_id: str, body: SavePromptRequest,
+                      user: str = Depends(require_user)) -> dict:
+    from compass.home.prompts import get_prompt_library
+
+    row = await get_prompt_library().update(
+        prompt_id, title=body.title, text=body.text)
+    if row is None:
+        raise HTTPException(status_code=404, detail="no such prompt")
+    return row.to_dict()
+
+
+@router.delete("/prompts/{prompt_id}")
+async def delete_prompt(prompt_id: str, user: str = Depends(require_user)) -> dict:
+    from compass.home.prompts import get_prompt_library
+
+    return {"deleted": await get_prompt_library().delete(prompt_id)}
+
+
+@router.post("/prompts/sharpen")
+async def sharpen_prompt(body: SharpenRequest,
+                         user: str = Depends(require_user)) -> dict:
+    """A clearer, self-contained version of one prompt, and a title for it.
+
+    Always answers: on any failure it returns the prompt it was given, because
+    this sits behind an optional button and the person should be left with
+    what they already had rather than an error.
+    """
+    from compass.home.prompts import sharpen
+
+    return await sharpen(body.text, body.context)

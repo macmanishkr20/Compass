@@ -18,6 +18,7 @@ import { AuthService } from '../auth.service';
 import { BlurOnChange } from '../blur-on-change.directive';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
+import { SavedPrompt } from '../models';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
@@ -194,7 +195,7 @@ export class HomeChat {
    *  bare string list with one shared lightbulb; three identical icons in a
    *  column is decoration rather than a signal, so the icon now says which
    *  kind of thing the row is. */
-  readonly ideas: { text: string; icon: 'bulb' | 'branch' | 'pen' | 'film' }[] = [
+  readonly builtInIdeas: { text: string; icon: 'bulb' | 'branch' | 'pen' | 'film' }[] = [
     { text: 'Explain a tricky concept in simple terms', icon: 'bulb' },
     { text: 'Brainstorm names for a new project', icon: 'branch' },
     { text: 'Draft a short message or email', icon: 'pen' },
@@ -202,6 +203,164 @@ export class HomeChat {
     // it is the one that has to be said out loud.
     { text: 'Cut a teaser from photos I attach', icon: 'film' },
   ];
+
+  // ── the prompt library ──────────────────────────────────────────────
+  /** Everything saved, newest first. */
+  readonly saved = signal<SavedPrompt[]>([]);
+  /** How many fit on the Home screen before "Show all" takes over. */
+  readonly onScreen = signal(4);
+  readonly libraryOpen = signal(false);
+
+  /** The save dialog: null when closed, otherwise what it is editing. */
+  readonly saveDialog = signal<{
+    id: string;          // '' for a new one
+    title: string;
+    text: string;
+    original: string;    // what was typed, so a sharpen can be undone
+    sharpened: boolean;
+  } | null>(null);
+  readonly sharpening = signal(false);
+  readonly savingPrompt = signal(false);
+  readonly promptError = signal('');
+
+  /** What the Home screen offers: saved prompts first, then the built-ins to
+   *  fill the row. A library with four entries is the person's own; an empty
+   *  one should still suggest something rather than show a blank space. */
+  readonly ideas = computed<{ text: string; icon: string; id: string; title: string }[]>(() => {
+    const mine = this.saved().map((p) => ({
+      text: p.text, icon: p.icon, id: p.id, title: p.title,
+    }));
+    const builtIn = this.builtInIdeas.map((s) => ({
+      text: s.text, icon: s.icon, id: '', title: s.text,
+    }));
+    return [...mine, ...builtIn];
+  });
+
+  /** The first few, which is all Home shows. */
+  readonly ideasOnScreen = computed(() => this.ideas().slice(0, this.onScreen()));
+
+  /** Whether there is anything behind "Show all". */
+  readonly hasMoreIdeas = computed(() => this.ideas().length > this.onScreen());
+
+  async loadPrompts(): Promise<void> {
+    try {
+      const res = await this.api.savedPrompts();
+      this.saved.set(res.prompts ?? []);
+      if (res.on_screen) this.onScreen.set(res.on_screen);
+    } catch {
+      /* the built-in starters stand on their own */
+    }
+  }
+
+  /** Open the save dialog for one message. */
+  savePromptFrom(m: { id: string; text: string }): void {
+    const text = (m.text || '').trim();
+    if (!text) return;
+    this.promptError.set('');
+    this.saveDialog.set({ id: '', title: '', text, original: text, sharpened: false });
+  }
+
+  editSaved(p: SavedPrompt): void {
+    this.promptError.set('');
+    this.saveDialog.set({
+      id: p.id, title: p.title, text: p.text, original: p.text, sharpened: false,
+    });
+  }
+
+  closeSaveDialog(): void {
+    this.saveDialog.set(null);
+    this.sharpening.set(false);
+    this.promptError.set('');
+  }
+
+  patchDialog(patch: Partial<{ title: string; text: string }>): void {
+    const d = this.saveDialog();
+    if (d) this.saveDialog.set({ ...d, ...patch });
+  }
+
+  /** Ask the model for a version that stands on its own.
+   *
+   *  The surrounding messages go along as context, because a prompt typed
+   *  mid-conversation often refers to what was already on screen — but only
+   *  so the rewrite can resolve what it points at, never to fold in other
+   *  topics. The result lands in the text box as a suggestion, not a commit. */
+  async sharpen(): Promise<void> {
+    const d = this.saveDialog();
+    if (!d || this.sharpening()) return;
+    this.sharpening.set(true);
+    this.promptError.set('');
+    try {
+      const res = await this.api.sharpenPrompt(d.original, this.nearbyContext(d.original));
+      this.saveDialog.set({
+        ...d,
+        title: d.title || res.title || '',
+        text: res.text || d.text,
+        sharpened: true,
+      });
+    } catch (err) {
+      this.promptError.set(String(err));
+    } finally {
+      this.sharpening.set(false);
+    }
+  }
+
+  /** Put back what was typed, if the rewrite went somewhere they did not mean. */
+  undoSharpen(): void {
+    const d = this.saveDialog();
+    if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false });
+  }
+
+  /** The few messages around this prompt — enough to resolve what it refers
+   *  to, capped so a long conversation does not become the context. */
+  private nearbyContext(text: string): string {
+    const all = this.messages();
+    const at = all.findIndex((m) => (m.text || '').trim() === text.trim());
+    const from = Math.max(0, (at < 0 ? all.length : at) - 4);
+    return all
+      .slice(from, at < 0 ? all.length : at)
+      .map((m) => `${m.role === 'user' ? 'Person' : 'Compass'}: ${(m.text || '').slice(0, 400)}`)
+      .join('\n');
+  }
+
+  async commitSavePrompt(): Promise<void> {
+    const d = this.saveDialog();
+    if (!d || this.savingPrompt() || !d.text.trim()) return;
+    this.savingPrompt.set(true);
+    this.promptError.set('');
+    try {
+      if (d.id) {
+        await this.api.editSavedPrompt(d.id, d.title, d.text);
+      } else {
+        await this.api.savePrompt(d.title, d.text, this.sessionId ?? '');
+      }
+      await this.loadPrompts();
+      this.closeSaveDialog();
+    } catch (err) {
+      this.promptError.set(String(err));
+    } finally {
+      this.savingPrompt.set(false);
+    }
+  }
+
+  /** The library dialog lists ideas, not raw records, so it acts by id. */
+  editSavedById(id: string): void {
+    const row = this.saved().find((p) => p.id === id);
+    if (row) this.editSaved(row);
+  }
+
+  removeSavedById(id: string): void {
+    const row = this.saved().find((p) => p.id === id);
+    if (row) void this.removeSaved(row);
+  }
+
+  async removeSaved(p: SavedPrompt): Promise<void> {
+    try {
+      await this.api.deleteSavedPrompt(p.id);
+      await this.loadPrompts();
+    } catch (err) {
+      this.promptError.set(String(err));
+    }
+  }
 
   readonly canSend = computed(
     () => (this.draft().trim().length > 0 || this.attachments().length > 0) && !this.streaming(),
@@ -290,6 +449,9 @@ export class HomeChat {
 
   constructor() {
     setInterval(() => this.nowTick.set(Date.now()), 30_000);
+    // The library is what Home offers before anything is typed, so it is
+    // fetched once on boot rather than when the ideas row happens to render.
+    void this.loadPrompts();
     // One more file can be the one that makes the row scrollable.
     effect(() => {
       this.attachments();

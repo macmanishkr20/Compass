@@ -39,6 +39,7 @@ import {
   Routine,
   RoutineRun,
   RoutinesResponse,
+  SavedPrompt,
   SessionCard,
   Workspace,
 } from './models';
@@ -494,6 +495,41 @@ export class CompassApiService {
   workIqStatus(): Promise<{ configured: boolean }> {
     return firstValueFrom(
       this.http.get<{ configured: boolean }>('/v1/chat/work-iq'),
+    );
+  }
+
+  // -- the prompt library: things worth asking again ------------------------
+  savedPrompts(): Promise<{ prompts: SavedPrompt[]; on_screen: number }> {
+    return firstValueFrom(
+      this.http.get<{ prompts: SavedPrompt[]; on_screen: number }>('/v1/chat/prompts'),
+    );
+  }
+
+  savePrompt(title: string, text: string, sessionId = ''): Promise<SavedPrompt> {
+    return firstValueFrom(
+      this.http.post<SavedPrompt>('/v1/chat/prompts',
+        { title, text, session_id: sessionId }),
+    );
+  }
+
+  editSavedPrompt(id: string, title: string, text: string): Promise<SavedPrompt> {
+    return firstValueFrom(
+      this.http.patch<SavedPrompt>(`/v1/chat/prompts/${id}`, { title, text }),
+    );
+  }
+
+  deleteSavedPrompt(id: string): Promise<{ deleted: boolean }> {
+    return firstValueFrom(
+      this.http.delete<{ deleted: boolean }>(`/v1/chat/prompts/${id}`),
+    );
+  }
+
+  /** A clearer, self-contained rewrite of one prompt, plus a title.
+   *  Always resolves: the server returns the original on any failure. */
+  sharpenPrompt(text: string, context = ''): Promise<{ title: string; text: string }> {
+    return firstValueFrom(
+      this.http.post<{ title: string; text: string }>(
+        '/v1/chat/prompts/sharpen', { text, context }),
     );
   }
 

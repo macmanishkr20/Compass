@@ -123,6 +123,19 @@
                 }
               }
 
+              @if (m.role === 'user' && m.text && editingId() !== m.id) {
+                <!-- Hangs off the top edge of the bubble rather than joining
+                     the row underneath: saving is about the prompt, and the
+                     row below is about this message in this conversation. -->
+                <button class="cmsg-save" type="button" title="Save to your prompt library"
+                  aria-label="Save to your prompt library" (click)="savePromptFrom(m)">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.9" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/>
+                  </svg>
+                </button>
+              }
+
               @if (editingId() !== m.id && (m.text || m.role === 'assistant') && !(m.role === 'assistant' && m.streaming)) {
                 <div class="cmsg-actions" [class.mine]="m.role === 'user'">
                   <button class="cmsg-act" [title]="copiedId() === m.id ? 'Copied' : 'Copy'" (click)="copyMsg(m)">
@@ -308,8 +321,14 @@
 
     @if (messages().length === 0) {
       <div class="home-ideas">
-        <div class="home-ideas-label"><b>Ideas for you</b><span class="home-ideas-rule"></span></div>
-        @for (s of ideas; track s.text) {
+        <div class="home-ideas-label"><b>Ideas for you</b><span class="home-ideas-rule"></span>
+          @if (hasMoreIdeas()) {
+            <button class="home-ideas-more" type="button" (click)="libraryOpen.set(true)">
+              Show all {{ ideas().length }}
+            </button>
+          }
+        </div>
+        @for (s of ideasOnScreen(); track s.text) {
           <button class="home-idea" type="button" (click)="useIdea(s.text)">
             <span class="home-idea-ic" aria-hidden="true">
               @switch (s.icon) {
@@ -327,7 +346,16 @@
                 }
               }
             </span>
-            <span class="home-idea-text">{{ s.text }}</span>
+            <span class="home-idea-text">
+              @if (s.id) {
+                <b class="home-idea-title">{{ s.title }}</b>
+                @if (s.title !== s.text) {
+                  <span class="home-idea-sub">{{ s.text }}</span>
+                }
+              } @else {
+                {{ s.text }}
+              }
+            </span>
             <svg class="home-idea-ar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
         }
@@ -362,6 +390,98 @@
 
       <div class="voice-hint">
         @if (voiceState() === 'speaking') { Tap anywhere to interrupt } @else { Tap ✕ to end voice mode }
+      </div>
+    </div>
+  }
+
+  <!-- ══════ save a prompt ══════ -->
+  @if (saveDialog(); as d) {
+    <div class="pl-veil" (click)="closeSaveDialog()"></div>
+    <div class="pl-modal" role="dialog" aria-modal="true" aria-label="Save to your prompt library">
+      <div class="pl-head">
+        <span class="pl-eyeb">{{ d.id ? 'Edit saved prompt' : 'Save to your prompt library' }}</span>
+        <button class="pl-x" type="button" (click)="closeSaveDialog()" aria-label="Close">
+          <svg viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+
+      <label class="pl-label" for="pl-title">Title</label>
+      <input id="pl-title" class="pl-input" [value]="d.title" maxlength="80"
+        placeholder="What this prompt is for"
+        (input)="patchDialog({ title: $any($event.target).value })">
+
+      <label class="pl-label" for="pl-text">Prompt</label>
+      <textarea id="pl-text" class="pl-text" rows="6" [value]="d.text"
+        (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+
+      <!-- Offered, never applied on its own: a rewrite that quietly changes
+           what somebody meant is worse than the prompt they typed. -->
+      <div class="pl-sharpen">
+        <button class="pl-btn ghost" type="button" (click)="sharpen()" [disabled]="sharpening()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
+            <path d="M18 15l.8 2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1z"/>
+          </svg>
+          {{ sharpening() ? 'Rewriting…' : 'Make it clearer' }}
+        </button>
+        @if (d.sharpened) {
+          <button class="pl-btn ghost" type="button" (click)="undoSharpen()">Use what I typed</button>
+          <span class="pl-note">Rewritten to stand on its own — edit it freely.</span>
+        } @else {
+          <span class="pl-note">Rewrites this prompt so it works in a new chat.</span>
+        }
+      </div>
+
+      @if (promptError()) { <p class="pl-err">{{ promptError() }}</p> }
+
+      <div class="pl-foot">
+        <button class="pl-btn ghost" type="button" (click)="closeSaveDialog()">Cancel</button>
+        <button class="pl-btn primary" type="button" (click)="commitSavePrompt()"
+          [disabled]="!d.text.trim() || savingPrompt()">
+          {{ savingPrompt() ? 'Saving…' : (d.id ? 'Save changes' : 'Save prompt') }}
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- ══════ the whole library ══════ -->
+  @if (libraryOpen()) {
+    <div class="pl-veil" (click)="libraryOpen.set(false)"></div>
+    <div class="pl-modal wide" role="dialog" aria-modal="true" aria-label="Your prompt library">
+      <div class="pl-head">
+        <span class="pl-eyeb">Your prompt library</span>
+        <button class="pl-x" type="button" (click)="libraryOpen.set(false)" aria-label="Close">
+          <svg viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="pl-list">
+        @for (p of ideas(); track p.text) {
+          <div class="pl-row">
+            <button class="pl-row-main" type="button"
+              (click)="libraryOpen.set(false); useIdea(p.text)">
+              <span class="pl-row-title">{{ p.title }}</span>
+              <!-- A built-in's title is its text, so printing both says it twice. -->
+              @if (p.title !== p.text) {
+                <span class="pl-row-text">{{ p.text }}</span>
+              }
+            </button>
+            @if (p.id) {
+              <span class="pl-row-acts">
+                <button class="pl-icon" type="button" title="Edit"
+                  (click)="editSavedById(p.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="pl-icon danger" type="button" title="Remove"
+                  (click)="removeSavedById(p.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 13h8l1-13"/></svg>
+                </button>
+              </span>
+            } @else {
+              <span class="pl-row-acts"><span class="pl-builtin">built in</span></span>
+            }
+          </div>
+        }
       </div>
     </div>
   }

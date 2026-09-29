@@ -810,3 +810,16 @@ export interface DesignProject {
   created_at: number;
   updated_at: number;
 }
+
+/** A prompt somebody kept, so a good question outlives the chat it came from.
+ *  `icon` is chosen from the prompt's own words rather than asked for — one
+ *  more required field in a save dialog is one more reason not to save. */
+export interface SavedPrompt {
+  id: string;
+  title: string;
+  text: string;
+  icon: 'bulb' | 'branch' | 'pen' | 'film' | string;
+  created_at: number;
+  /** The conversation it was taken from, when it came from one. */
+  session_id: string;
+}
