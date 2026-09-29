@@ -380,12 +380,24 @@ class SavePromptRequest(BaseModel):
     session_id: str = Field(default="", description="Where it came from, if anywhere.")
 
 
+class SharpenTurn(BaseModel):
+    role: str = ""
+    text: str = ""
+
+
 class SharpenRequest(BaseModel):
     text: str = Field(description="The prompt as it was typed.")
+    turns: list[SharpenTurn] = Field(
+        default_factory=list,
+        description="The conversation, oldest first. What the person asked "
+                    "*after* the selected prompt usually carries the intent — "
+                    "people open with something small and say what they want "
+                    "next — so the whole thread goes, not just what preceded "
+                    "it, and the model decides which of it is related.")
     context: str = Field(
         default="",
-        description="A little of what was on screen around it, so a prompt "
-                    "that refers to something can be made to stand alone.")
+        description="The older shape: a little of what was on screen around "
+                    "it. Kept so an out-of-date client still gets a rewrite.")
 
 
 @router.get("/prompts")
@@ -439,4 +451,5 @@ async def sharpen_prompt(body: SharpenRequest,
     """
     from compass.home.prompts import sharpen
 
-    return await sharpen(body.text, body.context)
+    return await sharpen(body.text, body.context,
+                         [t.model_dump() for t in body.turns])

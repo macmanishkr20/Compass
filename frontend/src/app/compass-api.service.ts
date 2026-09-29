@@ -524,12 +524,15 @@ export class CompassApiService {
     );
   }
 
-  /** A clearer, self-contained rewrite of one prompt, plus a title.
+  /** One consolidated prompt built from the selected one and its thread.
    *  Always resolves: the server returns the original on any failure. */
-  sharpenPrompt(text: string, context = ''): Promise<{ title: string; text: string }> {
+  sharpenPrompt(
+    text: string,
+    turns: { role: string; text: string }[] = [],
+  ): Promise<{ title: string; text: string }> {
     return firstValueFrom(
       this.http.post<{ title: string; text: string }>(
-        '/v1/chat/prompts/sharpen', { text, context }),
+        '/v1/chat/prompts/sharpen', { text, turns }),
     );
   }
 

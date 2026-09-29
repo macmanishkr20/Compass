@@ -198,27 +198,86 @@ def get_prompt_library() -> PromptLibrary:
 
 
 # ── sharpening ──────────────────────────────────────────────────────────
-SHARPEN_SYSTEM = """You rewrite one prompt so it can be reused on its own.
+#: How much of a conversation to send. A long session is mostly the model
+#: talking; what matters here is the person's own turns, so those are kept in
+#: full and the replies are summarised down to a line apiece.
+MAX_TURNS = 40
+MAX_TURN_CHARS = 700
 
-You are given a prompt somebody typed during a conversation, and sometimes a
-little of what was on screen around it. Mid-conversation prompts lean on that
-context — "do the same for the other one", "now make it shorter" — and are
-useless as a starting point for a new chat.
+SHARPEN_SYSTEM = """You turn one selected prompt into a single, complete prompt
+that can start a new conversation on its own.
 
-Rewrite it so it stands alone and says plainly what is wanted. Keep the
-person's intent exactly: do not add requirements they did not ask for, do not
-broaden the subject, and do not turn a specific request into a general one.
-If the prompt already stands alone, return it close to unchanged.
+You are given a person's conversation with the prompt they picked marked
+[SELECTED]. Their later turns are the important part: people open with
+something small and only then say what they actually want. "hi" carries no
+intent; the intent is in what they asked next.
 
-Use the surrounding context only to resolve what the prompt refers to. Never
-fold in other topics from the conversation.
+Work out what the person was really after around the selected prompt, then
+write ONE prompt that asks for all of it.
+
+  * Consolidate. If they asked for a thing and then refined it — added a
+    requirement, corrected you, narrowed the scope — fold those into one
+    request, as if they had known at the start what they wanted.
+  * Judge relevance yourself. A conversation can change subject. Include only
+    the turns that continue the selected prompt's thread, and ignore the ones
+    that start something unrelated, however close together they sit.
+  * When the selected prompt is only a greeting or an acknowledgement, the
+    thread it belongs to is whatever they went on to ask, and that is what
+    the prompt should say.
+  * When the selected prompt already stands alone and nothing later develops
+    it, return it as it is, give or take a word. Do not improve it.
+
+You are merging, not elaborating. Every requirement in your prompt must be
+one the person actually stated somewhere in the conversation.
+
+  * Do not turn a question into a specification. If they asked one sentence,
+    the answer is one sentence. Never add sub-topics, examples, deliverables,
+    caveats, or "include X and Y" lists they did not ask for — an expanded
+    prompt gets a different answer from the one they wanted.
+  * Your prompt should be about as long as their requests put together, and
+    no longer. If it is longer, you have invented something.
+  * Do not generalise a specific request, and do not carry over the
+    assistant's suggestions — a library it proposed, an approach it offered —
+    unless the person explicitly took them up.
+
+Write it as an instruction, in their voice, without referring to the
+conversation ("as discussed", "the one above" — never these).
 
 Reply with JSON and nothing else:
-{"title": "<= 6 words, plain, no quotes", "text": "the rewritten prompt"}"""
+{"title": "<= 6 words, plain, no quotes", "text": "the consolidated prompt"}"""
 
 
-async def sharpen(text: str, context: str = "") -> dict:
-    """A clearer version of one prompt, plus a title for it.
+def _transcript(turns: list[dict], selected: str) -> str:
+    """The conversation as the model sees it, with the chosen prompt marked.
+
+    Assistant turns are cut short deliberately: they are here so a follow-up
+    like "make it shorter" has something to point at, not so their content
+    can be folded into the person's request.
+    """
+    lines: list[str] = []
+    marked = False
+    for turn in turns[-MAX_TURNS:]:
+        role = "Person" if (turn.get("role") or "") == "user" else "Assistant"
+        body = _clean(str(turn.get("text") or ""), MAX_TURN_CHARS)
+        if not body:
+            continue
+        cap = MAX_TURN_CHARS if role == "Person" else 200
+        body = body[:cap]
+        # Only the first exact match is marked: a prompt repeated verbatim
+        # should anchor on the one they clicked, which is the earliest.
+        if not marked and role == "Person" and body[:120] == _clean(selected, MAX_TURN_CHARS)[:120]:
+            lines.append(f"[SELECTED] Person: {body}")
+            marked = True
+        else:
+            lines.append(f"{role}: {body}")
+    if not marked and selected.strip():
+        lines.append(f"[SELECTED] Person: {_clean(selected, MAX_TURN_CHARS)}")
+    return "\n".join(lines)
+
+
+async def sharpen(text: str, context: str = "",
+                  turns: list[dict] | None = None) -> dict:
+    """One consolidated prompt built from the selected one and its thread.
 
     Returns the original on any failure rather than raising: this sits behind
     an optional button in a dialog, and a model that is rate limited or
@@ -230,17 +289,23 @@ async def sharpen(text: str, context: str = "") -> dict:
     if not text:
         return {"title": "", "text": ""}
 
-    ask = f"The prompt to rewrite:\n{text}"
-    if context.strip():
-        ask += (f"\n\nWhat was on screen around it, for reference only:\n"
-                f"{_clean(context, 2000)}")
+    if turns:
+        ask = ("The conversation, oldest first:\n"
+               f"{_transcript(turns, text)}\n\n"
+               "Write the consolidated prompt for the [SELECTED] turn's thread.")
+    elif context.strip():
+        # The older shape, kept so an out-of-date client still gets a rewrite.
+        ask = (f"The prompt to rewrite:\n{text}\n\n"
+               f"Nearby conversation, for reference only:\n{_clean(context, 2000)}")
+    else:
+        ask = f"The prompt to rewrite:\n{text}"
 
     try:
         collected = ""
         async for item in get_model_client().stream_chat(
             [{"role": "system", "content": SHARPEN_SYSTEM},
              {"role": "user", "content": ask}],
-            max_output_tokens=800,
+            max_output_tokens=900,
             effort="minimal",
         ):
             collected += getattr(item, "text", "") or ""

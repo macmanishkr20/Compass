@@ -290,7 +290,7 @@ export class HomeChat {
     this.sharpening.set(true);
     this.promptError.set('');
     try {
-      const res = await this.api.sharpenPrompt(d.original, this.nearbyContext(d.original));
+      const res = await this.api.sharpenPrompt(d.original, this.threadForSharpen());
       this.saveDialog.set({
         ...d,
         title: d.title || res.title || '',
@@ -310,16 +310,19 @@ export class HomeChat {
     if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false });
   }
 
-  /** The few messages around this prompt — enough to resolve what it refers
-   *  to, capped so a long conversation does not become the context. */
-  private nearbyContext(text: string): string {
-    const all = this.messages();
-    const at = all.findIndex((m) => (m.text || '').trim() === text.trim());
-    const from = Math.max(0, (at < 0 ? all.length : at) - 4);
-    return all
-      .slice(from, at < 0 ? all.length : at)
-      .map((m) => `${m.role === 'user' ? 'Person' : 'Compass'}: ${(m.text || '').slice(0, 400)}`)
-      .join('\n');
+  /** The conversation to reason over, oldest first.
+   *
+   *  The whole thing, not the few messages before the selected prompt. What
+   *  somebody asked *after* picking a prompt is usually where the intent is:
+   *  people open with "hi" and only then say what they want, so sending only
+   *  what preceded it gave the model the one part with nothing in it. Which
+   *  of these turns actually belong to the selected prompt's thread is the
+   *  model's judgement, not a rule applied here — a conversation can change
+   *  subject, and a cut-off by position cannot tell. */
+  private threadForSharpen(): { role: string; text: string }[] {
+    return this.messages()
+      .filter((m) => (m.text || '').trim())
+      .map((m) => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text || '' }));
   }
 
   async commitSavePrompt(): Promise<void> {
