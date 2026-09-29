@@ -132,13 +132,22 @@ async def login(body: LoginRequest, response: Response) -> dict:
     from compass.common.users import canonical, get_user_store
 
     identity = canonical(body.username)
-    await get_user_store().record_login(body.username)
+    store = get_user_store()
+    await store.record_login(body.username)
     token = mint_token(body.username)
     _set_auth_cookie(response, token)
+    # The display name rides along, because otherwise the only way to learn it
+    # is `/me` — which the client calls when it boots, not when it signs in.
+    # The greeting on Home was therefore nameless on the first load after a
+    # login and correct on every refresh afterwards, which is exactly the
+    # difference between these two endpoints describing the same person.
+    row = await store.get(identity)
     # token still returned for non-browser API clients; browsers use the cookie.
     # `username` is the identity that owns records, which is what the client
     # should show and what every store stamps — not necessarily what was typed.
-    return {"token": token, "user": {"username": identity}}
+    return {"token": token,
+            "user": {"username": identity,
+                     "display_name": (row.display_name if row else "")}}
 
 
 @router.post("/logout")

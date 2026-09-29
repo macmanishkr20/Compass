@@ -8,6 +8,26 @@ export interface AuthUser {
   displayName?: string;
 }
 
+/** A user as the server sends one: snake_case, and `display_name` optional
+ *  because not every caller has asked for it. */
+interface RawUser {
+  username: string;
+  display_name?: string;
+}
+
+/** The one place a server user becomes an `AuthUser`.
+ *
+ *  It exists because there were two. `/me` mapped `display_name` across and
+ *  `/login` assigned the server's object straight through, so after signing
+ *  in the name sat on the object under a key nothing reads — and the Home
+ *  greeting was nameless until the next refresh, when `/me` ran and did the
+ *  mapping properly. Two call sites converting the same shape by hand is the
+ *  defect; one function is the fix. */
+function toUser(raw: RawUser | null | undefined): AuthUser | null {
+  if (!raw?.username) return null;
+  return { username: raw.username, displayName: raw.display_name ?? '' };
+}
+
 /**
  * Session auth state. The token lives ONLY in a secure httpOnly cookie set by
  * the server — never in browser storage — so JS can't read it and the client
@@ -81,9 +101,9 @@ export class AuthService {
         return;
       }
       const me = await firstValueFrom(
-        this.http.get<{ username: string; display_name?: string }>('/v1/auth/me'),
+        this.http.get<RawUser>('/v1/auth/me'),
       );
-      this.user.set({ username: me.username, displayName: me.display_name ?? '' });
+      this.user.set(toUser(me));
     } catch {
       this.user.set(null); // no/invalid cookie — fall through to login
     } finally {
@@ -107,9 +127,9 @@ export class AuthService {
     try {
       // The server sets the httpOnly cookie on this response; we keep nothing.
       const res = await firstValueFrom(
-        this.http.post<{ user: AuthUser }>('/v1/auth/login', { username, password }),
+        this.http.post<{ user: RawUser }>('/v1/auth/login', { username, password }),
       );
-      this.user.set(res.user);
+      this.user.set(toUser(res.user));
       return true;
     } catch (err: unknown) {
       const status = (err as { status?: number }).status;
