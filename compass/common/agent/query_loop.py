@@ -339,10 +339,12 @@ async def query(
         # in the prose survived, because those are in the text — which made
         # the loss look like a bug in the strip rather than a missing record.
         cited: list[str] = []
+        did: list[str] = []
         for item in result.hosted:
             if detail := hosted.describe(item):
                 found = hosted.sources(item)
                 cited.extend(u for u in found if u not in cited)
+                did.append(detail)
                 yield events.ServerToolUsed(
                     tool=item.get("type", "").removesuffix("_call"),
                     detail=detail,
@@ -351,6 +353,11 @@ async def query(
                 )
         if cited:
             usage_meta["sources"] = cited
+        if did:
+            # What the model did inside the turn, kept for the same reason the
+            # sources are: a reopened thread that shows an answer but not the
+            # three searches behind it is claiming less work than happened.
+            usage_meta["activity"] = did
         if result.reasoning:
             # Stored on the message, so it is written to the transcript with
             # everything else and survives a resume. Nothing reads it but the

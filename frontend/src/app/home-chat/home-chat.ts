@@ -319,6 +319,48 @@ export class HomeChat {
     }
   }
 
+  /** Everything this answer cited, for the strip under it.
+   *
+   *  Derived from the answer's own text, not only from what the search tool
+   *  reported. A hosted web search only names a URL when it *opens a page*:
+   *  a turn that searched, read the results and cited five sites in prose
+   *  reported none at all, so the strip was empty while five chips sat in
+   *  the paragraph above it. What the answer cited is written in the answer,
+   *  which is also the part that survives a reload — so reading it from
+   *  there fixes the live case and the reopened one together, and the strip
+   *  can never disagree with the chips.
+   *
+   *  Explicit sources still come first: a Work IQ document is a source with
+   *  no URL in the prose at all. */
+  sourcesFor(m: { text?: string; sources?: WorkIqSource[] }): WorkIqSource[] {
+    const out: WorkIqSource[] = [...(m.sources ?? [])];
+    const seen = new Set(out.map((s) => this.hostOf(s.url) || s.url));
+    for (const url of this.citedIn(m.text ?? '')) {
+      const key = this.hostOf(url) || url;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ n: out.length + 1, title: key, url });
+    }
+    return out.map((s, i) => ({ ...s, n: i + 1 }));
+  }
+
+  /** The links an answer cited: a markdown link whose label is a bare host,
+   *  which is how a citation is written and how the chip is recognised. One
+   *  entry per host — six bullets citing the same site are one source. */
+  private citedIn(text: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const m of text.matchAll(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g)) {
+      const label = m[1].trim().replace(/^www\./, '');
+      if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(label)) continue;
+      const host = this.hostOf(m[2]);
+      if (!host || seen.has(host)) continue;
+      seen.add(host);
+      out.push(m[2]);
+    }
+    return out;
+  }
+
   /** The server-side icon for a cited page, or '' when there is no host to
    *  ask about — a Work IQ document is a file in a knowledge base, not a
    *  site, and keeps its numbered form. */
@@ -632,6 +674,7 @@ export class HomeChat {
             try { title = new URL(url).hostname.replace(/^www\./, ''); } catch {}
             return { n: i + 1, title, url };
           }) : undefined,
+          serverActivity: (meta['activity'] as string[] | undefined) ?? undefined,
         });
       }
       // Ensure a chat session object exists on the server for follow-up turns.
