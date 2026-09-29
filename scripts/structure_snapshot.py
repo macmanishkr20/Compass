@@ -121,14 +121,53 @@ def prompts() -> dict[str, str]:
     return out
 
 
+def _served_routes(app) -> list:
+    """Every route the app really serves, with the included routers expanded.
+
+    FastAPI 0.139 stopped copying an included router's routes into `app.routes`.
+    It appends one lazy `_IncludedRouter` per `include_router` instead, and the
+    paths behind it — prefix already applied — only exist once that wrapper is
+    expanded. Expanding it is not optional: eleven entries at the top level
+    stand for nearly a hundred and forty paths, so merely skipping what has no
+    `.path` would leave this announcing "the table is unchanged" about a
+    fifteenth of the API.
+    """
+    try:
+        from fastapi.routing import iter_route_contexts
+    except ImportError:  # FastAPI < 0.139, where app.routes was already flat
+        return list(app.routes)
+    return list(iter_route_contexts(app.routes))
+
+
+def _path_of(route) -> str:
+    """The path a flattened route is served at, prefix included.
+
+    A websocket's context keeps its path on the rebuilt Starlette route rather
+    than on itself, so asking only for `.path` turns /v1/browser/ws into an
+    empty string and loses it from the table.
+    """
+    path = getattr(route, "path", None)
+    if not path:
+        path = getattr(getattr(route, "starlette_route", None), "path", None)
+    return path or ""
+
+
 def routes() -> list[str]:
     """Every path the app serves, with its methods — the API's outward shape."""
     from compass.api.server import app
 
     seen = []
-    for route in app.routes:
+    for route in _served_routes(app):
+        path = _path_of(route)
+        if not path:
+            # Dropping it would shrink the guard without saying so, which is the
+            # one failure this file exists to prevent.
+            raise SystemExit(
+                f"a {type(route).__name__} carries no path this knows how to read"
+                " — the snapshot would quietly stop covering it"
+            )
         methods = ",".join(sorted(getattr(route, "methods", []) or ["WS"]))
-        seen.append(f"{methods} {route.path}")
+        seen.append(f"{methods} {path}")
     return sorted(seen)
 
 
@@ -152,8 +191,8 @@ def smoke() -> dict[str, str]:
 
     out: dict[str, str] = {}
     with TestClient(app, raise_server_exceptions=False) as client:
-        for route in app.routes:
-            path = route.path
+        for route in _served_routes(app):
+            path = _path_of(route)
             methods = getattr(route, "methods", set()) or set()
             if "GET" not in methods or "{" in path:
                 continue
