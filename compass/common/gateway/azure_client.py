@@ -18,7 +18,7 @@ import logging
 import os
 import random
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Protocol
+from typing import Any, AsyncIterator, Mapping, Protocol
 
 from compass.common.config import get_settings
 from compass.common.gateway.refusals import (
@@ -48,6 +48,83 @@ _MOCK_SLOW = float(os.getenv("COMPASS_MOCK_SLOW", "0") or 0)
 
 MAX_RETRIES = 4
 BASE_DELAY_SECONDS = 1.0
+
+#: Longest a single retry will wait. A token-quota window renews once a
+#: minute, so anything shorter cannot outlast one; much longer means a turn
+#: that has silently stopped being worth waiting for.
+MAX_RETRY_SLEEP_SECONDS = 75.0
+
+#: What a quota window costs when the headers do not say. Azure reports
+#: `x-ratelimit-renewalperiod-tokens: 60` on this resource, but a deployment
+#: that omits it should still wait a sensible minute rather than a second.
+DEFAULT_RENEWAL_SECONDS = 60.0
+
+
+def _retry_after_seconds(headers: Mapping[str, Any] | None) -> float | None:
+    """How long to wait before retrying, read from the response itself.
+
+    Azure's `Retry-After` is not usable on its own here, and this is measured
+    rather than assumed: a 429 raised by exhausting the *token* quota comes
+    back with `retry-after: 1`, `retry-after-ms: 0` and `reset-tokens: 0`,
+    while the thing that actually has to happen is a 60-second window
+    renewal. Obeying `Retry-After` retries immediately into the same wall —
+    which is precisely what Compass was doing: four attempts, 1+2+4+8 seconds,
+    all inside one exhausted minute, and the session died about 45 seconds
+    before the quota would have freed itself.
+
+    So the token quota is read first and believed over `Retry-After`. The
+    header ladder below is in order of how much it knows.
+    """
+    if not headers:
+        return None
+
+    def number(name: str) -> float | None:
+        raw = headers.get(name) or headers.get(name.title())
+        try:
+            return float(str(raw).strip())
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    # Out of tokens for this window: nothing is retryable until it renews.
+    remaining = number("x-ratelimit-remaining-tokens")
+    if remaining is not None and remaining <= 0:
+        renewal = number("x-ratelimit-renewalperiod-tokens")
+        reset = number("x-ratelimit-reset-tokens")
+        # `reset` is the honest one when it is non-zero; this resource reports
+        # 0, which cannot be right for an exhausted window, so it is ignored.
+        wait = reset if (reset and reset > 0) else (renewal or DEFAULT_RENEWAL_SECONDS)
+        return min(wait, MAX_RETRY_SLEEP_SECONDS)
+
+    # Request-per-minute exhaustion, same reasoning. Compared against None
+    # rather than truth-tested: zero remaining is exactly the case this is
+    # looking for, and `0 or 1` quietly reads it as "no header".
+    requests_left = number("x-ratelimit-remaining-requests")
+    if requests_left is not None and requests_left <= 0:
+        renewal = number("x-ratelimit-renewalperiod-requests") or DEFAULT_RENEWAL_SECONDS
+        return min(renewal, MAX_RETRY_SLEEP_SECONDS)
+
+    ms = number("retry-after-ms")
+    if ms and ms > 0:
+        return min(ms / 1000.0, MAX_RETRY_SLEEP_SECONDS)
+    secs = number("retry-after")
+    if secs and secs > 0:
+        return min(secs, MAX_RETRY_SLEEP_SECONDS)
+    return None
+
+
+def _retry_after_of(err: Exception) -> float | None:
+    """The wait an error is carrying, whichever path raised it.
+
+    Two paths reach here: the reasoning path raises `_RetryableHTTPError`
+    with the wait already read, and the chat-completions path raises the
+    SDK's own errors, which keep the response on them. Both know the same
+    headers; only the packaging differs.
+    """
+    carried = getattr(err, "retry_after", None)
+    if isinstance(carried, (int, float)) and carried > 0:
+        return min(float(carried), MAX_RETRY_SLEEP_SECONDS)
+    headers = getattr(getattr(err, "response", None), "headers", None)
+    return _retry_after_seconds(headers)
 
 
 class ContextOverflowError(Exception):
@@ -135,7 +212,8 @@ def _credentials_error(deployment: str, azure) -> RuntimeError:
     )
 
 
-def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
+def _http_error(status: int, message: str, deployment: str, azure,
+                headers: Mapping[str, Any] | None = None) -> Exception:
     """Turn a failed reasoning request into the error the loop expects.
 
     The reasoning path is raw HTTP, so it has to categorize failures itself
@@ -156,12 +234,22 @@ def _http_error(status: int, message: str, deployment: str, azure) -> Exception:
             "on chat completions without thinking."
         )
     if status in (408, 409, 429) or status >= 500:
-        return _RetryableHTTPError(f"Azure returned {status}: {message}")
+        return _RetryableHTTPError(f"Azure returned {status}: {message}",
+                                   retry_after=_retry_after_seconds(headers))
     return RuntimeError(f"Azure returned {status}: {message}")
 
 
 class _RetryableHTTPError(Exception):
-    """A reasoning-path failure worth another attempt."""
+    """A reasoning-path failure worth another attempt.
+
+    Carries how long to wait when the response said so, because only the
+    response knows: a 429 for an exhausted token window needs a minute, and
+    a 500 needs a moment.
+    """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class RefusedError(Exception):
@@ -302,10 +390,19 @@ class AzureModelClient:
                         raise _credentials_error(target, settings.azure) from err
                     if not _is_retryable(err):
                         raise
-                    delay = BASE_DELAY_SECONDS * (2**attempt) + random.random()
+                    # What the response asked for beats the ladder. An
+                    # exhausted token window is not a transient blip that
+                    # doubling will outrun — it is a minute that has to pass,
+                    # and backing off 1, 2, 4, 8 seconds inside it just spends
+                    # the retry budget without ever reaching the other side.
+                    asked = _retry_after_of(err)
+                    delay = (asked if asked is not None
+                             else BASE_DELAY_SECONDS * (2**attempt) + random.random())
                     logger.warning(
-                        "retryable API error on %s (attempt %d): %s — sleeping %.1fs",
-                        target, attempt + 1, err, delay,
+                        "retryable API error on %s (attempt %d/%d): %s — "
+                        "sleeping %.1fs%s",
+                        target, attempt + 1, MAX_RETRIES, err, delay,
+                        " (quota window)" if asked is not None else "",
                     )
                     await asyncio.sleep(delay)
             logger.warning("deployment %s exhausted retries, trying fallback", target)
@@ -366,7 +463,8 @@ class AzureModelClient:
                     low = message.lower()
                     if "context" in low and "length" in low:
                         raise ContextOverflowError(message)
-                    raise _http_error(response.status_code, message, deployment, azure)
+                    raise _http_error(response.status_code, message, deployment,
+                                      azure, response.headers)
 
                 async for item in consume(sse_events(response.aiter_lines()), outcome):
                     # Each kind is named. The bare `else` this replaces would
@@ -590,7 +688,8 @@ class AzureModelClient:
             low = message.lower()
             if "context" in low and "length" in low:
                 raise ContextOverflowError(message)
-            raise _http_error(response.status_code, message, deployment, azure)
+            raise _http_error(response.status_code, message, deployment, azure,
+                              response.headers)
 
         outcome = parse_response(response.json())
         if outcome.finish_reason == "length":

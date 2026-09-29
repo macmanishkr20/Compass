@@ -358,7 +358,56 @@ class ContextSettings(BaseModel):
     microcompact_min_chars: int = 2_000
     # per-result budget: single tool result larger than this is truncated and
     # the full content is spilled to disk (toolResultStorage analog).
-    tool_result_max_chars: int = 30_000
+    #
+    # Was 30_000 — about 7,500 tokens for one tool result, so four file reads
+    # reached the compaction ceiling on their own. That ceiling is not the
+    # model's window but the deployment's minute: on a 50,000 token/minute
+    # quota a 28,000-token call is 1.8 calls per minute, and a mission of 132
+    # turns is then an hour of waiting regardless of how fast the model is.
+    # Nothing is lost by trimming — the full output is written to disk and the
+    # stub names the file, so a model that needs the rest can go and read it.
+    tool_result_max_chars: int = 8_000
+
+
+class MissionSettings(BaseModel):
+    """Long-running builds: plan, build one feature at a time, review, repeat.
+
+    Off by default and opted into, like Estimate. A mission runs unattended
+    for hours and spends money doing it — that is a decision a deployment
+    makes deliberately, not one it discovers. `COMPASS_MISSIONS=1` turns it
+    on; with it off no routes are mounted and nothing is imported.
+    """
+
+    enabled: bool = False
+
+
+class SandboxSettings(BaseModel):
+    """OS-enforced limits on what a command can touch.
+
+    On by default. That was a decision to test rather than assume, so the
+    everyday toolchain was measured under it: git init and commit, a venv,
+    `pip install`, `npm install` — all unaffected. The single casualty was
+    `git config --global`, which is a write to the home directory and exactly
+    the kind of thing an agent should not be doing behind your back.
+
+    `COMPASS_SANDBOX=0` turns it off. Where no boundary exists — Windows —
+    Compass warns once and runs without one, unless `COMPASS_SANDBOX_STRICT`
+    says that is unacceptable.
+    """
+
+    enabled: bool = True
+    #: Extra directories commands may write to, beyond the workspace and temp.
+    allow_write: list[str] = []
+    #: Extra paths whose contents may not be read, beyond the built-in list of
+    #: key and credential locations (see sandbox.policy.DEFAULT_SECRET_PATHS).
+    deny_read: list[str] = []
+    #: Whether sandboxed commands may reach the network at all. Phase 0 is all
+    #: or nothing — a per-domain allowlist needs a proxy in front of it.
+    network: bool = True
+    #: Refuse to run rather than run unsandboxed where no boundary exists
+    #: (Windows, or Linux without bubblewrap). For deployments where the
+    #: sandbox is a security gate rather than a convenience.
+    fail_if_unavailable: bool = False
 
 
 class LoopSettings(BaseModel):
@@ -465,6 +514,8 @@ class Settings(BaseModel):
     tools: ToolSettings = Field(default_factory=ToolSettings)
     pipelines: PipelineSettings = Field(default_factory=PipelineSettings)
     estimate: EstimateSettings = Field(default_factory=EstimateSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    missions: MissionSettings = Field(default_factory=MissionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
     loop: LoopSettings = Field(default_factory=LoopSettings)
     permission_mode: str = "default"  # default | accept_edits | plan | bypass
@@ -736,6 +787,22 @@ def get_settings() -> Settings:
     pipelines.secrets_backend = os.environ.get(
         "COMPASS_PIPELINES_SECRETS", pipelines.secrets_backend
     ).lower()
+
+    if (flag := os.environ.get("COMPASS_MISSIONS", "").strip().lower()):
+        settings.missions.enabled = flag in ("1", "true", "yes", "on")
+
+    sandbox = settings.sandbox
+    if (flag := os.environ.get("COMPASS_SANDBOX", "").strip().lower()):
+        sandbox.enabled = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_SANDBOX_NETWORK", "").strip().lower()):
+        sandbox.network = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_SANDBOX_STRICT", "").strip().lower()):
+        sandbox.fail_if_unavailable = flag in ("1", "true", "yes", "on")
+    for name, target in (("ALLOW_WRITE", "allow_write"), ("DENY_READ", "deny_read")):
+        raw = os.environ.get(f"COMPASS_SANDBOX_{name}", "").strip()
+        if raw:
+            setattr(sandbox, target,
+                    [part.strip() for part in raw.split(",") if part.strip()])
 
     estimate = settings.estimate
     if (flag := os.environ.get("COMPASS_ESTIMATE", "").strip().lower()):
