@@ -222,6 +222,10 @@ export class HomeChat {
     text: string;
     original: string;    // what was typed, so a sharpen can be undone
     sharpened: boolean;
+    /** Which of the session's prompts were merged, by their number in the
+     *  conversation. Shown rather than kept quiet: a prompt assembled out of
+     *  turns you cannot see is one you have to take on trust. */
+    used: number[];
   } | null>(null);
   readonly sharpening = signal(false);
   readonly savingPrompt = signal(false);
@@ -261,13 +265,15 @@ export class HomeChat {
     const text = (m.text || '').trim();
     if (!text) return;
     this.promptError.set('');
-    this.saveDialog.set({ id: '', title: '', text, original: text, sharpened: false });
+    this.saveDialog.set({ id: '', title: '', text, original: text,
+                          sharpened: false, used: [] });
   }
 
   editSaved(p: SavedPrompt): void {
     this.promptError.set('');
     this.saveDialog.set({
-      id: p.id, title: p.title, text: p.text, original: p.text, sharpened: false,
+      id: p.id, title: p.title, text: p.text, original: p.text,
+      sharpened: false, used: [],
     });
   }
 
@@ -304,6 +310,7 @@ export class HomeChat {
         title: d.title || res.title || '',
         text: res.text || d.text,
         sharpened: true,
+        used: res.used ?? [],
       });
     } catch (err) {
       this.promptError.set(String(err));
@@ -312,10 +319,40 @@ export class HomeChat {
     }
   }
 
+  /** Which prompts went into the build, said plainly.
+   *
+   *  "this prompt alone" is a real and common answer — most prompts do not
+   *  have a thread — and saying so is the difference between the button
+   *  having decided nothing developed it and the button having failed. */
+  usedLine(used: number[]): string {
+    if (!used.length) return '';
+    if (used.length === 1) return 'Built from this prompt alone';
+    const total = this.promptCount();
+    return total > used.length
+      ? `Built from ${used.length} of your ${total} prompts in this chat`
+      : `Built from all ${used.length} of your prompts in this chat`;
+  }
+
+  /** The exact numbers, for the tooltip — the ratio says it was selective,
+   *  this says which. Ordinals are not drawn in the transcript, so they go
+   *  where somebody can look them up rather than in the line itself. */
+  usedDetail(used: number[]): string {
+    if (used.length < 2) return '';
+    return `Merged your prompts ${used.map((i) => `#${i}`).join(', ')}, `
+      + `counting only the ones you typed. The rest of the chat was read and `
+      + `left out.`;
+  }
+
+  /** How many prompts the person has typed — the same ones, in the same
+   *  order, that `threadForSharpen` numbers when it sends them. */
+  private promptCount(): number {
+    return this.messages().filter((m) => m.role === 'user' && (m.text || '').trim()).length;
+  }
+
   /** Put back what was typed, if the rewrite went somewhere they did not mean. */
   undoSharpen(): void {
     const d = this.saveDialog();
-    if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false });
+    if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false, used: [] });
   }
 
   /** The conversation to reason over, oldest first.

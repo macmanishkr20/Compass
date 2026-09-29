@@ -431,7 +431,7 @@
         </button>
         @if (d.sharpened) {
           <button class="pl-btn ghost" type="button" (click)="undoSharpen()">Use what I typed</button>
-          <span class="pl-note">Built from this session's prompts — edit it freely.</span>
+          <span class="pl-note" [title]="usedDetail(d.used)">{{ usedLine(d.used) || 'Built from this session\'s prompts' }} — edit it freely.</span>
         } @else {
           <span class="pl-note">Reads what you asked around this and writes one complete prompt.</span>
         }

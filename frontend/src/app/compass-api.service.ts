@@ -529,9 +529,9 @@ export class CompassApiService {
   sharpenPrompt(
     text: string,
     turns: { role: string; text: string }[] = [],
-  ): Promise<{ title: string; text: string }> {
+  ): Promise<{ title: string; text: string; used: number[] }> {
     return firstValueFrom(
-      this.http.post<{ title: string; text: string }>(
+      this.http.post<{ title: string; text: string; used: number[] }>(
         '/v1/chat/prompts/sharpen', { text, turns }),
     );
   }
