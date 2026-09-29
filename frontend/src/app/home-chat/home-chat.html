@@ -414,8 +414,12 @@
       <textarea id="pl-text" class="pl-text" rows="6" [value]="d.text"
         (input)="patchDialog({ text: $any($event.target).value })"></textarea>
 
-      <!-- Offered, never applied on its own: a rewrite that quietly changes
-           what somebody meant is worse than the prompt they typed. -->
+      <!-- Offered, never applied on its own: a prompt that quietly changes
+           what somebody meant is worse than the one they typed. The label
+           says "build" rather than "rewrite" because that is what it does —
+           it reads the related turns in the conversation and assembles one
+           complete prompt, which is a different promise from tidying the
+           line in the box. -->
       <div class="pl-sharpen">
         <button class="pl-btn ghost" type="button" (click)="sharpen()" [disabled]="sharpening()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
@@ -423,13 +427,13 @@
             <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
             <path d="M18 15l.8 2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1z"/>
           </svg>
-          {{ sharpening() ? 'Rewriting…' : 'Make it clearer' }}
+          {{ sharpening() ? 'Building…' : 'Build the full prompt' }}
         </button>
         @if (d.sharpened) {
           <button class="pl-btn ghost" type="button" (click)="undoSharpen()">Use what I typed</button>
-          <span class="pl-note">Rewritten to stand on its own — edit it freely.</span>
+          <span class="pl-note">Built from this chat — edit it freely.</span>
         } @else {
-          <span class="pl-note">Rewrites this prompt so it works in a new chat.</span>
+          <span class="pl-note">Reads what you asked around this and writes one complete prompt.</span>
         }
       </div>
 
