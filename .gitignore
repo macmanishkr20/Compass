@@ -2,7 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+# The environment file and anything derived from it. The bare `.env` was
+# already ignored; a `.env.bak` written before editing it was not, and a file
+# holding live Azure keys sitting untracked in the repo root is precisely the
+# one that gets committed by accident.
 .env
+.env.*
 data/
 .DS_Store
 # Written when something builds a session-file path out of a SQLite
