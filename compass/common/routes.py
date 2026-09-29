@@ -32,6 +32,20 @@ def _tts_voices() -> list[str]:
     return AVAILABLE_VOICES
 
 
+def _sandbox_status() -> dict:
+    from compass.common import sandbox
+
+    settings = get_settings()
+    state = sandbox.availability()
+    return {
+        "enabled": settings.sandbox.enabled,
+        "backend": state.backend,
+        "enforced": settings.sandbox.enabled and state.ok,
+        "network": settings.sandbox.network,
+        "reason": "" if state.ok else state.reason,
+    }
+
+
 @router.get("/healthz")
 async def healthz() -> dict:
     settings = get_settings()
@@ -59,6 +73,16 @@ async def healthz() -> dict:
         # rather than assuming it, so a build with Estimate off shows no nav
         # entry leading to routes that are not mounted.
         "estimate": settings.estimate.enabled,
+        # And Missions, on the same contract: the nav asks rather than
+        # assuming, so a build without it shows no entry into routes that
+        # were never mounted.
+        "missions": settings.missions.enabled,
+        # Whether shell commands run inside an OS-enforced boundary, and if
+        # not, why. Reported rather than logged because "your agent is running
+        # with the server's privileges" is a thing an operator should be able
+        # to see without reading a log — particularly on Windows, where no
+        # boundary exists and Compass carries on regardless.
+        "sandbox": _sandbox_status(),
         "workspace": str(settings.workspace_root),
     }
 

@@ -90,7 +90,24 @@ async def lifespan(app: FastAPI):
         from compass.pipelines import runner as pipeline_runner
 
         pipeline_runner.start()
+    # Scheduled mission starts, on the same terms. Started here rather than
+    # with `@app.on_event("startup")`, which is both deprecated and silently
+    # ignored once an app has a lifespan — registered that way the loop never
+    # ran at all, and nothing said so.
+    #
+    # Scheduled starts only: nothing that was running when the process died is
+    # resumed on boot. A server that spends money on its own after a crash,
+    # with nobody having asked it to, is not a feature.
+    mission_scheduler = None
+    if get_settings().missions.enabled:
+        import asyncio
+
+        from compass.missions.schedule import scheduler_loop
+
+        mission_scheduler = asyncio.create_task(scheduler_loop())
     yield
+    if mission_scheduler is not None:
+        mission_scheduler.cancel()
     await manager.stop()
     store = get_transcript_store()
     close = getattr(store, "close", None)
@@ -148,3 +165,14 @@ if get_settings().estimate.enabled:
 
     app.include_router(estimate_router)
     logger.info("Estimate enabled")
+
+# Missions — long-running autonomous builds. Same contract again: opted into,
+# imported inside the conditional, and absent entirely when off. A module that
+# runs for hours unattended and spends money is the clearest case yet for
+# being switched on deliberately.
+if get_settings().missions.enabled:
+    from compass.missions.routes import router as missions_router
+
+    app.include_router(missions_router)
+    logger.info("Missions enabled")
+

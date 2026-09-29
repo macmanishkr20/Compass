@@ -10,6 +10,8 @@ no idea what surface is consuming it — REPL, SSE, or a test.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -17,6 +19,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from compass.common.agent.query_loop import query
+from compass.common.config import get_settings
 from compass.code.system_prompt import build_system_prompt
 from compass.common.gateway.cost_tracker import CostTracker
 from compass.common.models import events
@@ -100,6 +103,45 @@ class Session:
 def _title_from(text: str) -> str:
     clean = " ".join(text.split())
     return clean[:60] + ("…" if len(clean) > 60 else "")
+
+
+logger = logging.getLogger("compass.code")
+
+
+@dataclass
+class MissionOffer:
+    """"This looks like a build — start it as a mission?"
+
+    Local to this surface rather than added to the shared events, the same
+    reasoning as Home's Work IQ event: a client that does not know the type
+    ignores it, and nothing about any other stream changes. Carries the
+    person's own words as the goal, because they will see them again on the
+    card and in the mission, and a paraphrase invites an argument about what
+    they meant.
+    """
+
+    goal: str
+    reason: str
+
+    def to_sse(self) -> str:
+        payload = json.dumps({"type": "mission_offer", "goal": self.goal,
+                              "reason": self.reason})
+        return f"event: mission_offer\ndata: {payload}\n\n"
+
+
+def _mission_offer(prompt: str) -> "MissionOffer | None":
+    """An offer, or None — and None whenever the module is off, so a build
+    without Missions never mentions it."""
+    if not get_settings().missions.enabled:
+        return None
+    try:
+        from compass.missions.suggest import goal_from, looks_like_a_mission
+
+        worth_it, reason = looks_like_a_mission(prompt)
+        return MissionOffer(goal=goal_from(prompt), reason=reason) if worth_it else None
+    except Exception:  # noqa: BLE001 — a suggestion must never cost a turn
+        logger.warning("could not check for a mission offer", exc_info=True)
+        return None
 
 
 class QueryEngine:
@@ -201,6 +243,14 @@ class QueryEngine:
             session.messages.append(message)
             self.store.append(session.id, message)
             await self._bump_meta(session, user_input if is_first else None)
+
+            # A brief that reads like hours of work is offered to the
+            # Missions harness rather than quietly becoming one. Yielded
+            # before the turn so the card sits with the request it is about,
+            # and the turn runs regardless: the offer is a second option, not
+            # a fork in the road.
+            if offer := _mission_offer(user_input):
+                yield offer
 
             async for event in self._run_turn(session):
                 yield event
