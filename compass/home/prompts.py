@@ -483,7 +483,13 @@ async def sharpen(text: str, context: str = "",
             [{"role": "system", "content": SHARPEN_SYSTEM},
              {"role": "user", "content": ask}],
             max_output_tokens=900,
-            effort="minimal",
+            # `low`, not `minimal`, because the two model families accept
+            # overlapping but different ladders and this call is fixed at
+            # whatever is deployed: gpt-5 takes minimal…high, gpt-6-astra
+            # takes low…max and rejects `minimal` with a 400. `low` is the
+            # weakest level both agree on, and it still means do not
+            # deliberate — which is all a rewrite of one prompt needs.
+            effort="low",
         ):
             collected += getattr(item, "text", "") or ""
         parsed = _parse(collected)

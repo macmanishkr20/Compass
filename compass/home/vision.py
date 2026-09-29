@@ -111,7 +111,11 @@ async def _describe_batch(client, files: list) -> dict[str, dict]:
         answer = await client.complete_utility(
             _PROMPT,
             "Describe these " + str(len(thumbs)) + " images, in order.",
-            images=thumbs, max_tokens=_MAX_TOKENS, effort="minimal",
+            # `low` rather than `minimal`: see the note in prompts.sharpen.
+            # gpt-6-astra rejects `minimal` outright, and this call swallows
+            # its own errors, so the failure would show up as images that
+            # quietly have no descriptions.
+            images=thumbs, max_tokens=_MAX_TOKENS, effort="low",
             schema=_SCHEMA, schema_name="catalogue")
         rows = (json.loads(answer) or {}).get("images") or []
     except Exception as err:  # noqa: BLE001 — descriptions are a convenience
