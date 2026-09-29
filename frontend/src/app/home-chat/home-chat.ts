@@ -616,6 +616,10 @@ export class HomeChat {
         // all (see the note in the template above the bubble), so a
         // thinking-only message has nothing to render either.
         if (m.role === 'assistant' && !text.trim()) continue;
+        // The pages the answer rested on, restored with it. They are on the
+        // message for the same reason the reasoning summary is: which sources
+        // an answer used is part of the record, not of the moment it arrived.
+        const cited = (meta['sources'] as string[] | undefined) ?? [];
         msgs.push({
           id: m.uuid || crypto.randomUUID(),
           role: m.role,
@@ -623,6 +627,11 @@ export class HomeChat {
           streaming: false,
           thinking: (meta['thinking_summary'] as string) || undefined,
           thinkingTokens: (usage['reasoning_tokens'] as number) || undefined,
+          sources: cited.length ? cited.map((url, i) => {
+            let title = url;
+            try { title = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+            return { n: i + 1, title, url };
+          }) : undefined,
         });
       }
       // Ensure a chat session object exists on the server for follow-up turns.

@@ -331,14 +331,26 @@ async def query(
         }
         # Reported before the reasoning summary, because it happened first:
         # the search is what the thinking was about.
+        #
+        # The pages are also kept on the message. They used to exist only as
+        # this event, so the strip listing them lived in the browser's memory
+        # and nowhere else: reload the page and an answer that had rested on
+        # three sources looked like one produced from nothing. The citations
+        # in the prose survived, because those are in the text — which made
+        # the loss look like a bug in the strip rather than a missing record.
+        cited: list[str] = []
         for item in result.hosted:
             if detail := hosted.describe(item):
+                found = hosted.sources(item)
+                cited.extend(u for u in found if u not in cited)
                 yield events.ServerToolUsed(
                     tool=item.get("type", "").removesuffix("_call"),
                     detail=detail,
-                    sources=hosted.sources(item),
+                    sources=found,
                     agent_id=ctx.agent_id,
                 )
+        if cited:
+            usage_meta["sources"] = cited
         if result.reasoning:
             # Stored on the message, so it is written to the transcript with
             # everything else and survives a resume. Nothing reads it but the
