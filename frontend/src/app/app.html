@@ -637,6 +637,19 @@
             Estimate
           </button>
         }
+        <!-- Missions, on the same terms as the two above: the server says
+             whether the module exists at all. -->
+        @if (health()?.missions) {
+          <button type="button" role="tab" [attr.aria-selected]="section() === 'missions'"
+            (click)="enterMissions()"
+            [style.background]="section() === 'missions' ? 'var(--surface)' : 'transparent'"
+            [style.color]="section() === 'missions' ? 'var(--ink)' : 'var(--muted)'"
+            [style.font-weight]="section() === 'missions' ? 600 : 400"
+            style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6L12 15.8 6.9 18.4 8 12.8 4 8.9l5.6-.7z" stroke-linejoin="round"/></svg>
+            Missions
+          </button>
+        }
       </div>
       <div class="topbar-title">
         <!-- Only Code has a conversation to name here. The others fell
@@ -667,6 +680,20 @@
           <button class="icon-btn ghost" [class.on]="railOpen()" aria-label="Working copy"
             title="Working copy" (click)="toggleRail()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg>
+          </button>
+        }
+        @if (section() === 'missions') {
+          <!-- The pulse. A mission runs for hours with nobody watching, so the
+               one piece of nav chrome it earns is a way to glance at what it
+               is doing without opening it. The dot marks a running mission or
+               lines arrived since the feed was last read. -->
+          <button class="icon-btn ghost" [class.on]="missionFeed.open()"
+            aria-label="Live activity" title="Live activity"
+            (click)="missionFeed.toggle()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 12h3l2.5-6 4 13 2.5-7H21" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            @if (missionFeed.hasNews()) {
+              <span class="topmenu-dot" [class.pulsing]="missionFeed.live()"></span>
+            }
           </button>
         }
         <!-- Overflow menu: artifacts, files, background tasks, conversation
@@ -815,6 +842,12 @@
          endpoints that are not mounted. -->
     @if (section() === 'estimate') {
       <app-estimate />
+    }
+
+    <!-- Same contract again: never instantiated in a build with the module
+         off, so nothing here calls routes that were not mounted. -->
+    @if (section() === 'missions') {
+      <app-missions />
     }
 
     @if (section() === 'code' && view() === 'chat') {
@@ -1413,6 +1446,30 @@
             </div>
           }
         </div>
+        </div>
+      }
+      <!-- The console noticing this brief is a build. An offer with a
+           button under it: starting a mission spends money for hours with
+           nobody watching, so it stays a decision rather than an inference. -->
+      @if (missionOffer(); as offer) {
+        <div class="mission-offer">
+          <span class="mission-offer-ic" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l2.4 5.2 5.6.7-4.1 3.9 1.1 5.6L12 15.8 6.9 18.4 8 12.8 4 8.9l5.6-.7z" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="mission-offer-text">
+            <b>This looks like a build, not a task</b>
+            <span class="mission-offer-why">{{ offer.reason }} — a mission
+              plans it, builds one feature at a time and reviews its own work,
+              and it keeps going when you close the tab.</span>
+            @if (missionError()) { <span class="mission-offer-err">{{ missionError() }}</span> }
+          </span>
+          <span class="mission-offer-actions">
+            <button type="button" class="mission-offer-go" (click)="startAsMission()"
+              [disabled]="startingMission()">
+              {{ startingMission() ? 'Creating…' : 'Start as mission' }}
+            </button>
+            <button type="button" class="mission-offer-no" (click)="dismissMissionOffer()">Not now</button>
+          </span>
         </div>
       }
       @if (browserSelectSvc.picks().length) {

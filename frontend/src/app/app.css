@@ -771,6 +771,13 @@
 @keyframes pulse { 50% { opacity: 0.4; } }
 
 .icon-btn {
+  /* Its own positioning context, so a `.topmenu-dot` badge lands on the
+     button it belongs to. Without this the dot anchored to whatever was
+     positioned further up the bar and appeared at the far right, past the
+     avatar — attached to the wrong icon entirely. The overflow menu's dot
+     was only correct because `.topmenu-wrap` happens to be positioned, and
+     that wrap has the same box as its button, so nothing moves for it. */
+  position: relative;
   width: 34px; height: 34px;
   display: inline-flex; align-items: center; justify-content: center;
   border-radius: 9px;
@@ -3467,6 +3474,11 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
 }
 .topmenu-dot.inline { position: static; }
+/* The same dot, breathing, while a mission is actually running — the nav's
+   only moving part, and it moves exactly when something is happening. */
+.topmenu-dot.pulsing { animation: topmenu-dot-pulse 1.3s ease-in-out infinite; }
+@keyframes topmenu-dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .topmenu-dot.pulsing { animation: none; } }
 
 /* Files browser. */
 .files-window {
@@ -4224,4 +4236,38 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   text-overflow: clip;
   max-width: none;
   margin-left: 0;
+}
+
+/* The console's offer to hand a brief to Missions. Sits above the composer,
+   quiet enough to ignore and specific enough to act on. */
+.mission-offer {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 34%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+}
+.mission-offer-ic { flex: 0 0 auto; color: var(--accent); margin-top: 1px; }
+.mission-offer-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.mission-offer-text b { font-size: 0.83rem; font-weight: 600; color: var(--ink); }
+.mission-offer-why { font-size: 0.78rem; color: var(--muted); line-height: 1.45; }
+.mission-offer-err { font-size: 0.76rem; color: var(--danger, #b5462f); }
+.mission-offer-actions { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+.mission-offer-go {
+  padding: 5px 11px; border: 0; border-radius: 7px;
+  background: var(--accent); color: var(--on-accent, #16120b);
+  font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+.mission-offer-go:disabled { opacity: 0.5; cursor: default; }
+.mission-offer-no {
+  padding: 5px 9px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 0.78rem; cursor: pointer;
+}
+.mission-offer-no:hover { color: var(--ink); }
+@media (max-width: 640px) {
+  .mission-offer { flex-wrap: wrap; }
+  .mission-offer-actions { width: 100%; justify-content: flex-end; }
 }

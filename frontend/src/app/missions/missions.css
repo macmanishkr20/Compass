@@ -1,0 +1,959 @@
+/* Missions.
+ *
+ * Built to a supplied design. Its tokens are declared here, on the section
+ * root, and mapped onto Compass's own wherever Compass already has the
+ * colour — so the page keeps the background and the accent the rest of the
+ * app uses, in both themes, and this screen does not become the one place
+ * that paints its own surfaces. The design's night palette and Compass's
+ * dark theme were already within a few percent of each other (its brass
+ * #d6a441 against Compass's #D9A441), which is what makes the mapping honest
+ * rather than a compromise.
+ *
+ * Everything the design needs that Compass had no name for — the review
+ * states, the two extra hues for sessions and verdicts, the three shadows —
+ * is defined here and nowhere else.
+ */
+
+/* The component's own element. Without this it is a plain block with
+   `min-height: auto`, which breaks the height chain between the shell's grid
+   cell and the scroller inside: `.ms-root` grew to its content instead of
+   being bounded, so nothing scrolled and the detail screen's two panes had no
+   height to divide. */
+:host {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ms-root {
+  /* The design's vocabulary, in Compass's colours — the same aliasing the
+     Estimate section uses, and for the same reason: a rule can come across
+     from the source unchanged and still be checked by eye, while the section
+     themes with the rest of the app instead of carrying a second palette.
+
+     `--surface` and `--surface-2` are deliberately *not* declared here. The
+     design's are a warm off-white (#fffefb) against Compass's cool #FFFFFF,
+     which put Missions' cards a shade off every other section's — visible
+     the moment it sat beside Estimate. Left undeclared they inherit the
+     app's, so a Missions card and an Estimate card are the same colour by
+     construction rather than by two values being kept in step by hand. */
+  --paper: var(--bg);
+  --surface-3: var(--bg-2);
+  --ink-1: var(--ink);
+  --ink-2: var(--muted);
+  --ink-3: var(--faint);
+  --rule: var(--border);
+  --rule-2: var(--border-strong);
+  --brass: var(--accent);
+  --brass-2: var(--accent-strong);
+  --brass-soft: var(--accent-tint);
+  --ok: var(--success);
+  --ok-soft: var(--success-tint);
+  --err: var(--danger);
+  --err-soft: var(--danger-tint);
+  --sea: var(--info);
+  --sea-soft: var(--info-tint);
+  --sh-1: var(--shadow-sm);
+  --sh-2: var(--shadow-md);
+  --sh-3: var(--shadow-lg);
+
+  /* Three the app has no equivalent for, so they keep the design's own values
+     and carry their own night steps: an amber that is not the brass, a violet
+     for reviewer sessions, and a grey for "nothing yet". */
+  --warn: #b8791b;
+  --warn-soft: rgba(184, 121, 27, 0.12);
+  --violet: #7b5ea7;
+  --violet-soft: rgba(123, 94, 167, 0.13);
+  --idle: #8d8b83;
+  --idle-soft: rgba(141, 139, 131, 0.13);
+
+  font-size: 13px;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Dark overrides go through `:host-context`, not `:root[data-theme]`.
+   Angular's emulated encapsulation rewrites a descendant selector by adding
+   the component's attribute to *every* compound in it, so `:root[…] .ms-root`
+   became `[_ngcontent-x]:root[…] .ms-root[_ngcontent-x]` — and <html> never
+   carries that attribute, so the rule could never match and the whole dark
+   palette below was silently dead. `:host-context` is the one construct that
+   compiles to an ancestor test. */
+/* Only the three that are this section's own need a night step. Everything
+   else is aliased to a Compass token, and those flip with the app's theme —
+   the same arrangement Estimate uses. */
+:host-context([data-theme='dark']) .ms-root {
+  --warn: #e0a83f;
+  --warn-soft: rgba(224, 168, 63, 0.15);
+  --violet: #a288cc;
+  --violet-soft: rgba(162, 136, 204, 0.16);
+  --idle: #6e6d68;
+  --idle-soft: rgba(140, 138, 132, 0.22);
+}
+
+
+.ms-screen {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: ms-rise 0.34s ease both;
+}
+@keyframes ms-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ms-screen { animation: none; }
+}
+
+.ms-scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.ms-wrap { max-width: 1180px; margin: 0 auto; padding: 24px 32px 60px; }
+
+/* ── shared atoms ─────────────────────────────────────────────────── */
+.ms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  transition: 0.15s;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ms-btn:hover:not(:disabled) { border-color: var(--rule-2); box-shadow: var(--sh-2); }
+.ms-btn svg { width: 13px; height: 13px; stroke: currentColor; stroke-width: 1.9; fill: none; }
+.ms-btn.pri {
+  background: var(--brass);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+:host-context([data-theme='dark']) .ms-btn.pri { color: #1a1205; }
+.ms-btn.pri:hover:not(:disabled) { background: var(--brass-2); }
+.ms-btn:disabled { opacity: 0.42; pointer-events: none; }
+.ms-btn.sm { padding: 5px 10px; font-size: 11.5px; border-radius: 8px; }
+.ms-btn.gh { background: transparent; box-shadow: none; border-color: transparent; color: var(--ink-2); }
+.ms-btn.gh:hover:not(:disabled) { background: var(--surface-2); color: var(--ink-1); }
+.ms-btn.dang { color: var(--err); }
+.ms-btn.dang:hover:not(:disabled) { background: var(--err-soft); border-color: var(--err); }
+
+.ms-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ms-pill .d { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-run { background: var(--sea-soft); color: var(--sea); }
+.p-ok { background: var(--ok-soft); color: var(--ok); }
+.p-warn { background: var(--warn-soft); color: var(--warn); }
+.p-err { background: var(--err-soft); color: var(--err); }
+.p-idle { background: var(--idle-soft); color: var(--ink-3); }
+.p-vio { background: var(--violet-soft); color: var(--violet); }
+
+.ms-eyeb {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ms-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ms-tk { flex: 1; height: 1px; background: var(--rule); }
+.ms-mono { font-family: var(--mono); }
+.ms-num { font-size: 10.5px; color: var(--ink-3); font-family: var(--mono); }
+
+@keyframes ms-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.ms-blink { animation: ms-pulse 1.3s infinite; }
+@media (prefers-reduced-motion: reduce) { .ms-blink { animation: none; } }
+
+/* ── index head + stats ───────────────────────────────────────────── */
+.ms-ihead { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; }
+.ms-ihead h1 {
+  font-family: var(--serif);
+  font-size: 38px;
+  font-weight: 400;
+  letter-spacing: -0.022em;
+  line-height: 1;
+  margin: 0;
+}
+.ms-ihead p {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  margin: 9px 0 0;
+  max-width: 500px;
+  line-height: 1.55;
+}
+.ms-ihead .acts { margin-left: auto; display: flex; gap: 8px; }
+
+.ms-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 11px;
+  margin-bottom: 18px;
+}
+.ms-stat {
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+}
+.ms-stat .k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ms-stat .k i { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.ms-stat .v {
+  font-family: var(--mono);
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  margin-top: 8px;
+  line-height: 1;
+}
+.ms-stat .s { font-size: 11px; color: var(--ink-3); margin-top: 5px; }
+
+/* ── brief composer ───────────────────────────────────────────────── */
+.ms-brief {
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-2);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  transition: 0.2s;
+}
+.ms-brief:focus-within {
+  border-color: var(--brass);
+  box-shadow: 0 0 0 3.5px var(--brass-soft), var(--sh-2);
+}
+.ms-brief textarea {
+  width: 100%;
+  margin-top: 11px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  color: inherit;
+  line-height: 1.55;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  outline: none;
+  resize: vertical;
+  min-height: 84px;
+  transition: 0.15s;
+}
+.ms-brief textarea:focus { background: var(--surface); border-color: var(--rule-2); }
+.ms-brief textarea::placeholder { color: var(--ink-3); }
+
+.ms-exchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.ms-exchip {
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  transition: 0.15s;
+  cursor: pointer;
+}
+.ms-exchip:hover { border-color: var(--brass); color: var(--ink-1); }
+
+.ms-brow { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.ms-cap { display: flex; align-items: center; gap: 9px; }
+.ms-cap .t { font-size: 12.5px; color: var(--ink-2); }
+.ms-cap input {
+  width: 74px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  outline: none;
+  text-align: right;
+}
+.ms-cap input:focus { border-color: var(--brass); }
+.ms-proj { font-size: 11.5px; color: var(--ink-3); line-height: 1.45; flex: 1; min-width: 200px; margin: 0; }
+.ms-proj b { color: var(--ink-2); font-weight: 600; }
+
+/* ── toolbar ──────────────────────────────────────────────────────── */
+.ms-secline { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.ms-mbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.ms-srch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  width: 258px;
+  transition: 0.15s;
+}
+.ms-srch:focus-within { border-color: var(--brass); box-shadow: 0 0 0 3px var(--brass-soft); }
+.ms-srch > svg { width: 13px; height: 13px; stroke: var(--ink-3); stroke-width: 2; fill: none; flex: 0 0 auto; }
+.ms-srch input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: inherit;
+  width: 100%;
+}
+.ms-srch input::placeholder { color: var(--ink-3); }
+.ms-srch .x {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.ms-srch .x:hover { background: var(--surface-2); color: var(--ink-1); }
+.ms-srch .x svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 2.6; fill: none; }
+
+.ms-fchip {
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--ink-2);
+  background: none;
+  border: 1px solid transparent;
+  transition: 0.15s;
+  cursor: pointer;
+}
+.ms-fchip:hover { background: var(--surface-2); color: var(--ink-1); }
+.ms-fchip.on {
+  background: var(--surface);
+  color: var(--ink-1);
+  font-weight: 600;
+  box-shadow: var(--sh-1);
+  border-color: var(--rule);
+}
+.ms-fchip .n { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-left: 4px; }
+.ms-fchip.on .n { color: var(--brass); }
+.ms-hl { background: var(--brass-soft); color: var(--brass); border-radius: 3px; padding: 0 2px; font-weight: 700; }
+
+/* ── mission card ─────────────────────────────────────────────────── */
+.ms-card {
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  padding: 16px 18px;
+  margin-bottom: 11px;
+  transition: 0.17s;
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+  width: 100%;
+  display: block;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ms-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--ac, transparent);
+}
+.ms-card:hover { border-color: var(--rule-2); box-shadow: var(--sh-2); transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) { .ms-card:hover { transform: none; } }
+
+.ms-mtop { display: flex; align-items: flex-start; gap: 14px; }
+.ms-mtitle { flex: 1; font-size: 14px; font-weight: 600; line-height: 1.42; letter-spacing: -0.015em; }
+.ms-mmeta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  flex-wrap: wrap;
+}
+.ms-mmeta b { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--ink-1); }
+.ms-mmeta .id {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+}
+.ms-fmatch { margin-top: 7px; font-size: 11.5px; color: var(--brass); font-weight: 600; }
+
+/* feature chart — one square per feature, in plan order */
+.ms-chart { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 12px; }
+.ms-cell { width: 11px; height: 11px; border-radius: 3px; background: var(--idle-soft); transition: 0.2s; }
+.ms-cell.ok { background: var(--ok); }
+.ms-cell.rev { background: var(--warn); }
+.ms-cell.run { background: var(--sea); animation: ms-pulse 1.3s infinite; }
+.ms-cell.blk { background: var(--err); }
+@media (prefers-reduced-motion: reduce) { .ms-cell.run { animation: none; } }
+
+/* budget bar */
+.ms-bud { margin-top: 12px; }
+.ms-budbar { height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; display: flex; }
+.ms-budbar i { display: block; height: 100%; transition: width 0.5s; }
+.ms-budrow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+  flex-wrap: wrap;
+}
+.ms-budrow b { font-family: var(--mono); font-weight: 700; color: var(--ink-2); }
+
+/* ticker */
+.ms-tick {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 13px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.ms-tick .d { width: 6px; height: 6px; border-radius: 50%; background: var(--sea); flex: 0 0 auto; }
+.ms-tick .ev { font-weight: 700; color: var(--brass); flex: 0 0 auto; }
+.ms-tick .tx { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-mfoot { display: flex; align-items: center; gap: 7px; margin-top: 12px; }
+
+/* ── pager + empty ────────────────────────────────────────────────── */
+.ms-pager { display: flex; align-items: center; gap: 7px; margin-top: 16px; flex-wrap: wrap; }
+.ms-pager .info { font-size: 11.5px; color: var(--ink-3); }
+.ms-pager .info b { font-family: var(--mono); font-weight: 700; color: var(--ink-2); }
+.ms-pager .nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.ms-pg {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  transition: 0.15s;
+  cursor: pointer;
+}
+.ms-pg:hover:not(:disabled) { border-color: var(--rule-2); color: var(--ink-1); }
+.ms-pg.on { background: var(--brass); color: #fff; border-color: transparent; }
+:host-context([data-theme='dark']) .ms-pg.on { color: #1a1205; }
+.ms-pg:disabled { opacity: 0.35; pointer-events: none; }
+.ms-pg.step { gap: 6px; font-family: inherit; font-size: 12px; font-weight: 500; padding: 0 12px; }
+.ms-pg svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2.2; fill: none; }
+.ms-pg.dots { color: var(--ink-3); pointer-events: none; background: none; border: 0; box-shadow: none; }
+
+.ms-nores {
+  padding: 44px 24px;
+  text-align: center;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px dashed var(--rule-2);
+}
+.ms-nores svg { width: 32px; height: 32px; stroke: var(--ink-3); stroke-width: 1.3; fill: none; opacity: 0.5; margin-bottom: 12px; }
+.ms-nores p { font-size: 12.5px; line-height: 1.6; color: var(--ink-3); max-width: 320px; margin: 0 auto; }
+
+.ms-err {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in oklab, var(--err) 40%, var(--rule));
+  color: var(--err);
+  font-size: 12.5px;
+}
+
+/* ── detail head + stats ──────────────────────────────────────────── */
+.ms-dhead { display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; }
+.ms-back {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transition: 0.15s;
+  cursor: pointer;
+}
+.ms-back:hover { border-color: var(--rule-2); transform: translateX(-1px); }
+.ms-back svg { width: 14px; height: 14px; stroke: var(--ink-2); stroke-width: 2; fill: none; }
+.ms-dhead .path { font-size: 11px; color: var(--ink-3); }
+.ms-dhead h2 {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  max-width: 720px;
+  margin: 2px 0 0;
+}
+.ms-dacts { margin-left: auto; display: flex; gap: 7px; align-items: center; flex: 0 0 auto; }
+
+.ms-dstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; padding: 0 20px 14px; }
+.ms-dst {
+  padding: 13px 15px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+}
+.ms-dst .k {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ms-dst .row { display: flex; align-items: center; gap: 11px; margin-top: 9px; }
+.ms-dst .v { font-family: var(--mono); font-size: 24px; font-weight: 600; letter-spacing: -0.035em; line-height: 1; }
+.ms-dst .v small { font-size: 14px; color: var(--ink-3); font-weight: 600; }
+.ms-dst .s { font-size: 11px; color: var(--ink-3); margin-top: 5px; line-height: 1.4; }
+.ms-ring { width: 42px; height: 42px; flex: 0 0 auto; }
+.ms-ring circle { fill: none; }
+
+/* ── two panes ────────────────────────────────────────────────────── */
+.ms-cols { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 0 20px 12px; }
+.ms-pane {
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.ms-ph {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+  flex: 0 0 auto;
+}
+.ms-pb { flex: 1; overflow-y: auto; min-height: 0; }
+
+.ms-flist { width: 392px; flex: 0 0 auto; }
+.ms-ftabs {
+  display: flex;
+  gap: 3px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+.ms-ftab {
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--ink-3);
+  background: none;
+  border: 0;
+  transition: 0.14s;
+  cursor: pointer;
+}
+.ms-ftab:hover { background: var(--surface-2); color: var(--ink-1); }
+.ms-ftab.on { background: var(--brass-soft); color: var(--brass); font-weight: 700; }
+
+.ms-frow {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 11px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-left: 2px solid transparent;
+  background: none;
+  font: inherit;
+  color: inherit;
+  transition: 0.13s;
+  cursor: pointer;
+}
+.ms-frow:hover { background: var(--surface-2); }
+.ms-frow.on { background: var(--surface-2); border-left-color: var(--brass); }
+.ms-fst {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+.ms-fst.ok { background: var(--ok-soft); color: var(--ok); }
+.ms-fst.rev { background: var(--warn-soft); color: var(--warn); }
+.ms-fst.run { background: var(--sea-soft); color: var(--sea); }
+.ms-fst.blk { background: var(--err-soft); color: var(--err); }
+.ms-fst.q { background: var(--idle-soft); color: var(--ink-3); }
+.ms-ftx { flex: 1; min-width: 0; }
+.ms-ftx b { display: block; font-size: 12.5px; font-weight: 500; line-height: 1.45; }
+.ms-ftx .sub {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-3);
+}
+.ms-mscore { display: flex; gap: 2px; }
+.ms-mscore i { width: 4px; height: 11px; border-radius: 1px; background: var(--rule-2); }
+.ms-mscore i.f { background: var(--brass); }
+
+/* ── review pane ──────────────────────────────────────────────────── */
+.ms-fdet { flex: 1; min-width: 0; }
+.ms-fd-in { padding: 18px 22px; }
+.ms-fd-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+.ms-fd-top h3 { flex: 1; font-size: 17px; font-weight: 600; letter-spacing: -0.022em; line-height: 1.35; margin: 0; }
+.ms-fd-meta {
+  display: flex;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.ms-verdict { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); margin: 0; }
+.ms-sec { margin-top: 20px; }
+.ms-sec .sh { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; }
+.ms-sec .sh b {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ms-li { display: flex; gap: 10px; padding: 6px 0; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.ms-li .b { width: 5px; height: 5px; border-radius: 50%; background: var(--brass); flex: 0 0 auto; margin-top: 8px; }
+.ms-li.warn .b { background: var(--warn); }
+.ms-prose {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ms-rub { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.ms-rc { padding: 11px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--rule); }
+.ms-rc .n { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.ms-rc .v { display: flex; align-items: baseline; gap: 5px; margin-top: 7px; }
+.ms-rc .v b { font-family: var(--mono); font-size: 21px; font-weight: 700; letter-spacing: -0.03em; }
+.ms-rc .v span { font-size: 10.5px; color: var(--ink-3); }
+.ms-dots { display: flex; gap: 3px; margin-top: 7px; }
+.ms-dots i { flex: 1; height: 4px; border-radius: 2px; background: var(--rule-2); }
+.ms-dots i.f { background: var(--brass); }
+
+.ms-fd-empty { padding: 60px 30px; text-align: center; color: var(--ink-3); }
+.ms-fd-empty svg { width: 36px; height: 36px; stroke: var(--ink-3); stroke-width: 1.2; fill: none; opacity: 0.55; margin-bottom: 13px; }
+.ms-fd-empty p { font-size: 12.5px; line-height: 1.6; max-width: 300px; margin: 0 auto; }
+
+/* ── session timeline ─────────────────────────────────────────────── */
+.ms-tl {
+  margin: 0 20px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-1);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.ms-tlh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  background: var(--surface-2);
+  width: 100%;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.ms-tlh .car {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-3);
+  transition: transform 0.2s;
+}
+.ms-tl.open .ms-tlh .car { transform: rotate(180deg); }
+.ms-tlh .car svg { width: 11px; height: 11px; stroke: currentColor; stroke-width: 2.6; fill: none; }
+.ms-tlb { padding: 14px; overflow-x: auto; }
+
+.ms-track { display: flex; align-items: flex-start; gap: 0; min-width: min-content; position: relative; }
+.ms-snode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  min-width: 72px;
+  position: relative;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.ms-snode::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  left: calc(50% + 14px);
+  right: calc(-50% + 14px);
+  height: 1.5px;
+  background: var(--rule-2);
+}
+.ms-snode:last-child::after { display: none; }
+.ms-sdot {
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1.5px var(--rule-2);
+  transition: 0.16s;
+  z-index: 1;
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.ms-snode:hover .ms-sdot { box-shadow: 0 0 0 2.5px var(--brass); transform: scale(1.08); }
+.ms-snode.on .ms-sdot { box-shadow: 0 0 0 2.5px var(--brass); }
+.ms-sdot.build { background: var(--sea-soft); color: var(--sea); }
+.ms-sdot.rev { background: var(--violet-soft); color: var(--violet); }
+.ms-sdot.plan { background: var(--brass-soft); color: var(--brass); }
+.ms-sdot.fail { background: var(--err-soft); color: var(--err); }
+.ms-snode .rl {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.ms-snode .ct { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); }
+
+.ms-sdetail {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  animation: ms-rise 0.2s ease both;
+}
+.ms-sdetail .st { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.ms-sdetail .st b { font-size: 12.5px; font-weight: 600; }
+.ms-sdetail p { font-size: 12px; line-height: 1.6; color: var(--ink-2); margin: 0; }
+.ms-sdetail .kv {
+  display: flex;
+  gap: 18px;
+  margin-top: 9px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  flex-wrap: wrap;
+}
+/* Amber when the deployment's quota, not the work, set this session's pace. */
+.ms-sdetail .kv .throttled { color: var(--warn); }
+
+@media (max-width: 1180px) {
+  .ms-flist { width: 320px; }
+  .ms-stats, .ms-dstats { grid-template-columns: 1fr 1fr; }
+  .ms-rub { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 860px) {
+  .ms-wrap { padding: 20px 16px 48px; }
+  .ms-cols { flex-direction: column; }
+  .ms-flist { width: auto; max-height: 300px; }
+  .ms-ihead { flex-direction: column; align-items: flex-start; }
+  .ms-ihead .acts { margin-left: 0; }
+}
+
+/* ── live activity ────────────────────────────────────────────────── */
+.ms-feed {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 330px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  box-shadow: var(--sh-3);
+  z-index: 60;
+  overflow: hidden;
+  animation: ms-rise 0.25s ease both;
+}
+@media (prefers-reduced-motion: reduce) { .ms-feed { animation: none; } }
+
+.ms-fh {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface-2);
+}
+.ms-fh .d { width: 6px; height: 6px; border-radius: 50%; background: var(--sea); flex: 0 0 auto; }
+.ms-fx {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.ms-fx:hover { background: var(--surface-3); color: var(--ink-1); }
+.ms-fx svg { width: 11px; height: 11px; stroke: currentColor; fill: none; }
+
+.ms-fb { max-height: 214px; overflow-y: auto; padding: 6px 0; }
+.ms-fline {
+  display: flex;
+  gap: 9px;
+  padding: 6px 13px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  animation: ms-rise 0.25s ease both;
+}
+@media (prefers-reduced-motion: reduce) { .ms-fline { animation: none; } }
+.ms-fline .t { color: var(--ink-3); flex: 0 0 auto; }
+.ms-fline .e { font-weight: 700; flex: 0 0 auto; }
+.ms-fline .m { flex: 1; color: var(--ink-2); min-width: 0; word-break: break-word; }
+
+/* One colour per kind, so the shape of a run reads down the left edge
+   without any of it being read as words. */
+.k-session_start { color: var(--sea); }
+.k-mission_verdict { color: var(--warn); }
+.k-feature_accepted { color: var(--ok); }
+.k-budget_tick { color: var(--brass); }
+.k-tool_call { color: var(--ink-3); }
+.k-error { color: var(--err); }
+
+.ms-fempty {
+  padding: 18px 14px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
+@media (max-width: 560px) {
+  .ms-feed { left: 12px; right: 12px; width: auto; }
+}
+
+/* Why a mission will not simply carry on. Sits between the ticker and the
+   buttons, because it is the reason the button beside it is labelled the way
+   it is. */
+.ms-blocked {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 11px;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in oklab, var(--warn) 28%, transparent);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warn);
+}
+.ms-blocked svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+}
+/* The override reads as a decision, not a default. */
+.ms-btn.warn { color: var(--warn); border-color: color-mix(in oklab, var(--warn) 42%, var(--rule)); }
+.ms-btn.warn:hover:not(:disabled) { background: var(--warn-soft); }

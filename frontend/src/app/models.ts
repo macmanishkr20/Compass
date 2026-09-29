@@ -22,7 +22,105 @@ export interface HealthInfo {
    *  the nav reads it rather than assuming, so a build with the flag off
    *  shows no entry leading to routes that are not there. */
   estimate?: boolean;
+  /** Whether the Missions module is mounted — long-running builds that plan,
+   *  work a feature at a time and review themselves. Same contract again. */
+  missions?: boolean;
   workspace: string;
+}
+
+/** One long-running build, as the list shows it. */
+export interface MissionSummary {
+  id: string;
+  goal: string;
+  workspace: string;
+  model: string | null;
+  budget_usd: number;
+  spent_usd: number;
+  /** Features proved to work, out of the plan's total. The plan is written
+   *  once by the planner session and never grows, so this is a real fraction
+   *  rather than a guess at completion. */
+  passing: number;
+  features: number;
+  /** One code per feature, in plan order — 'ok' | 'rev' | 'run' | 'blk' | 'q'.
+   *  The card draws a square for each, so the shape of a plan is legible
+   *  without opening it: mostly grey is barely started, a band of amber is a
+   *  queue waiting on reviews. */
+  feature_states: MissionFeatureState[];
+  /** Mean reviewer mark across scored features, or null when none are. */
+  mean_score: number | null;
+  running: boolean;
+  /** Why the supervisor will not start it, or "" when it would start. The
+   *  screen shows this instead of offering a button that gets refused. */
+  blocked_reason: string;
+  /** Whether a person may override that refusal for one more session. True
+   *  for a stall, repeated failures or the session cap; false for a finished
+   *  or overspent mission, where forcing would change nothing. */
+  can_force: boolean;
+  planned: boolean;
+  sessions: MissionSession[];
+  /** The deployment's per-minute token quota, as Azure reported it on the
+   *  last response. Null until a response has come back. It is what a
+   *  session's token rate has to be read against to mean anything. */
+  quota_tokens_per_minute?: number | null;
+}
+
+/** One session of a mission: a whole agent run, start to finish. */
+export interface MissionSession {
+  session: number;
+  persona: 'planner' | 'builder' | 'reviewer' | string;
+  turns: number;
+  cost_usd: number;
+  passing: number;
+  total: number;
+  /** Why it ended, when it was not the model's own choice — a rate limit, a
+   *  budget, a dropped connection. Empty for an ordinary finish. */
+  stopped: string;
+  summary: string;
+  /** What the session drew and how long it took. Without these a slow
+   *  mission cannot be explained: an hour spent waiting on a token quota
+   *  and an hour spent thinking look identical in cost alone. */
+  prompt_tokens: number;
+  cached_tokens: number;
+  output_tokens: number;
+  seconds: number;
+  tokens_per_minute: number;
+  /** Model calls made — the honest divisor for tokens-per-call. */
+  calls: number;
+  tokens_per_call: number;
+}
+
+/** Five reading states derived from the three the model stores. Two of the
+ *  three carry a second meaning worth showing: a feature carrying a
+ *  reviewer's findings was *returned* rather than never started, and the one
+ *  a running mission is on now is *building* rather than queued. */
+export type MissionFeatureState = 'ok' | 'rev' | 'run' | 'blk' | 'q';
+
+export interface MissionFeature {
+  id: string;
+  description: string;
+  steps: string[];
+  /** Which of the five reading states this is, decided on the server so the
+   *  feature list and the squares above it cannot disagree. */
+  state: MissionFeatureState;
+  /** Proved by a reviewer. Only a reviewer session can set this. */
+  passing: boolean;
+  /** Built and self-checked by a builder, waiting on a reviewer. Never true
+   *  at the same time as `passing`: a verdict replaces a claim. */
+  claimed: boolean;
+  /** What the builder said "done" would mean, written before the code. */
+  contract: string;
+  /** The builder's evidence while claimed; the reviewer's findings once it
+   *  has ruled — which is what the next builder session reads. */
+  notes: string;
+  /** The reviewer's marks per criterion, each with a floor it must clear. */
+  scores: Record<string, number>;
+  verified_at: number;
+}
+
+/** The detail view: a summary, plus what it is building and what it wrote. */
+export interface MissionDetail extends MissionSummary {
+  feature_list: MissionFeature[];
+  progress: string;
 }
 
 export interface GitStatus {

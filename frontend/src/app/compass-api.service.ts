@@ -3,6 +3,8 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
 import {
+  MissionDetail,
+  MissionSummary,
   BackgroundTask,
   BackgroundTasksResponse,
   ChatAttachment,
@@ -1024,19 +1026,77 @@ export class CompassApiService {
     return this.streamPost(`/v1/sessions/${sessionId}/regenerate`, {}, onEvent);
   }
 
+  // -- Missions: long-running builds ---------------------------------------
+  async missions(): Promise<MissionSummary[]> {
+    const res = await firstValueFrom(
+      this.http.get<{ missions: MissionSummary[] }>('/v1/missions'));
+    return res.missions ?? [];
+  }
+
+  async mission(id: string): Promise<MissionDetail> {
+    return firstValueFrom(this.http.get<MissionDetail>(`/v1/missions/${id}`));
+  }
+
+  async createMission(goal: string, budgetUsd: number,
+                      workspace = ''): Promise<MissionSummary> {
+    return firstValueFrom(this.http.post<MissionSummary>('/v1/missions', {
+      goal, budget_usd: budgetUsd, workspace,
+    }));
+  }
+
+  /** Run sessions until the supervisor stops, streaming the agent's events
+   *  and the supervisor's notes. The same reader the console uses, so the
+   *  idle watchdog and the server's heartbeat apply here too — which matters
+   *  more here than anywhere: a mission is hours, and a long silence has to
+   *  be distinguishable from a dead connection. */
+  async streamMission(id: string,
+                      onEvent: (event: CompassEvent) => void,
+                      force = false): Promise<void> {
+    const q = force ? '?force=true' : '';
+    return this.streamPost(`/v1/missions/${id}/run${q}`, {}, onEvent);
+  }
+
+  async abortMission(id: string): Promise<void> {
+    await firstValueFrom(this.http.post(`/v1/missions/${id}/abort`, {}));
+  }
+
+  async deleteMission(id: string): Promise<void> {
+    await firstValueFrom(this.http.delete(`/v1/missions/${id}`));
+  }
+
+  /** Watch a mission that is already running, without starting anything.
+   *
+   *  A GET rather than the POST above, and that distinction matters: reopening
+   *  the page must never be what starts a build. `/run` starts-and-watches;
+   *  this only watches, and answers 404 when there is nothing to watch. */
+  async attachMission(id: string,
+                      onEvent: (event: CompassEvent) => void): Promise<void> {
+    return this.streamRequest(`/v1/missions/${id}/stream`, 'GET', null, onEvent);
+  }
+
   private async streamPost(
     url: string,
     body: unknown,
     onEvent: (event: CompassEvent) => void,
   ): Promise<void> {
-    // Raw fetch (EventSource can't POST, HttpClient buffers) — the auth cookie
-    // rides along via credentials; the interceptor can't see this call.
+    return this.streamRequest(url, 'POST', body, onEvent);
+  }
+
+  private async streamRequest(
+    url: string,
+    method: 'GET' | 'POST',
+    body: unknown,
+    onEvent: (event: CompassEvent) => void,
+  ): Promise<void> {
+    // Raw fetch (EventSource can't POST or carry these headers, HttpClient
+    // buffers) — the auth cookie rides along via credentials; the interceptor
+    // can't see this call.
     const controller = new AbortController();
     const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      method,
+      headers: method === 'POST' ? { 'content-type': 'application/json' } : {},
       credentials: 'include',
-      body: JSON.stringify(body),
+      body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
       signal: controller.signal,
     });
     if (res.status === 401) {

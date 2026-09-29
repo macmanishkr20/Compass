@@ -1,0 +1,467 @@
+<div class="ms-root">
+  <!-- No compass rose here. The source design was a standalone page and drew
+       its own; the shell already paints one behind every screen, so carrying
+       that one over put two different roses on this page and nowhere else. -->
+
+  @if (!detail()) {
+    <!-- ══════════════ INDEX ══════════════ -->
+    <section class="ms-screen">
+      <div class="ms-scroll"><div class="ms-wrap">
+
+        <div class="ms-ihead">
+          <div>
+            <h1>Missions</h1>
+            <p>A brief becomes a plan, then one feature at a time — each session
+              starting fresh and reading what the last one wrote.</p>
+          </div>
+          <div class="acts">
+            <button class="ms-btn" type="button" (click)="refresh()" [disabled]="loading()">
+              <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg>
+              {{ loading() ? 'Loading…' : 'Refresh' }}
+            </button>
+          </div>
+        </div>
+
+        @if (error()) { <p class="ms-err">{{ error() }}</p> }
+
+        <div class="ms-stats">
+          <div class="ms-stat">
+            <div class="k"><i style="background:var(--sea)"></i>Running</div>
+            <div class="v">{{ runningCount() }}</div>
+            <div class="s">of {{ missions().length }} missions</div>
+          </div>
+          <div class="ms-stat">
+            <div class="k"><i style="background:var(--ok)"></i>Features accepted</div>
+            <div class="v">{{ totalPassing() }}</div>
+            <div class="s">{{ meanScoreLine() }}</div>
+          </div>
+          <div class="ms-stat">
+            <div class="k"><i style="background:var(--brass)"></i>Spent</div>
+            <div class="v">{{ money(totalSpent()) }}</div>
+            <div class="s">of {{ money(totalBudget()) }} committed</div>
+          </div>
+          <div class="ms-stat">
+            <div class="k"><i style="background:var(--violet)"></i>Sessions run</div>
+            <div class="v">{{ totalSessions() }}</div>
+            <div class="s">{{ sessionAverageLine() }}</div>
+          </div>
+        </div>
+
+        <div class="ms-brief">
+          <span class="ms-eyeb">What should it build?</span>
+          <textarea [(ngModel)]="goal" rows="3"
+            placeholder="A command-line tool that tracks expenses in a JSON file, with add, list, and a monthly summary"></textarea>
+          <div class="ms-exchips">
+            @for (ex of examples; track ex.label) {
+              <button class="ms-exchip" type="button" (click)="goal.set(ex.brief)">{{ ex.label }}</button>
+            }
+          </div>
+          <div class="ms-brow">
+            <div class="ms-cap">
+              <span class="t">Stop after</span>
+              <input type="number" min="1" [(ngModel)]="budget">
+              <span class="t">dollars</span>
+            </div>
+            <p class="ms-proj">{{ projection() }}</p>
+            <button class="ms-btn pri" type="button" style="margin-left:auto"
+              (click)="create()" [disabled]="!goal().trim() || creating()">
+              {{ creating() ? 'Creating…' : 'Create mission' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="ms-secline">
+          <span class="ms-eyeb">Missions</span>
+          <span class="ms-tk"></span>
+          <span class="ms-num">{{ countLine() }}</span>
+        </div>
+
+        <div class="ms-mbar">
+          <div class="ms-srch">
+            <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input [(ngModel)]="query" (ngModelChange)="page.set(1)"
+              placeholder="Search briefs, features or mission id">
+            @if (query()) {
+              <button class="x" type="button" (click)="query.set('')" title="Clear">
+                <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+              </button>
+            }
+          </div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap">
+            @for (f of stateFilters; track f.key) {
+              <button class="ms-fchip" type="button" [class.on]="filter() === f.key"
+                (click)="filter.set(f.key); page.set(1)">
+                {{ f.label }}<span class="n">{{ filterCount(f.key) }}</span>
+              </button>
+            }
+          </div>
+        </div>
+
+        @if (!pageRows().length) {
+          <div class="ms-nores">
+            <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            @if (missions().length) {
+              <p>No mission matches <b>{{ query() || 'that filter' }}</b>. Search runs
+                over briefs and mission ids.</p>
+            } @else {
+              <p>No missions yet. Describe something to build above — a mission
+                plans it, builds one feature at a time and reviews its own work.</p>
+            }
+          </div>
+        } @else {
+          @for (m of pageRows(); track m.id) {
+            <button class="ms-card" type="button" [style.--ac]="accentFor(m)" (click)="openMission(m)">
+              <div class="ms-mtop">
+                <span class="ms-mtitle" [innerHTML]="highlight(m.goal)"></span>
+                <span class="ms-pill" [class]="'ms-pill ' + statePill(m)">
+                  <span class="d"></span>{{ stateLabel(m) }}
+                </span>
+              </div>
+
+              <div class="ms-chart">
+                @for (s of chartCells(m); track $index) { <i class="ms-cell" [class]="'ms-cell ' + s"></i> }
+              </div>
+
+              <div class="ms-mmeta">
+                <span><b>{{ m.passing }}</b> of {{ m.features }} features</span>
+                <span><b>{{ m.sessions.length }}</b> sessions</span>
+                <span><b>{{ money(m.spent_usd) }}</b> of {{ money(m.budget_usd) }}</span>
+                <span class="id" [innerHTML]="highlight(shortId(m))"></span>
+              </div>
+
+              <div class="ms-bud">
+                <div class="ms-budbar">
+                  <i [style.width.%]="budgetPct(m)" [style.background]="budgetColour(m)"></i>
+                </div>
+                <div class="ms-budrow" [innerHTML]="budgetLine(m)"></div>
+              </div>
+
+              @if (ticker(m); as t) {
+                <div class="ms-tick">
+                  <span class="d" [class.ms-blink]="m.running"></span>
+                  <span class="ev">{{ t.event }}</span>
+                  <span class="tx">{{ t.text }}</span>
+                </div>
+              }
+
+              @if (m.blocked_reason) {
+                <!-- Why it will not simply carry on. Shown before the button
+                     rather than after the click: the supervisor stops a
+                     mission on your behalf, and a refusal you cannot see is
+                     indistinguishable from a button that does nothing. -->
+                <div class="ms-blocked">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.2v.1" stroke-linecap="round"/></svg>
+                  <span>{{ m.blocked_reason }}</span>
+                </div>
+              }
+
+              <div class="ms-mfoot">
+                <span class="ms-btn sm">Open mission</span>
+                @if (m.running) {
+                  <span class="ms-btn sm dang" (click)="stopFrom($event, m)">Stop</span>
+                } @else if (canStart(m)) {
+                  <span class="ms-btn sm" [class.warn]="m.blocked_reason"
+                    (click)="startFrom($event, m, !!m.blocked_reason)">
+                    {{ startLabel(m) }}
+                  </span>
+                }
+              </div>
+            </button>
+          }
+
+          <div class="ms-pager">
+            <span class="info">Showing <b>{{ showingFrom() }}–{{ showingTo() }}</b>
+              of <b>{{ filteredRows().length }}</b>{{ narrowed() ? ' matching' : '' }} missions</span>
+            <div class="nav">
+              <button class="ms-pg step" type="button" [disabled]="page() === 1" (click)="goPage(page() - 1)">
+                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Previous
+              </button>
+              @for (p of pageWindow(); track $index) {
+                @if (p === null) { <span class="ms-pg dots">…</span> }
+                @else {
+                  <button class="ms-pg" type="button" [class.on]="p === page()" (click)="goPage(p)">{{ p }}</button>
+                }
+              }
+              <button class="ms-pg step" type="button" [disabled]="page() === pageCount()" (click)="goPage(page() + 1)">
+                Next<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+              </button>
+            </div>
+          </div>
+        }
+      </div></div>
+    </section>
+
+  } @else {
+    <!-- ══════════════ DETAIL ══════════════ -->
+    <section class="ms-screen">
+      @if (detail(); as d) {
+        <div class="ms-dhead">
+          <button class="ms-back" type="button" (click)="closeMission()" aria-label="Back to missions">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+          </button>
+          <div style="min-width:0">
+            <div class="path">Missions</div>
+            <h2>{{ d.goal }}</h2>
+          </div>
+          <div class="ms-dacts">
+            <span class="ms-pill" [class]="'ms-pill ' + statePill(d)"><span class="d"></span>{{ stateLabel(d) }}</span>
+            @if (d.running) {
+              <button class="ms-btn sm dang" type="button" (click)="abort(d)">Stop</button>
+            } @else if (canStart(d)) {
+              <button class="ms-btn sm" type="button" [class.warn]="d.blocked_reason"
+                [title]="d.blocked_reason" (click)="start(d, !!d.blocked_reason)">
+                {{ startLabel(d) }}
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="ms-dstats">
+          <div class="ms-dst">
+            <div class="k">Progress</div>
+            <div class="row">
+              <svg class="ms-ring" viewBox="0 0 42 42" aria-hidden="true">
+                <circle cx="21" cy="21" r="17" stroke="var(--rule)" stroke-width="5"/>
+                <circle cx="21" cy="21" r="17" stroke="var(--ok)" stroke-width="5" stroke-linecap="round"
+                  [attr.stroke-dasharray]="RING" [attr.stroke-dashoffset]="ringOffset(progressPct(d))"
+                  transform="rotate(-90 21 21)"/>
+              </svg>
+              <div>
+                <div class="v">{{ d.passing }}<small> / {{ d.features }}</small></div>
+                <div class="s">{{ countOf(d, 'rev') }} in review · {{ countOf(d, 'blk') }} returned</div>
+              </div>
+            </div>
+          </div>
+          <div class="ms-dst">
+            <div class="k">Budget</div>
+            <div class="row">
+              <svg class="ms-ring" viewBox="0 0 42 42" aria-hidden="true">
+                <circle cx="21" cy="21" r="17" stroke="var(--rule)" stroke-width="5"/>
+                <circle cx="21" cy="21" r="17" [attr.stroke]="budgetColour(d)" stroke-width="5" stroke-linecap="round"
+                  [attr.stroke-dasharray]="RING" [attr.stroke-dashoffset]="ringOffset(budgetPct(d))"
+                  transform="rotate(-90 21 21)"/>
+              </svg>
+              <div>
+                <div class="v">{{ money(d.spent_usd) }}</div>
+                <div class="s">of {{ money(d.budget_usd) }} · {{ money(perFeature(d)) }} a feature</div>
+              </div>
+            </div>
+          </div>
+          <div class="ms-dst">
+            <div class="k">Sessions</div>
+            <div class="row"><div>
+              <div class="v">{{ d.sessions.length }}</div>
+              <div class="s">{{ sessionsPerFeature(d) }} per accepted feature</div>
+            </div></div>
+          </div>
+          <div class="ms-dst">
+            <div class="k">Mean review score</div>
+            <div class="row"><div>
+              <div class="v">{{ d.mean_score ? d.mean_score.toFixed(1) : '—' }}<small> / 5</small></div>
+              <div class="s">{{ reachLine(d) }}</div>
+            </div></div>
+          </div>
+        </div>
+
+        <div class="ms-cols">
+          <div class="ms-pane ms-flist">
+            <div class="ms-ph">
+              <span class="ms-lbl">Features</span><span class="ms-tk"></span>
+              <span class="ms-num">{{ shownFeatures(d).length }} shown</span>
+            </div>
+            <div class="ms-ftabs">
+              @for (t of featureTabs; track t.key) {
+                <button class="ms-ftab" type="button" [class.on]="featureFilter() === t.key"
+                  (click)="featureFilter.set(t.key)">
+                  {{ t.label }} {{ countOf(d, t.key) }}
+                </button>
+              }
+            </div>
+            <div class="ms-pb">
+              @if (!shownFeatures(d).length) {
+                <div class="ms-fd-empty"><p>Nothing in this state.</p></div>
+              } @else {
+                @for (f of shownFeatures(d); track f.id) {
+                  <button class="ms-frow" type="button" [class.on]="selected() === f.id"
+                    (click)="selected.set(f.id)">
+                    <span class="ms-fst" [class]="'ms-fst ' + f.state">{{ glyph(f.state) }}</span>
+                    <span class="ms-ftx">
+                      <b>{{ f.description }}</b>
+                      <span class="sub">
+                        <span>{{ f.id }}</span>
+                        @if (meanOf(f); as mean) {
+                          <span class="ms-mscore">
+                            @for (v of scoreList(f); track $index) { <i [class.f]="v >= 4"></i> }
+                          </span>
+                          <span>{{ mean }}</span>
+                        }
+                      </span>
+                    </span>
+                  </button>
+                }
+              }
+            </div>
+          </div>
+
+          <div class="ms-pane ms-fdet">
+            <div class="ms-ph">
+              <span class="ms-lbl">Review</span><span class="ms-tk"></span>
+            </div>
+            <div class="ms-pb">
+              @if (selectedFeature(d); as f) {
+                <div class="ms-fd-in">
+                  <div class="ms-fd-top">
+                    <h3>{{ f.description }}</h3>
+                    <span class="ms-pill" [class]="'ms-pill ' + verdictPill(f)">
+                      <span class="d"></span>{{ verdictLabel(f) }}
+                    </span>
+                  </div>
+                  <div class="ms-fd-meta">
+                    <span>{{ f.id }}</span>
+                    <span>{{ d.id.slice(0, 8) }}</span>
+                    @if (meanOf(f); as mean) { <span>mean {{ mean }} / 5</span> }
+                  </div>
+                  <p class="ms-verdict">{{ verdictProse(f) }}</p>
+
+                  @if (scoreEntries(f).length) {
+                    <div class="ms-sec">
+                      <div class="sh"><b>Score</b><span class="ms-tk"></span></div>
+                      <div class="ms-rub">
+                        @for (s of scoreEntries(f); track s.name) {
+                          <div class="ms-rc">
+                            <div class="n">{{ s.name }}</div>
+                            <div class="v"><b [style.color]="scoreColour(s.value)">{{ s.value }}</b><span>/ 5</span></div>
+                            <div class="ms-dots">
+                              @for (i of [1,2,3,4,5]; track i) { <i [class.f]="i <= s.value"></i> }
+                            </div>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+
+                  @if (f.contract) {
+                    <div class="ms-sec">
+                      <div class="sh"><b>What the contract expected</b><span class="ms-tk"></span></div>
+                      <div class="ms-prose">{{ f.contract }}</div>
+                    </div>
+                  }
+
+                  @if (f.notes) {
+                    <div class="ms-sec">
+                      <div class="sh"><b>{{ f.passing ? 'What the session did' : 'What the reviewer found' }}</b>
+                        <span class="ms-tk"></span></div>
+                      <div class="ms-prose">{{ f.notes }}</div>
+                    </div>
+                  }
+
+                  @if (f.steps.length) {
+                    <div class="ms-sec">
+                      <div class="sh"><b>How a person checks it</b><span class="ms-tk"></span></div>
+                      @for (s of f.steps; track $index) {
+                        <div class="ms-li"><span class="b"></span><span>{{ s }}</span></div>
+                      }
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="ms-fd-empty">
+                  <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 11l2.5 2.5L16 9"/><circle cx="12" cy="12" r="9"/>
+                  </svg>
+                  <p>Pick a feature to read its review — what the contract expected,
+                    what the session did, and how a person checks it.</p>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div class="ms-tl" [class.open]="timelineOpen()">
+          <button class="ms-tlh" type="button" (click)="timelineOpen.set(!timelineOpen())">
+            <span class="car"><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 9l6 6-6-6M6 9l6 6 6-6"/></svg></span>
+            <span class="ms-lbl">Session timeline</span>
+            <span class="ms-tk"></span>
+            <span class="ms-num">{{ timelineMeta(d) }}</span>
+          </button>
+          @if (timelineOpen()) {
+            <div class="ms-tlb">
+              @if (!d.sessions.length) {
+                <p class="ms-prose" style="padding:6px 2px">No sessions yet. Starting the
+                  mission runs a planner session first, which writes the feature list.</p>
+              } @else {
+                <div class="ms-track">
+                  @for (s of d.sessions; track s.session) {
+                    <button class="ms-snode" type="button" [class.on]="openSession() === s.session"
+                      (click)="openSession.set(openSession() === s.session ? null : s.session)">
+                      <span class="ms-sdot" [class]="'ms-sdot ' + sessionDot(s)">{{ s.session }}</span>
+                      <span class="rl">{{ shortPersona(s.persona) }}</span>
+                      <span class="ct">{{ money(s.cost_usd) }}</span>
+                    </button>
+                  }
+                </div>
+                @if (selectedSession(d); as s) {
+                  <div class="ms-sdetail">
+                    <div class="st">
+                      <span class="ms-pill" [class]="'ms-pill ' + personaPill(s)"><span class="d"></span>{{ s.persona }}</span>
+                      <b>Session {{ s.session }}</b>
+                      @if (s.stopped) { <span class="ms-pill p-err"><span class="d"></span>ended early</span> }
+                    </div>
+                    <p>{{ sessionProse(s) }}</p>
+                    @if (s.stopped) {
+                      <p style="margin-top:7px;color:var(--err)">{{ s.stopped }}</p>
+                    }
+                    <div class="kv">
+                      <span>cost {{ money(s.cost_usd) }}</span>
+                      <span>{{ s.turns }} turns</span>
+                      <span>{{ s.seconds ? mins(s.seconds) : '—' }}</span>
+                      @if (s.prompt_tokens) {
+                        <span [class.throttled]="quotaBound(s, d.quota_tokens_per_minute)"
+                          [title]="tokenNote(s, d.quota_tokens_per_minute)">
+                          {{ tokens(s.prompt_tokens) }}
+                        </span>
+                      }
+                      <span>fresh context</span>
+                    </div>
+                  </div>
+                }
+              }
+            </div>
+          }
+        </div>
+      }
+    </section>
+  }
+
+  <!-- Live activity. Opened from the pulse in the nav, and deliberately a
+       floating panel rather than a column: it is something you glance at
+       while reading the page underneath, not a place you work. -->
+  @if (feed.open()) {
+    <aside class="ms-feed" role="log" aria-label="Live activity">
+      <div class="ms-fh">
+        <span class="d" [class.ms-blink]="feed.live()"></span>
+        <span class="ms-lbl">Live activity</span>
+        <span class="ms-tk"></span>
+        <button class="ms-fx" type="button" (click)="feed.close()" aria-label="Close live activity">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-width="2.2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="ms-fb">
+        @if (!feed.lines().length) {
+          <p class="ms-fempty">
+            @if (feed.live()) { Waiting for the next event… }
+            @else { Nothing running. Start a mission and its sessions, tool calls and verdicts appear here as they happen. }
+          </p>
+        } @else {
+          @for (l of feed.lines(); track $index) {
+            <div class="ms-fline">
+              <span class="t">{{ l.at }}</span>
+              <span class="e" [class]="'e k-' + l.kind">{{ l.kind }}</span>
+              <span class="m">{{ l.text }}</span>
+            </div>
+          }
+        }
+      </div>
+    </aside>
+  }
+</div>

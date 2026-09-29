@@ -14,6 +14,7 @@ import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
+import { MissionActivityService } from './missions/mission-activity.service';
 import { TiltDirective } from './tilt.directive';
 import { BlurOnChange } from './blur-on-change.directive';
 import { CompassMark } from './compass-mark/compass-mark';
@@ -25,6 +26,7 @@ import { HomeChat } from './home-chat/home-chat';
 import { Design } from './design/design';
 import { Pipelines } from './pipelines/pipelines';
 import { Estimate } from './estimate/estimate';
+import { Missions } from './missions/missions';
 import { Lightbox } from './lightbox/lightbox';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
@@ -120,6 +122,7 @@ const CONV_PAGE = 4;
     Design,
     Pipelines,
     Estimate,
+    Missions,
     Lightbox,
   ],
   templateUrl: './app.html',
@@ -205,6 +208,8 @@ export class App {
   // switched via the top-bar control.
   readonly section = signal<ModuleKey>('home');
   readonly turnNotify = inject(TurnNotifyService);
+  /** The Missions live feed, so the nav's pulse can open it. */
+  readonly missionFeed = inject(MissionActivityService);
   /** Clicking the toast takes you to whatever just finished, which is the only
    *  thing anybody wants to do with it. */
   jumpToFinishedTurn(section: ModuleKey): void {
@@ -215,6 +220,7 @@ export class App {
       design: () => this.enterDesign(),
       pipelines: () => this.enterPipelines(),
       estimate: () => this.enterEstimate(),
+      missions: () => this.enterMissions(),
     })[section]?.();
   }
 
@@ -265,7 +271,8 @@ export class App {
   readonly chromeless = computed(
     () => this.section() === 'design'
       || this.section() === 'pipelines'
-      || this.section() === 'estimate',
+      || this.section() === 'estimate'
+      || this.section() === 'missions',
   );
 
   /** Sections that act on the Code console's open workspace. Separate from
@@ -279,6 +286,48 @@ export class App {
   /** The Estimate section, on the same terms as Pipelines: it only exists
    *  when the server mounted it, and the guard is here as well as in the
    *  template because the nav entry is the only way in *today*. */
+  /** Missions, on the same terms as Estimate: it exists only if the server
+   *  mounted it, and the guard is here as well as in the template because the
+   *  nav entry is the only way in today. */
+  /** The console's offer to hand this brief to the Missions harness, or
+   *  null. Cleared when it is taken or waved away — and once waved away it
+   *  does not come back for the same brief, because a suggestion that keeps
+   *  reappearing is one people learn to ignore. */
+  readonly missionOffer = signal<{ goal: string; reason: string } | null>(null);
+  readonly startingMission = signal(false);
+  readonly missionError = signal('');
+
+  dismissMissionOffer(): void {
+    this.missionOffer.set(null);
+  }
+
+  /** Take the offer: create the mission and go and look at it. It is created
+   *  but not started — the Missions screen has the Start button, so the brief
+   *  and the budget can be checked before anything runs. */
+  async startAsMission(): Promise<void> {
+    const offer = this.missionOffer();
+    if (!offer || this.startingMission()) return;
+    this.startingMission.set(true);
+    try {
+      await this.api.createMission(offer.goal, 25);
+      this.missionOffer.set(null);
+      this.enterMissions();
+    } catch (err) {
+      this.missionError.set(String(err));
+    } finally {
+      this.startingMission.set(false);
+    }
+  }
+
+  enterMissions(): void {
+    if (!this.health()?.missions) return;
+    this.section.set('missions');
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
+  }
+
   enterEstimate(): void {
     if (!this.health()?.estimate) return;
     this.section.set('estimate');
@@ -4152,6 +4201,15 @@ export class App {
           args: JSON.stringify(ev['arguments'] ?? {}),
           reason: (ev['reason'] as string) ?? '',
           agentId,
+        });
+        break;
+      case 'mission_offer':
+        // The console noticing this is a build rather than a task. An offer
+        // with a button, never an action: starting one spends money for
+        // hours with nobody watching, and that stays the person's decision.
+        this.missionOffer.set({
+          goal: String(ev['goal'] ?? ''),
+          reason: String(ev['reason'] ?? ''),
         });
         break;
       case 'compaction': {
