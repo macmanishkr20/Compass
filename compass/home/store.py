@@ -13,6 +13,11 @@ Document shapes (partition key = /sessionId):
 `append` is non-blocking (enqueued, drained by one worker); the worker also
 maintains the meta doc (updated_at, first-user-message title). This mirrors the
 local ChatStore API so ChatEngine is backend-agnostic.
+
+Home is where the attachments are, so this is where the 2MB item limit bites
+hardest: measured on this install, three threads hold messages of 17MB, 23MB
+and 29MB. Content that large is stored beside the document — see
+`large_content` — and put back on read.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ import time
 
 from compass.common.config import get_settings
 from compass.common.models.messages import Message
+from compass.common.persistence import large_content
 
 logger = logging.getLogger("compass.chat.cosmos")
 
@@ -92,13 +98,14 @@ class CosmosChatStore:
                     return
                 session_id, message = item
                 container = await self._get_container()
+                record = await large_content.spill(message.to_record(), session_id)
                 await container.upsert_item(
                     {
                         "id": message.uuid,
                         "sessionId": session_id,
                         "type": "msg",
                         "seq": message.meta.get("_seq", 0),
-                        "record": message.to_record(),
+                        "record": record,
                     }
                 )
                 await self._touch_meta(container, session_id, message)
@@ -148,7 +155,7 @@ class CosmosChatStore:
         max_seq = -1
         async for item in items:
             max_seq = max(max_seq, item.get("seq", 0))
-            out.append(Message.from_record(item["record"]))
+            out.append(Message.from_record(await large_content.fill(item["record"])))
         self._seq[session_id] = max(self._seq.get(session_id, 0), max_seq + 1)
         return out
 
@@ -225,10 +232,15 @@ class CosmosChatStore:
         async for row in ids:
             await container.delete_item(row["id"], partition_key=session_id)
         self._seq.pop(session_id, None)
+        await large_content.discard(session_id)
 
     async def rewrite(self, session_id: str, messages: list[Message]) -> None:
         """Truncate + re-seed the message docs (regenerate/edit). The meta doc
-        (title/pinned) is preserved — only the messages change."""
+        (title/pinned) is preserved — only the messages change.
+
+        Stored content is left where it is: a reference is the message's own
+        uuid, so a message that survives the rewrite still finds its content
+        and an attachment is never uploaded a second time."""
         await self.flush()
         container = await self._get_container()
         old = container.query_items(
@@ -249,3 +261,7 @@ class CosmosChatStore:
             await self._worker
         if self._client is not None:
             await self._client.close()
+            # Forgotten as well as closed, so a later call reconnects rather
+            # than using a closed client through a stale `_container`.
+            self._client = None
+            self._container = None

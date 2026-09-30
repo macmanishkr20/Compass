@@ -7,9 +7,9 @@ services/memory.py is backend-agnostic.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-import uuid
 
 from compass.common.config import get_settings
 from compass.common.memory import CATEGORIES, MemoryEntry
@@ -21,26 +21,33 @@ class CosmosMemoryStore:
     def __init__(self) -> None:
         self._client = None
         self._container = None
+        self._init_lock = asyncio.Lock()
 
     async def _get_container(self):
+        # Locked like the other stores: two turns starting at once would
+        # otherwise each build a client, and whichever lost the race would
+        # have its client dropped on the floor still holding connections.
         if self._container is not None:
             return self._container
-        from azure.cosmos import PartitionKey, exceptions
-        from azure.cosmos.aio import CosmosClient
+        async with self._init_lock:
+            if self._container is not None:
+                return self._container
+            from azure.cosmos import PartitionKey, exceptions
+            from azure.cosmos.aio import CosmosClient
 
-        cfg = get_settings().storage
-        self._client = CosmosClient(cfg.cosmos_endpoint, credential=cfg.cosmos_key)
-        db = await self._client.create_database_if_not_exists(cfg.cosmos_database)
-        pk = PartitionKey(path="/scope")
-        try:
-            self._container = await db.create_container_if_not_exists(
-                id="memory", partition_key=pk
-            )
-        except exceptions.CosmosHttpResponseError:
-            self._container = await db.create_container_if_not_exists(
-                id="memory", partition_key=pk, offer_throughput=400
-            )
-        return self._container
+            cfg = get_settings().storage
+            self._client = CosmosClient(cfg.cosmos_endpoint, credential=cfg.cosmos_key)
+            db = await self._client.create_database_if_not_exists(cfg.cosmos_database)
+            pk = PartitionKey(path="/scope")
+            try:
+                self._container = await db.create_container_if_not_exists(
+                    id="memory", partition_key=pk
+                )
+            except exceptions.CosmosHttpResponseError:
+                self._container = await db.create_container_if_not_exists(
+                    id="memory", partition_key=pk, offer_throughput=400
+                )
+            return self._container
 
     async def list(self, scope: str | None = None) -> list[dict]:
         c = await self._get_container()
@@ -109,3 +116,9 @@ class CosmosMemoryStore:
         for r in rows:
             await c.delete_item(r["id"], partition_key=r["scope"])
         return len(rows)
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+            self._container = None

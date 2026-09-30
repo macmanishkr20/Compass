@@ -87,11 +87,29 @@ class MediaFile:
         return f"{line}: {self.note}" if self.note else f"{line}, as {self.name}"
 
 
+#: A session id is a UUID: hex and dashes, nothing else. Narrower than
+#: `_SAFE`, which allows a dot because filenames need one — and which
+#: therefore let `..` through untouched. `session_dir("..")` used to resolve
+#: to the sessions directory itself, one level above the media root, so
+#: anything built on it was operating on the transcripts. Nothing exploited
+#: that while every caller passed a server-minted id and only ever read or
+#: wrote inside the result; it became a way to delete the transcripts the
+#: moment a caller wanted to remove a directory.
+_SAFE_ID = re.compile(r"[^A-Za-z0-9-]+")
+
+
 def session_dir(session_id: str, *, create: bool = False) -> Path:
     """This thread's media directory. `session_id` is a UUID minted by the
-    server, but it arrives here through a URL, so it is sanitised anyway."""
-    safe = _SAFE.sub("", session_id)[:64] or "unknown"
-    path = get_settings().sessions_dir / "chat_media" / safe
+    server, but it arrives here through a URL, so it is sanitised anyway.
+
+    The result is always a directory *inside* the media root — checked, not
+    assumed, because that is the property every caller relies on.
+    """
+    safe = _SAFE_ID.sub("", session_id)[:64] or "unknown"
+    root = get_settings().sessions_dir / "chat_media"
+    path = root / safe
+    if root.resolve() not in path.resolve().parents:
+        raise ValueError(f"unusable session id: {session_id!r}")
     if create:
         path.mkdir(parents=True, exist_ok=True)
     return path
@@ -370,3 +388,30 @@ def url_for(session_id: str, filename: str) -> str:
     """The address the browser fetches this file from. Served by
     `GET /v1/chat/sessions/{id}/media/{name}` in home/routes.py."""
     return f"/v1/chat/sessions/{session_id}/media/{filename}"
+
+
+def forget(session_id: str) -> int:
+    """Throw away a deleted thread's uploads. Returns how many files went.
+
+    This module has always said uploads go when the thread does, and they did
+    not: deleting a conversation removed its transcript and left its photos
+    and clips on disk for good. 273MB of them here, belonging to threads that
+    no longer exist and that nothing can reach.
+
+    Not fatal, ever. A thread the user deleted is deleted whether or not the
+    disk cooperated — the alternative is a conversation that cannot be
+    removed because one file is busy.
+    """
+    directory = session_dir(session_id)
+    if not directory.is_dir():
+        return 0
+    gone = 0
+    try:
+        for path in sorted(directory.iterdir()):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+                gone += 1
+        directory.rmdir()
+    except OSError as err:
+        logger.warning("could not clear media for %s: %s", session_id, err)
+    return gone

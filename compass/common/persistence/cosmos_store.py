@@ -13,6 +13,11 @@ Writes are enqueued and drained by a single background worker so `append`
 never blocks the agent loop; `flush()` awaits durability at turn end.
 Serverless Cosmos accounts work out of the box (no throughput specified);
 provisioned accounts fall back to 400 RU/s on container creation.
+
+A message whose content is larger than a document can be — an attached photo
+or clip, inlined as a data URI — has that content stored beside the document
+rather than in it. See `large_content`; the record is otherwise unchanged, and
+reading puts the content back.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import logging
 
 from compass.common.config import get_settings
 from compass.common.models.messages import Message
+from compass.common.persistence import large_content
 
 logger = logging.getLogger("compass.cosmos")
 
@@ -73,12 +79,13 @@ class CosmosTranscriptStore:
                     return
                 session_id, message = item
                 container = await self._get_container()
+                record = await large_content.spill(message.to_record(), session_id)
                 await container.upsert_item(
                     {
                         "id": message.uuid,
                         "sessionId": session_id,
                         "seq": message.meta.get("_seq", 0),
-                        "record": message.to_record(),
+                        "record": record,
                     }
                 )
             except Exception as err:  # noqa: BLE001 — persistence must not kill turns
@@ -112,10 +119,12 @@ class CosmosTranscriptStore:
         max_seq = -1
         async for item in items:
             max_seq = max(max_seq, item.get("seq", 0))
-            message = Message.from_record(item["record"])
-            if not include_sidechains and message.meta.get("agent_id"):
+            record = item["record"]
+            # Sidechains are dropped before the content is fetched: a sub-agent
+            # turn that this caller does not want should not cost a download.
+            if not include_sidechains and (record.get("meta") or {}).get("agent_id"):
                 continue
-            messages.append(message)
+            messages.append(Message.from_record(await large_content.fill(record)))
         # Resume continues the sequence rather than restarting it.
         self._seq[session_id] = max(self._seq.get(session_id, 0), max_seq + 1)
         return messages
@@ -141,14 +150,17 @@ class CosmosTranscriptStore:
 
     async def overwrite(self, session_id: str, messages: list[Message]) -> None:
         # Drain pending writes for this session, delete its docs, re-seed.
+        # Only the documents: stored content keeps its reference, which is the
+        # message's own uuid, so a message that survives the rewrite finds its
+        # content where it left it and nothing is uploaded twice.
         await self.flush()
-        await self.delete(session_id)
+        await self._delete_docs(session_id)
         self._seq[session_id] = 0
         for message in messages:
             self.append(session_id, message)
         await self.flush()
 
-    async def delete(self, session_id: str) -> None:
+    async def _delete_docs(self, session_id: str) -> None:
         container = await self._get_container()
         ids = container.query_items(
             query="SELECT c.id FROM c WHERE c.sessionId = @sid",
@@ -159,9 +171,19 @@ class CosmosTranscriptStore:
             await container.delete_item(row["id"], partition_key=session_id)
         self._seq.pop(session_id, None)
 
+    async def delete(self, session_id: str) -> None:
+        await self._delete_docs(session_id)
+        await large_content.discard(session_id)
+
     async def close(self) -> None:
         if self._worker and not self._worker.done():
             await self._queue.put(None)
             await self._worker
         if self._client is not None:
             await self._client.close()
+            # Forgotten as well as closed. Left in place, `_container` still
+            # referred to a dead client, so anything that came in after
+            # shutdown failed on the closed connection instead of opening a
+            # new one — and a second close tried to close it again.
+            self._client = None
+            self._container = None

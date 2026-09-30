@@ -109,13 +109,29 @@ async def lifespan(app: FastAPI):
     if mission_scheduler is not None:
         mission_scheduler.cancel()
     await manager.stop()
-    store = get_transcript_store()
-    close = getattr(store, "close", None)
-    if close is not None:
-        await close()
-    # The catalog keeps its own Cosmos client, so it gets its own close.
+    # Every store that holds a Cosmos client gets closed, not just the
+    # transcript one. Four of them do, and the three that were missed here
+    # kept their connection pools open for the life of the process — which on
+    # a reload meant the old pools were still there beside the new ones.
+    from compass.common.memory import get_memory_store
     from compass.common.persistence import catalog
+    from compass.common.persistence.session_meta import get_meta_store
+    from compass.home.engine import get_chat_store
 
+    for store in (
+        get_transcript_store(),
+        get_chat_store(),
+        get_meta_store(),
+        get_memory_store(),
+    ):
+        close = getattr(store, "close", None)
+        if close is None:
+            continue
+        try:
+            await close()
+        except Exception:  # noqa: BLE001 — one bad close must not skip the rest
+            logger.warning("could not close %s", type(store).__name__, exc_info=True)
+    # The catalog keeps its own Cosmos client, so it gets its own close.
     await catalog.close()
 
 

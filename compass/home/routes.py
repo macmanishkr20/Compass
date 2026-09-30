@@ -496,6 +496,10 @@ async def delete_chat_session(session_id: str, user: str = Depends(require_user)
     await _owned_chat(session_id, user)
     await _known_chat(session_id)
     await chat_engine.store.delete(session_id)
+    # The uploads go with the thread, which is what media.py has always said
+    # and did not do. Here rather than in either store, so it happens once
+    # whichever backend holds the transcript.
+    media.forget(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}
 

@@ -21,8 +21,13 @@ from compass.common.config import get_settings
 
 logger = logging.getLogger("compass.meta")
 
-VALID_MODES = ("default", "accept_edits", "plan", "bypass")
-VALID_EFFORTS = ("minimal", "low", "medium", "high")
+# `VALID_MODES` and `VALID_EFFORTS` used to sit here. Nothing read either one,
+# and the efforts list had gone stale — it still said minimal/low/medium/high
+# after none, xhigh and max were added, so anyone who wired it up would have
+# started rejecting three real settings. What is true about efforts lives in
+# `compass.common.config` (EFFORT_LEVELS, and EFFORT_LADDERS for what a given
+# deployment actually accepts); what is true about modes is whatever
+# `compass.common.policy.permissions` does with them.
 
 
 @dataclass
@@ -133,15 +138,24 @@ class CosmosSessionMetaStore:
         async with self._init_lock:
             if self._container is not None:
                 return self._container
-            from azure.cosmos import PartitionKey
+            from azure.cosmos import PartitionKey, exceptions
             from azure.cosmos.aio import CosmosClient
 
             cfg = get_settings().storage
             self._client = CosmosClient(cfg.cosmos_endpoint, credential=cfg.cosmos_key)
             database = await self._client.create_database_if_not_exists(cfg.cosmos_database)
-            self._container = await database.create_container_if_not_exists(
-                id=cfg.cosmos_meta_container, partition_key=PartitionKey(path="/id")
-            )
+            pk = PartitionKey(path="/id")
+            try:
+                self._container = await database.create_container_if_not_exists(
+                    id=cfg.cosmos_meta_container, partition_key=pk
+                )
+            except exceptions.CosmosHttpResponseError:
+                # Provisioned-throughput account: RU/s must be explicit. Every
+                # other container here already handles this; this one did not,
+                # so a provisioned account came up with no sidebar metadata.
+                self._container = await database.create_container_if_not_exists(
+                    id=cfg.cosmos_meta_container, partition_key=pk, offer_throughput=400
+                )
             return self._container
 
     async def get(self, session_id: str) -> SessionMeta | None:
@@ -171,6 +185,12 @@ class CosmosSessionMetaStore:
         container = await self._get_container()
         items = container.query_items(query="SELECT * FROM c")
         return [SessionMeta.from_dict(i) async for i in items]
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+            self._container = None
 
 
 _meta_store: SessionMetaStore | None = None

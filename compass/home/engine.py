@@ -291,16 +291,29 @@ class ChatStore:
                 f.write(json.dumps(m.to_record(), default=str) + "\n")
 
 
+_chat_store = None
+
+
 def get_chat_store():
     """Pick the Home/Chat backend: Azure Cosmos DB when configured, else the
     local JSONL store — the same config-or-fallback contract the agent
-    transcript store uses. Absent Cosmos credentials, nothing changes."""
+    transcript store uses. Absent Cosmos credentials, nothing changes.
+
+    One instance for the process, like the transcript store. It used to build
+    a fresh one per call, which on the Cosmos backend meant a new client and
+    connection pool for every sidebar recap, none of them ever closed.
+    """
+    global _chat_store
+    if _chat_store is not None:
+        return _chat_store
     cfg = get_settings().storage
     if cfg.backend == "cosmos" and cfg.cosmos_configured:
         from compass.home.store import CosmosChatStore
 
-        return CosmosChatStore()
-    return ChatStore()
+        _chat_store = CosmosChatStore()
+    else:
+        _chat_store = ChatStore()
+    return _chat_store
 
 
 @dataclass
