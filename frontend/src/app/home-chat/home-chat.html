@@ -134,7 +134,20 @@
                   </div>
                 }
                 @if (m.text) {
-                  <div class="cbubble user"><p class="ctext">{{ m.text }}</p></div>
+                  <div class="cbubble user" [class.spoken]="m.voice">
+                    <!-- Said, not typed. Marked because a transcript is a
+                         different kind of record from a message somebody
+                         chose the words of, and a thread that mixes the two
+                         without saying so is harder to trust later. -->
+                    @if (m.voice) {
+                      <span class="cspoken" [title]="m.transcriptMissing
+                        ? 'Spoken — this question could not be transcribed'
+                        : 'Spoken in voice mode'" aria-label="Spoken">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4" stroke-linecap="round"/></svg>
+                      </span>
+                    }
+                    <p class="ctext" [class.muted]="m.transcriptMissing">{{ m.text }}</p>
+                  </div>
                 }
               }
 

@@ -57,6 +57,14 @@ interface ChatMsg {
   role: 'user' | 'assistant';
   text: string;
   streaming: boolean;
+  /** Spoken, not typed. Kept as a fact about the turn rather than
+   *  rewritten to look the same: a transcript is not a draft somebody
+   *  chose their words in, and a surface that wants to say so can. */
+  voice?: boolean;
+  /** Spoken, but the deployment declined to transcribe the question.
+   *  The exchange is kept and the gap is shown, rather than filled in
+   *  with words nobody said. */
+  transcriptMissing?: boolean;
   at?: number; // epoch ms — shown as a relative age under the message
   atts?: UiAttachment[];
   sources?: WorkIqSource[];
@@ -189,6 +197,17 @@ export class HomeChat {
   readonly voiceMode = signal(false);
   readonly voiceState = signal<'connecting' | 'listening' | 'speaking'>('connecting');
   readonly voiceHeard = signal(''); // live transcript of what the user said
+  /** Spoken turns waiting to reach the server.
+   *
+   *  Voice mode runs browser-to-Azure over WebRTC, so the server never sees
+   *  the conversation and nothing is written unless this client writes it.
+   *  That makes the network between a finished exchange and the transcript a
+   *  place where a conversation can simply vanish — so turns queue here,
+   *  retry with backoff, and survive leaving voice mode. They are dropped
+   *  only when the thread itself goes. */
+  private pendingVoiceTurns: { turnId: string; heard: string; reply: string }[] = [];
+  private voiceFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private voiceFlushing = false;
   readonly voiceReply = signal(''); // live transcript of the assistant's speech
   readonly voiceError = signal('');
   readonly voiceSupported =
@@ -724,6 +743,11 @@ export class HomeChat {
         // all (see the note in the template above the bubble), so a
         // thinking-only message has nothing to render either.
         if (m.role === 'assistant' && !text.trim()) continue;
+        // A spoken question the deployment would not transcribe is stored
+        // with no content on purpose. On screen it keeps the placeholder it
+        // had when it was said, so the exchange still reads as an exchange.
+        const spokenGap = !text.trim()
+          && Boolean((meta['transcript_unavailable'] as boolean | undefined));
         // The pages the answer rested on, restored with it. They are on the
         // message for the same reason the reasoning summary is: which sources
         // an answer used is part of the record, not of the moment it arrived.
@@ -731,7 +755,7 @@ export class HomeChat {
         msgs.push({
           id: m.uuid || crypto.randomUUID(),
           role: m.role,
-          text,
+          text: spokenGap ? '…' : text,
           streaming: false,
           thinking: (meta['thinking_summary'] as string) || undefined,
           thinkingTokens: (usage['reasoning_tokens'] as number) || undefined,
@@ -741,6 +765,12 @@ export class HomeChat {
             return { n: i + 1, title, url };
           }) : undefined,
           serverActivity: (meta['activity'] as string[] | undefined) ?? undefined,
+          // Spoken turns are part of the record too. A reopened thread shows
+          // the conversation that was had out loud, marked as spoken, rather
+          // than silently reading as though it had been typed.
+          voice: (meta['voice'] as boolean | undefined) || undefined,
+          transcriptMissing:
+            (meta['transcript_unavailable'] as boolean | undefined) || undefined,
         });
       }
       // Ensure a chat session object exists on the server for follow-up turns.
@@ -899,17 +929,11 @@ export class HomeChat {
 
     const payload = toWire(atts);
     await this.runStream(async () => {
-      if (!this.sessionId) {
-        const res = await this.api.createChatSession({
-          model: this.activeModel() || undefined,
-          effort: this.activeEffort(),
-        });
-        this.sessionId = res.session_id;
-        this.loadedId = res.session_id; // keep in sync so the input echo is a no-op
-        this.sessionCreated.emit(res.session_id);
-      }
+      // Same path voice uses, so a thread opened by speaking and one opened
+      // by typing are created identically.
+      const sessionId = await this.ensureSession();
       await this.api.streamChatMessage(
-        this.sessionId,
+        sessionId,
         content,
         (ev) => this.onEvent(ev),
         payload,
@@ -1111,13 +1135,109 @@ export class HomeChat {
       case 'response.output_audio_transcript.delta':
         this.voiceReply.update((t) => t + (ev.delta || ''));
         break;
-      case 'response.output_audio_transcript.done':
+      case 'response.output_audio_transcript.done': {
         if (ev.transcript) this.voiceReply.set(ev.transcript);
+        // Both halves are known here: the question was transcribed while it
+        // was being answered. Keeping it now rather than on exit means a
+        // dropped connection costs the last exchange at worst, not all of
+        // them — exit is not guaranteed to run.
+        this.recordVoiceExchange(this.voiceHeard(), this.voiceReply());
         break;
+      }
       case 'output_audio_buffer.stopped':
         if (this.voiceMode()) this.voiceState.set('listening');
         break;
     }
+  }
+
+  /** Keep one finished spoken exchange: on screen now, on the server soon.
+   *
+   *  Called when the assistant's transcript completes, which is the point at
+   *  which both halves of the exchange are known — the question was
+   *  transcribed while it was being answered.
+   *
+   *  The thread is updated first and unconditionally. A person who has just
+   *  spoken should see it in the conversation whether or not the write lands,
+   *  and the write is retried underneath rather than blocking the next thing
+   *  they say.
+   */
+  private recordVoiceExchange(heard: string, reply: string): void {
+    const said = (heard || '').trim();
+    const answered = (reply || '').trim();
+    if (!said && !answered) return;
+
+    const turnId = crypto.randomUUID();
+    const at = Date.now();
+    this.push({
+      id: turnId + '-u', role: 'user', streaming: false, at,
+      text: said || '…', voice: true, transcriptMissing: !said,
+    });
+    if (answered) {
+      this.push({
+        id: turnId + '-a', role: 'assistant', streaming: false, at,
+        text: answered, voice: true,
+      });
+    }
+    this.threadChanged.emit();
+
+    this.pendingVoiceTurns.push({ turnId, heard: said, reply: answered });
+    void this.flushVoiceTurns();
+  }
+
+  /** Drain the queue, oldest first, retrying on failure.
+   *
+   *  Serial on purpose: the turns are a conversation and arrive in the order
+   *  they were spoken. Sending them at once would let the second overtake the
+   *  first on a slow connection and write the exchange backwards.
+   */
+  private async flushVoiceTurns(): Promise<void> {
+    if (this.voiceFlushing || !this.pendingVoiceTurns.length) return;
+    this.voiceFlushing = true;
+    try {
+      while (this.pendingVoiceTurns.length) {
+        const sessionId = await this.ensureSession();
+        const turn = this.pendingVoiceTurns[0];
+        try {
+          await this.api.recordVoiceTurn(
+            sessionId, turn.turnId, turn.heard, turn.reply);
+          this.pendingVoiceTurns.shift();
+        } catch {
+          // Keep it and come back. The turn is already on screen, so the
+          // cost of waiting is invisible; the cost of dropping it is the
+          // conversation. Backed off so a server that is down is not hit
+          // every few hundred milliseconds for the rest of the session.
+          this.scheduleVoiceFlush();
+          return;
+        }
+      }
+    } catch {
+      this.scheduleVoiceFlush();
+    } finally {
+      this.voiceFlushing = false;
+    }
+  }
+
+  private scheduleVoiceFlush(delayMs = 4000): void {
+    if (this.voiceFlushTimer) return;
+    this.voiceFlushTimer = setTimeout(() => {
+      this.voiceFlushTimer = null;
+      void this.flushVoiceTurns();
+    }, delayMs);
+  }
+
+  /** The thread's id, creating the thread if speaking is the first thing that
+   *  has happened in it. Voice mode can be the opening move of a
+   *  conversation, and a spoken exchange still has to land somewhere. */
+  private async ensureSession(): Promise<string> {
+    if (this.sessionId) return this.sessionId;
+    const res = await this.api.createChatSession({
+      model: this.activeModel() || undefined,
+      effort: this.activeEffort(),
+    });
+    this.sessionId = res.session_id;
+    this.loadedId = res.session_id;
+    this.sessionCreated.emit(res.session_id);
+    return res.session_id;
   }
 
   /** Barge-in: tap while the assistant is speaking to cut it off and listen. */

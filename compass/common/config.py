@@ -16,6 +16,22 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+def _resource_root(url: str) -> str:
+    """An Azure resource base URL, from a base URL or a connection string."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("wss://"):
+        raw = "https://" + raw[len("wss://"):]
+    elif raw.startswith("ws://"):
+        raw = "http://" + raw[len("ws://"):]
+    raw = raw.split("?", 1)[0].split("#", 1)[0]
+    marker = raw.find("/openai")
+    if marker > 0:
+        raw = raw[:marker]
+    return raw.rstrip("/")
+
+
 class AzureOpenAISettings(BaseModel):
     endpoint: str = ""
     api_key: str = ""
@@ -46,13 +62,71 @@ class AzureOpenAISettings(BaseModel):
     transcribe_deployment: str = ""
     # Realtime (speech-to-speech) — powers the Home "voice mode" via the Azure
     # OpenAI Realtime API/WebRTC. A SEPARATE deployment from the chat model
-    # (e.g. gpt-4o-realtime-preview). Empty = voice mode unavailable.
+    # (e.g. gpt-realtime). Empty = voice mode unavailable.
+    #
+    # Lives on the audio resource, like TTS and transcription, and for the
+    # same reason: realtime is an audio model, and audio models are deployed
+    # together in a region that offers them. This was pointed at the main
+    # endpoint, which is where a chat deployment lives — so a perfectly good
+    # `gpt-realtime` sitting on the audio resource was asked for at the
+    # address of the resource that does not have it, and Azure answered
+    # "the realtime operation does not work with the specified model", which
+    # reads as the model being wrong rather than the endpoint.
     realtime_deployment: str = ""
+    # Its own endpoint and key, when realtime lives somewhere of its own.
+    # Blank falls back to the TTS resource, then to the main one — which is
+    # what an install with everything in one place wants, and what an install
+    # with one audio resource wants too. Read explicitly because a setting
+    # that appears in .env and is quietly ignored is worse than one that is
+    # missing: the file says the endpoint is configured, and nothing disagrees
+    # until the requests go somewhere else.
+    realtime_endpoint: str = ""
+    realtime_api_key: str = ""
     realtime_voice: str = "alloy"  # alloy|ash|ballad|coral|echo|sage|shimmer|verse|marin
+    # The language spoken in voice mode, as an ISO-639-1 code.
+    #
+    # Pinned rather than detected, because detection is what goes wrong.
+    # Whisper guesses the language from the audio, and on the short, quiet
+    # fragments a conversation opens with it guesses badly — an English
+    # sentence comes back as German, the model answers the German it was
+    # handed, and the session stays in a language nobody chose. Telling it
+    # what it is about to hear costs nothing and removes the whole failure.
+    #
+    # Blank restores auto-detection for anyone who genuinely switches
+    # languages mid-conversation and would rather have the guess.
+    realtime_language: str = "en"
 
     @property
     def realtime_configured(self) -> bool:
-        return bool(self.endpoint and self.api_key and self.realtime_deployment)
+        return bool(
+            self.realtime_deployment
+            and self.realtime_endpoint_effective
+            and self.realtime_api_key_effective
+        )
+
+    @property
+    def realtime_endpoint_effective(self) -> str:
+        """The resource base URL to reach realtime at.
+
+        Normalised, because the obvious thing to paste here is the wrong
+        shape. Azure's portal shows realtime as a ready-made connection
+        string — `wss://<res>.services.ai.azure.com/openai/v1/realtime?model=
+        gpt-realtime` — and that is a socket address, complete with scheme,
+        path and query, while everything else in this file is a resource
+        root. Joined naively it produces `wss://…/openai/v1/realtime?model=
+        gpt-realtime/openai/v1/realtime/client_secrets`, which is not a URL
+        anybody meant, and Azure answers it with a 404 or an Unauthorized
+        that says nothing about the address being wrong.
+
+        So either form is accepted and reduced to the root: the socket scheme
+        becomes https, and anything from `/openai` onwards is dropped.
+        """
+        return _resource_root(
+            self.realtime_endpoint or self.tts_endpoint or self.endpoint)
+
+    @property
+    def realtime_api_key_effective(self) -> str:
+        return self.realtime_api_key or self.tts_api_key or self.api_key
 
     @property
     def transcribe_configured(self) -> bool:
@@ -704,6 +778,15 @@ def get_settings() -> Settings:
     azure.realtime_deployment = os.environ.get(
         "AZURE_OPENAI_REALTIME_DEPLOYMENT", azure.realtime_deployment
     )
+    azure.realtime_endpoint = os.environ.get(
+        "AZURE_OPENAI_REALTIME_ENDPOINT", azure.realtime_endpoint
+    )
+    azure.realtime_api_key = os.environ.get(
+        "AZURE_OPENAI_REALTIME_API_KEY", azure.realtime_api_key
+    )
+    azure.realtime_language = os.environ.get(
+        "COMPASS_VOICE_LANGUAGE", azure.realtime_language
+    ).strip().lower()
     azure.realtime_voice = os.environ.get(
         "AZURE_OPENAI_REALTIME_VOICE", azure.realtime_voice
     )

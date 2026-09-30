@@ -506,6 +506,23 @@ export class CompassApiService {
     );
   }
 
+  /** Write one spoken exchange into a thread.
+   *
+   *  `turnId` is the idempotency key: voice mode persists over a network that
+   *  may drop the response after the server has already written, so a retry
+   *  has to be safe. The same key twice stores one turn.
+   */
+  recordVoiceTurn(
+    sessionId: string, turnId: string, heard: string, reply: string,
+  ): Promise<{ stored: boolean; turn_id: string }> {
+    return firstValueFrom(
+      this.http.post<{ stored: boolean; turn_id: string }>(
+        `/v1/chat/sessions/${sessionId}/voice-turn`,
+        { turn_id: turnId, heard, reply },
+      ),
+    );
+  }
+
   /** The whole arrangement, not a move: see the route. */
   setPromptOrder(order: string[]): Promise<{ order: string[] }> {
     return firstValueFrom(

@@ -144,6 +144,7 @@
   "POST /v1/chat/sessions/{session_id}/fork",
   "POST /v1/chat/sessions/{session_id}/messages",
   "POST /v1/chat/sessions/{session_id}/regenerate",
+  "POST /v1/chat/sessions/{session_id}/voice-turn",
   "POST /v1/chat/voice/session",
   "POST /v1/design/attach",
   "POST /v1/design/clarify",
@@ -206,7 +207,7 @@
   "PUT /v1/estimates/rate-card",
   "WS /v1/browser/ws"
  ],
- "schema": "cde44bbfab445c83",
+ "schema": "82aca00c84a35ea1",
  "smoke": {
   "/": "200",
   "/docs": "200",

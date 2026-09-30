@@ -954,3 +954,16 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 }
 .wiq-ico i { font-style: normal; font-size: 8px; font-weight: 700; line-height: 1; color: var(--accent); }
 .wiq-ico img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: var(--surface); }
+
+/* -- a turn that was spoken --------------------------------------------- */
+/* Quiet on purpose: it is a note about how the turn arrived, not a control,
+   and it sits beside the words rather than in front of them. */
+.cbubble.user.spoken { display: flex; align-items: flex-start; gap: 7px; }
+.cspoken {
+  flex: 0 0 auto;
+  display: inline-flex;
+  margin-top: 2px;
+  opacity: 0.55;
+}
+.cspoken svg { width: 12px; height: 12px; }
+.cbubble .ctext.muted { opacity: 0.5; font-style: italic; }

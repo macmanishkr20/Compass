@@ -15,7 +15,7 @@ own transcript namespace. Nothing here touches the console code paths.
 from __future__ import annotations
 
 import logging
-import mimetypes
+import uuid as _uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -24,9 +24,11 @@ from pydantic import BaseModel, Field
 from compass.common.agent.steering import steer
 from compass.common.gateway.responses import REASONING_META_KEY
 from compass.common.auth import require_user
+from compass.common.media_types import media_type_for
 from compass.common.ownership import owned, owner_for, visible_to
 from compass.common.sse import with_heartbeat
 from compass.home import media
+from compass.common.models.messages import Message
 from compass.home.engine import ChatEngine, ChatSession
 from compass.common.models.events import ErrorEvent
 
@@ -222,6 +224,92 @@ async def chat_transcript(session_id: str, user: str = Depends(require_user)) ->
     return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
 
 
+#: A spoken turn is two short strings; anything longer is not something a
+#: person said into a microphone, and the cap is what stops a stuck client
+#: writing a novel into somebody's transcript.
+MAX_SPOKEN_CHARS = 8_000
+
+
+class VoiceTurnRequest(BaseModel):
+    turn_id: str = Field(
+        description="Idempotency key for this exchange, minted by the client. "
+                    "The same key twice stores one turn, so a retry after a "
+                    "dropped response cannot double-write the conversation.",
+    )
+    heard: str = Field(default="", description="What the person said.")
+    reply: str = Field(default="", description="What the assistant said back.")
+
+
+def _voice_uuid(turn_id: str, role: str) -> str:
+    """A stable id for one half of a spoken exchange.
+
+    Derived from the client's key rather than random, which is what makes
+    the write idempotent: the retry produces the same two ids, and the
+    duplicate is recognised instead of appended.
+    """
+    return str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"compass-voice/{turn_id}/{role}"))
+
+
+@router.post("/sessions/{session_id}/voice-turn")
+async def record_voice_turn(
+    session_id: str, body: VoiceTurnRequest, user: str = Depends(require_user)
+) -> dict:
+    """Write one spoken exchange into the thread.
+
+    Voice mode talks to Azure directly over WebRTC, so the server never sees
+    the conversation — which is what makes it fast, and why nothing was being
+    kept. Leaving voice mode used to discard the whole exchange: the thread
+    showed no record that anything had been said. So the client reports each
+    completed turn here, and a spoken conversation becomes a conversation.
+
+    Marked `voice` in the message metadata rather than rewritten to look
+    typed. It is a different kind of turn — transcribed, not composed — and a
+    surface that wants to say so can, while one that does not simply reads it
+    as text.
+    """
+    await _owned_chat(session_id, user)
+    # A thread that has never been typed in has no stored messages, and voice
+    # may be the first thing said in it — so `exists` alone would refuse
+    # exactly the case this route is for. Being live in `chat_sessions` is
+    # what proves the id came from `POST /sessions` rather than being made
+    # up; ownership above is checked either way, and an unowned id that
+    # matches neither is refused rather than quietly started.
+    known = session_id in chat_sessions or await chat_engine.store.exists(session_id)
+    if not known:
+        raise HTTPException(status_code=404, detail="unknown chat session")
+
+    turn_id = (body.turn_id or "").strip()[:128]
+    if not turn_id:
+        raise HTTPException(status_code=422, detail="turn_id is required")
+    heard = (body.heard or "").strip()[:MAX_SPOKEN_CHARS]
+    reply = (body.reply or "").strip()[:MAX_SPOKEN_CHARS]
+    if not reply and not heard:
+        raise HTTPException(status_code=422, detail="nothing was said")
+
+    user_id = _voice_uuid(turn_id, "user")
+    reply_id = _voice_uuid(turn_id, "assistant")
+
+    existing = {m.uuid for m in await chat_engine.store.load(session_id)}
+    if user_id in existing or reply_id in existing:
+        # Already written. A retry says so plainly rather than pretending to
+        # have done the work again.
+        return {"stored": False, "reason": "already recorded", "turn_id": turn_id}
+
+    # The question first, then the answer, so the thread reads in the order it
+    # happened. `heard` can be empty when the deployment declined input
+    # transcription: the exchange is still kept, and the gap is stated in the
+    # metadata rather than filled in with words nobody said.
+    chat_engine.store.append(session_id, Message(
+        role="user", content=heard, uuid=user_id,
+        meta={"voice": True, **({} if heard else {"transcript_unavailable": True})},
+    ))
+    if reply:
+        chat_engine.store.append(session_id, Message(
+            role="assistant", content=reply, uuid=reply_id, meta={"voice": True},
+        ))
+    return {"stored": True, "turn_id": turn_id}
+
+
 @router.get("/sessions/{session_id}/media/{filename}")
 async def chat_media(
     session_id: str, filename: str, user: str = Depends(require_user)
@@ -242,7 +330,7 @@ async def chat_media(
         raise HTTPException(status_code=404, detail="no such file")
     return FileResponse(
         path,
-        media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+        media_type=media_type_for(path),
         # The name it was uploaded as, not the numbered one on disk, so a
         # download lands in someone's folder called what they called it.
         filename=path.name.split("-", 1)[-1],
@@ -264,6 +352,45 @@ VOICE_INSTRUCTIONS = (
     "follow-up when it helps. You are talking out loud, so avoid code blocks, "
     "long lists, or reading URLs aloud."
 )
+
+#: Language names for the codes people actually configure. Only to write the
+#: instruction in words the model reads easily; an unlisted code is passed
+#: through as itself, which it also understands.
+_LANGUAGE_NAMES = {
+    "en": "English", "de": "German", "fr": "French", "es": "Spanish",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "hi": "Hindi",
+    "ar": "Arabic", "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+    "ru": "Russian", "pl": "Polish", "tr": "Turkish", "sv": "Swedish",
+}
+
+
+def _voice_instructions(language: str) -> str:
+    """The voice prompt, with the language said out loud.
+
+    Belt and braces with the transcription hint below, and both are needed.
+    The hint keeps Whisper from mis-hearing which language is being spoken;
+    this keeps the model from answering in some other one anyway, which it
+    will do if a single stray word looks foreign to it.
+    """
+    if not language:
+        return VOICE_INSTRUCTIONS + (
+            " Reply in whatever language the person is speaking."
+        )
+    name = _LANGUAGE_NAMES.get(language, language)
+    return VOICE_INSTRUCTIONS + (
+        f" The person is speaking {name}. Always reply in {name}, even if a "
+        f"word or name in what you hear looks like another language."
+    )
+
+
+def _transcription(language: str) -> dict:
+    """Input transcription config. The language is a hint to Whisper, not a
+    filter: it stops the guessing, which is where the wrong language comes
+    from. Omitted entirely when unset, which restores auto-detection."""
+    cfg: dict = {"model": "whisper-1"}
+    if language:
+        cfg["language"] = language
+    return cfg
 
 
 @router.get("/voice")
@@ -287,17 +414,21 @@ async def voice_session(user: str = Depends(require_user)) -> dict:
     if not az.realtime_configured:
         raise HTTPException(status_code=400, detail="realtime voice not configured")
 
-    base = az.endpoint.rstrip("/")
+    # The audio resource, not the chat one — see AzureOpenAISettings.
+    base = az.realtime_endpoint_effective.rstrip("/")
     session = {
         "type": "realtime",
         "model": az.realtime_deployment,
-        "instructions": VOICE_INSTRUCTIONS,
+        "instructions": _voice_instructions(az.realtime_language),
         "audio": {
             "output": {"voice": az.realtime_voice},
-            "input": {"transcription": {"model": "whisper-1"}},
+            "input": {"transcription": _transcription(az.realtime_language)},
         },
     }
-    headers = {"api-key": az.api_key, "content-type": "application/json"}
+    headers = {
+        "api-key": az.realtime_api_key_effective,
+        "content-type": "application/json",
+    }
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.post(
             f"{base}/openai/v1/realtime/client_secrets",
@@ -509,4 +640,12 @@ async def source_favicon(url: str, user: str = Depends(require_user)):
         # 404 rather than a placeholder image: the page has a nicer fallback
         # than anything that could be sent here, and a cached 404 is cheap.
         return Response(status_code=404, headers={"Cache-Control": "public, max-age=86400"})
-    return FileResponse(path, headers={"Cache-Control": "public, max-age=604800"})
+    # The type is stated, not guessed. The extension was chosen from the
+    # content-type the site sent when this was cached, so it is already known
+    # — and leaving it to `mimetypes` puts a Windows registry between a PNG
+    # and the browser drawing it.
+    return FileResponse(
+        path,
+        media_type=media_type_for(path),
+        headers={"Cache-Control": "public, max-age=604800"},
+    )

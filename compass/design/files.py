@@ -112,10 +112,12 @@ def read_bytes(project_id: str, rel: str) -> tuple[bytes, str]:
     target = resolve(project_id, rel)
     if not target.is_file():
         raise FileNotFoundError(rel)
-    import mimetypes
+    # Stated, not guessed: `mimetypes` reads the Windows registry, so on a
+    # Windows host the type a design file is served as depends on what is
+    # installed there rather than on the file. See common.media_types.
+    from compass.common.media_types import media_type_for
 
-    media = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-    return target.read_bytes(), media
+    return target.read_bytes(), media_type_for(target)
 
 
 def write(project_id: str, rel: str, *, text: str = "", data_url: str = "") -> dict:
