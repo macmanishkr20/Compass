@@ -912,13 +912,18 @@ async def design_versions(project_id: str, user: str = Depends(require_user)) ->
     await _owned_project(project_id, user)
     from compass.design.store import get_design_store
 
+    from compass.design import version_html
+
     p = await get_design_store().get(project_id)
     if p is None:
         raise HTTPException(status_code=404, detail="no such design project")
     return {
         "current": {"label": p.get("version_label") or "Current", "at": p.get("updated_at")},
         "versions": [
-            {k: v for k, v in ver.items() if k != "html"} for ver in (p.get("versions") or [])
+            # Neither the markup nor where it is kept: the client shows a
+            # label and a time, and a storage reference is not its business.
+            {k: v for k, v in ver.items() if k not in ("html", version_html.SPILLED)}
+            for ver in (p.get("versions") or [])
         ],
     }
 
@@ -939,7 +944,18 @@ async def design_restore(
     version = next((v for v in (p.get("versions") or []) if v.get("id") == version_id), None)
     if version is None:
         raise HTTPException(status_code=404, detail="no such version")
-    return await store.save_html(project_id, version["html"], label="Restored") or p
+    # The markup is not in the document — see design.version_html. Fetched
+    # here, for this one version, which is the only place it is ever wanted:
+    # the versions list above strips it on purpose.
+    from compass.design import version_html
+
+    html = await version_html.fill(version)
+    if not html:
+        raise HTTPException(
+            status_code=410,
+            detail="that version's design is no longer stored",
+        )
+    return await store.save_html(project_id, html, label="Restored") or p
 
 
 class DesignComment(BaseModel):

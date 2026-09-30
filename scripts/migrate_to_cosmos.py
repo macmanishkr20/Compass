@@ -51,9 +51,11 @@ def _collections() -> dict:
     from compass.estimate.store import EstimateStore, RateCardStore
     from compass.home.prompts import _prompts
     from compass.missions.store import _missions
+    from compass.design.store import _projects as _designs
     from compass.pipelines.store import ConnectionStore, PipelineStore, RunStore
 
     return {
+        "designs": _designs,
         "prompts": _prompts(),
         "missions": _missions,
         "routines": _routines,
@@ -66,6 +68,27 @@ def _collections() -> dict:
         "connections": ConnectionStore()._items,
         "pipeline_runs": RunStore()._items,
     }
+
+
+async def _prepare(name: str, row: dict) -> dict:
+    """Anything a document needs before it can be stored.
+
+    Only designs need it, and they need it badly: a version is a full HTML
+    snapshot, and on this install they were 21.8MB of a 24.8MB store — five
+    projects of thirty-seven were already past Cosmos's 2MB item limit and
+    could not have been written at all. The snapshots go to blob storage and
+    the project keeps the reference, which is what the application does on
+    every save now; this brings the existing ones into line.
+    """
+    if name != "designs":
+        return row
+    from compass.design import version_html
+
+    row = dict(row)
+    row["versions"] = await version_html.spill(
+        str(row.get("id", "")), list(row.get("versions") or [])
+    )
+    return row
 
 
 async def main() -> int:
@@ -117,7 +140,7 @@ async def main() -> int:
             written = 0
             for row in rows:
                 try:
-                    await coll.put(row)
+                    await coll.put(await _prepare(name, row))
                     written += 1
                 except Exception as err:  # noqa: BLE001 — report, keep going
                     failures.append(f"{name}/{row.get(coll.id_field, '?')}: {err}")

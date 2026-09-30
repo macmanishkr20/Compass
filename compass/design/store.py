@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
+from compass.design import version_html
 from compass.design.skills import TEMPLATE_PROMPTS
 
 BLANK_PAGE = """<!DOCTYPE html>
@@ -76,26 +78,38 @@ class DesignProject:
         return d
 
 
+#: Design projects. Their own container rather than the shared catalog: a
+#: project carries a rendered design and its pages, which is kilobytes where
+#: the other collections are bytes, and it is read one project at a time.
+#: Partitioned by the project id — `projectId` in Cosmos, `id` on the
+#: document, which is what `partition_source` is for.
+_projects = Collection(
+    "design", "design.json", shape="list",
+    container="designs", partition_field="projectId", partition_source="id",
+)
+
+
 class DesignStore:
-    def _path(self) -> Path:
-        d = get_settings().workspace_root / get_settings().data_dir
-        d.mkdir(parents=True, exist_ok=True)
-        return d / "design.json"
+    """Design projects, local or in Cosmos.
 
-    def _read(self) -> list[dict]:
-        p = self._path()
-        if not p.is_file():
-            return []
-        try:
-            return json.loads(p.read_text())
-        except (json.JSONDecodeError, OSError):
-            return []
+    Version snapshots do not live in the document — see version_html. They
+    were 21.8MB of a 24.8MB store here, and five projects of thirty-seven
+    were already past Cosmos's 2MB item limit because of them.
+    """
 
-    def _write(self, rows: list[dict]) -> None:
-        self._path().write_text(json.dumps(rows, indent=2))
+    async def _read(self) -> list[dict]:
+        return await _projects.all()
+
+    async def _save(self, row: dict) -> None:
+        """Store one project, with its version markup filed away first."""
+        row = dict(row)
+        row["versions"] = await version_html.spill(
+            str(row.get("id", "")), list(row.get("versions") or [])
+        )
+        await _projects.put(row)
 
     async def list(self) -> list[dict]:
-        rows = self._read()
+        rows = await self._read()
         rows.sort(key=lambda r: r.get("viewed_at") or r.get("updated_at", 0), reverse=True)
         return [
             {k: v for k, v in r.items() if k not in _HEAVY}
@@ -110,16 +124,16 @@ class DesignStore:
         ]
 
     async def get(self, project_id: str) -> dict | None:
-        return next((r for r in self._read() if r.get("id") == project_id), None)
+        return next((r for r in await self._read() if r.get("id") == project_id), None)
 
     async def touch(self, project_id: str) -> dict | None:
         """Record that the project was opened — the table sorts on this, the way
         claude.ai's "Last viewed" column does."""
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") == project_id:
                 r["viewed_at"] = time.time()
-                self._write(rows)
+                await self._save(r)
                 return r
         return None
 
@@ -165,7 +179,7 @@ class DesignStore:
 
     async def add_page(self, project_id: str, name: str = "") -> dict | None:
         """A new blank page, and the project switches to it."""
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") != project_id:
                 continue
@@ -181,13 +195,13 @@ class DesignStore:
             r["active_page"] = page["id"]
             r["html"] = page["html"]
             r["updated_at"] = time.time()
-            self._write(rows)
+            await self._save(r)
             return r
         return None
 
     async def open_page(self, project_id: str, page_id: str) -> dict | None:
         """Switch pages: the outgoing one keeps what is on the canvas."""
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") != project_id:
                 continue
@@ -202,14 +216,14 @@ class DesignStore:
             r["pages"] = pages
             r["active_page"] = page_id
             r["html"] = target.get("html", "")
-            self._write(rows)
+            await self._save(r)
             return r
         return None
 
     async def delete_page(self, project_id: str, page_id: str) -> dict | None:
         """Drop a page. The last one stays — a project without a page has
         nothing to show."""
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") != project_id:
                 continue
@@ -224,7 +238,7 @@ class DesignStore:
                 r["active_page"] = kept[0]["id"]
                 r["html"] = kept[0].get("html", "")
             r["updated_at"] = time.time()
-            self._write(rows)
+            await self._save(r)
             return r
         return None
 
@@ -233,7 +247,7 @@ class DesignStore:
     ) -> dict | None:
         """Write a new design, keeping the outgoing one as a version. Every path
         that changes the html goes through here, so history is never partial."""
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") != project_id:
                 continue
@@ -261,12 +275,12 @@ class DesignStore:
                     p["updated_at"] = r["updated_at"]
             r["pages"] = pages
             r["active_page"] = active
-            self._write(rows)
+            await self._save(r)
             return r
         return None
 
     async def duplicate(self, project_id: str) -> dict | None:
-        rows = self._read()
+        rows = await self._read()
         source = next((r for r in rows if r.get("id") == project_id), None)
         if source is None:
             return None
@@ -276,8 +290,7 @@ class DesignStore:
         copy["versions"] = []  # a copy starts its own history
         copy["starred"] = False
         copy["created_at"] = copy["updated_at"] = copy["viewed_at"] = time.time()
-        rows.append(copy)
-        self._write(rows)
+        await self._save(copy)
         return copy
 
     async def create(
@@ -290,7 +303,7 @@ class DesignStore:
         design_systems: list[str] | None = None,
         owner: str = "",
     ) -> dict:
-        rows = self._read()
+        rows = await self._read()
         systems = list(design_systems or ([design_system] if design_system else []))
         p = DesignProject(
             name=name or "Untitled",
@@ -300,29 +313,26 @@ class DesignStore:
             design_systems=systems,
             owner=owner,
         ).to_dict()
-        rows.append(p)
-        self._write(rows)
+        await self._save(p)
         return p
 
     async def update(self, project_id: str, **fields) -> dict | None:
-        rows = self._read()
+        rows = await self._read()
         for r in rows:
             if r.get("id") == project_id:
                 for k, v in fields.items():
                     if v is not None:
                         r[k] = v
                 r["updated_at"] = time.time()
-                self._write(rows)
+                await self._save(r)
                 return r
         return None
 
     async def delete(self, project_id: str) -> bool:
-        rows = self._read()
-        kept = [r for r in rows if r.get("id") != project_id]
-        if len(kept) == len(rows):
+        rows = await self._read()
+        if not any(r.get("id") == project_id for r in rows):
             return False
-        self._write(kept)
-        return True
+        return await _projects.remove(project_id)
 
 
 _store: DesignStore | None = None
