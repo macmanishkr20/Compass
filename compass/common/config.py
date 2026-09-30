@@ -87,7 +87,9 @@ class AzureOpenAISettings(BaseModel):
 #: because one setting outlives the deployment it was chosen against and may
 #: be used against several at once. What a given call may actually send is
 #: narrower, and `normalize_effort` is the one place that decides it.
-EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh", "max")
+EFFORT_LEVELS: tuple[str, ...] = (
+    "none", "minimal", "low", "medium", "high", "xhigh", "max",
+)
 
 #: What each family accepts, weakest first, keyed by the prefix its
 #: deployments are named with.
@@ -97,16 +99,24 @@ EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh", "
 #: is — but it turned out not to be a *growing* property, and the constant had
 #: nowhere to put that. gpt-5-2025-08-07 refuses `xhigh`, `max` and `none`
 #: with "Supported values are: 'minimal', 'low', 'medium', and 'high'";
-#: gpt-6-astra-2026-09-03 refuses `minimal` with "Supported values are: 'low',
-#: 'medium', 'high', 'xhigh', and 'max'". The ladders overlap and neither
-#: contains the other, so no single list can be right for both, and the one
-#: that was there advertised `minimal` to a deployment that rejects it — a 400
-#: the user chose from a menu, which is the thing this is all meant to avoid.
+#: gpt-6-sol-2026-09-22 and gpt-6-astra-2026-09-03 refuse `minimal` with
+#: "Supported values are: 'none', 'low', 'medium', 'high', 'xhigh', and
+#: 'max'". The ladders overlap and neither contains the other, so no single
+#: list can be right for both, and the one that was there advertised
+#: `minimal` to a deployment that rejects it — a 400 the user chose from a
+#: menu, which is the thing this is all meant to avoid.
 #:
-#: Both of these were measured from what the API says when it refuses. Do the
-#: same before adding a family: `scripts/` has a probe that asks it.
+#: The two floors are named differently and are not the same rung: gpt-5's
+#: `minimal` barely thinks, gpt-6's `none` does not think at all. Each family
+#: was asked directly and answers the exact reverse of the other — gpt-5
+#: takes `minimal` and refuses `none`, gpt-6 takes `none` and refuses
+#: `minimal`.
+#:
+#: All of this was measured from what the API says when it refuses, including
+#: `gpt-6-sol`, which shares this prefix but was asked rather than assumed to
+#: match. Do the same before adding a family: `scripts/` has a probe for it.
 EFFORT_LADDERS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("gpt-6", ("low", "medium", "high", "xhigh", "max")),
+    ("gpt-6", ("none", "low", "medium", "high", "xhigh", "max")),
     ("gpt-5", ("minimal", "low", "medium", "high")),
 )
 
@@ -127,10 +137,13 @@ def effort_levels_for(deployment: str) -> tuple[str, ...]:
 #: What each level does, in the same terms the model-facing docs use. Shown in
 #: the UI so the choice means something to whoever is making it.
 EFFORT_BEHAVIOUR: dict[str, str] = {
+    "none": "Does not think at all — the gpt-6 floor, one rung below minimal.",
     "minimal": "Barely thinks. Fastest and cheapest, for work that needs none.",
     "low": "Thinks as little as possible. Skips thinking on simple work, where speed matters most.",
     "medium": "Moderate thinking. May skip thinking for simple queries.",
     "high": "Almost always thinks. Deep reasoning on complex tasks.",
+    "xhigh": "More than high, where the deployment offers it.",
+    "max": "The most thinking the deployment will do.",
 }
 
 
@@ -267,7 +280,18 @@ class ThinkingSettings(BaseModel):
         if value in ladder:
             return value
         wanted = EFFORT_LEVELS.index(value)
-        return min(ladder, key=lambda level: abs(EFFORT_LEVELS.index(level) - wanted))
+        # Nearest rung, and on a tie the stronger one. The tie is real:
+        # `minimal` sits exactly between gpt-6's `none` and `low`, so a
+        # session set to minimal on gpt-5 and resumed on gpt-6 lands on one of
+        # them by arithmetic alone. Rounding up is the deliberate half — the
+        # two are not equivalent, `none` does not think at all, and quietly
+        # taking a model's reasoning away is a worse surprise than quietly
+        # giving it a little.
+        return min(
+            ladder,
+            key=lambda level: (abs(EFFORT_LEVELS.index(level) - wanted),
+                               -EFFORT_LEVELS.index(level)),
+        )
 
 
 class AiSearchSettings(BaseModel):

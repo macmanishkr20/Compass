@@ -1641,6 +1641,7 @@
                   [attr.aria-checked]="activeEffort() === e"
                   (click)="setEffort(e); pickMenu.set(null)">
                   <span class="pick-label">{{ e }}</span>
+                  <span class="pick-model">{{ modelLabel(activeModel()) }}</span>
                   @if (activeEffort() === e) { <svg class="pick-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg> }
                 </button>
               }

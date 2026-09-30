@@ -15,6 +15,7 @@ import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TurnStatus } from './turn-status';
+import { modelLabel } from './model-label';
 import { MissionActivityService } from './missions/mission-activity.service';
 import { BlurOnChange } from './blur-on-change.directive';
 import { CompassMark } from './compass-mark/compass-mark';
@@ -580,6 +581,10 @@ export class App {
     this.pickMenu.set(next);
   }
 
+  /** The deployment's name as people say it, shown beside each effort
+   *  level so the menu says which model the choice applies to — the
+   *  ladders differ per family, so the level alone is ambiguous. */
+  readonly modelLabel = modelLabel;
   readonly modes = MODES;
 
   /** What the selected deployment will think at. Read from the server, which

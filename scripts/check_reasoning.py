@@ -169,8 +169,13 @@ def check_effort_ladder() -> None:
     t = ThinkingSettings()
     ok(effort_levels_for("gpt-5") == ("minimal", "low", "medium", "high"),
        f"gpt-5 takes {effort_levels_for('gpt-5')}")
-    ok(effort_levels_for("gpt-6-astra") == ("low", "medium", "high", "xhigh", "max"),
+    ok(effort_levels_for("gpt-6-astra")
+       == ("none", "low", "medium", "high", "xhigh", "max"),
        f"gpt-6-astra takes {effort_levels_for('gpt-6-astra')}")
+    ok(effort_levels_for("gpt-6-sol") == effort_levels_for("gpt-6-astra"),
+       "and gpt-6-sol takes the same — measured, not assumed from the prefix")
+    ok("none" not in effort_levels_for("gpt-5"),
+       "'none' is not offered for gpt-5 — it refuses it")
     ok("xhigh" not in effort_levels_for("gpt-5"),
        "'xhigh' is not offered for gpt-5 — it refuses it")
     ok("minimal" not in effort_levels_for("gpt-6-astra"),
@@ -190,7 +195,11 @@ def check_effort_ladder() -> None:
     ok(t.normalize_effort("max", "gpt-5") == "high", "'max' becomes the highest gpt-5 has")
     ok(t.normalize_effort("minimal", "gpt-5") == "minimal", "gpt-5 keeps 'minimal'")
     ok(t.normalize_effort("minimal", "gpt-6-astra") == "low",
-       "'minimal' on gpt-6-astra becomes the least it has, not a 400")
+       "'minimal' on gpt-6 rounds up to low, not down to none — the tie is "
+       "broken towards thinking")
+    ok(t.normalize_effort("none", "gpt-5") == "minimal",
+       "'none' on gpt-5 becomes the least it has, not a 400")
+    ok(t.normalize_effort("none", "gpt-6-sol") == "none", "gpt-6 keeps 'none'")
     ok(t.normalize_effort("max", "gpt-6-astra") == "max", "gpt-6-astra keeps 'max'")
     ok(t.normalize_effort("nonsense", "gpt-5") is None,
        "an unknown level is dropped, not sent")
@@ -213,7 +222,7 @@ def check_effort_ladder() -> None:
         # The list in the page is now only the fallback: the real one arrives
         # from /healthz per deployment. So what it must not do is name a level
         # some deployment refuses — it is used when we do not know which.
-        for refused in ("minimal", "xhigh", "max"):
+        for refused in ("none", "minimal", "xhigh", "max"):
             ok(refused not in line,
                f"{page} fallback does not name '{refused}', which some "
                f"deployment refuses")

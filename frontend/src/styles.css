@@ -653,3 +653,16 @@ app-home-chat .prose li::marker { color: var(--ink); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The deployment a reasoning level belongs to, beside the level itself. The
+   ladders differ per family — gpt-5 has `minimal` and no `max`, gpt-6 the
+   reverse — so "Medium" alone does not say what it is medium *of*. */
+.pick-model {
+  flex: 0 0 auto;
+  margin-left: 10px;
+  font-size: 0.72rem;
+  color: var(--faint);
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+.pick-item.on .pick-model { color: var(--muted); }

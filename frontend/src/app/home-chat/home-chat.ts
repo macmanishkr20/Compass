@@ -23,6 +23,7 @@ import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
 import { TurnStatus } from '../turn-status';
+import { modelLabel } from '../model-label';
 import { LightboxService } from '../lightbox.service';
 
 interface WorkIqSource {
@@ -153,6 +154,10 @@ export class HomeChat {
   /** What the selected deployment will think at; see the note on EFFORTS. */
   readonly efforts = computed<readonly string[]>(
     () => this.effortsByModel()[this.activeModel()] ?? EFFORTS);
+  /** The deployment's name as people say it, shown beside each effort
+   *  level so the menu says which model the choice applies to — the
+   *  ladders differ per family, so the level alone is ambiguous. */
+  readonly modelLabel = modelLabel;
   readonly accept = ATTACH_ACCEPT;
   readonly activeModel = linkedSignal(() => this.deployment());
   readonly activeEffort = signal('medium');
