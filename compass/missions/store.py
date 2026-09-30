@@ -22,6 +22,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
 from compass.missions.engine import DEFAULT_BUDGET_USD, Mission, SessionResult
 
 logger = logging.getLogger("compass.missions")
@@ -72,64 +73,58 @@ def _session_from(row: dict) -> SessionResult:
     return SessionResult(**{k: v for k, v in row.items() if k in known})
 
 
+#: The mission registry. Small, owner-scoped records in the shared catalog —
+#: the workspace on disk is not stored here, only the path to it.
+_missions = Collection("mission", "missions.json", shape="map")
+
+
 class MissionStore:
-    def _path(self) -> Path:
-        settings = get_settings()
-        folder = settings.workspace_root / settings.data_dir
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder / "missions.json"
+    """The missions this install knows about.
 
-    def _read(self) -> dict[str, dict]:
-        path = self._path()
-        if not path.is_file():
-            return {}
-        try:
-            return json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            logger.error("missions registry unreadable: %s", err)
-            return {}
+    Async throughout, which it was not: every method read and wrote a JSON
+    file synchronously, which is microseconds on local disk and a network
+    round trip against Cosmos. A synchronous network call on the event loop
+    blocks every other mission, every streaming turn and every request in the
+    process — the same defect the sandbox's git lookup had.
+    """
 
-    def _write(self, rows: dict[str, dict]) -> None:
-        path = self._path()
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(rows, indent=2, default=str))
-        tmp.replace(path)  # atomic on POSIX
+    async def _read(self) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for row in await _missions.all():
+            mid = str(row.get("id", ""))
+            if mid:
+                out[mid] = row
+        return out
 
-    def list(self) -> list[Mission]:
-        missions = [_from_dict(row) for row in self._read().values()]
+    async def list(self) -> list[Mission]:
+        missions = [_from_dict(row) for row in (await self._read()).values()]
         missions.sort(key=lambda m: getattr(m, "created_at", 0.0), reverse=True)
         return missions
 
-    def get(self, mission_id: str) -> Mission | None:
-        row = self._read().get(mission_id)
+    async def get(self, mission_id: str) -> Mission | None:
+        row = await _missions.get(mission_id)
         return _from_dict(row) if row else None
 
-    def save(self, mission: Mission) -> Mission:
-        rows = self._read()
-        rows[mission.id] = _to_dict(mission)
-        self._write(rows)
+    async def save(self, mission: Mission) -> Mission:
+        await _missions.put(_to_dict(mission))
         return mission
 
-    def create(self, *, goal: str, workspace: Path, model: str | None = None,
-               budget_usd: float = DEFAULT_BUDGET_USD,
-               triggers: list[dict] | None = None) -> Mission:
+    async def create(self, *, goal: str, workspace: Path, model: str | None = None,
+                     budget_usd: float = DEFAULT_BUDGET_USD,
+                     triggers: list[dict] | None = None) -> Mission:
         mission = Mission(id=str(uuid.uuid4()), goal=goal.strip(),
                           workspace=workspace, model=model,
                           budget_usd=budget_usd, triggers=list(triggers or []))
         mission.created_at = time.time()
         workspace.mkdir(parents=True, exist_ok=True)
         _make_its_own_repo(workspace)
-        return self.save(mission)
+        return await self.save(mission)
 
-    def delete(self, mission_id: str) -> bool:
+    async def delete(self, mission_id: str) -> bool:
         """Forget the record. The workspace is left exactly where it is —
         deleting somebody's code because they closed a job is not a thing this
         gets to decide."""
-        rows = self._read()
-        if rows.pop(mission_id, None) is None:
-            return False
-        self._write(rows)
-        return True
+        return await _missions.remove(mission_id)
 
 
 def _make_its_own_repo(workspace: Path) -> None:

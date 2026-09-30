@@ -412,6 +412,15 @@ class StorageSettings(BaseModel):
     # Home/Chat threads live in their own container so they stay isolated from
     # the agent transcripts (same isolation the local JSONL layout gives).
     cosmos_chat_container: str = "chat"
+    # Session metadata (ownership, titles). Named in full rather than derived
+    # from the transcripts container: it used to be built as
+    # f"{cosmos_container}_meta", which quietly assumed a naming convention
+    # the account did not have to share. Pointed at a `transcripts-meta`
+    # container, that built `transcripts_meta`, and
+    # `create_container_if_not_exists` would have made a second, underscore
+    # named one beside it and written metadata there — no error, just two
+    # containers where the reader looks in the wrong one.
+    cosmos_meta_container: str = "transcripts-meta"
     # Blob storage for large artifacts (tool-result spills). Empty = local disk.
     blob_connection_string: str = ""
     blob_container: str = "compass-artifacts"
@@ -522,6 +531,22 @@ class MissionSettings(BaseModel):
     """
 
     enabled: bool = False
+
+    #: How many missions may run at once.
+    #:
+    #: There was no limit: the scheduler started every mission whose slot had
+    #: arrived, on the same tick. That reads like throughput and is not.
+    #: Missions are token-hungry and the deployment has a tokens-per-minute
+    #: ceiling, so three at once do not finish in a third of the time — they
+    #: take turns being rate-limited, and all three take longer than running
+    #: them one after another would have. Concurrency without a budget is
+    #: contention.
+    #:
+    #: Two is a deliberate default rather than one: a mission spends a good
+    #: part of its life waiting on a command or a file, and a second one uses
+    #: that room without doubling the token rate. Raise it if the quota is
+    #: generous; set it to 1 to go strictly one at a time.
+    max_parallel: int = 2
 
 
 class SandboxSettings(BaseModel):
@@ -870,6 +895,9 @@ def get_settings() -> Settings:
         "AZURE_STORAGE_CONNECTION_STRING", storage.blob_connection_string
     )
     storage.blob_container = os.environ.get("AZURE_STORAGE_CONTAINER", storage.blob_container)
+    storage.cosmos_meta_container = os.environ.get(
+        "AZURE_COSMOS_META_CONTAINER", storage.cosmos_meta_container
+    )
     storage.cosmos_chat_container = os.environ.get(
         "AZURE_COSMOS_CHAT_CONTAINER", storage.cosmos_chat_container
     )
@@ -940,6 +968,14 @@ def get_settings() -> Settings:
         "COMPASS_PIPELINES_SECRETS", pipelines.secrets_backend
     ).lower()
 
+    if (cap := os.environ.get("COMPASS_MISSIONS_MAX_PARALLEL", "").strip()):
+        try:
+            settings.missions.max_parallel = max(1, int(cap))
+        except ValueError:
+            logging.getLogger("compass.common.config").warning(
+                "COMPASS_MISSIONS_MAX_PARALLEL=%r is not a number; keeping %d",
+                cap, settings.missions.max_parallel,
+            )
     if (flag := os.environ.get("COMPASS_MISSIONS", "").strip().lower()):
         settings.missions.enabled = flag in ("1", "true", "yes", "on")
 

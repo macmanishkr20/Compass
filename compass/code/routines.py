@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.routines")
 
@@ -279,48 +280,46 @@ CONNECTOR_OPTIONS = ["Claude_Code_Remote", "GitHub", "Gmail", "Slack", "Linear",
 # --------------------------------------------------------------------------- stores
 
 
+#: Routine definitions — small, owner-scoped, in the shared catalog.
+_routines = Collection("routine", "routines.json", shape="map")
+
+
 class RoutineStore:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._cache: dict[str, Routine] | None = None
 
-    def _path(self) -> Path:
-        return get_settings().workspace_root / get_settings().data_dir / "routines.json"
-
-    def _load(self) -> dict[str, Routine]:
+    async def _load(self) -> dict[str, Routine]:
         if self._cache is not None:
             return self._cache
         data: dict[str, Routine] = {}
-        path = self._path()
-        if path.is_file():
+        for row in await _routines.all():
             try:
-                raw = json.loads(path.read_text())
-                for rid, d in raw.items():
-                    data[rid] = Routine.from_dict({**d, "id": rid})
-            except (OSError, json.JSONDecodeError) as err:
-                logger.error("could not read routines.json: %s", err)
+                r = Routine.from_dict(row)
+            except Exception:  # noqa: BLE001 — one bad row is not the list
+                logger.warning("skipping an unreadable routine row")
+                continue
+            if r.id:
+                data[r.id] = r
         self._cache = data
         return data
 
-    def _flush(self) -> None:
-        assert self._cache is not None
-        payload = {rid: r.to_dict() for rid, r in self._cache.items()}
-        # strip computed fields before persisting
-        for d in payload.values():
-            d.pop("schedule", None)
-            d.pop("next_run_at", None)
-            d.pop("next_run_label", None)
-        path = self._path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+    async def _save(self, routine: Routine) -> None:
+        d = routine.to_dict()
+        # Computed at read time from the schedule, not facts about the
+        # record. Storing them would freeze a "next run" that has passed.
+        for key in ("schedule", "next_run_at", "next_run_label"):
+            d.pop(key, None)
+        await _routines.put(d)
 
     async def list(self) -> list[Routine]:
         async with self._lock:
-            return sorted(self._load().values(), key=lambda r: r.created_at, reverse=True)
+            return sorted((await self._load()).values(),
+                          key=lambda r: r.created_at, reverse=True)
 
     async def get(self, routine_id: str) -> Routine | None:
         async with self._lock:
-            return self._load().get(routine_id)
+            return (await self._load()).get(routine_id)
 
     async def create(self, **kwargs) -> Routine:
         triggers = [Trigger(**t) if isinstance(t, dict) else t for t in kwargs.pop("triggers", [])]
@@ -328,13 +327,13 @@ class RoutineStore:
         name = (kwargs.pop("name", "") or "").strip() or (prompt[:48] or "Untitled routine")
         routine = Routine(id=uuid.uuid4().hex[:8], name=name, prompt=prompt, triggers=triggers, **kwargs)
         async with self._lock:
-            self._load()[routine.id] = routine
-            self._flush()
+            (await self._load())[routine.id] = routine
+            await self._save(routine)
         return routine
 
     async def update(self, routine_id: str, patch: dict) -> Routine | None:
         async with self._lock:
-            r = self._load().get(routine_id)
+            r = (await self._load()).get(routine_id)
             if not r:
                 return None
             if "triggers" in patch and patch["triggers"] is not None:
@@ -344,24 +343,33 @@ class RoutineStore:
                 if k in patch and patch[k] is not None:
                     setattr(r, k, patch[k])
             r.updated_at = time.time()
-            self._flush()
+            await self._save(r)
             return r
 
     async def delete(self, routine_id: str) -> bool:
         async with self._lock:
-            routines = self._load()
+            routines = await self._load()
             if routine_id in routines:
                 routines.pop(routine_id)
-                self._flush()
+                await _routines.remove(routine_id)
                 return True
             return False
 
     async def mark_ran(self, routine_id: str) -> None:
         async with self._lock:
-            r = self._load().get(routine_id)
+            r = (await self._load()).get(routine_id)
             if r:
                 r.last_run_at = time.time()
-                self._flush()
+                await self._save(r)
+
+
+#: Run history. Its own container: append-heavy and unbounded, unlike the
+#: definitions, and partitioned by the routine it belongs to so one
+#: routine's history is one partition.
+_runs = Collection(
+    "routine_run", "routine_runs.json", shape="map",
+    container="runs", partition_field="parentId", partition_source="routine_id",
+)
 
 
 class RunStore:
@@ -369,30 +377,24 @@ class RunStore:
         self._lock = asyncio.Lock()
         self._cache: dict[str, RoutineRun] | None = None
 
-    def _path(self) -> Path:
-        return get_settings().workspace_root / get_settings().data_dir / "routine_runs.json"
-
-    def _load(self) -> dict[str, RoutineRun]:
+    async def _load(self) -> dict[str, RoutineRun]:
         if self._cache is not None:
             return self._cache
         data: dict[str, RoutineRun] = {}
-        path = self._path()
-        if path.is_file():
+        for row in await _runs.all():
+            known = {k: row[k] for k in RoutineRun.__dataclass_fields__ if k in row}
             try:
-                raw = json.loads(path.read_text())
-                for rid, d in raw.items():
-                    known = {k: d[k] for k in RoutineRun.__dataclass_fields__ if k in d}
-                    data[rid] = RoutineRun(**known)
-            except (OSError, json.JSONDecodeError) as err:
-                logger.error("could not read routine_runs.json: %s", err)
+                run = RoutineRun(**known)
+            except Exception:  # noqa: BLE001 — one bad row is not the history
+                logger.warning("skipping an unreadable routine run")
+                continue
+            if run.id:
+                data[run.id] = run
         self._cache = data
         return data
 
-    def _flush(self) -> None:
-        assert self._cache is not None
-        path = self._path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({rid: r.to_dict() for rid, r in self._cache.items()}, indent=2))
+    async def _save(self, run: RoutineRun) -> None:
+        await _runs.put(run.to_dict())
 
     async def create(self, routine: Routine, trigger: str) -> RoutineRun:
         run = RoutineRun(
@@ -400,34 +402,35 @@ class RunStore:
             routine_name=routine.name, trigger=trigger, owner=routine.owner,
         )
         async with self._lock:
-            self._load()[run.id] = run
-            self._flush()
+            (await self._load())[run.id] = run
+            await self._save(run)
         return run
 
     async def finish(self, run_id: str, *, status: str, session_id: str, summary: str) -> None:
         async with self._lock:
-            run = self._load().get(run_id)
+            run = (await self._load()).get(run_id)
             if run:
                 run.status = status
                 run.finished_at = time.time()
                 run.session_id = session_id
                 run.summary = summary
-                self._flush()
+                await self._save(run)
 
     async def get(self, run_id: str) -> RoutineRun | None:
         async with self._lock:
-            return self._load().get(run_id)
+            return (await self._load()).get(run_id)
 
     async def list_for(self, routine_id: str) -> list[RoutineRun]:
         async with self._lock:
-            runs = [r for r in self._load().values() if r.routine_id == routine_id]
+            runs = [r for r in (await self._load()).values()
+                    if r.routine_id == routine_id]
             return sorted(runs, key=lambda r: r.started_at, reverse=True)
 
     async def finished_since(self, since: float) -> list[RoutineRun]:
         """Runs that finished after `since` — the browser push feed polls this."""
         async with self._lock:
             out = [
-                r for r in self._load().values()
+                r for r in (await self._load()).values()
                 if r.status != "running" and (r.finished_at or 0) > since
             ]
             return sorted(out, key=lambda r: r.finished_at or 0)

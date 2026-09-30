@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.home")
 
@@ -116,8 +117,21 @@ def _clean_keys(keys: object) -> list[str]:
     return out
 
 
+#: The saved prompts, as one collection. The file keeps its name and its
+#: shape, so a local install notices nothing; a cosmos install gets the same
+#: documents in the shared `catalog` container.
+def _prompts() -> Collection:
+    global _collection
+    if _collection is None:
+        _collection = Collection("prompt", "prompts.json", shape="list")
+    return _collection
+
+
+_collection: Collection | None = None
+
+
 class PromptLibrary:
-    """Saved prompts on disk, newest first."""
+    """Saved prompts, newest first. Local JSON or Cosmos — see persistence."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -128,24 +142,14 @@ class PromptLibrary:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _path(self) -> Path:
-        return self._folder() / "prompts.json"
-
     def _order_path(self) -> Path:
         return self._folder() / "prompt_order.json"
 
-    def _read(self) -> list[SavedPrompt]:
-        path = self._path()
-        if not path.exists():
-            return []
-        try:
-            rows = json.loads(path.read_text() or "[]")
-        except (OSError, json.JSONDecodeError):
-            logger.warning("prompt library unreadable at %s", path)
-            return []
+    def _clean(self, rows: list[dict]) -> list[SavedPrompt]:
+        """Turn stored rows into prompts, dropping what cannot be one."""
         known = {f.name for f in fields(SavedPrompt)}
         out: list[SavedPrompt] = []
-        for row in rows if isinstance(rows, list) else []:
+        for row in rows:
             if not isinstance(row, dict) or not row.get("text"):
                 continue
             # Unknown keys dropped rather than fatal: one bad row must not
@@ -166,14 +170,11 @@ class PromptLibrary:
             out.append(prompt)
         return out
 
-    def _write(self, rows: list[SavedPrompt]) -> None:
-        tmp = self._path().with_suffix(".json.tmp")
-        tmp.write_text(json.dumps([r.to_dict() for r in rows], indent=1))
-        tmp.replace(self._path())
+    async def _read(self) -> list[SavedPrompt]:
+        return self._clean(await _prompts().all())
 
     async def list(self) -> list[SavedPrompt]:
-        async with self._lock:
-            rows = self._read()
+        rows = await self._read()
         return sorted(rows, key=lambda r: r.created_at, reverse=True)
 
     async def add(self, *, title: str, text: str, session_id: str = "") -> SavedPrompt:
@@ -187,32 +188,22 @@ class PromptLibrary:
             icon=icon_for(f"{title} {text}"),
             session_id=session_id,
         )
-        async with self._lock:
-            rows = self._read()
-            rows.append(prompt)
-            self._write(rows)
+        await _prompts().put(prompt.to_dict())
         return prompt
 
     async def update(self, prompt_id: str, *, title: str, text: str) -> SavedPrompt | None:
-        async with self._lock:
-            rows = self._read()
-            for row in rows:
-                if row.id == prompt_id:
-                    row.title = _clean(title, MAX_TITLE) or row.title
-                    row.text = _clean(text, MAX_TEXT) or row.text
-                    row.icon = icon_for(f"{row.title} {row.text}")
-                    self._write(rows)
-                    return row
+        for row in await self._read():
+            if row.id != prompt_id:
+                continue
+            row.title = _clean(title, MAX_TITLE) or row.title
+            row.text = _clean(text, MAX_TEXT) or row.text
+            row.icon = icon_for(f"{row.title} {row.text}")
+            await _prompts().put(row.to_dict())
+            return row
         return None
 
     async def delete(self, prompt_id: str) -> bool:
-        async with self._lock:
-            rows = self._read()
-            kept = [r for r in rows if r.id != prompt_id]
-            if len(kept) == len(rows):
-                return False
-            self._write(kept)
-        return True
+        return await _prompts().remove(prompt_id)
 
     # ── the order they are shown in ─────────────────────────────────────
     #

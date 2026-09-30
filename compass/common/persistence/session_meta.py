@@ -140,7 +140,7 @@ class CosmosSessionMetaStore:
             self._client = CosmosClient(cfg.cosmos_endpoint, credential=cfg.cosmos_key)
             database = await self._client.create_database_if_not_exists(cfg.cosmos_database)
             self._container = await database.create_container_if_not_exists(
-                id=f"{cfg.cosmos_container}_meta", partition_key=PartitionKey(path="/id")
+                id=cfg.cosmos_meta_container, partition_key=PartitionKey(path="/id")
             )
             return self._container
 

@@ -70,8 +70,8 @@ class CreateMissionRequest(BaseModel):
                     "runs only when asked.")
 
 
-def _mission_or_404(mission_id: str) -> Mission:
-    mission = get_mission_store().get(mission_id)
+async def _mission_or_404(mission_id: str) -> Mission:
+    mission = await get_mission_store().get(mission_id)
     if mission is None:
         raise HTTPException(status_code=404, detail="unknown mission")
     return mission
@@ -174,8 +174,8 @@ async def create_mission(body: CreateMissionRequest,
         raise HTTPException(status_code=400, detail="a mission needs a goal")
     settings = get_settings()
     workspace = (Path(body.workspace) if body.workspace else
-                 settings.workspaces_dir / f"mission-{len(get_mission_store().list()) + 1}")
-    mission = get_mission_store().create(
+                 settings.workspaces_dir / f"mission-{len(await get_mission_store().list()) + 1}")
+    mission = await get_mission_store().create(
         goal=body.goal, workspace=workspace, model=body.model,
         budget_usd=max(1.0, float(body.budget_usd)),
         triggers=body.triggers)
@@ -185,12 +185,12 @@ async def create_mission(body: CreateMissionRequest,
 
 @router.get("")
 async def list_missions(user: str = Depends(require_user)) -> dict:
-    return {"missions": [_view(m) for m in get_mission_store().list()]}
+    return {"missions": [_view(m) for m in await get_mission_store().list()]}
 
 
 @router.get("/{mission_id}")
 async def get_mission(mission_id: str, user: str = Depends(require_user)) -> dict:
-    return _view(_mission_or_404(mission_id), features=True)
+    return _view(await _mission_or_404(mission_id), features=True)
 
 
 @router.post("/{mission_id}/run")
@@ -205,9 +205,27 @@ async def run_mission(mission_id: str, force: bool = False,
     — a stall, repeated failures, the session cap. It buys one more session,
     never a finished or overspent mission, and never more than one.
     """
-    mission = _mission_or_404(mission_id)
+    mission = await _mission_or_404(mission_id)
     runners = get_runners()
     store = get_mission_store()
+    # A mission already running is a second window onto it, not a new start,
+    # so the cap does not apply — that call has always been idempotent.
+    if not runners.running(mission_id):
+        cap = get_settings().missions.max_parallel
+        if runners.live() >= cap and not force:
+            # Refused rather than queued: this was a person pressing a button,
+            # and a button that silently does nothing for ten minutes is worse
+            # than one that says why. Forceable, like the supervisor's own
+            # stop reasons, because the cap protects a shared quota and the
+            # person may know something about it that this does not.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{runners.live()} missions are already running "
+                    f"(limit {cap}). Wait for one to finish, raise "
+                    f"COMPASS_MISSIONS_MAX_PARALLEL, or run it with force."
+                ),
+            )
     run = runners.start(mission, MissionEngine(), store.save, force=force)
     return _watch(run, replay=True)
 
@@ -221,7 +239,7 @@ async def stream_mission(mission_id: str,
     the events it has in hand and closes, rather than hanging on a stream that
     will never produce anything.
     """
-    _mission_or_404(mission_id)
+    await _mission_or_404(mission_id)
     run = get_runners().get(mission_id)
     if run is None:
         raise HTTPException(status_code=404, detail="this mission is not running")
@@ -251,7 +269,7 @@ def _watch(run, *, replay: bool) -> StreamingResponse:
 
 @router.post("/{mission_id}/abort")
 async def abort_mission(mission_id: str, user: str = Depends(require_user)) -> dict:
-    _mission_or_404(mission_id)
+    await _mission_or_404(mission_id)
     if not get_runners().abort(mission_id):
         return {"aborted": False, "detail": "not running"}
     # After the session in flight, not during it: see Supervisor.abort.
@@ -263,5 +281,5 @@ async def delete_mission(mission_id: str, user: str = Depends(require_user)) -> 
     if get_runners().running(mission_id):
         raise HTTPException(status_code=409,
                             detail="stop the mission before deleting it")
-    _mission_or_404(mission_id)
-    return {"deleted": get_mission_store().delete(mission_id)}
+    await _mission_or_404(mission_id)
+    return {"deleted": await get_mission_store().delete(mission_id)}

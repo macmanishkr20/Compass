@@ -246,58 +246,42 @@ class PipelineRun:
 
 
 class _JsonStore:
-    """One JSON file per record, under the data directory.
+    """One collection of records, local or in Cosmos.
 
-    The same zero-config default the rest of Compass uses when Cosmos is not
-    configured. Reads are cheap and the volumes here are small — a workspace
-    has tens of pipelines, not thousands.
+    Was one JSON file per record under the data directory, and still is on
+    the local backend — same folder, same filenames, so nothing migrates.
+    The reads and writes now go through a Collection, which is what lets the
+    same store answer from Cosmos when the backend says so.
+
+    `_read`/`_write`/`_all`/`_delete` stay sync-looking in name only: every
+    caller already awaited the public methods, so they became awaitable
+    without a ripple.
     """
 
-    def __init__(self, folder: str) -> None:
+    def __init__(self, folder: str, *, container: str | None = None,
+                 partition_field: str | None = None,
+                 partition_source: str | None = None) -> None:
         self._folder = folder
+        from compass.common.persistence.catalog import CONTAINER, Collection
 
-    @property
-    def _dir(self) -> Path:
-        settings = get_settings()
-        path = settings.workspace_root / settings.data_dir / self._folder
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        self._items = Collection(
+            folder.rstrip("s") or folder, folder, shape="dir",
+            container=container or CONTAINER,
+            partition_field=partition_field,
+            partition_source=partition_source,
+        )
 
-    def _path(self, record_id: str) -> Path:
-        # Guard the id: it reaches the filesystem, and a record id that walks
-        # out of the directory is the kind of thing that is only funny once.
-        safe = "".join(c for c in record_id if c.isalnum() or c in "-_")
-        if not safe:
-            raise ValueError("invalid id")
-        return self._dir / f"{safe}.json"
+    async def _write(self, record_id: str, payload: dict[str, Any]) -> None:
+        await self._items.put({**payload, "id": record_id})
 
-    def _write(self, record_id: str, payload: dict[str, Any]) -> None:
-        path = self._path(record_id)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)  # atomic, so a crash mid-write cannot truncate
+    async def _read(self, record_id: str) -> dict[str, Any] | None:
+        return await self._items.get(record_id)
 
-    def _read(self, record_id: str) -> dict[str, Any] | None:
-        try:
-            return json.loads(self._path(record_id).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
+    async def _all(self) -> list[dict[str, Any]]:
+        return await self._items.all()
 
-    def _all(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for path in sorted(self._dir.glob("*.json")):
-            try:
-                out.append(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
-                logger.warning("skipping unreadable record %s", path)
-        return out
-
-    def _delete(self, record_id: str) -> bool:
-        try:
-            self._path(record_id).unlink()
-            return True
-        except OSError:
-            return False
+    async def _delete(self, record_id: str) -> bool:
+        return await self._items.remove(record_id)
 
 
 class PipelineStore(_JsonStore):
@@ -306,15 +290,15 @@ class PipelineStore(_JsonStore):
 
     async def create(self, name: str, **kwargs: Any) -> Pipeline:
         pipeline = Pipeline(id=_new_id("pl"), name=name, **kwargs)
-        self._write(pipeline.id, pipeline.to_dict())
+        await self._write(pipeline.id, pipeline.to_dict())
         return pipeline
 
     async def get(self, pipeline_id: str) -> Pipeline | None:
-        raw = self._read(pipeline_id)
+        raw = await self._read(pipeline_id)
         return Pipeline.from_dict(raw) if raw else None
 
     async def list(self) -> list[Pipeline]:
-        return [Pipeline.from_dict(r) for r in self._all()]
+        return [Pipeline.from_dict(r) for r in await self._all()]
 
     async def save(self, pipeline: Pipeline, *, bump: bool = True) -> Pipeline:
         """Persist, raising the version when the graph itself changed.
@@ -326,11 +310,11 @@ class PipelineStore(_JsonStore):
         if bump:
             pipeline.version += 1
         pipeline.updated_at = _now()
-        self._write(pipeline.id, pipeline.to_dict())
+        await self._write(pipeline.id, pipeline.to_dict())
         return pipeline
 
     async def delete(self, pipeline_id: str) -> bool:
-        return self._delete(pipeline_id)
+        return await self._delete(pipeline_id)
 
 
 class ConnectionStore(_JsonStore):
@@ -339,23 +323,29 @@ class ConnectionStore(_JsonStore):
 
     async def create(self, **kwargs: Any) -> Connection:
         conn = Connection(id=_new_id("cn"), **kwargs)
-        self._write(conn.id, asdict(conn))
+        await self._write(conn.id, asdict(conn))
         return conn
 
     async def get(self, connection_id: str) -> Connection | None:
-        raw = self._read(connection_id)
+        raw = await self._read(connection_id)
         return Connection(**raw) if raw else None
 
     async def list(self) -> list[Connection]:
-        return [Connection(**r) for r in self._all()]
+        return [Connection(**r) for r in await self._all()]
 
     async def delete(self, connection_id: str) -> bool:
-        return self._delete(connection_id)
+        return await self._delete(connection_id)
 
 
 class RunStore(_JsonStore):
     def __init__(self) -> None:
-        super().__init__("pipeline_runs")
+        # Run history lives with the other run histories, partitioned by the
+        # pipeline it belongs to: append-heavy and unbounded, unlike the
+        # definitions, so one pipeline's history is one partition.
+        super().__init__(
+            "pipeline_runs", container="runs",
+            partition_field="parentId", partition_source="pipeline_id",
+        )
 
     async def create(self, pipeline: Pipeline, trigger: str,
                      parameters: dict[str, Any],
@@ -372,23 +362,23 @@ class RunStore(_JsonStore):
             nodes={n.id: NodeRun(node_id=n.id) for n in pipeline.nodes},
             owner=pipeline.owner,
         )
-        self._write(run.id, run.to_dict())
+        await self._write(run.id, run.to_dict())
         return run
 
     async def get(self, run_id: str) -> PipelineRun | None:
-        raw = self._read(run_id)
+        raw = await self._read(run_id)
         return PipelineRun.from_dict(raw) if raw else None
 
     async def list(self, pipeline_id: str = "", limit: int = 50
                    ) -> list[PipelineRun]:
-        runs = [PipelineRun.from_dict(r) for r in self._all()]
+        runs = [PipelineRun.from_dict(r) for r in await self._all()]
         if pipeline_id:
             runs = [r for r in runs if r.pipeline_id == pipeline_id]
         runs.sort(key=lambda r: r.started_at, reverse=True)
         return runs[:limit]
 
     async def save(self, run: PipelineRun) -> None:
-        self._write(run.id, run.to_dict())
+        await self._write(run.id, run.to_dict())
 
 
 pipelines = PipelineStore()

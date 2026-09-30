@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.workspaces")
 
@@ -62,13 +63,15 @@ class Workspace:
         return cls(**known)
 
 
+#: Registered workspaces. The shared catalog: these are small, owner-scoped
+#: records, read as "the ones I have".
+_workspaces = Collection("workspace", "workspaces.json", shape="map")
+
+
 class WorkspaceRegistry:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._cache: dict[str, Workspace] | None = None
-
-    def _path(self) -> Path:
-        return get_settings().workspace_root / get_settings().data_dir / "workspaces.json"
 
     def _default(self) -> Workspace:
         root = get_settings().workspace_root
@@ -76,43 +79,46 @@ class WorkspaceRegistry:
             id=DEFAULT_ID, name="Compass (this repo)", path=str(root), kind="local"
         )
 
-    def _load(self) -> dict[str, Workspace]:
+    async def _load(self) -> dict[str, Workspace]:
+        """Every registered workspace, with the built-in default in front.
+
+        The default is derived from settings rather than stored, so it is
+        added here and excluded from every write. Storing it would pin a
+        path that is supposed to follow the install.
+        """
         if self._cache is not None:
             return self._cache
         data: dict[str, Workspace] = {DEFAULT_ID: self._default()}
-        path = self._path()
-        if path.is_file():
+        for row in await _workspaces.all():
             try:
-                raw = json.loads(path.read_text())
-                for wid, d in raw.items():
-                    data[wid] = Workspace.from_dict({**d, "id": wid})
-            except (OSError, json.JSONDecodeError) as err:
-                logger.error("could not read workspaces.json: %s", err)
+                ws = Workspace.from_dict(row)
+            except Exception:  # noqa: BLE001 — one bad row is not the registry
+                logger.warning("skipping an unreadable workspace row")
+                continue
+            if ws.id and ws.id != DEFAULT_ID:
+                data[ws.id] = ws
         self._cache = data
         return data
 
-    def _flush(self) -> None:
-        assert self._cache is not None
-        # Never persist the built-in default; it's derived from settings.
-        payload = {
-            wid: w.to_dict()
-            for wid, w in self._cache.items()
-            if wid != DEFAULT_ID
-        }
-        for w in payload.values():
-            w.pop("exists", None)
-            w.pop("is_git", None)
-        path = self._path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2))
+    async def _save(self, ws: Workspace) -> None:
+        """Persist one workspace. The default is never written."""
+        if ws.id == DEFAULT_ID:
+            return
+        row = ws.to_dict()
+        # Derived at read time from the filesystem, not facts about the
+        # record — storing them would mean a registry that disagrees with
+        # the disk and says so confidently.
+        row.pop("exists", None)
+        row.pop("is_git", None)
+        await _workspaces.put(row)
 
     async def list(self) -> list[Workspace]:
         async with self._lock:
-            return list(self._load().values())
+            return list((await self._load()).values())
 
     async def get(self, workspace_id: str) -> Workspace | None:
         async with self._lock:
-            return self._load().get(workspace_id)
+            return (await self._load()).get(workspace_id)
 
     async def resolve_root(self, workspace_id: str | None) -> Path:
         """Absolute path for a session's workspace.
@@ -148,8 +154,8 @@ class WorkspaceRegistry:
             remote_url=_origin_url(resolved),
         )
         async with self._lock:
-            self._load()[ws.id] = ws
-            self._flush()
+            (await self._load())[ws.id] = ws
+            await self._save(ws)
         return ws
 
     async def create_folder(self, name: str) -> Workspace:
@@ -170,16 +176,16 @@ class WorkspaceRegistry:
             branch=branch,
         )
         async with self._lock:
-            self._load()[ws.id] = ws
-            self._flush()
+            (await self._load())[ws.id] = ws
+            await self._save(ws)
         return ws
 
     async def delete(self, workspace_id: str) -> None:
         if workspace_id == DEFAULT_ID:
             raise ValueError("cannot remove the default workspace")
         async with self._lock:
-            if self._load().pop(workspace_id, None) is not None:
-                self._flush()
+            if (await self._load()).pop(workspace_id, None) is not None:
+                await _workspaces.remove(workspace_id)
 
 
 def _run_git(args: list[str], cwd: Path) -> str:

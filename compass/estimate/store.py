@@ -90,57 +90,42 @@ class Estimate:
 
 
 class _JsonStore:
-    """One JSON file per record, under the data directory.
+    """One collection of records, local or in Cosmos.
 
-    The same zero-config default the rest of Compass uses when Cosmos is not
-    configured.
+    Was one JSON file per record under the data directory, and still is on
+    the local backend — same folder, same filenames, so nothing migrates.
+    The reads and writes now go through a Collection, which is what lets the
+    same store answer from Cosmos when the backend says so.
+
+    `_read`/`_write`/`_all`/`_delete` stay sync-looking in name only: every
+    caller already awaited the public methods, so they became awaitable
+    without a ripple.
     """
 
-    def __init__(self, folder: str) -> None:
+    def __init__(self, folder: str, *, container: str | None = None,
+                 partition_field: str | None = None,
+                 partition_source: str | None = None) -> None:
         self._folder = folder
+        from compass.common.persistence.catalog import CONTAINER, Collection
 
-    @property
-    def _dir(self) -> Path:
-        settings = get_settings()
-        path = settings.workspace_root / settings.data_dir / self._folder
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        self._items = Collection(
+            folder.rstrip("s") or folder, folder, shape="dir",
+            container=container or CONTAINER,
+            partition_field=partition_field,
+            partition_source=partition_source,
+        )
 
-    def _path(self, record_id: str) -> Path:
-        # Guard the id: it reaches the filesystem, and a record id that walks
-        # out of the directory is the kind of thing that is only funny once.
-        safe = "".join(c for c in record_id if c.isalnum() or c in "-_")
-        if not safe:
-            raise ValueError("invalid id")
-        return self._dir / f"{safe}.json"
+    async def _write(self, record_id: str, payload: dict[str, Any]) -> None:
+        await self._items.put({**payload, "id": record_id})
 
-    def _write(self, record_id: str, payload: dict[str, Any]) -> None:
-        path = self._path(record_id)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(path)  # atomic, so a crash mid-write cannot truncate
+    async def _read(self, record_id: str) -> dict[str, Any] | None:
+        return await self._items.get(record_id)
 
-    def _read(self, record_id: str) -> dict[str, Any] | None:
-        try:
-            return json.loads(self._path(record_id).read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
+    async def _all(self) -> list[dict[str, Any]]:
+        return await self._items.all()
 
-    def _all(self) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for path in sorted(self._dir.glob("*.json")):
-            try:
-                out.append(json.loads(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
-                logger.warning("skipping unreadable record %s", path)
-        return out
-
-    def _delete(self, record_id: str) -> bool:
-        try:
-            self._path(record_id).unlink()
-            return True
-        except (OSError, ValueError):
-            return False
+    async def _delete(self, record_id: str) -> bool:
+        return await self._items.remove(record_id)
 
 
 class EstimateStore(_JsonStore):
@@ -149,23 +134,23 @@ class EstimateStore(_JsonStore):
 
     async def create(self, **kwargs: Any) -> Estimate:
         record = Estimate(id=_new_id(), **kwargs)
-        self._write(record.id, record.to_dict())
+        await self._write(record.id, record.to_dict())
         return record
 
     async def get(self, estimate_id: str) -> Estimate | None:
-        raw = self._read(estimate_id)
+        raw = await self._read(estimate_id)
         return Estimate.from_dict(raw) if raw else None
 
     async def list(self) -> list[Estimate]:
-        return [Estimate.from_dict(r) for r in self._all()]
+        return [Estimate.from_dict(r) for r in await self._all()]
 
     async def save(self, record: Estimate) -> Estimate:
         record.updated_at = _now()
-        self._write(record.id, record.to_dict())
+        await self._write(record.id, record.to_dict())
         return record
 
     async def delete(self, estimate_id: str) -> bool:
-        return self._delete(estimate_id)
+        return await self._delete(estimate_id)
 
 
 #: The platform baselines, in one place. `engine.py` reads the same numbers
@@ -207,14 +192,14 @@ class RateCardStore(_JsonStore):
         return hashlib.sha256((owner or "_shared").encode("utf-8")).hexdigest()[:20]
 
     async def get(self, owner: str) -> dict[str, float]:
-        saved = self._read(self._key(owner)) or {}
+        saved = await self._read(self._key(owner)) or {}
         # Merged over the baseline, so a card written before a dial existed
         # still opens with every field populated instead of a blank input.
         return {**BASELINE_RATES, **{k: v for k, v in saved.items() if k in BASELINE_RATES}}
 
     async def save(self, owner: str, card: dict[str, float]) -> dict[str, float]:
         merged = {**BASELINE_RATES, **{k: float(v) for k, v in card.items() if k in BASELINE_RATES}}
-        self._write(self._key(owner), merged)
+        await self._write(self._key(owner), merged)
         return merged
 
 

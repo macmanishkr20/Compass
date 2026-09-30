@@ -28,6 +28,7 @@ import time
 
 from compass.code.routines import Trigger, _prev_fire
 from compass.missions.engine import MissionEngine
+from compass.common.config import get_settings
 from compass.missions.runner import get_runners
 from compass.missions.store import get_mission_store
 from compass.missions.supervisor import next_step
@@ -93,7 +94,7 @@ async def scheduler_loop() -> None:
     store = get_mission_store()
     while True:
         try:
-            for mission in store.list():
+            for mission in await store.list():
                 triggers = parse_triggers(getattr(mission, "triggers", None))
                 if not triggers:
                     continue
@@ -101,11 +102,28 @@ async def scheduler_loop() -> None:
                 if slot is None or fired.get(mission.id) == slot:
                     continue
                 allowed, reason = may_start(mission)
-                fired[mission.id] = slot
                 if not allowed:
+                    fired[mission.id] = slot
                     logger.info("mission %s was due but not started: %s",
                                 mission.id, reason)
                     continue
+                # The quota is the real constraint, not the scheduler. Every
+                # mission due on the same tick used to start on that tick,
+                # and missions are token-hungry: past a couple at once they
+                # do not finish sooner, they take turns being rate-limited.
+                #
+                # The slot is deliberately NOT marked as fired here, so this
+                # is a wait rather than a skip — the mission starts on a later
+                # tick when there is room, instead of silently losing its
+                # turn until the next slot comes round.
+                cap = get_settings().missions.max_parallel
+                if get_runners().live() >= cap:
+                    logger.info(
+                        "mission %s is due but %d already running (cap %d); "
+                        "waiting for a slot", mission.id, get_runners().live(), cap,
+                    )
+                    continue
+                fired[mission.id] = slot
                 logger.info("mission %s starting on schedule — %s",
                             mission.id, reason)
                 get_runners().start(mission, MissionEngine(), store.save)

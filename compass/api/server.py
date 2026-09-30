@@ -113,6 +113,10 @@ async def lifespan(app: FastAPI):
     close = getattr(store, "close", None)
     if close is not None:
         await close()
+    # The catalog keeps its own Cosmos client, so it gets its own close.
+    from compass.common.persistence import catalog
+
+    await catalog.close()
 
 
 app = FastAPI(title="Compass", version="0.2.0", lifespan=lifespan)

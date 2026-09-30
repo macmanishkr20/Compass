@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.users")
 
@@ -67,41 +68,37 @@ def canonical(username: str) -> str:
     return get_settings().auth.identity_aliases.get(name, name)
 
 
+#: The identity table. Its own container rather than the shared catalog:
+#: these records *are* the owners every other collection is partitioned by,
+#: so they cannot be partitioned by owner themselves.
+_users = Collection(
+    "user", "users.json", shape="map", container="users", partition_field="id"
+)
+
+
 class UserStore:
-    """A single JSON file, mirroring the local session-meta store."""
+    """The people Compass has seen. Local JSON or Cosmos — see persistence."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
 
-    def _path(self) -> Path:
-        settings = get_settings()
-        folder = settings.workspace_root / settings.data_dir
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder / "users.json"
-
-    def _read(self) -> dict[str, UserRecord]:
-        path = self._path()
-        if not path.is_file():
-            return {}
-        try:
-            raw = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError) as err:
-            logger.error("could not read the user table: %s", err)
-            return {}
-        return {k: UserRecord.from_dict(v) for k, v in raw.items()}
-
-    def _write(self, rows: dict[str, UserRecord]) -> None:
-        path = self._path()
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps({k: v.to_dict() for k, v in rows.items()}))
-        tmp.replace(path)  # atomic on POSIX
+    async def _read(self) -> dict[str, UserRecord]:
+        out: dict[str, UserRecord] = {}
+        for row in await _users.all():
+            try:
+                rec = UserRecord.from_dict(row)
+            except Exception:  # noqa: BLE001 — one bad row is not the table
+                logger.warning("skipping an unreadable user row")
+                continue
+            if rec.id:
+                out[rec.id] = rec
+        return out
 
     async def record_login(self, username: str) -> UserRecord:
         """Note that `username` signed in, creating the row if it is new."""
         identity = canonical(username)
         async with self._lock:
-            rows = self._read()
-            row = rows.get(identity)
+            row = await self.get(identity)
             if row is None:
                 row = UserRecord(id=identity)
                 logger.info("new user in the table: %s", identity)
@@ -111,8 +108,7 @@ class UserStore:
                 row.logins.append(username)
             row.last_login = time.time()
             row.login_count += 1
-            rows[identity] = row
-            self._write(rows)
+            await _users.put(row.to_dict())
             return row
 
     async def set_display_name(self, identity: str, name: str) -> UserRecord:
@@ -126,22 +122,25 @@ class UserStore:
         # A name, not an essay, and not markup: this is rendered in a heading.
         clean = " ".join(str(name).split())[:60]
         async with self._lock:
-            rows = self._read()
-            row = rows.get(identity) or UserRecord(id=identity)
+            row = await self.get(identity) or UserRecord(id=identity)
             row.display_name = clean
-            rows[identity] = row
-            self._write(rows)
+            await _users.put(row.to_dict())
             return row
 
     async def list(self) -> list[UserRecord]:
-        async with self._lock:
-            rows = list(self._read().values())
+        rows = list((await self._read()).values())
         rows.sort(key=lambda r: r.last_login, reverse=True)
         return rows
 
     async def get(self, identity: str) -> UserRecord | None:
-        async with self._lock:
-            return self._read().get(identity)
+        row = await _users.get(canonical(identity))
+        if row is None:
+            return None
+        try:
+            return UserRecord.from_dict(row)
+        except Exception:  # noqa: BLE001
+            logger.warning("user row for %s is unreadable", identity)
+            return None
 
     async def ensure(self, identity: str) -> UserRecord:
         """Put an identity in the table without counting it as a login.
@@ -151,12 +150,10 @@ class UserStore:
         otherwise the table would say nobody owns 241 records.
         """
         async with self._lock:
-            rows = self._read()
-            row = rows.get(identity)
+            row = await self.get(identity)
             if row is None:
                 row = UserRecord(id=identity, login_count=0)
-                rows[identity] = row
-                self._write(rows)
+                await _users.put(row.to_dict())
             return row
 
 

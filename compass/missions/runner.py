@@ -21,6 +21,7 @@ stopped, and its artifacts are what makes picking it up cheap.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from typing import Any, AsyncIterator
 
@@ -66,6 +67,21 @@ class MissionRun:
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._drive())
 
+    async def _save(self, mission: Mission) -> None:
+        """Persist the mission, awaiting the callback if it is a coroutine.
+
+        The store went async for Cosmos, and this is handed `store.save`
+        directly. Accepting either shape keeps the runner from caring which
+        backend is behind it — and a save that failed must not take the
+        mission down with it, since the work is still good.
+        """
+        try:
+            result = self._on_change(mission)
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 — losing a save is not losing the run
+            logger.exception("could not save mission %s", mission.id)
+
     def abort(self) -> None:
         self.supervisor.abort()
 
@@ -85,7 +101,7 @@ class MissionRun:
                     self._publish(event)
                     # Saved as it goes: a mission is hours long, and a restart
                     # in hour three should not lose hours one and two.
-                    self._on_change(mission)
+                    await self._save(mission)
         except asyncio.CancelledError:
             logger.info("mission %s cancelled", mission.id)
             raise
@@ -93,7 +109,7 @@ class MissionRun:
             logger.exception("mission %s failed", mission.id)
             self._publish(MissionNote(message=f"mission failed: {err}"))
         finally:
-            self._on_change(mission)
+            await self._save(mission)
             self.finished.set()
             for subscriber in list(self._subscribers):
                 # None is the end-of-stream marker every watcher is waiting for.
@@ -150,6 +166,15 @@ class MissionRunners:
     def running(self, mission_id: str) -> bool:
         run = self._runs.get(mission_id)
         return bool(run and run.running)
+
+    def live(self) -> int:
+        """How many missions are actually running right now.
+
+        Counted from the tasks rather than from the size of the registry,
+        which keeps finished runs around so a window opened afterwards can
+        still replay them.
+        """
+        return sum(1 for run in self._runs.values() if run.running)
 
     def start(self, mission: Mission, engine: MissionEngine, on_change,
               *, force: bool = False) -> MissionRun:
