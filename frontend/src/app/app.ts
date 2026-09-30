@@ -16,7 +16,6 @@ import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TurnStatus } from './turn-status';
 import { MissionActivityService } from './missions/mission-activity.service';
-import { TiltDirective } from './tilt.directive';
 import { BlurOnChange } from './blur-on-change.directive';
 import { CompassMark } from './compass-mark/compass-mark';
 import { LoadingRadar } from './loading-radar/loading-radar';
@@ -115,7 +114,6 @@ const CONV_PAGE = 4;
     FormsModule,
     NgTemplateOutlet,
     TitleCasePipe,
-    TiltDirective,
     BlurOnChange,
     CompassMark,
     LoadingRadar,
@@ -1203,8 +1201,6 @@ export class App {
         return 'Delegated to a subagent';
       case 'web_fetch':
         return s(a['url']) ? `Read ${s(a['url'])}` : 'Read a page';
-      case 'browser':
-        return s(a['url']) ? `Opened ${s(a['url'])}` : 'Used the browser';
       case 'screenshot':
         return 'Took a screenshot';
       case 'consult':
@@ -1217,6 +1213,14 @@ export class App {
         return t.name;
     }
   }
+  /** What a browser step did, from the action it was asked to perform.
+   *
+   *  This was unreachable. A second `case 'browser'` sat above it in the
+   *  switch and answered every browser call before it was consulted, so each
+   *  one was labelled "Opened <url>" whatever it actually did — a click, a
+   *  keypress and a scroll all read as opening a page nobody navigated to.
+   *  The compiler had been saying so on every build (duplicate-case) and the
+   *  warning scrolled past among the routine ones. */
   private browserStepLabel(a: Record<string, unknown>): string {
     const host = (typeof a['url'] === 'string' ? a['url'] : '').replace(/^https?:\/\//, '');
     switch (a['action']) {
@@ -1227,7 +1231,10 @@ export class App {
       case 'scroll': return 'Scrolled the page';
       case 'screenshot': return 'Captured a screenshot';
       case 'read': return 'Read the page';
-      default: return 'Interacted with the page';
+      // No action at all — an older transcript, or a call shaped before the
+      // action field existed. The url is still the most useful thing known
+      // about it, which is what the clause this replaced got right.
+      default: return host ? `Opened ${host}` : 'Interacted with the page';
     }
   }
   /** Minimal shell highlighting for an expanded bash step: the command word in
