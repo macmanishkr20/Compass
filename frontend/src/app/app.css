@@ -4371,3 +4371,12 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
 @container main (max-width: 430px) {
   .cmp-toolbar .tb-seg { padding: 4px 6px; }
 }
+
+/* Separates the handheld sizes from the desktop ones in the viewport menu:
+   they are different questions — "does this work on a phone" and "does the
+   desktop layout hold up" — and a flat list of seven reads as neither. */
+.cb-view-menu .cb-menu-sep {
+  height: 1px;
+  margin: 5px 6px;
+  background: var(--border);
+}

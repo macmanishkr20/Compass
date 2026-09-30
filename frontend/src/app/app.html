@@ -2082,6 +2082,22 @@
                   <span>Tablet</span><span class="cb-dim">768 × 1024</span>
                   @if (browserViewport() === 'tablet') { <span class="cb-check">✓</span> }
                 </button>
+                <!-- Desktop widths, rendered at their own size and scaled
+                     down to fit the pane. A side panel is never 1920 wide,
+                     and a desktop layout cannot be checked any other way. -->
+                <div class="cb-menu-sep" role="separator"></div>
+                <button (click)="setViewport('laptop')">
+                  <span>Laptop</span><span class="cb-dim">1280 × 800</span>
+                  @if (browserViewport() === 'laptop') { <span class="cb-check">✓</span> }
+                </button>
+                <button (click)="setViewport('desktop')">
+                  <span>Desktop</span><span class="cb-dim">1440 × 900</span>
+                  @if (browserViewport() === 'desktop') { <span class="cb-check">✓</span> }
+                </button>
+                <button (click)="setViewport('monitor')">
+                  <span>Monitor</span><span class="cb-dim">1920 × 1080</span>
+                  @if (browserViewport() === 'monitor') { <span class="cb-check">✓</span> }
+                </button>
               </div>
             }
           </div>

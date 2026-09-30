@@ -607,7 +607,15 @@ async def browser_ws(ws: WebSocket) -> None:
     sess = RemoteBrowserSession(emit)
     try:
         try:
-            await sess.start()
+            # The device pixel ratio has to be known before the context is
+            # made — Playwright takes it as a context option — so the client
+            # puts it in the query string rather than in a first message,
+            # which would arrive too late to be used.
+            try:
+                scale = float(ws.query_params.get("dpr", "1") or 1)
+            except (TypeError, ValueError):
+                scale = 1.0
+            await sess.start(scale=scale)
         except Exception as err:  # Playwright/Chromium missing or failed
             await emit({"t": "error", "message": f"remote browser unavailable: {err}"})
             await ws.close()

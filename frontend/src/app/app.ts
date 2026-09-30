@@ -66,6 +66,12 @@ import {
 } from './models';
 
 const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
+/** Named from the viewport table itself, so a size added there cannot
+ *  leave the type behind — which is how the first four were added and
+ *  then rejected by the compiler one at a time. */
+type ViewportName =
+  | 'responsive' | 'mobile' | 'tablet'
+  | 'laptop' | 'desktop' | 'monitor';
 /** The fallback ladder, for before /healthz answers and for a deployment the
  *  server did not describe. It is deliberately the three levels every family
  *  measured so far accepts: the real list comes from the server, because the
@@ -180,7 +186,7 @@ export class App {
   // Select/inspect tool (arrow): Chromium's DevTools element overlay follows
   // the cursor. Viewport tool (device): render at a device size like claude.ai.
   readonly browserSelect = signal(false);
-  readonly browserViewport = signal<'responsive' | 'mobile' | 'tablet'>('responsive');
+  readonly browserViewport = signal<ViewportName>('responsive');
   readonly cbViewMenuOpen = signal(false);
   // Select-tool highlight: pixel rect (within .cb-view) + label of the element
   // under the cursor, drawn as a DevTools-style overlay.
@@ -194,10 +200,20 @@ export class App {
   );
   // Picked elements from the Select tool → chips in the Home composer.
   readonly browserSelectSvc = inject(BrowserSelectService);
+  /** The sizes the viewport menu offers.
+   *
+   *  `responsive` means the pane itself, which is the honest default: the
+   *  page gets exactly the room it has. The rest are real devices, rendered
+   *  at their own size and scaled down to fit — so a site can be checked at a
+   *  monitor's width from a pane that is nowhere near that wide, which is the
+   *  only way to see a desktop layout in a side panel at all. */
   private static readonly VIEWPORTS = {
     responsive: null,
     mobile: { w: 375, h: 812 },
     tablet: { w: 768, h: 1024 },
+    laptop: { w: 1280, h: 800 },
+    desktop: { w: 1440, h: 900 },
+    monitor: { w: 1920, h: 1080 },
   } as const;
   readonly deviceAspect = computed(() => {
     const d = App.VIEWPORTS[this.browserViewport()];
@@ -205,6 +221,21 @@ export class App {
   });
   private rbWs: WebSocket | null = null;
   private rbMoveTs = 0;
+  /** Watches the browser pane so the server's viewport keeps matching it.
+   *
+   *  The frame is painted with `object-fit: fill`, which is exactly right
+   *  while the two agree and a distortion as soon as they do not — the image
+   *  is stretched to the pane rather than letterboxed inside it. They stopped
+   *  agreeing constantly: the only resize was sent two frames after the pane
+   *  opened, at which point the dock has often not laid out and the pane
+   *  still measures zero, so the send was skipped and never retried. The
+   *  server stayed at its 1280x800 default while the pane was 743x824 —
+   *  measured — which is a page squeezed to 58% across and stretched to 103%
+   *  down. Nothing after that corrected it either: dragging the divider or
+   *  resizing the window changed the pane and not the viewport. */
+  private rbSizeObserver: ResizeObserver | null = null;
+  private rbResizeTimer: ReturnType<typeof setTimeout> | null = null;
+  private rbLastSize = '';
   private readonly cbView =
     viewChild<ElementRef<HTMLDivElement>>('cbView');
   private readonly cbImg =
@@ -2217,7 +2248,7 @@ export class App {
 
   /** Viewport tool (device) — render the page at a device size, like claude.ai's
    *  Responsive / Mobile 375×812 / Tablet 768×1024. */
-  setViewport(v: 'responsive' | 'mobile' | 'tablet'): void {
+  setViewport(v: ViewportName): void {
     this.browserViewport.set(v);
     this.cbViewMenuOpen.set(false);
     requestAnimationFrame(() => this.rbSendResize());
@@ -2348,9 +2379,17 @@ export class App {
   }
 
   // -- remote browser: frame stream + input forwarding ---------------------
-  private rbSend(msg: Record<string, unknown>): void {
+  /** Send one command, and say whether it actually went out.
+   *
+   *  The return value matters to the resize memo: a size recorded as sent
+   *  when the socket was not open is a size that will never be sent again,
+   *  and the server sits on its default viewport for the rest of the
+   *  session. */
+  private rbSend(msg: Record<string, unknown>): boolean {
     const ws = this.rbWs;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    ws.send(JSON.stringify(msg));
+    return true;
   }
 
   rbConnect(): void {
@@ -2362,9 +2401,20 @@ export class App {
     )
       return;
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${proto}//${location.host}/v1/browser/ws`);
+    // The display's pixel ratio, in the URL because the server needs it
+    // before it builds the browser context — a first message would arrive
+    // after the context exists, and it cannot be changed then. Without it
+    // every frame is rendered at 1x and stretched over a Retina screen,
+    // which is what made the pane look soft beside a real browser.
+    const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    const ws = new WebSocket(
+      `${proto}//${location.host}/v1/browser/ws?dpr=${dpr}`);
     this.rbWs = ws;
     ws.onopen = () => {
+      // A new connection is a new browser context on its default viewport,
+      // so anything the old one was told no longer applies.
+      this.rbLastSize = '';
+      this.rbWatchPaneSize();
       this.rbSendResize();
       if (this.browserSelect()) this.rbSend({ t: 'select', on: true });
       const u = this.browserAddr();
@@ -2433,21 +2483,71 @@ export class App {
     }
     this.rbFrame.set('');
     this.rbError.set('');
+    this.rbSizeObserver?.disconnect();
+    this.rbSizeObserver = null;
+    if (this.rbResizeTimer) {
+      clearTimeout(this.rbResizeTimer);
+      this.rbResizeTimer = null;
+    }
+    this.rbLastSize = '';
+  }
+
+  /** Keep the server viewport equal to the pane, for as long as it is open.
+   *
+   *  An observer rather than a guess about when layout finishes: it fires
+   *  when the pane actually has a size, which covers the case the old code
+   *  missed entirely — opening — as well as every divider drag and window
+   *  resize after it. Debounced so dragging a divider does not resize a real
+   *  browser sixty times a second. */
+  private rbWatchPaneSize(): void {
+    const el = this.cbView()?.nativeElement;
+    if (!el || this.rbSizeObserver) return;
+    this.rbSizeObserver = new ResizeObserver(() => {
+      if (this.rbResizeTimer) clearTimeout(this.rbResizeTimer);
+      this.rbResizeTimer = setTimeout(() => {
+        this.rbResizeTimer = null;
+        this.rbSendResize();
+      }, 120);
+    });
+    this.rbSizeObserver.observe(el);
   }
 
   private rbSendResize(): void {
     // Server viewport = a fixed device size (mobile/tablet) or, in responsive
     // mode, the live pane size so the frame is 1:1.
+    const el0 = this.cbView()?.nativeElement;
+    const shown = el0 ? el0.getBoundingClientRect().width : 0;
     const dev = App.VIEWPORTS[this.browserViewport()];
     if (dev) {
-      this.rbSend({ t: 'resize', w: dev.w, h: dev.h });
+      // A 1920-wide page shown in a 700-wide pane is already being thrown
+      // away on the way in; asking the server for a full-resolution frame on
+      // top of that costs several megabytes to draw pixels nobody will see.
+      // Sharpen only when the frame is displayed at its own size or larger.
+      const sharp = shown > 0 && shown >= dev.w;
+      const key = `dev:${dev.w}x${dev.h}:${sharp}`;
+      if (key === this.rbLastSize) return;
+      // Remembered only once it is genuinely on the wire — see rbSend.
+      if (this.rbSend({ t: 'resize', w: dev.w, h: dev.h, sharp })) {
+        this.rbLastSize = key;
+      }
       return;
     }
     const el = this.cbView()?.nativeElement;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    if (r.width && r.height)
-      this.rbSend({ t: 'resize', w: Math.round(r.width), h: Math.round(r.height) });
+    // A pane that has not laid out yet measures zero. Nothing to send — but
+    // the observer above is watching, so the size arrives the moment it is
+    // real instead of being dropped the way it used to be.
+    if (!r.width || !r.height) return;
+    const w = Math.round(r.width);
+    const h = Math.round(r.height);
+    const key = `${w}x${h}:sharp`;
+    if (key === this.rbLastSize) return;
+    // Responsive mode is 1:1 by construction, so the detail is always worth
+    // having.
+    if (this.rbSend({ t: 'resize', w, h, sharp: true })) {
+      this.rbLastSize = key;
+    }
   }
 
   /** Normalise a pointer to 0..1 of the DISPLAYED frame image (not the pane),
