@@ -299,7 +299,7 @@
             <div class="pick-menu right" (click)="$event.stopPropagation()" role="menu"
               aria-label="Reasoning effort">
               <div class="pick-head">Reasoning effort</div>
-              @for (e of efforts; track e) {
+              @for (e of efforts(); track e) {
                 <button class="pick-item cap" type="button" role="menuitemradio"
                   [class.on]="activeEffort() === e" [attr.aria-checked]="activeEffort() === e"
                   (click)="activeEffort.set(e); pickMenu.set(null)">

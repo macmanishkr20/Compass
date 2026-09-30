@@ -5,6 +5,11 @@ export interface HealthInfo {
   mock_model: boolean;
   deployment: string;
   models: string[];
+  /** Which effort levels each deployment accepts, weakest first. The picker
+   *  reads this rather than carrying a list: the deployed families take
+   *  overlapping but different ladders, so any single built-in list offers
+   *  one of them a level the API refuses. */
+  efforts?: Record<string, string[]>;
   github: boolean;
   storage_backend: string;
   telemetry: boolean;

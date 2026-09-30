@@ -20,7 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("COMPASS_AUTH_ENABLED", "0")
 sys.path.insert(0, str(ROOT))
 
-from compass.common.config import EFFORT_LEVELS, ThinkingSettings  # noqa: E402
+from compass.common.config import (  # noqa: E402
+    EFFORT_LEVELS, ThinkingSettings, effort_levels_for,
+)
 from compass.common.gateway.responses import (  # noqa: E402
     ReasoningTrace,
     ResponsesOutcome,
@@ -149,27 +151,50 @@ def check_request_shape() -> None:
 
 
 def check_effort_ladder() -> None:
-    """The ladder, as the deployment reports it.
+    """The ladders, as each deployment reports them.
 
-    This check previously asserted a ladder with `xhigh` at the top, which the
-    resource rejects outright — so it was not protecting the ladder, it was
-    protecting a mistake, and it passed every time it ran. The levels below
-    are what gpt-5-2025-08-07 names in its own 400: 'minimal', 'low',
-    'medium', 'high'. Anything added here should come from asking the API, not
-    from a document, and `scripts/` has a probe that asks it.
+    This check has twice protected a mistake instead of the ladder. First it
+    asserted a ladder with `xhigh` at the top, which gpt-5 rejects outright.
+    Then, corrected to gpt-5's four, it asserted a single global list — and
+    passed every run while the UI offered `minimal` to gpt-6-astra, which
+    refuses it. Both times the assertion was true of the constant and false
+    of the API.
+
+    So what is checked now is the property that actually matters: whatever a
+    picker may offer for a deployment, that deployment accepts, and anything
+    off its ladder is coerced onto it rather than sent. Levels come from what
+    the API says when it refuses; `scripts/` has a probe that asks it.
     """
     print("\nthe effort ladder matches what the API accepts")
     t = ThinkingSettings()
-    ok(EFFORT_LEVELS == ("minimal", "low", "medium", "high"),
-       f"the ladder is {EFFORT_LEVELS}")
-    ok("xhigh" not in EFFORT_LEVELS,
-       "'xhigh' is not offered — the deployment refuses it")
-    ok(t.normalize_effort("xhigh") == "high",
-       "'xhigh' on an old session becomes high, not nothing")
-    ok(t.normalize_effort("max") == "high", "'max' becomes the highest Azure has")
-    ok(t.normalize_effort("minimal") == "minimal", "'minimal' is a real level now")
-    ok(t.normalize_effort("nonsense") is None, "an unknown level is dropped, not sent")
-    ok(t.normalize_effort(None) is None, "no effort stays no effort")
+    ok(effort_levels_for("gpt-5") == ("minimal", "low", "medium", "high"),
+       f"gpt-5 takes {effort_levels_for('gpt-5')}")
+    ok(effort_levels_for("gpt-6-astra") == ("low", "medium", "high", "xhigh", "max"),
+       f"gpt-6-astra takes {effort_levels_for('gpt-6-astra')}")
+    ok("xhigh" not in effort_levels_for("gpt-5"),
+       "'xhigh' is not offered for gpt-5 — it refuses it")
+    ok("minimal" not in effort_levels_for("gpt-6-astra"),
+       "'minimal' is not offered for gpt-6-astra — it refuses it")
+    ok("minimal" not in effort_levels_for("some-unmeasured-model"),
+       "an unmeasured deployment is offered only what every family takes")
+
+    # Nothing a picker offers may be a level its own deployment refuses. The
+    # bug this replaces was exactly this statement being false.
+    for name in ("gpt-5", "gpt-6-astra", "o3-mini", "gpt-4o-mini"):
+        ladder = effort_levels_for(name)
+        ok(all(t.normalize_effort(lv, name) == lv for lv in ladder),
+           f"every level offered for {name} survives normalising")
+
+    ok(t.normalize_effort("xhigh", "gpt-5") == "high",
+       "'xhigh' on a gpt-5 turn becomes high, not nothing")
+    ok(t.normalize_effort("max", "gpt-5") == "high", "'max' becomes the highest gpt-5 has")
+    ok(t.normalize_effort("minimal", "gpt-5") == "minimal", "gpt-5 keeps 'minimal'")
+    ok(t.normalize_effort("minimal", "gpt-6-astra") == "low",
+       "'minimal' on gpt-6-astra becomes the least it has, not a 400")
+    ok(t.normalize_effort("max", "gpt-6-astra") == "max", "gpt-6-astra keeps 'max'")
+    ok(t.normalize_effort("nonsense", "gpt-5") is None,
+       "an unknown level is dropped, not sent")
+    ok(t.normalize_effort(None, "gpt-5") is None, "no effort stays no effort")
     ok(t.reasons("gpt-5") and not t.reasons("gpt-4o-mini"),
        "only reasoning deployments take the reasoning path")
     ok(ThinkingSettings().advisor_effort in EFFORT_LEVELS,
@@ -184,10 +209,16 @@ def check_effort_ladder() -> None:
         text = (ROOT / page).read_text()
         line = next((ln for ln in text.splitlines()
                      if ln.startswith("const EFFORTS")), "")
-        ok(bool(line), f"{page} declares an effort list")
-        ok("xhigh" not in line,
-           f"{page} does not offer a level the API refuses")
-        ok("minimal" in line, f"{page} offers the level it accepts")
+        ok(bool(line), f"{page} declares a fallback effort list")
+        # The list in the page is now only the fallback: the real one arrives
+        # from /healthz per deployment. So what it must not do is name a level
+        # some deployment refuses — it is used when we do not know which.
+        for refused in ("minimal", "xhigh", "max"):
+            ok(refused not in line,
+               f"{page} fallback does not name '{refused}', which some "
+               f"deployment refuses")
+        ok("'low'" in line and "'high'" in line,
+           f"{page} fallback offers the levels every family takes")
 
 
 def check_server_tools() -> None:
@@ -3189,9 +3220,14 @@ def check_topbar_mark() -> None:
     # made six — one fact behaving as five copies of itself, which is how a
     # section ends up with the sidebar it was supposed to hide.
     ts = (ROOT / "frontend/src/app/app.ts").read_text()
-    block = section(html, "@if (chromeless()) {", "      }")
+    # The condition widened once the mark also had to stand in for a sidebar
+    # that is merely collapsed rather than absent: on Home and Code the brand
+    # slides off screen with the sidebar, leaving the same blank corner.
+    block = section(html, "@if (chromeless() || !sidebarOpen()) {", "      }")
     ok("app-compass-mark" in block,
        "the sections without a sidebar show the mark instead")
+    ok("!sidebarOpen()" in html,
+       "and so does a section whose sidebar is merely collapsed")
     ok("readonly chromeless = computed(" in ts
        and "=== 'design'" in section(ts, "readonly chromeless = computed(", ");")
        and "=== 'estimate'" in section(ts, "readonly chromeless = computed(", ");"),
@@ -3288,11 +3324,19 @@ def check_sections_stay_separate() -> None:
     routes = (ROOT / "compass/code/routes.py").read_text()
     proutes = (ROOT / "compass/pipelines/routes.py").read_text()
 
-    title = section(ts, "readonly sectionTitle = computed", "\n  });")
-    for name in ("'home'", "'design'", "'pipelines'"):
-        ok(f"case {name}:" in title, f"the topbar names {name} itself")
-    ok("switch (this.section())" in title,
-       "as a switch, so a new section cannot silently inherit Code's title")
+    # Every section names itself now. This was a switch with a default that
+    # returned the Code console's conversation, and the two sections added
+    # after it was written fell into that default and wore a title from
+    # another module — so the check is that the map is total, which the
+    # compiler enforces, rather than that particular branches exist.
+    title = section(ts, "private static readonly TITLES", "  };")
+    for name in ("home", "code", "design", "pipelines", "estimate", "missions"):
+        ok(f"{name}:" in title, f"the topbar names '{name}' itself")
+    ok("Record<ModuleKey, string>" in title,
+       "as a total map, so a new section cannot silently inherit another's "
+       "title — it fails to compile until it is named")
+    ok("default:" not in title,
+       "and there is no default branch for a section nobody thought of")
     ok("sectionTitle()" in html, "and the template asks for it")
 
     ok("pipeline_id: str = \"\"" in meta,

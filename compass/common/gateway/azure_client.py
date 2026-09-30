@@ -437,7 +437,7 @@ class AzureModelClient:
             messages=messages,
             tools=tools,
             max_output_tokens=max_output_tokens or settings.context.max_output_tokens,
-            effort=thinking.normalize_effort(effort),
+            effort=thinking.normalize_effort(effort, deployment),
             display=thinking.display,
             reasoning_by_index=reasoning_by_index,
             server_tools=True,
@@ -557,10 +557,16 @@ class AzureModelClient:
         # reasoning_effort applies only to reasoning-capable deployments (o-series,
         # gpt-5 family). Passed when set; a deployment that rejects it drops it
         # and retries rather than failing the turn.
-        if effort:
-            kwargs["reasoning_effort"] = effort
+        #
+        # Normalized first so it is the right level on the first attempt. The
+        # retry below can only drop the field wholesale, which costs the turn
+        # its thinking — a worse answer for a setting that was merely spelled
+        # for a different deployment.
+        wanted = settings.thinking.normalize_effort(effort, deployment)
+        if wanted:
+            kwargs["reasoning_effort"] = wanted
 
-        stream = await self._create_stream_adapting(kwargs, effort)
+        stream = await self._create_stream_adapting(kwargs, wanted)
 
         content_parts: list[str] = []
         drafts: dict[int, ToolCallDraft] = {}
@@ -664,7 +670,8 @@ class AzureModelClient:
             messages=messages,
             tools=None,
             max_output_tokens=max_tokens,
-            effort=thinking.normalize_effort(effort or thinking.default_effort),
+            effort=thinking.normalize_effort(effort or thinking.default_effort,
+                                             deployment),
             display=thinking.display,
             reasoning_by_index=by_index,
             stream=False,
@@ -757,9 +764,7 @@ class AzureModelClient:
         # A chosen deployment leads; the usual order still follows it, so an
         # unavailable choice degrades instead of failing the request.
         candidates = [d for d in ((model,) + order) if d]
-        wanted = settings.thinking.normalize_effort(
-            effort or settings.thinking.default_effort
-        )
+        asked = effort or settings.thinking.default_effort
         last: Exception | None = None
         for deployment in dict.fromkeys(candidates):  # de-duped, order kept
             # A deployment that reasons goes to the API that will actually
@@ -795,6 +800,11 @@ class AzureModelClient:
                 }
             # Effort applies only where there is reasoning to steer; a
             # deployment that rejects it drops it and retries below.
+            #
+            # Resolved per candidate rather than once for the list: this walks
+            # a chain of fallbacks that need not share a ladder, so a level
+            # settled against the first would be sent unchanged to the next.
+            wanted = settings.thinking.normalize_effort(asked, deployment)
             if wanted and settings.thinking.reasons(deployment):
                 base["reasoning_effort"] = wanted
             try:

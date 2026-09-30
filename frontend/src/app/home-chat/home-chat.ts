@@ -23,6 +23,7 @@ import { SavedPrompt } from '../models';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
+import { TurnStatus } from '../turn-status';
 import { LightboxService } from '../lightbox.service';
 
 interface WorkIqSource {
@@ -94,11 +95,13 @@ function scrolledUp(el: HTMLElement): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight > FOLLOW_SLACK;
 }
 
-/** How hard the model is asked to think. These are the four levels Azure's
- *  reasoning models accept — 'minimal' was never one of them, and 'max' is
- *  rejected. Higher means it thinks more often and goes further; at 'low' it
- *  skips thinking on work that does not need it. */
-const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+/** The fallback ladder, for before the shell has the real one and for a
+ *  deployment the server did not describe. Deliberately the three levels
+ *  every family measured so far accepts: the real list comes from the server,
+ *  because the deployed families take overlapping but different ladders and
+ *  any list hardcoded here offers one of them a level the API refuses.
+ *  Higher means it thinks more often and goes further. */
+const EFFORTS = ['low', 'medium', 'high'] as const;
 
 /**
  * Home / Chat — a pure-conversation surface. It is a self-contained sibling of
@@ -128,6 +131,9 @@ export class HomeChat {
 
   // Inputs from the shell so we don't duplicate health fetching.
   readonly models = input<string[]>([]);
+  /** Which levels each deployment accepts, from the shell's /healthz. Passed
+   *  in rather than fetched for the same reason `models` is. */
+  readonly effortsByModel = input<Record<string, string[]>>({});
   readonly deployment = input<string>('');
   // The Home conversation to display: an id to resume, or null for a fresh
   // thread. Driven by the sidebar (App owns the Home conversation list).
@@ -145,7 +151,9 @@ export class HomeChat {
   // The thread changed (new session or a completed turn) — refresh the list.
   readonly threadChanged = output<void>();
 
-  readonly efforts = EFFORTS;
+  /** What the selected deployment will think at; see the note on EFFORTS. */
+  readonly efforts = computed<readonly string[]>(
+    () => this.effortsByModel()[this.activeModel()] ?? EFFORTS);
   readonly accept = ATTACH_ACCEPT;
   readonly activeModel = linkedSignal(() => this.deployment());
   readonly activeEffort = signal('medium');
@@ -553,14 +561,10 @@ export class HomeChat {
   // Live "still working…" meter, so a long first-token wait never looks stuck.
   readonly elapsedMs = signal(0);
   private turnStartMs = 0;
-  private readonly workingLines = [
-    'Thinking…',
-    'Working on it…',
-    'Still working…',
-    'Composing a response…',
-    'Almost there…',
-  ];
-  readonly workingMsg = signal(this.workingLines[0]);
+  /** What the turn is actually doing, from the stream rather than a timer.
+   *  See TurnStatus. */
+  private readonly turnStatus = new TurnStatus();
+  readonly workingMsg = this.turnStatus.label;
 
   /** Relative age under a message ("just now", "7 hours ago"). */
   readonly nowTick = signal(Date.now());
@@ -662,17 +666,18 @@ export class HomeChat {
       if (!target) this.resetThread();
       else void this.loadThread(target);
     });
-    // Tick the elapsed meter and rotate the "still working…" line while a turn
-    // is in flight, so a long wait shows progress instead of looking stuck.
+    // Tick the elapsed meter while a turn is in flight, so a long first-token
+    // wait never looks stuck. The status line rides the same timer, but only
+    // so its thinking phrase can move: every other phase changes when the
+    // stream says so.
     effect((onCleanup) => {
       if (!this.streaming()) return;
-      let i = 0;
-      this.workingMsg.set(this.workingLines[0]);
+      let sinceBeat = 0;
       const id = setInterval(() => {
         this.elapsedMs.set(Math.round(performance.now() - this.turnStartMs));
-        if (this.elapsedMs() > (i + 1) * 2400) {
-          i++;
-          this.workingMsg.set(this.workingLines[i % this.workingLines.length]);
+        if ((sinceBeat += 250) >= 2400) {
+          sinceBeat = 0;
+          this.turnStatus.tick();
         }
       }, 250);
       onCleanup(() => clearInterval(id));
@@ -915,6 +920,7 @@ export class HomeChat {
     if (this.streaming()) return;
     this.turnStartMs = performance.now();
     this.elapsedMs.set(0);
+    this.turnStatus.start();
     this.streaming.set(true);
     this.currentAssistant = null;
     this.pendingSources = null;
@@ -1157,6 +1163,8 @@ export class HomeChat {
    *  the answer starts, so what stays on screen is the answer. */
 
   private onEvent(ev: CompassEvent): void {
+    // Every event, before anything branches on it — see the note in App.
+    this.turnStatus.note(ev.type, ev as { tool_name?: unknown });
     switch (ev.type) {
       case 'work_iq_sources':
         // Arrives before the answer streams — hold it for the reply bubble.

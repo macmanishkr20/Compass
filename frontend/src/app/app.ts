@@ -14,6 +14,7 @@ import { AuthService } from './auth.service';
 import { CompassApiService } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
+import { TurnStatus } from './turn-status';
 import { MissionActivityService } from './missions/mission-activity.service';
 import { TiltDirective } from './tilt.directive';
 import { BlurOnChange } from './blur-on-change.directive';
@@ -65,11 +66,13 @@ import {
 } from './models';
 
 const MODES = ['default', 'accept_edits', 'plan', 'bypass'] as const;
-/** How hard the model is asked to think. These are the four levels Azure's
- *  reasoning models accept — 'minimal' was never one of them, and 'max' is
- *  rejected. Higher means it thinks more often and goes further; at 'low' it
- *  skips thinking on work that does not need it. */
-const EFFORTS = ['minimal', 'low', 'medium', 'high'] as const;
+/** The fallback ladder, for before /healthz answers and for a deployment the
+ *  server did not describe. It is deliberately the three levels every family
+ *  measured so far accepts: the real list comes from the server, because the
+ *  deployed families take overlapping but different ladders and any list
+ *  hardcoded here offers one of them a level the API answers with a 400.
+ *  Higher means it thinks more often and goes further. */
+const EFFORTS = ['low', 'medium', 'high'] as const;
 
 /** A rendered timeline block: either a standalone item (user/assistant bubble,
  * permission card, meaningful notice) or a collapsed "activity" group folding
@@ -580,7 +583,15 @@ export class App {
   }
 
   readonly modes = MODES;
-  readonly efforts = EFFORTS;
+
+  /** What the selected deployment will think at. Read from the server, which
+   *  knows which ladder each family takes; EFFORTS is only the fallback for
+   *  the moment before boot answers, and for a deployment the server has not
+   *  described. */
+  readonly efforts = computed<readonly string[]>(() => {
+    const byModel = this.health()?.efforts;
+    return byModel?.[this.activeModel()] ?? EFFORTS;
+  });
   readonly modeLabels: Record<string, string> = {
     default: 'Default',
     accept_edits: 'Accept edits',
@@ -604,7 +615,11 @@ export class App {
 
   // -- "thinking" loader (shown until the first token / tool / permission)
   readonly thinking = signal(false);
-  readonly thinkingMsg = signal('');
+  /** What the turn is actually doing, from the stream. See TurnStatus: this
+   *  was a list of phrases on a timer, which said "Tracing the query plan…"
+   *  while a shell command ran. */
+  private readonly turnStatus = new TurnStatus();
+  readonly thinkingMsg = this.turnStatus.label;
   // Live turn meters (Claude-style): elapsed wall-clock and output tokens so
   // far, shown next to the radar while the whole turn streams. Tokens are
   // derived from the streaming assistant text (~4 chars/token) so the count
@@ -627,16 +642,6 @@ export class App {
       (this.usage()?.completionTokens ?? 0) - this.turnStartCompletion,
     );
   });
-  private readonly thinkingLines = [
-    'Consulting the schema…',
-    'Tracing the query plan…',
-    'Weighing the approaches…',
-    'Composing a response…',
-    'Checking the edge cases…',
-    'Lining up the syntax…',
-    'Thinking it through…',
-  ];
-  private thinkingIdx = 0;
 
   // -- per-session controls
   readonly activeMode = signal('default');
@@ -1462,25 +1467,19 @@ export class App {
         }
       });
     });
-    // Rotate the status message for the whole turn (Claude keeps its verbs
-    // cycling until the final answer lands, not just until the first token).
+    // Tick the elapsed-time meter while a turn is in flight. The status line
+    // rides the same timer, but only so its thinking phrase can move: every
+    // other phase changes when the stream says so, not when a clock fires.
     effect((onCleanup) => {
       if (!this.streaming()) return;
-      this.thinkingIdx = 0;
-      this.thinkingMsg.set(this.thinkingLines[0]);
+      let sinceBeat = 0;
       const id = setInterval(() => {
-        this.thinkingIdx = (this.thinkingIdx + 1) % this.thinkingLines.length;
-        this.thinkingMsg.set(this.thinkingLines[this.thinkingIdx]);
-      }, 2400);
-      onCleanup(() => clearInterval(id));
-    });
-    // Tick the elapsed-time meter while a turn is in flight.
-    effect((onCleanup) => {
-      if (!this.streaming()) return;
-      const id = setInterval(
-        () => this.elapsedMs.set(Math.round(performance.now() - this.turnStartMs)),
-        250,
-      );
+        this.elapsedMs.set(Math.round(performance.now() - this.turnStartMs));
+        if ((sinceBeat += 250) >= 2400) {
+          sinceBeat = 0;
+          this.turnStatus.tick();
+        }
+      }, 250);
       onCleanup(() => clearInterval(id));
     });
     // Interactive remote browser: connect the frame stream while the pane is
@@ -3773,6 +3772,7 @@ export class App {
     this.turnStartCompletion = this.usage()?.completionTokens ?? 0;
     this.turnNotify.arm();
     this.elapsedMs.set(0);
+    this.turnStatus.start();
     try {
       await start((ev) => this.onEvent(ev));
     } catch (err) {
@@ -4001,6 +4001,9 @@ export class App {
     ) {
       this.thinking.set(false);
     }
+    // Every event, before anything branches on it: the status line is a fold
+    // over the whole stream, so a case that returns early must not skip it.
+    this.turnStatus.note(ev.type, ev as { tool_name?: unknown });
     switch (ev.type) {
       case 'thinking_delta': {
         if (agentId) return;

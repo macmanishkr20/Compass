@@ -819,7 +819,8 @@
     <!-- Home stays mounted (hidden in Code) so its chat thread survives a
          section switch — the Code console keeps its own state in App signals. -->
     <app-home-chat [style.display]="section() === 'home' ? null : 'none'"
-      [models]="models()" [deployment]="activeModel()" [activeSession]="homeActiveId()"
+      [models]="models()" [effortsByModel]="health()?.efforts ?? {}"
+      [deployment]="activeModel()" [activeSession]="homeActiveId()"
       [workIq]="workIqOn()"
       [voiceAvailable]="voiceAvailable()"
       (switchToAgent)="enterCode()"
@@ -1635,7 +1636,7 @@
             <div class="pick-menu panel right" (click)="$event.stopPropagation()" role="menu"
               aria-label="Reasoning effort">
               <div class="pick-head">Reasoning effort</div>
-              @for (e of efforts; track e) {
+              @for (e of efforts(); track e) {
                 <button class="pick-item cap" [class.on]="activeEffort() === e" role="menuitemradio"
                   [attr.aria-checked]="activeEffort() === e"
                   (click)="setEffort(e); pickMenu.set(null)">

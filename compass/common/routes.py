@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from compass.common.auth import require_user
-from compass.common.config import get_settings
+from compass.common.config import effort_levels_for, get_settings
 from compass.code.mcp.manager import get_mcp_manager
 
 logger = logging.getLogger("compass.common")
@@ -55,6 +55,12 @@ async def healthz() -> dict:
         "mock_model": settings.mock_model,
         "deployment": settings.azure.deployment,
         "models": settings.azure.model_options,
+        # Beside the models, because the effort a picker may offer depends on
+        # which model is selected — see /v1/models. Sent here too because this
+        # is what the UI reads at boot, and a picker that had to wait for a
+        # second call would show the wrong levels until it arrived.
+        "efforts": {m: list(effort_levels_for(m))
+                    for m in settings.azure.model_options},
         "github": settings.github.enabled,
         "storage_backend": settings.storage.backend,
         "telemetry": settings.telemetry.enabled,
@@ -92,10 +98,21 @@ async def healthz() -> dict:
 
 @router.get("/v1/models")
 async def list_models(user: str = Depends(require_user)) -> dict:
+    """The deployments to choose from, and what each one will think at.
+
+    The efforts come with the models because they are a property of the model
+    and not of the product: the two families deployed here accept overlapping
+    but different ladders, so a picker with one list built into it offers, for
+    one of them, a level the API answers with a 400. The UI asks rather than
+    knows, and a family added in config needs no release to be offered
+    correctly.
+    """
     settings = get_settings()
+    models = settings.azure.model_options
     return {
-        "models": settings.azure.model_options,
+        "models": models,
         "default": settings.azure.deployment,
+        "efforts": {m: list(effort_levels_for(m)) for m in models},
     }
 
 

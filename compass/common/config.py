@@ -82,17 +82,47 @@ class AzureOpenAISettings(BaseModel):
         return opts or [self.deployment]
 
 
-#: The effort ladder, weakest first. Measured against the configured resource
-#: rather than taken from documentation, and re-measured after a level in an
-#: earlier version of this list turned out to be rejected: gpt-5-2025-08-07
-#: answers `xhigh`, `max` and `none` with "Supported values are: 'minimal',
-#: 'low', 'medium', and 'high'". Those four are what is offered, because a
-#: level the UI shows and the API refuses is a 400 the user chose from a menu.
+#: Every level any deployment is known to take, weakest first. This is the
+#: union and not an offer: it is what a *stored* setting may legally say,
+#: because one setting outlives the deployment it was chosen against and may
+#: be used against several at once. What a given call may actually send is
+#: narrower, and `normalize_effort` is the one place that decides it.
+EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh", "max")
+
+#: What each family accepts, weakest first, keyed by the prefix its
+#: deployments are named with.
 #:
-#: Re-measure before adding to this, and measure against the deployment rather
-#: than the model family — the accepted set is a property of the deployed
-#: snapshot, and a newer one may well take more.
-EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high")
+#: The ladder was a single constant until a second family was deployed, on the
+#: reasoning that the accepted set is a property of the deployed snapshot. It
+#: is — but it turned out not to be a *growing* property, and the constant had
+#: nowhere to put that. gpt-5-2025-08-07 refuses `xhigh`, `max` and `none`
+#: with "Supported values are: 'minimal', 'low', 'medium', and 'high'";
+#: gpt-6-astra-2026-09-03 refuses `minimal` with "Supported values are: 'low',
+#: 'medium', 'high', 'xhigh', and 'max'". The ladders overlap and neither
+#: contains the other, so no single list can be right for both, and the one
+#: that was there advertised `minimal` to a deployment that rejects it — a 400
+#: the user chose from a menu, which is the thing this is all meant to avoid.
+#:
+#: Both of these were measured from what the API says when it refuses. Do the
+#: same before adding a family: `scripts/` has a probe that asks it.
+EFFORT_LADDERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("gpt-6", ("low", "medium", "high", "xhigh", "max")),
+    ("gpt-5", ("minimal", "low", "medium", "high")),
+)
+
+#: For a deployment belonging to no family measured above. The three levels
+#: every known ladder contains: an unmeasured deployment is the one case where
+#: offering a level nobody has confirmed is exactly how the 400 gets back in.
+DEFAULT_EFFORT_LADDER: tuple[str, ...] = ("low", "medium", "high")
+
+
+def effort_levels_for(deployment: str) -> tuple[str, ...]:
+    """The levels this deployment accepts — what a picker may offer."""
+    name = (deployment or "").lower()
+    for prefix, ladder in EFFORT_LADDERS:
+        if name.startswith(prefix):
+            return ladder
+    return DEFAULT_EFFORT_LADDER
 
 #: What each level does, in the same terms the model-facing docs use. Shown in
 #: the UI so the choice means something to whoever is making it.
@@ -208,21 +238,36 @@ class ThinkingSettings(BaseModel):
         name = (deployment or "").lower()
         return self.enabled and any(name.startswith(p) for p in self.reasoning_models)
 
-    def normalize_effort(self, effort: str | None) -> str | None:
-        """Coerce a requested effort onto the ladder the API actually accepts.
+    def normalize_effort(self, effort: str | None, deployment: str = "") -> str | None:
+        """Coerce a requested effort onto the ladder *this* deployment accepts.
 
-        Sessions and settings written before the ladder was corrected still
-        say `xhigh`, and Claude's own name for the top is `max`. Both mean
-        "the most thinking available", so both land on `high` rather than on
-        None — returning None would drop the effort field entirely and quietly
-        give the turn the deployment's default instead of the most it can do.
+        The single place a level is chosen, so it is the single place a level
+        the API would refuse can be stopped. A stored setting outlives the
+        deployment it was picked against — a session set to `minimal` on gpt-5
+        and resumed against gpt-6-astra, or one set to `xhigh` before that was
+        known to be refused — and every one of those is a 400 on a turn the
+        person did nothing wrong to start.
+
+        Off the ladder becomes the nearest rung on it rather than None, which
+        would drop the field and hand the turn the deployment's own default:
+        `xhigh` and `max` are Claude's names for the top and land on `high`
+        where there is nothing above it, and `minimal` lands on `low` where
+        there is nothing below. Both keep the intent — the most thinking
+        available, or the least — which is what the level was chosen for.
+
+        A level no deployment takes is still dropped: it means nothing, and
+        guessing a rung for it would be inventing an intent nobody expressed.
         """
         if not effort:
             return None
         value = effort.strip().lower()
-        if value in ("xhigh", "max"):
-            return "high"
-        return value if value in EFFORT_LEVELS else None
+        if value not in EFFORT_LEVELS:
+            return None
+        ladder = effort_levels_for(deployment)
+        if value in ladder:
+            return value
+        wanted = EFFORT_LEVELS.index(value)
+        return min(ladder, key=lambda level: abs(EFFORT_LEVELS.index(level) - wanted))
 
 
 class AiSearchSettings(BaseModel):
