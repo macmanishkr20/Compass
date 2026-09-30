@@ -255,6 +255,20 @@ class Collection:
             item[self.partition_field] = self._partition(doc)
         return item
 
+    # ── migration ───────────────────────────────────────────────────────
+    def local_rows(self) -> list[dict]:
+        """Everything in the local files, whatever backend is configured.
+
+        For the migration, which has to read one side and write the other in
+        the same process. Deliberately not routed through `all()`: that asks
+        the configured backend, and during a migration the answer would be
+        the destination rather than the source.
+        """
+        return self._read_local()
+
+    def describe(self) -> str:
+        return f"{self.kind} ({self.filename} -> {self.container})"
+
     # ── the contract ────────────────────────────────────────────────────
     async def all(self) -> list[dict]:
         """Every document, in no particular order — callers sort."""
