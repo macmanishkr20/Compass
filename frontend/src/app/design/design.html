@@ -206,6 +206,11 @@
     </div>
   </div>
 } @else if (open(); as project) {
+  <!-- The design itself comes from blob storage on the open, so there is a
+       moment where the project is chosen and its markup is not here yet. -->
+  @if (loadingProject()) {
+    <div class="loadbar" aria-hidden="true"><i></i></div>
+  }
   <!-- ================= workspace: chat left, canvas right ================= -->
   <div class="dz-work" [class.solo]="!chatOpen() && tool() !== 'edit'">
     @if (tool() === 'edit') {
@@ -1242,7 +1247,35 @@
         </div>
       } @else {
         <div class="dz-stage empty" #stage>
-          @if (working() || checking()) {
+          @if (loadingProject()) {
+            <!-- Not "nothing rendered yet", which is what an empty stage used
+                 to say while the design was still on its way. -->
+            <div class="sk-note" role="status" aria-live="polite">
+              <span class="sp2" aria-hidden="true"></span>
+              {{ loadingProjectSlow() ? 'Still fetching — the archive is cold' : 'Fetching design…' }}
+            </div>
+          } @else if (loadProjectError(); as failed) {
+            <div class="lderr" role="alert">
+              <div class="ic" aria-hidden="true">
+                <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/>
+                </svg>
+              </div>
+              <b>Couldn't load this design</b>
+              <p>The store didn't answer. Nothing is lost — the design is
+                still there.</p>
+              <span class="code">{{ failed.detail }}</span>
+              <div class="acts2">
+                <button class="btn2 pri" (click)="retryProject()">
+                  <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/>
+                  </svg>
+                  Try again
+                </button>
+                <button class="btn2" (click)="close()">Back to designs</button>
+              </div>
+            </div>
+          } @else if (working() || checking()) {
             <div class="dz-tip">
               <p class="dz-tip-kicker">TIP</p>
               <p class="dz-tip-line">If you're unsure what something should look like,</p>

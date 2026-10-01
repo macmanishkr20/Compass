@@ -15,7 +15,7 @@ import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-brows
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
-import { CompassApiService } from '../compass-api.service';
+import { CompassApiService, describeHttpError } from '../compass-api.service';
 import { FitMenuDirective } from './fit-menu.directive';
 import { TickSound } from './tick.service';
 import {
@@ -1884,9 +1884,38 @@ export class Design {
     return (cut > 0 ? text.slice(0, cut) : text).trim();
   }
 
+  /** Which project is being fetched, or "".
+   *
+   *  A card carries a name and a thumbnail, not a design: the markup comes
+   *  from blob storage on the open, so between the click and it arriving the
+   *  canvas is blank. Same treatment as a conversation — a bar at the top, a
+   *  spinner on the row, and a word about what is happening. */
+  readonly loadingProject = signal('');
+  readonly loadingProjectSlow = signal(false);
+  readonly loadProjectError = signal<{ id: string; detail: string } | null>(null);
+
+  /** How long before the note says why it is still going. */
+  private static readonly SLOW_AFTER_MS = 900;
+
+  /** Try the failed project again. */
+  retryProject(): void {
+    const failed = this.loadProjectError();
+    if (!failed) return;
+    this.loadProjectError.set(null);
+    void this.hydrate(failed.id);
+  }
+
   private async hydrate(id: string): Promise<void> {
+    this.loadProjectError.set(null);
+    this.loadingProject.set(id);
+    this.loadingProjectSlow.set(false);
+    const slow = setTimeout(() => {
+      if (this.loadingProject() === id) this.loadingProjectSlow.set(true);
+    }, Design.SLOW_AFTER_MS);
     try {
       const full = await this.api.designProject(id);
+      // A different project opened while this was in flight wins.
+      if (this.open()?.id !== id) return;
       this.open.set(full);
       this.liveHtml.set(full.html ?? '');
       const stored = (full.turns ?? []).map((t) =>
@@ -1916,8 +1945,15 @@ export class Design {
       ) {
         await this.askAgain(full);
       }
-    } catch {
-      this.error.set('Could not load that design.');
+    } catch (err) {
+      if (this.open()?.id !== id) return;
+      this.loadProjectError.set({ id, detail: describeHttpError(err) });
+    } finally {
+      clearTimeout(slow);
+      if (this.loadingProject() === id) {
+        this.loadingProject.set('');
+        this.loadingProjectSlow.set(false);
+      }
     }
   }
 
