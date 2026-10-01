@@ -158,7 +158,14 @@ async def fill(html: str) -> tuple[str, int, int]:
             "landscape": "1536x1024",
             "portrait": "1024x1536",
         }.get(shape if shape in shapes else "square", "1024x1024")
-        picture = await images.draw(prompt, size=size)
+        # Medium, not the configured default. Measured against this
+        # deployment: low 24s, medium 37s, high 112s for one picture. A
+        # design's artwork is an element on a page — a backdrop, a photo
+        # inside a screen — usually shown at a fraction of its size, and six
+        # of them at high quality would add two minutes to a document that
+        # already takes minutes. The one picture a person is going to look
+        # at closely is the one Home draws, and that one stays high.
+        picture = await images.draw(prompt, size=size, quality="medium")
         if not picture.ok:
             logger.warning("design artwork failed (%s): %s", prompt[:60], picture.error)
             return ""

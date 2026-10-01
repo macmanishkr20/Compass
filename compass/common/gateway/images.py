@@ -224,12 +224,26 @@ async def _store(raw: bytes, ext: str) -> str:
 
     from compass.common.persistence import blob
 
+    # Kept on disk as well as in blob, not instead of it. Blob is where it
+    # lives — another machine, or this one after the disk is cleared, reads
+    # it from there — but the bytes are already in hand here, and serving a
+    # 2MB picture measured at 10.9s when it had to come back over the wire.
+    # Writing it twice costs nothing and makes every later read local.
+    local_ok = False
+    try:
+        await asyncio.to_thread((_local_dir() / name.split("/", 1)[-1]).write_bytes, raw)
+        local_ok = True
+    except OSError as err:
+        logger.warning("could not keep a local copy of the generated image: %s", err)
+
     if blob.enabled():
         try:
             await asyncio.to_thread(_put_sync, name, raw, content_type)
             return f"/v1/media/{name}"
-        except Exception as err:  # noqa: BLE001 — fall through to local disk
+        except Exception as err:  # noqa: BLE001 — the local copy may still save it
             logger.error("could not store the generated image (%s); keeping it local", err)
+    if local_ok:
+        return f"/v1/media/{name}"
 
     try:
         target = _local_dir() / name.split("/", 1)[-1]
@@ -266,15 +280,20 @@ async def fetch(name: str) -> tuple[bytes | None, str]:
     """
     from compass.common.persistence import blob
 
-    if blob.enabled():
-        try:
-            return await asyncio.to_thread(_get_sync, name)
-        except Exception:  # noqa: BLE001 — may predate blob, or may be local
-            pass
+    # Local first, which inverts the order everything else here uses. For a
+    # design's history or a message's content the blob is the only copy worth
+    # trusting; for a picture, the local file and the blob are the same
+    # immutable bytes under an id nothing reuses, and the local one is there
+    # in a millisecond rather than eleven seconds.
     try:
         path = _local_dir() / name.split("/", 1)[-1]
         if path.is_file():
             return await asyncio.to_thread(path.read_bytes), "image/png"
     except OSError as err:
-        logger.warning("could not read the generated image %s: %s", name, err)
+        logger.warning("could not read the local generated image %s: %s", name, err)
+    if blob.enabled():
+        try:
+            return await asyncio.to_thread(_get_sync, name)
+        except Exception:  # noqa: BLE001 — genuinely gone, or never stored
+            pass
     return None, ""

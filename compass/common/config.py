@@ -185,11 +185,39 @@ class AzureOpenAISettings(BaseModel):
 
     @property
     def image_endpoint_effective(self) -> str:
-        return self.image_endpoint or self.endpoint
+        """Where the image model lives.
+
+        Its own setting first, then the audio resource, then the main one —
+        the same chain realtime walks, and for the same reason. Image models
+        are regional and get deployed next to the other models the region
+        offers: on this install `gpt-image-2` sits beside `gpt-realtime` and
+        `gpt-4o-mini-tts`, and nothing is deployed for it on the resource the
+        chat model uses.
+
+        Falling back to the main endpoint instead — which is what this did
+        first — asks a resource that has no image deployment, and Azure
+        answers DeploymentNotFound, which reads as the model being wrong
+        rather than the address.
+
+        Normalised, because the realtime setting is a socket connection
+        string — `wss://<res>.../openai/v1/realtime?model=gpt-realtime` —
+        and what is wanted here is the resource root it points at.
+        """
+        return _resource_root(
+            self.image_endpoint
+            or self.realtime_endpoint
+            or self.tts_endpoint
+            or self.endpoint
+        )
 
     @property
     def image_api_key_effective(self) -> str:
-        return self.image_api_key or self.api_key
+        return (
+            self.image_api_key
+            or self.realtime_api_key
+            or self.tts_api_key
+            or self.api_key
+        )
 
     @property
     def model_options(self) -> list[str]:
