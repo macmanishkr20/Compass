@@ -23,6 +23,7 @@ import logging
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence import blob
 
 logger = logging.getLogger("compass.design")
 
@@ -32,11 +33,8 @@ logger = logging.getLogger("compass.design")
 #: things — the first is empty, the second is a fetch.
 SPILLED = "html_ref"
 
-_service = None
-
-
 def _blob_enabled() -> bool:
-    return bool(get_settings().storage.blob_connection_string)
+    return blob.enabled()
 
 
 def _local_dir() -> Path:
@@ -51,28 +49,22 @@ def _ref(project_id: str, version_id: str) -> str:
 
 
 def _container():
-    global _service
-    from azure.storage.blob import BlobServiceClient
-
-    cfg = get_settings().storage
-    if _service is None:
-        _service = BlobServiceClient.from_connection_string(
-            cfg.blob_connection_string
-        )
-    client = _service.get_container_client("compass-design")
-    try:
-        client.create_container()
-    except Exception:  # noqa: BLE001 — already there is the normal case
-        pass
-    return client
+    return blob.container("compass-design")
 
 
 def _put_sync(ref: str, html: str) -> None:
-    _container().upload_blob(ref, html.encode("utf-8"), overwrite=True)
+    _container().upload_blob(
+        ref, html.encode("utf-8"), overwrite=True, max_concurrency=blob.CONCURRENCY
+    )
 
 
 def _get_sync(ref: str) -> str:
-    return _container().download_blob(ref).readall().decode("utf-8", "replace")
+    return (
+        _container()
+        .download_blob(ref, max_concurrency=blob.CONCURRENCY)
+        .readall()
+        .decode("utf-8", "replace")
+    )
 
 
 async def put(project_id: str, version_id: str, html: str) -> str | None:
@@ -142,6 +134,24 @@ async def spill(project_id: str, versions: list[dict]) -> list[dict]:
             v.pop("html", None)
         out.append(v)
     return out
+
+
+async def drop(version: dict) -> None:
+    """Throw away one version's stored markup, when the version itself is
+    going. Best-effort: a snapshot nobody can reach any more is a storage bill,
+    not a correctness problem, and must not fail the save that trimmed it."""
+    ref = version.get(SPILLED)
+    if not ref:
+        return
+    if _blob_enabled():
+        try:
+            await asyncio.to_thread(_container().delete_blob, str(ref))
+        except Exception:  # noqa: BLE001 — never stored, or already gone
+            pass
+    try:
+        (_local_dir() / str(ref)).unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 async def fill(version: dict) -> str:

@@ -336,10 +336,27 @@ class Collection:
                     return row
             return None
         container = await _container(self.container, f'/{self.partition_field}')
-        # The owner is part of the key and the caller does not have it, so
-        # this is a query rather than a point read. These collections are
-        # small; a cross-partition read of a few kilobytes is not the thing
-        # worth contorting the API to avoid.
+        # When the partition key comes from the id, the caller already holds
+        # everything a point read needs, and a point read is what this should
+        # be. Designs are why: the partition is the project id, and asking by
+        # query meant every design opened ran a cross-partition read of all
+        # thirty-seven to return one — measured at 0.9s of the 1.95s it took
+        # to open a design.
+        if self.partition_field != "id" and self.partition_source == self.id_field:
+            from azure.cosmos import exceptions
+
+            try:
+                item = await container.read_item(
+                    self._item_id(str(doc_id)), partition_key=str(doc_id)
+                )
+            except exceptions.CosmosResourceNotFoundError:
+                return None
+            doc = item.get("doc")
+            return doc if isinstance(doc, dict) else None
+        # Otherwise the owner is part of the key and the caller does not have
+        # it, so this stays a query. Those collections are small; a
+        # cross-partition read of a few kilobytes is not worth contorting the
+        # API to avoid.
         items = container.query_items(
             query="SELECT c.doc FROM c WHERE c.id=@id",
             parameters=[{"name": "@id", "value": self._item_id(str(doc_id))}],

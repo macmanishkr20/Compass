@@ -29,6 +29,7 @@ import logging
 from pathlib import Path
 
 from compass.common.config import get_settings
+from compass.common.persistence import blob
 
 logger = logging.getLogger("compass.persistence")
 
@@ -36,6 +37,26 @@ logger = logging.getLogger("compass.persistence")
 #: rest of the record — tool calls, metadata, the wrapper Cosmos adds — has
 #: room without anyone having to reason about how much.
 MAX_INLINE_BYTES = 1024 * 1024
+
+#: Past this, content carrying a picture, a clip or a recording is stored away
+#: even though it would fit. A size limit alone kept a 362KB photograph in the
+#: document because it was under a megabyte — five messages here held 1.24MB of
+#: images that way. A document is for the things a document is for, and an
+#: attachment is not one of them whatever it weighs.
+#:
+#: Not zero, though: a 2KB inline icon in a message is better left where it is
+#: than turned into a request. This is the line between the two.
+MEDIA_INLINE_BYTES = 64 * 1024
+
+#: What counts as an attachment rather than text. Matched against the content
+#: as JSON, which is where a data URI ends up whether the content is a bare
+#: string or a list of vision parts.
+MEDIA_MARKERS = (
+    "data:image/",
+    "data:video/",
+    "data:audio/",
+    "data:application/pdf",
+)
 
 #: The field that replaces `content` when it has been moved. A field of its
 #: own rather than a sentinel string inside `content`, so a message that is
@@ -49,20 +70,9 @@ CONTENT_REF = "content_ref"
 #: with it.
 PREFIX = "messages"
 
-#: How a 20MB message is moved: in 1MB pieces, sixteen at a time. The default
-#: is one request for the whole blob, and measured against this account that
-#: ran at 0.30 MB/s — 57 seconds for one 17MB message, which is how the first
-#: live read of a thread managed to time out on content that was sitting
-#: there. The same blob in 1MB ranges, sixteen in flight, takes 7.1 seconds.
-#: Measured, not assumed: 4MB/8-way came to 11.2s, so the small pieces win.
-CHUNK_BYTES = 1024 * 1024
-CONCURRENCY = 16
-
-_service = None
-
 
 def _blob_enabled() -> bool:
-    return bool(get_settings().storage.blob_connection_string)
+    return blob.enabled()
 
 
 def _local_dir() -> Path:
@@ -73,55 +83,53 @@ def _local_dir() -> Path:
 
 
 def _container():
-    global _service
-    from azure.storage.blob import BlobServiceClient
-
-    cfg = get_settings().storage
-    if _service is None:
-        _service = BlobServiceClient.from_connection_string(
-            cfg.blob_connection_string,
-            max_single_get_size=CHUNK_BYTES,
-            max_chunk_get_size=CHUNK_BYTES,
-            max_single_put_size=CHUNK_BYTES,
-            max_block_size=CHUNK_BYTES,
-        )
-    client = _service.get_container_client("compass-media")
-    try:
-        client.create_container()
-    except Exception:  # noqa: BLE001 — already there is the normal case
-        pass
-    return client
+    return blob.container("compass-media")
 
 
 def _put_sync(ref: str, payload: str) -> None:
     _container().upload_blob(
-        ref, payload.encode("utf-8"), overwrite=True, max_concurrency=CONCURRENCY
+        ref, payload.encode("utf-8"), overwrite=True,
+        max_concurrency=blob.CONCURRENCY,
     )
 
 
 def _get_sync(ref: str) -> str:
     return (
         _container()
-        .download_blob(ref, max_concurrency=CONCURRENCY)
+        .download_blob(ref, max_concurrency=blob.CONCURRENCY)
         .readall()
         .decode("utf-8", "replace")
     )
 
 
-async def spill(record: dict, session_id: str) -> dict:
-    """A record safe to store: oversized content moved out, or unchanged.
+def _should_store(payload: str) -> bool:
+    """Whether this content belongs beside the document rather than in it.
 
-    Returns the record as given when it is small enough, which is almost
-    always. A failure to store the content leaves the record alone rather
-    than writing one that points at nothing — a message that is too large to
-    save is a problem, and a message that claims its content is somewhere it
-    is not is a worse one.
+    Two reasons, and either is enough: it is too big for a document, or it is
+    an attachment. The second is why a size test alone was not the rule — a
+    photograph of 362KB fits in a document and still does not belong in one.
+    """
+    size = len(payload.encode("utf-8", "ignore"))
+    if size > MAX_INLINE_BYTES:
+        return True
+    return size > MEDIA_INLINE_BYTES and any(m in payload for m in MEDIA_MARKERS)
+
+
+async def spill(record: dict, session_id: str) -> dict:
+    """A record safe to store: content moved out when it should be, or the
+    record unchanged.
+
+    Returns the record as given when the content belongs in the document,
+    which is almost always. A failure to store it leaves the record alone
+    rather than writing one that points at nothing — a message that could not
+    be saved is a problem, and a message that claims its content is somewhere
+    it is not is a worse one.
     """
     content = record.get("content")
     if content is None:
         return record
     payload = content if isinstance(content, str) else json.dumps(content, default=str)
-    if len(payload.encode("utf-8", "ignore")) <= MAX_INLINE_BYTES:
+    if not _should_store(payload):
         return record
 
     ref = f"{PREFIX}/{session_id}/{record.get('uuid', 'unknown')}.json"

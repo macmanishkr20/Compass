@@ -327,6 +327,13 @@ async def chat_media(
     await _owned_chat(session_id, user)
     path = media.resolve(session_id, filename)
     if path is None:
+        # Nothing on disk under that name. Before saying so, bring down what
+        # storage has for this thread: a conversation opened on a machine that
+        # never held its uploads would otherwise show every image broken.
+        # Only on a miss, so the normal path stays a single filesystem check.
+        if await media.hydrate(session_id):
+            path = media.resolve(session_id, filename)
+    if path is None:
         raise HTTPException(status_code=404, detail="no such file")
     return FileResponse(
         path,
@@ -498,8 +505,9 @@ async def delete_chat_session(session_id: str, user: str = Depends(require_user)
     await chat_engine.store.delete(session_id)
     # The uploads go with the thread, which is what media.py has always said
     # and did not do. Here rather than in either store, so it happens once
-    # whichever backend holds the transcript.
-    media.forget(session_id)
+    # whichever backend holds the transcript — and it clears both the stored
+    # copy and the one on disk.
+    await media.forget(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}
 

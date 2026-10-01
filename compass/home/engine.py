@@ -386,11 +386,21 @@ class ChatEngine:
         async with session.turn_lock:
             session.abort_event.clear()
             rollback = list(session.messages)
+            # Anything this thread already has, brought back to disk first.
+            # Normally there is nothing to do and this is one listing: the
+            # files are where they were left. It matters when they are not —
+            # a second machine, or a rebuilt container — because everything
+            # below works on paths, and so does ffmpeg.
+            await media.hydrate(session.id)
             # Photos, clips and recordings are written down before anything
             # else touches them: what the model is shown is a copy scaled for
             # vision or a transcript, and neither can be cut into a film. Kept
             # first so this happens whatever transcription does next.
-            media.keep(session.id, attachments)
+            kept = media.keep(session.id, attachments)
+            # Written through to storage, so the disk is a working copy rather
+            # than the only one.
+            if kept:
+                await media.upload(session.id, kept)
             # Looked at once, here, so that a reel asked for three turns later
             # can be ordered by what is in the photographs rather than by
             # their filenames. Never fatal: undescribed pictures still work.

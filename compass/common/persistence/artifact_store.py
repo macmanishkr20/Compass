@@ -14,35 +14,19 @@ import asyncio
 import logging
 
 from compass.common.config import get_settings
+from compass.common.persistence import blob
 
 logger = logging.getLogger("compass.artifacts")
 
-_blob_service = None
-_container_ensured = False
-
-
-def _get_blob_container():
-    global _blob_service, _container_ensured
-    from azure.storage.blob import BlobServiceClient
-
-    cfg = get_settings().storage
-    if _blob_service is None:
-        _blob_service = BlobServiceClient.from_connection_string(
-            cfg.blob_connection_string
-        )
-    container = _blob_service.get_container_client(cfg.blob_container)
-    if not _container_ensured:
-        try:
-            container.create_container()
-        except Exception:  # noqa: BLE001 — already exists
-            pass
-        _container_ensured = True
-    return container
-
 
 def _upload_sync(name: str, content: str) -> str:
-    container = _get_blob_container()
-    container.upload_blob(name, content.encode(), overwrite=True)
+    # Through the shared helper, which is where this module's own
+    # create-the-container-once logic ended up: it had it right and the three
+    # written after it did not, each paying for an extra round trip per call.
+    container = blob.container(get_settings().storage.blob_container)
+    container.upload_blob(
+        name, content.encode(), overwrite=True, max_concurrency=blob.CONCURRENCY
+    )
     return f"blob://{get_settings().storage.blob_container}/{name}"
 
 

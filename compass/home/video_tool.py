@@ -390,6 +390,14 @@ class VideoTool(Tool):
                         f"Offer to add about {more} more shot(s) and re-render "
                         "if they want it to fill the section.")
 
+        # The finished film is written through to storage like an upload: it is
+        # one more file belonging to the thread, it is the largest one here
+        # (30MB), and it is the only copy until this runs.
+        await media.upload(
+            ctx.session_id,
+            [media.MediaFile(id=result.path.name, name=result.path.name,
+                             kind="video", path=result.path, bytes=result.bytes)],
+        )
         url = media.url_for(ctx.session_id, result.path.name)
         yield ToolOutput(
             f"Rendered {result.path.name} — {result.seconds:g}s, "

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from compass.common.config import get_settings
 from compass.common.persistence.catalog import Collection
-from compass.design import version_html
+from compass.design import markup, version_html
 from compass.design.skills import TEMPLATE_PROMPTS
 
 BLANK_PAGE = """<!DOCTYPE html>
@@ -92,21 +92,42 @@ _projects = Collection(
 class DesignStore:
     """Design projects, local or in Cosmos.
 
-    Version snapshots do not live in the document — see version_html. They
-    were 21.8MB of a 24.8MB store here, and five projects of thirty-seven
-    were already past Cosmos's 2MB item limit because of them.
+    Neither the version snapshots nor the markup live in the document — see
+    version_html and markup. The snapshots were 21.8MB of a 24.8MB store here,
+    and five projects of thirty-seven were already past Cosmos's 2MB item
+    limit because of them; the markup was 96% of what remained after that.
+
+    What a document holds now is the project: its name, its pages' names and
+    ids, how long each page is, the conversation, the prompt. Everything a
+    list or a page switcher asks for, and nothing a canvas does.
+
+    One rule throughout: anything that is going to be saved must be read
+    filled first. `_pages` invents a page from `html` when a project has none,
+    so an unfilled row saved back would write that page out empty.
     """
 
     async def _read(self) -> list[dict]:
+        """Every project, without its markup. Cheap, and not enough to render."""
         return await _projects.all()
 
     async def _save(self, row: dict) -> None:
-        """Store one project, with its version markup filed away first."""
+        """Store one project, with its history and markup filed away first."""
         row = dict(row)
         row["versions"] = await version_html.spill(
             str(row.get("id", "")), list(row.get("versions") or [])
         )
-        await _projects.put(row)
+        await _projects.put(await markup.spill(row))
+
+    async def _filled(self, project_id: str) -> dict | None:
+        """One project with its markup, ready to render or to change.
+
+        Fetched by id rather than by reading all of them and picking: the
+        container is partitioned by project id, so this is a point read.
+        Filling is only ever for the one project — doing it for all of them to
+        answer a question about one would fetch every design's markup.
+        """
+        row = await _projects.get(project_id)
+        return None if row is None else await markup.fill(row)
 
     async def list(self) -> list[dict]:
         rows = await self._read()
@@ -117,48 +138,66 @@ class DesignStore:
                 "versions": len(r.get("versions") or []),
                 # Enough for the table to draw the right tile: a project with
                 # nothing rendered yet gets a placeholder, not a broken image.
-                "empty": not (r.get("html") or "").strip(),
+                # Asked of the recorded length rather than the markup, which is
+                # the point of recording it — the list fetches nothing.
+                "empty": markup.length(r) == 0,
                 "awaiting": bool((r.get("clarify") or {}).get("fields")),
             }
             for r in rows
         ]
 
     async def get(self, project_id: str) -> dict | None:
-        return next((r for r in await self._read() if r.get("id") == project_id), None)
+        return await self._filled(project_id)
 
     async def touch(self, project_id: str) -> dict | None:
         """Record that the project was opened — the table sorts on this, the way
         claude.ai's "Last viewed" column does."""
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") == project_id:
-                r["viewed_at"] = time.time()
-                await self._save(r)
-                return r
-        return None
+        row = await self._filled(project_id)
+        if row is None:
+            return None
+        row["viewed_at"] = time.time()
+        await self._save(row)
+        return row
 
     @staticmethod
     def _pages(row: dict) -> list[dict]:
         """A project's pages, inventing the first from the design it already
-        has — every project had exactly one page before this existed."""
+        has — every project had exactly one page before this existed.
+
+        The invented page *is* the project's markup, so it carries however the
+        project is holding it: inline, or a reference plus a length. Copying
+        only `html` would report a filed-away design as a blank page, which is
+        what the page switcher would then show.
+        """
         pages = list(row.get("pages") or [])
         if not pages:
+            held = {"html": row.get("html", "")} if row.get("html") is not None else {}
+            if row.get(markup.SPILLED):
+                held = {markup.SPILLED: row[markup.SPILLED]}
             pages = [
                 {
                     "id": "p1",
                     "name": f"{row.get('name', 'Design')}.html",
-                    "html": row.get("html", ""),
+                    markup.LENGTH: markup.length(row),
                     "updated_at": row.get("updated_at", time.time()),
+                    **held,
                 }
             ]
         return pages
 
     async def pages(self, project_id: str) -> list[dict]:
-        row = await self.get(project_id)
+        """The page switcher's list: names and sizes, no markup.
+
+        Deliberately the unfilled row — this is the one page question that can
+        be answered without the pages themselves, because the length of each
+        was written down when it was filed away.
+        """
+        row = await _projects.get(project_id)
         if row is None:
             return []
         return [
-            {k: v for k, v in p.items() if k != "html"} | {"chars": len(p.get("html") or "")}
+            {k: v for k, v in p.items() if k not in ("html", markup.SPILLED)}
+            | {"chars": markup.length(p)}
             for p in self._pages(row)
         ]
 
@@ -179,78 +218,78 @@ class DesignStore:
 
     async def add_page(self, project_id: str, name: str = "") -> dict | None:
         """A new blank page, and the project switches to it."""
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") != project_id:
-                continue
-            pages = self._pages(r)
-            page = {
-                "id": uuid.uuid4().hex[:8],
-                "name": name or f"Page {len(pages) + 1}.html",
-                "html": BLANK_PAGE,
-                "updated_at": time.time(),
-            }
-            pages.append(page)
-            r["pages"] = pages
-            r["active_page"] = page["id"]
-            r["html"] = page["html"]
-            r["updated_at"] = time.time()
-            await self._save(r)
-            return r
-        return None
+        r = await self._filled(project_id)
+        if r is None:
+            return None
+        pages = self._pages(r)
+        page = {
+            "id": uuid.uuid4().hex[:8],
+            "name": name or f"Page {len(pages) + 1}.html",
+            "html": BLANK_PAGE,
+            "updated_at": time.time(),
+        }
+        pages.append(page)
+        r["pages"] = pages
+        r["active_page"] = page["id"]
+        r["html"] = page["html"]
+        r["updated_at"] = time.time()
+        await self._save(r)
+        return r
 
     async def open_page(self, project_id: str, page_id: str) -> dict | None:
         """Switch pages: the outgoing one keeps what is on the canvas."""
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") != project_id:
-                continue
-            pages = self._pages(r)
-            current = r.get("active_page") or pages[0]["id"]
-            for p in pages:
-                if p["id"] == current:
-                    p["html"] = r.get("html", "")
-            target = next((p for p in pages if p["id"] == page_id), None)
-            if target is None:
-                return None
-            r["pages"] = pages
-            r["active_page"] = page_id
-            r["html"] = target.get("html", "")
-            await self._save(r)
-            return r
-        return None
+        r = await self._filled(project_id)
+        if r is None:
+            return None
+        pages = self._pages(r)
+        current = r.get("active_page") or pages[0]["id"]
+        for p in pages:
+            if p["id"] == current:
+                p["html"] = r.get("html", "")
+        target = next((p for p in pages if p["id"] == page_id), None)
+        if target is None:
+            return None
+        r["pages"] = pages
+        r["active_page"] = page_id
+        r["html"] = target.get("html", "")
+        await self._save(r)
+        return r
 
     async def delete_page(self, project_id: str, page_id: str) -> dict | None:
         """Drop a page. The last one stays — a project without a page has
         nothing to show."""
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") != project_id:
-                continue
-            pages = self._pages(r)
-            if len(pages) < 2:
-                return None
-            kept = [p for p in pages if p["id"] != page_id]
-            if len(kept) == len(pages):
-                return None
-            r["pages"] = kept
-            if (r.get("active_page") or pages[0]["id"]) == page_id:
-                r["active_page"] = kept[0]["id"]
-                r["html"] = kept[0].get("html", "")
-            r["updated_at"] = time.time()
-            await self._save(r)
-            return r
-        return None
+        r = await self._filled(project_id)
+        if r is None:
+            return None
+        pages = self._pages(r)
+        if len(pages) < 2:
+            return None
+        kept = [p for p in pages if p["id"] != page_id]
+        if len(kept) == len(pages):
+            return None
+        r["pages"] = kept
+        if (r.get("active_page") or pages[0]["id"]) == page_id:
+            r["active_page"] = kept[0]["id"]
+            r["html"] = kept[0].get("html", "")
+        r["updated_at"] = time.time()
+        await self._save(r)
+        # The dropped page's markup goes with it, or it would sit in blob
+        # storage forever with nothing able to reach it.
+        await markup.drop(project_id, page_id)
+        return r
 
     async def save_html(
         self, project_id: str, html: str, *, label: str = "Edited"
     ) -> dict | None:
         """Write a new design, keeping the outgoing one as a version. Every path
-        that changes the html goes through here, so history is never partial."""
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") != project_id:
-                continue
+        that changes the html goes through here, so history is never partial.
+
+        Filled first, and that matters here more than anywhere: the outgoing
+        markup becomes the version, so reading it unfilled would file an empty
+        snapshot and the undo step would restore a blank page.
+        """
+        r = await self._filled(project_id)
+        if r is not None:
             previous = r.get("html") or ""
             if previous and previous != html:
                 versions = list(r.get("versions") or [])
@@ -263,6 +302,11 @@ class DesignStore:
                         "html": previous,
                     },
                 )
+                # What falls off the end takes its snapshot with it. Trimmed
+                # versions used to leave their markup in blob storage with
+                # nothing able to reach it — one orphan per edit, forever.
+                for stale in versions[MAX_VERSIONS:]:
+                    await version_html.drop(stale)
                 r["versions"] = versions[:MAX_VERSIONS]
             r["html"] = html
             r["version_label"] = label
@@ -280,8 +324,11 @@ class DesignStore:
         return None
 
     async def duplicate(self, project_id: str) -> dict | None:
-        rows = await self._read()
-        source = next((r for r in rows if r.get("id") == project_id), None)
+        # Filled, so the copy carries the markup itself and gets blobs of its
+        # own under its new id. An unfilled source would have handed the copy
+        # the *original's* references, and then editing either would have
+        # changed both.
+        source = await self._filled(project_id)
         if source is None:
             return None
         copy = dict(source)
@@ -303,7 +350,9 @@ class DesignStore:
         design_systems: list[str] | None = None,
         owner: str = "",
     ) -> dict:
-        rows = await self._read()
+        # Nothing is read here. There used to be a `rows = await self._read()`
+        # on this line whose result was never used — every new project paid for
+        # a full read of every existing one.
         systems = list(design_systems or ([design_system] if design_system else []))
         p = DesignProject(
             name=name or "Untitled",
@@ -317,22 +366,33 @@ class DesignStore:
         return p
 
     async def update(self, project_id: str, **fields) -> dict | None:
-        rows = await self._read()
-        for r in rows:
-            if r.get("id") == project_id:
-                for k, v in fields.items():
-                    if v is not None:
-                        r[k] = v
-                r["updated_at"] = time.time()
-                await self._save(r)
-                return r
-        return None
+        # Filled even when the caller is only renaming: a save rewrites the
+        # whole document, so a row that arrived without its markup would be
+        # written back without it. `PATCH` can also set `html` directly, which
+        # is why this cannot derive the markup from the pages afterwards.
+        r = await self._filled(project_id)
+        if r is None:
+            return None
+        for k, v in fields.items():
+            if v is not None:
+                r[k] = v
+        r["updated_at"] = time.time()
+        await self._save(r)
+        return r
 
     async def delete(self, project_id: str) -> bool:
-        rows = await self._read()
-        if not any(r.get("id") == project_id for r in rows):
+        row = await _projects.get(project_id)
+        if row is None:
             return False
-        return await _projects.remove(project_id)
+        gone = await _projects.remove(project_id)
+        if gone:
+            # The markup and the history go with the project. Together they are
+            # nearly all of its bytes, so a delete that left them behind would
+            # free almost nothing.
+            await markup.discard(project_id)
+            for version in row.get("versions") or []:
+                await version_html.drop(version)
+        return gone
 
 
 _store: DesignStore | None = None

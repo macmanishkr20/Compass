@@ -22,6 +22,7 @@ go when the thread does.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -31,6 +32,7 @@ from pathlib import Path
 
 from compass.common.attachments import media_kind
 from compass.common.config import get_settings
+from compass.common.persistence import blob
 
 logger = logging.getLogger("compass.home.media")
 
@@ -390,22 +392,168 @@ def url_for(session_id: str, filename: str) -> str:
     return f"/v1/chat/sessions/{session_id}/media/{filename}"
 
 
-def forget(session_id: str) -> int:
-    """Throw away a deleted thread's uploads. Returns how many files went.
+# --------------------------------------------------------------------------- #
+# Blob storage: where these actually live.
+#
+# ffmpeg needs files, and a path is what the render tool is given, so the
+# thread's directory stays exactly as it was and keeps working the same way.
+# What changes is which copy is the lasting one: the directory is now a working
+# copy of the container, filled in when it is missing and written through when
+# it changes.
+#
+# That matters because the directory was the only copy — 286MB of photographs,
+# clips and recordings here, on one laptop, gitignored and unbacked. It is also
+# the last thing in Compass that was not where the rest of the data is.
+#
+# Under its own `chat/` prefix in `compass-media`, beside the `messages/`
+# prefix the oversized message content uses, so neither can reach the other's
+# files when one of them is being cleared.
+# --------------------------------------------------------------------------- #
 
-    This module has always said uploads go when the thread does, and they did
-    not: deleting a conversation removed its transcript and left its photos
-    and clips on disk for good. 273MB of them here, belonging to threads that
-    no longer exist and that nothing can reach.
+BLOB_PREFIX = "chat"
 
-    Not fatal, ever. A thread the user deleted is deleted whether or not the
-    disk cooperated — the alternative is a conversation that cannot be
-    removed because one file is busy.
+
+def _blob_enabled() -> bool:
+    return blob.enabled()
+
+
+def _blob_name(session_id: str, filename: str) -> str:
+    return f"{BLOB_PREFIX}/{session_id}/{filename}"
+
+
+def _container():
+    return blob.container("compass-media")
+
+
+def _upload_sync(name: str, path: Path) -> None:
+    with path.open("rb") as handle:
+        _container().upload_blob(
+            name, handle, overwrite=True, max_concurrency=blob.CONCURRENCY
+        )
+
+
+def _download_sync(name: str, path: Path) -> None:
+    # Into a temporary name and then moved, so a download interrupted halfway
+    # cannot leave a half-file that `listing` would report as a playable clip.
+    tmp = path.with_name(path.name + ".part")
+    with tmp.open("wb") as handle:
+        _container().download_blob(name, max_concurrency=blob.CONCURRENCY).readinto(handle)
+    tmp.replace(path)
+
+
+def _names_sync(session_id: str) -> dict[str, int]:
+    prefix = f"{_blob_name(session_id, '')}"
+    return {
+        b.name.split("/", 2)[-1]: b.size
+        for b in _container().list_blobs(name_starts_with=prefix)
+    }
+
+
+async def upload(session_id: str, files: list[MediaFile] | None = None) -> int:
+    """Write this thread's files through to blob storage. Returns how many.
+
+    `files` names what just arrived; without it, everything in the directory
+    that is not already stored. The manifest goes too — it is the only record
+    of what each upload was really called.
+
+    Never raises. A file that could not be uploaded is still on disk and still
+    works; the turn that was saving it is not the place to fail.
     """
+    if not _blob_enabled():
+        return 0
     directory = session_dir(session_id)
     if not directory.is_dir():
         return 0
+    if files is None:
+        wanted = [p for p in sorted(directory.iterdir()) if p.is_file()]
+    else:
+        wanted = [f.path for f in files]
+        manifest = directory / _MANIFEST
+        if manifest.is_file():
+            wanted.append(manifest)
+
+    async def one(path: Path) -> bool:
+        try:
+            await asyncio.to_thread(_upload_sync, _blob_name(session_id, path.name), path)
+            return True
+        except Exception as err:  # noqa: BLE001 — on disk already; log and move on
+            logger.warning("could not upload %s: %s", path.name, err)
+            return False
+
+    done = await asyncio.gather(*(one(p) for p in wanted))
+    return sum(done)
+
+
+async def hydrate(session_id: str) -> int:
+    """Make sure this thread's files are on disk. Returns how many came down.
+
+    Does nothing at all in the normal case, where they are already there — one
+    listing of the prefix and no transfers. It earns its place on a machine
+    that has the conversation but not the files: a second laptop, a rebuilt
+    container, a disk that was cleared.
+
+    Compared by size as well as presence, so a file that was truncated or
+    half-written is fetched again rather than trusted.
+    """
+    if not _blob_enabled():
+        return 0
+    try:
+        remote = await asyncio.to_thread(_names_sync, session_id)
+    except Exception as err:  # noqa: BLE001 — offline is not a failed turn
+        logger.warning("could not list stored media for %s: %s", session_id, err)
+        return 0
+    if not remote:
+        return 0
+    directory = session_dir(session_id, create=True)
+
+    async def one(name: str, size: int) -> bool:
+        path = directory / name
+        try:
+            if path.is_file() and path.stat().st_size == size:
+                return False
+            await asyncio.to_thread(_download_sync, _blob_name(session_id, name), path)
+            return True
+        except Exception as err:  # noqa: BLE001
+            logger.warning("could not fetch %s: %s", name, err)
+            return False
+
+    done = await asyncio.gather(*(one(n, s) for n, s in remote.items()))
+    got = sum(done)
+    if got:
+        logger.info("fetched %d stored file(s) for %s", got, session_id)
+    return got
+
+
+def _forget_blobs_sync(session_id: str) -> int:
+    client = _container()
+    names = [b.name for b in client.list_blobs(name_starts_with=_blob_name(session_id, ""))]
+    for name in names:
+        client.delete_blob(name)
+    return len(names)
+
+
+async def forget(session_id: str) -> int:
+    """Throw away a deleted thread's uploads, on disk and in storage. Returns
+    how many files went.
+
+    This module has always said uploads go when the thread does, and they did
+    not: deleting a conversation removed its transcript and left its photos
+    and clips for good. 286MB of them here, belonging to threads that no
+    longer exist and that nothing can reach.
+
+    Not fatal, ever. A thread the user deleted is deleted whether or not the
+    cleanup succeeded — the alternative is a conversation that cannot be
+    removed because one file is busy.
+    """
     gone = 0
+    if _blob_enabled():
+        try:
+            gone += await asyncio.to_thread(_forget_blobs_sync, session_id)
+        except Exception as err:  # noqa: BLE001 — best-effort
+            logger.warning("could not clear stored media for %s: %s", session_id, err)
+    directory = session_dir(session_id)
+    if not directory.is_dir():
+        return gone
     try:
         for path in sorted(directory.iterdir()):
             if path.is_file():
