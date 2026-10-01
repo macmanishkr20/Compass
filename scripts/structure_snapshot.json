@@ -1,6 +1,6 @@
 {
  "prompts": {
-  "chat.CHAT_SYSTEM_PROMPT": "ee3e7df54debe7a5:3108",
+  "chat.CHAT_SYSTEM_PROMPT": "3990dd60df6bcec2:3733",
   "compaction.SUMMARY_PROMPT": "5bc7ef90294b4b5d:268",
   "design.BLANK_PAGE": "46082651152e9ec4:428",
   "design.BUILTIN_SYSTEMS": "7f03905ae7a9da19:6",

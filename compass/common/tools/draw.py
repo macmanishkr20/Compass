@@ -28,12 +28,20 @@ from compass.common.tools.base import Tool, ToolOutput, ToolUseContext, ToolYiel
 class DrawInput(BaseModel):
     prompt: str = Field(
         description=(
-            "What to draw, described the way you would describe it to an "
-            "illustrator: the subject, the composition, the medium and the "
-            "palette. 'A marigold and vermilion Ganpati motif, flat vector, "
-            "gold linework, on cream' beats 'a festival image'. Say what must "
-            "NOT be in it too — generated lettering is unreliable, so ask for "
-            "no text when the layout supplies its own."
+            "A brief for an illustrator, not the request you were given. "
+            "Four or five sentences: the subject and what it is doing, the "
+            "setting and time of day, the medium and finish (a photograph "
+            "and its lens, or an illustration and its technique), the light, "
+            "the palette, the composition and where the eye goes, the mood. "
+            "Decide what was left unspecified rather than leaving it vague — "
+            "vague briefs are what produce flat, generic pictures.\n"
+            "Text in the image: if this picture IS the deliverable, put the "
+            "words that must appear in quotes, keep them short, and say "
+            "where they sit. If it is going INSIDE a layout you are also "
+            "writing — a web page, a design — ask for no lettering and let "
+            "your own markup carry the words, which keeps them crisp and "
+            "selectable. Generated lettering is unreliable past a few words "
+            "either way, so never ask for a paragraph."
         )
     )
     shape: Literal["square", "landscape", "portrait"] = Field(
@@ -66,13 +74,18 @@ _SHAPES = {"square": "1024x1024", "landscape": "1536x1024", "portrait": "1024x15
 class DrawTool(Tool):
     name = "generate_image"
     description = (
-        "Draw an image from a description and get back a URL you can put in "
-        "an <img src>. Use it for photographic or illustrative content — a "
-        "hero image, a texture, an illustration, a placeholder photograph "
-        "inside a mockup. Do NOT use it for charts, diagrams, icons, logos "
-        "you were given, wireframes or anything with text in it: those are "
-        "drawn in SVG or CSS, where the text is crisp and the colours can be "
-        "changed afterwards. The image is stored and the URL is permanent."
+        "Draw a real picture from a description and get back a URL. Use it "
+        "whenever something visual is asked for and a picture is the thing "
+        "wanted: a poster, a hero image, an illustration, a texture, a "
+        "photograph that does not exist. The image is stored and the URL is "
+        "permanent, so it can go straight into an <img src> or be handed to "
+        "the person as the answer.\n"
+        "Where you are writing a layout yourself, this is for the "
+        "photographic and illustrative parts only: charts, diagrams, icons, "
+        "wireframes and UI chrome you draw in SVG or CSS, where the text "
+        "stays crisp and the colours still answer to the palette. Where the "
+        "picture IS the deliverable, draw the whole thing — including its "
+        "own short lettering."
     )
     input_model = DrawInput
 

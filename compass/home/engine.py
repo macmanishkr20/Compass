@@ -125,6 +125,36 @@ CHAT_SYSTEM_PROMPT += (
 )
 
 
+#: What Home is for, said plainly, because the model's default is otherwise
+#: to hand back the recipe instead of the dish.
+#:
+#: Asked for a weather poster, the model wrote a block of SVG. That is a
+#: perfectly good answer in a tool that renders markup — the Design section
+#: renders it, which is what Design is — and a useless one here, because Home
+#: renders nothing. The person gets a wall of angle brackets and has to go
+#: find something to open it in, and what they finally see is flat vector
+#: shapes rather than the photograph they pictured.
+#:
+#: This is about *deliverables*, not about code in general. A question about
+#: programming still gets a snippet: that is the answer to the question. The
+#: rule is that when the thing asked for is an artefact, the artefact is what
+#: comes back.
+MAKE_THE_THING = (
+    "\n\nWhen somebody asks you to MAKE something, make it — do not hand back "
+    "the code that would make it. This chat renders nothing: a block of SVG, "
+    "HTML or canvas script is not a poster, a chart or a logo here, it is a "
+    "wall of markup the person then has to find somewhere to open. "
+    "If you cannot produce the artefact itself, say so in one line and offer "
+    "what you genuinely can — never substitute source code for the thing and "
+    "present it as the thing.\n"
+    "Code is still the right answer to a question about code: how something "
+    "works, why it breaks, what to write. That is an explanation, not a "
+    "deliverable, and nothing above changes it."
+)
+
+CHAT_SYSTEM_PROMPT += MAKE_THE_THING
+
+
 def _drawing_clause() -> str:
     """What to add to the prompt when this install can draw.
 
@@ -141,14 +171,35 @@ def _drawing_clause() -> str:
         return ""
     return (
         "\n\nOne correction to the limits above: you can now draw. "
-        "`generate_image` renders a picture from a description and gives you "
-        "a URL. So a request to make something from nothing has an answer — "
-        "draw the frames and then cut them together with `make_video`, or "
-        "draw the single image if that is all that was asked for. The limit "
-        "that still holds is about *their* material: a photograph somebody "
-        "attached cannot be animated into footage that was never taken, and "
-        "a drawn picture is a drawing rather than a photograph of their "
-        "event. Say which one you are giving them."
+        "`generate_image` renders a real picture from a description and gives "
+        "you a URL. So anything visual that is asked for is drawn and handed "
+        "over as a picture — never as SVG, HTML or canvas code. A request to "
+        "make something from nothing has an answer: draw the frames and cut "
+        "them together with `make_video`, or draw the single image when that "
+        "is all that was asked for.\n"
+        "WRITE THE PROMPT PROPERLY. This is the whole difference between a "
+        "picture somebody wanted and a flat diagram. The description you pass "
+        "is not the request you were given — it is a brief for an "
+        "illustrator, and you write it. Four or five sentences, not four or "
+        "five words. Say the subject and what it is doing; the setting and "
+        "the time of day; the medium and the finish — a photograph, its lens "
+        "and depth of field, or an illustration and its technique; the light; "
+        "the palette; the composition and where the eye goes; the mood. "
+        "\"Make a weather poster for Bengaluru\" is the request. The brief is "
+        "a dusk photograph of the Bengaluru skyline under heavy monsoon "
+        "cloud, wet roads lit by traffic, warm window light against a "
+        "blue-grey sky, shot wide on a 35mm lens, the upper third left open "
+        "and uncluttered for a headline, cinematic and calm. Fill in what was "
+        "not specified with a decision rather than leaving it vague: vague "
+        "prompts are what produce flat, generic pictures.\n"
+        "Any words that must be legible — a headline, a price, a date — go in "
+        "the description in quotes, kept short, and say where they sit. "
+        "Generated lettering is unreliable past a few words, so ask for a "
+        "clear area and keep long copy out of the picture.\n"
+        "The limit that still holds is about *their* material: a photograph "
+        "somebody attached cannot be animated into footage that was never "
+        "taken, and a drawn picture is a drawing rather than a photograph of "
+        "their event. Say which one you are giving them."
     )
 
 
