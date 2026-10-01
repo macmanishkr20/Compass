@@ -4266,3 +4266,10 @@ select.dz-ed-in {
 .dz-tickbtn svg { width: 13px; height: 13px; }
 .dz-tickbtn:hover { color: var(--ink); background: var(--rule); }
 .dz-tickbtn.on { color: var(--brass); }
+
+/* The skeleton in the design conversation panel. Narrower than a chat
+   window's, because this column is — the shapes follow the panel rather
+   than a fixed width. */
+.dz-skeleton {
+  padding: 4px 0 2px;
+}

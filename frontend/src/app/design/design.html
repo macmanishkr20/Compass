@@ -612,6 +612,33 @@
         </header>
 
         <div class="dz-turns">
+          <!-- The conversation is fetched with the design, so this panel was
+               blank for exactly as long as the canvas said it was fetching.
+               Same shapes as a conversation elsewhere, sized for this column. -->
+          @if (loadingProject()) {
+            <div class="dz-skeleton" role="status" aria-live="polite">
+              <div class="sk-turn"><div class="skl sk-u"></div></div>
+              <div class="sk-turn">
+                <div class="sk-head"><div class="skl sk-av"></div><div class="skl sk-nm"></div></div>
+                <div class="skl sk-l" style="width:94%"></div>
+                <div class="skl sk-l" style="width:84%"></div>
+                <div class="skl sk-l" style="width:66%"></div>
+              </div>
+              <div class="sk-turn"><div class="skl sk-u" style="width:46%;height:34px"></div></div>
+              <div class="sk-note">
+                <span class="sp2" aria-hidden="true"></span>
+                {{ loadingProjectSlow() ? 'Still fetching — the archive is cold' : 'Fetching design…' }}
+              </div>
+            </div>
+          } @else if (loadProjectError(); as failed) {
+            <app-load-error compact
+              heading="Couldn't load this design"
+              body="The store didn't answer. Nothing is lost — the design is still there."
+              [detail]="failed.detail"
+              secondaryLabel="Back to designs"
+              (retry)="retryProject()"
+              (secondary)="close()" />
+          }
           @for (t of turns(); track $index) {
             @if (t.role === 'user' && t.answers?.length) {
               <div class="dz-turn user">
@@ -712,9 +739,12 @@
           @if (error()) { <p class="dz-error">{{ error() }}</p> }
         </div>
 
-        <div class="dz-composer">
+        <!-- Inert while the design it belongs to is still arriving, like
+             every other composer in Compass: a refinement sent against a
+             project that has not loaded would be refining nothing. -->
+        <div class="dz-composer" [class.comp-locked]="!!loadingProject()">
           <textarea rows="2" [ngModel]="refine()" (ngModelChange)="refine.set($event)"
-            (keydown)="onRefineKey($event)" [disabled]="working()"
+            (keydown)="onRefineKey($event)" [disabled]="working() || !!loadingProject()"
             placeholder="Describe what you want to create..."></textarea>
           <div class="dz-composer-foot">
             <div class="dz-menu-wrap up">
