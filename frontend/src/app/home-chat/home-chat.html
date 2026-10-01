@@ -29,27 +29,13 @@
         </div>
       </div>
     } @else if (loadError(); as failed) {
-      <!-- What happened, that nothing is lost, and the two ways out. -->
-      <div class="lderr" role="alert">
-        <div class="ic" aria-hidden="true">
-          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/>
-          </svg>
-        </div>
-        <b>Couldn't load this conversation</b>
-        <p>The transcript store didn't answer. Nothing is lost — the
-          conversation is still there.</p>
-        <span class="code">{{ failed.detail }}</span>
-        <div class="acts2">
-          <button class="btn2 pri" (click)="retryThread()">
-            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/>
-            </svg>
-            Try again
-          </button>
-          <button class="btn2" (click)="startNewThread.emit()">Start a new conversation</button>
-        </div>
-      </div>
+      <app-load-error
+        heading="Couldn't load this conversation"
+        body="The transcript store didn't answer. Nothing is lost — the conversation is still there."
+        [detail]="failed.detail"
+        secondaryLabel="Start a new conversation"
+        (retry)="retryThread()"
+        (secondary)="startNewThread.emit()" />
     } @else if (messages().length === 0) {
       <div class="home-hero">
         <div class="home-hero-mark">

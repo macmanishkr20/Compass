@@ -14,6 +14,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService, TranscriptResponse, describeHttpError } from '../compass-api.service';
+import { LoadError } from '../load-error';
 import { AuthService } from '../auth.service';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
@@ -120,7 +121,7 @@ const EFFORTS = ['low', 'medium', 'high'] as const;
 @Component({
   selector: 'app-home-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, CompassMark, Markdown, Reorder],
+  imports: [FormsModule, CompassMark, Markdown, Reorder, LoadError],
   templateUrl: './home-chat.html',
   styleUrl: './home-chat.css',
   host: {

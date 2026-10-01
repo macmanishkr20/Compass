@@ -16,6 +16,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService, describeHttpError } from '../compass-api.service';
+import { LoadError } from '../load-error';
 import { FitMenuDirective } from './fit-menu.directive';
 import { TickSound } from './tick.service';
 import {
@@ -74,7 +75,7 @@ const LANDING_ROWS = 4;
 @Component({
   selector: 'app-design',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, NgTemplateOutlet, FitMenuDirective],
+  imports: [FormsModule, NgTemplateOutlet, FitMenuDirective, LoadError],
   templateUrl: './design.html',
   styleUrl: './design.css',
   host: { '(document:click)': 'closeMenus()' },

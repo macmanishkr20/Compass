@@ -902,3 +902,20 @@ app-home-chat .prose li::marker { color: var(--ink); }
   .skl { animation: none; }
   .skl { background: var(--surface-2); }
 }
+
+/* The compact card, for a sidebar column rather than a window. Same thing,
+   sized for somewhere narrow: no outer margin, smaller type, and the two
+   buttons stacked because they do not fit side by side at 280px. */
+.lderr.compact {
+  max-width: none;
+  margin: 10px 0;
+  padding: 14px 12px;
+}
+
+.lderr.compact .ic { width: 26px; height: 26px; border-radius: 9px; margin-bottom: 9px; }
+.lderr.compact .ic svg { width: 14px; height: 14px; }
+.lderr.compact b { font-size: 0.78rem; }
+.lderr.compact p { font-size: 0.72rem; }
+.lderr.compact .code { font-size: 0.6rem; max-width: 100%; overflow-wrap: anywhere; }
+.lderr.compact .acts2 { flex-direction: column; gap: 6px; }
+.lderr.compact .btn2 { width: 100%; justify-content: center; font-size: 0.73rem; }

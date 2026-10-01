@@ -12,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
 import { AuthService } from './auth.service';
 import { CompassApiService, TranscriptResponse, describeHttpError } from './compass-api.service';
+import { LoadError } from './load-error';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TurnStatus } from './turn-status';
@@ -119,6 +120,7 @@ const CONV_PAGE = 4;
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     FormsModule,
+    LoadError,
     NgTemplateOutlet,
     TitleCasePipe,
     BlurOnChange,
@@ -470,11 +472,15 @@ export class App {
     this.homeLimit.set(CONV_PAGE);
   }
 
+  /** The same, for Home's list. */
+  readonly homeSessionsError = signal('');
+
   async loadHomeSessions(): Promise<void> {
     try {
       this.homeSessions.set((await this.api.listChatSessions()).sessions);
-    } catch {
-      /* non-fatal */
+      this.homeSessionsError.set('');
+    } catch (err) {
+      if (!this.homeSessions().length) this.homeSessionsError.set(describeHttpError(err));
     }
   }
   openHomeConversation(id: string): void {
@@ -3295,11 +3301,23 @@ export class App {
 
   // -- sessions ------------------------------------------------------------
 
+  /** Why the conversation list is empty, when it is empty because it failed.
+   *
+   *  An empty sidebar and a sidebar whose request did not come back look the
+   *  same, and only one of them is worth pressing a button about. Cleared on
+   *  success, so a list that arrives late simply replaces it. */
+  readonly sessionsError = signal('');
+
   async refreshSessions(): Promise<void> {
     try {
       this.cards.set((await this.api.listSessions()).sessions);
-    } catch {
-      /* non-fatal */
+      this.sessionsError.set('');
+    } catch (err) {
+      // Only when there is nothing to show. A background refresh that fails
+      // while a list is already on screen leaves the list alone — replacing
+      // conversations the user can still open with an error would be worse
+      // than the stale list it is complaining about.
+      if (!this.cards().length) this.sessionsError.set(describeHttpError(err));
     }
   }
 

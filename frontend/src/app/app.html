@@ -400,7 +400,14 @@
     <!-- Home section: its own chat history; agent Conversations are hidden. -->
     @if (section() === 'home') {
       <nav class="history" aria-label="Chats" (click)="closeHomeMenu()">
-        @if (homeSessions().length === 0) {
+        @if (homeSessionsError()) {
+          <!-- "No chats yet." is wrong when the list simply did not arrive. -->
+          <app-load-error compact
+            heading="Couldn't load your chats"
+            body="The list didn't come back. Nothing is lost."
+            [detail]="homeSessionsError()"
+            (retry)="loadHomeSessions()" />
+        } @else if (homeSessions().length === 0) {
           <div class="hist-group"><div class="hist-label">Chats</div><p class="hist-empty">No chats yet.</p></div>
         }
         @for (g of limitedHomeGroups(); track g.label) {
@@ -460,6 +467,15 @@
 
     @if (section() === 'code') {
     <nav class="history" aria-label="Conversation history" (click)="closeMenu()">
+      @if (sessionsError()) {
+        <!-- An empty list and a list that did not arrive are different
+             things; only one of them has a button worth pressing. -->
+        <app-load-error compact
+          heading="Couldn't load your conversations"
+          body="The list didn't come back. Nothing is lost."
+          [detail]="sessionsError()"
+          (retry)="refreshSessions()" />
+      }
       @if (pinnedGroup(); as pg) {
         <div class="hist-group">
           <div class="hist-label">
@@ -892,26 +908,13 @@
           </div>
         </div>
       } @else if (loadSessionError(); as failed) {
-        <div class="lderr" role="alert">
-          <div class="ic" aria-hidden="true">
-            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/>
-            </svg>
-          </div>
-          <b>Couldn't load this conversation</b>
-          <p>The transcript store didn't answer. Nothing is lost — the
-            conversation is still there.</p>
-          <span class="code">{{ failed.detail }}</span>
-          <div class="acts2">
-            <button class="btn2 pri" (click)="retrySession()">
-              <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/>
-              </svg>
-              Try again
-            </button>
-            <button class="btn2" (click)="newSession()">Start a new conversation</button>
-          </div>
-        </div>
+        <app-load-error
+          heading="Couldn't load this conversation"
+          body="The transcript store didn't answer. Nothing is lost — the conversation is still there."
+          [detail]="failed.detail"
+          secondaryLabel="Start a new conversation"
+          (retry)="retrySession()"
+          (secondary)="newSession()" />
       } @else if (timeline().length === 0) {
         <section class="hero">
           <div class="hero-mark">
