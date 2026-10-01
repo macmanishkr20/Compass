@@ -317,3 +317,31 @@ async def screenshot_cache(shot_id: str) -> Response:
     if png is None:
         raise HTTPException(status_code=404, detail="screenshot expired")
     return Response(content=png, media_type="image/png")
+
+
+@router.get("/v1/media/generated/{name}")
+async def generated_image(name: str) -> Response:
+    """Serve a picture the image model drew.
+
+    Unauthenticated on purpose, and safe to be: the name is a random hex id
+    minted when the picture was stored, so it is unguessable, and these are
+    referenced by `<img src>` from inside a design's markup — which is
+    rendered in a sandboxed iframe that carries no cookies, so a route that
+    required the session cookie would simply show a broken image.
+
+    Cached hard. The bytes never change: a new picture is a new id.
+    """
+    from compass.common.gateway.images import PREFIX, fetch
+
+    # The id only. A name that tries to carry a path is not one we minted.
+    safe = name.rsplit("/", 1)[-1]
+    if not safe or safe != name:
+        raise HTTPException(status_code=404, detail="no such image")
+    raw, content_type = await fetch(f"{PREFIX}/{safe}")
+    if raw is None:
+        raise HTTPException(status_code=404, detail="no such image")
+    return Response(
+        content=raw,
+        media_type=content_type,
+        headers={"cache-control": "public, max-age=31536000, immutable"},
+    )

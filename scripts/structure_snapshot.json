@@ -89,6 +89,7 @@
   "GET /v1/estimates/{estimate_id}/export/excel",
   "GET /v1/estimates/{estimate_id}/export/pdf",
   "GET /v1/github/repos",
+  "GET /v1/media/generated/{name}",
   "GET /v1/memory",
   "GET /v1/missions",
   "GET /v1/missions/{mission_id}",
@@ -207,7 +208,7 @@
   "PUT /v1/estimates/rate-card",
   "WS /v1/browser/ws"
  ],
- "schema": "1d2ac5c6a4bce239",
+ "schema": "ba2917d645c1934f",
  "smoke": {
   "/": "200",
   "/docs": "200",

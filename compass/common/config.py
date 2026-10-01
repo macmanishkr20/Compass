@@ -55,6 +55,27 @@ class AzureOpenAISettings(BaseModel):
     # Voice for TTS: alloy, ash, ballad, coral, echo, fable, nova, onyx, sage,
     # shimmer. "coral" and "sage" are the warm, expressive ones.
     tts_voice: str = "coral"
+    # Image generation (e.g. gpt-image-2). Empty = Compass cannot draw, and
+    # every path that would have asked for a picture says so instead of
+    # failing: the `generate_image` tool is not offered to a model that has
+    # no way to run it, and a design that would have carried generated
+    # artwork is written without it.
+    #
+    # Its own endpoint and key for the same reason TTS has them: an image
+    # model is deployed where the region offers it, which is often not where
+    # the chat deployment lives. Blank falls back to the main resource, which
+    # is what an install with everything in one place wants.
+    image_deployment: str = ""
+    image_endpoint: str = ""
+    image_api_key: str = ""
+    # The images API is preview-versioned separately from chat; the chat
+    # version here (2024-10-21) does not serve it.
+    image_api_version: str = "2025-04-01-preview"
+    # What a generated picture costs in time and bytes. "low" is the draft
+    # quality and is what a placeholder inside a mockup wants; a flier's
+    # single hero image is the one worth paying for.
+    image_quality: str = "high"
+    image_size: str = "1024x1024"
     # Speech-to-text deployment (e.g. gpt-4o-transcribe or whisper). Empty =
     # an attached audio file is named in the turn rather than transcribed,
     # because a model cannot listen to an upload. Shares the TTS resource's
@@ -147,6 +168,28 @@ class AzureOpenAISettings(BaseModel):
     @property
     def tts_api_version_effective(self) -> str:
         return self.tts_api_version or self.api_version
+
+    @property
+    def image_configured(self) -> bool:
+        """Whether Compass can draw at all.
+
+        Asked before the tool is offered and before a design is told it may
+        ask for artwork, so that an install without an image deployment never
+        promises a picture it cannot produce.
+        """
+        return bool(
+            self.image_deployment
+            and self.image_endpoint_effective
+            and self.image_api_key_effective
+        )
+
+    @property
+    def image_endpoint_effective(self) -> str:
+        return self.image_endpoint or self.endpoint
+
+    @property
+    def image_api_key_effective(self) -> str:
+        return self.image_api_key or self.api_key
 
     @property
     def model_options(self) -> list[str]:
@@ -800,6 +843,20 @@ def get_settings() -> Settings:
         "AZURE_OPENAI_TTS_API_VERSION", azure.tts_api_version
     )
     azure.tts_voice = os.environ.get("COMPASS_TTS_VOICE", azure.tts_voice)
+    azure.image_deployment = os.environ.get(
+        "AZURE_OPENAI_IMAGE_DEPLOYMENT", azure.image_deployment
+    )
+    azure.image_endpoint = os.environ.get(
+        "AZURE_OPENAI_IMAGE_ENDPOINT", azure.image_endpoint
+    )
+    azure.image_api_key = os.environ.get(
+        "AZURE_OPENAI_IMAGE_API_KEY", azure.image_api_key
+    )
+    azure.image_api_version = os.environ.get(
+        "AZURE_OPENAI_IMAGE_API_VERSION", azure.image_api_version
+    )
+    azure.image_quality = os.environ.get("COMPASS_IMAGE_QUALITY", azure.image_quality)
+    azure.image_size = os.environ.get("COMPASS_IMAGE_SIZE", azure.image_size)
     azure.realtime_deployment = os.environ.get(
         "AZURE_OPENAI_REALTIME_DEPLOYMENT", azure.realtime_deployment
     )

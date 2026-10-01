@@ -125,6 +125,33 @@ CHAT_SYSTEM_PROMPT += (
 )
 
 
+def _drawing_clause() -> str:
+    """What to add to the prompt when this install can draw.
+
+    Appended per turn rather than baked into the constant, because whether
+    there is an image deployment is a fact about the install and the prompt
+    above is a module-level string. It also has to *correct* that prompt:
+    three sentences up, the model is told plainly that it cannot generate
+    imagery, which was true and is now conditional. Left uncorrected, the
+    model declines to call a tool it has just been given.
+    """
+    from compass.common.gateway import images
+
+    if not images.available():
+        return ""
+    return (
+        "\n\nOne correction to the limits above: you can now draw. "
+        "`generate_image` renders a picture from a description and gives you "
+        "a URL. So a request to make something from nothing has an answer — "
+        "draw the frames and then cut them together with `make_video`, or "
+        "draw the single image if that is all that was asked for. The limit "
+        "that still holds is about *their* material: a photograph somebody "
+        "attached cannot be animated into footage that was never taken, and "
+        "a drawn picture is a drawing rather than a photograph of their "
+        "event. Say which one you are giving them."
+    )
+
+
 def _media_catalogue(session_id: str) -> str:
     """The photos, clips and recordings this thread is holding, as the model
     needs to see them: ids, because ids are what `make_video` takes."""
@@ -363,13 +390,23 @@ class ChatSession:
         as a belt-and-braces guard — anything that asked for permission
         without having granted itself any is refused rather than silently
         allowed."""
+        from compass.common.gateway import images
+        from compass.common.tools.draw import DrawTool
         from compass.common.tools.memory import MemoryTool
         from compass.common.tools.web_fetch import WebFetchTool
         from compass.home.video_tool import VideoTool
 
+        tools = [MemoryTool(), WebFetchTool(), VideoTool()]
+        # Drawing changes what Home can be asked for. `make_video` cuts a film
+        # out of what was attached and says so — it cannot invent footage —
+        # so a request to make something from nothing had no answer at all.
+        # With this, the pictures can be drawn and then cut together.
+        if images.available():
+            tools.append(DrawTool())
+
         return ToolUseContext(
             session_id=self.id,
-            tools=[MemoryTool(), WebFetchTool(), VideoTool()],
+            tools=tools,
             broker=PermissionBroker(policy="auto_deny"),
             cost_tracker=self.cost_tracker,
             abort_event=self.abort_event,
@@ -503,7 +540,7 @@ class ChatEngine:
         # Work IQ (Home-only, opt-in): retrieve from Azure AI Search and ground
         # this turn. The context lives in the per-turn system prompt (not
         # persisted), so history stays clean; sources go to the UI.
-        system_prompt = CHAT_SYSTEM_PROMPT
+        system_prompt = CHAT_SYSTEM_PROMPT + _drawing_clause()
         if work_iq:
             from compass.home import work_iq as wiq
 

@@ -192,6 +192,46 @@ AZURE_OPENAI_TTS_API_KEY=...
 AZURE_OPENAI_TTS_API_VERSION=2025-03-01-preview
 ```
 
+### Drawing (image generation)
+
+Compass draws with a separate Azure OpenAI image deployment — `gpt-image-2`
+unless you name another one. Until it is deployed, nothing offers to draw:
+the `generate_image` tool is left out of every agent's tool list, and a
+design that would have carried artwork is written without it. There is no
+error state, because a capability that is absent is not a capability that is
+broken.
+
+```
+AZURE_OPENAI_IMAGE_DEPLOYMENT=gpt-image-2     # deploy this model in Azure first
+COMPASS_IMAGE_QUALITY=high                    # low|medium|high — low is the fast draft
+COMPASS_IMAGE_SIZE=1024x1024                  # or 1536x1024 / 1024x1536
+```
+
+Image models are regional, so like TTS this can live on its own resource.
+When these are blank it reuses the main Azure credentials:
+
+```
+AZURE_OPENAI_IMAGE_ENDPOINT=https://your-image-resource.services.ai.azure.com/
+AZURE_OPENAI_IMAGE_API_KEY=...
+AZURE_OPENAI_IMAGE_API_VERSION=2025-04-01-preview
+```
+
+**Where it is used.** Every agent loop gets a `generate_image` tool — Code,
+Missions, the Pipelines builder, and Home, where it means a teaser can be cut
+from drawn frames rather than only from uploaded ones. Generated pictures are
+stored in the `compass-media` blob container under `generated/` and served
+from `/v1/media/generated/<id>`.
+
+**In Design**, the model asks for artwork in the markup —
+`<img data-draw="..." data-shape="landscape">` — and it is drawn after the
+document is written. Only the templates whose output genuinely wants
+photographic or illustrative content do this: flier, slides, UI mockups,
+mobile, HTML email, animation and blank. The rest do not, because their
+briefs are specific that the output should be drawn rather than rendered —
+a wireframe is greyscale by definition, a diagram needs crisp SVG text, a
+résumé uses a supplied photo or none, and charts are SVG everywhere. See
+`compass/design/artwork.py`, which keeps the reason beside each decision.
+
 ## Policy configuration
 
 `.compass/settings.json` (workspace root):

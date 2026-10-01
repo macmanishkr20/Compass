@@ -1672,6 +1672,7 @@ async def design_generate(
 ) -> dict:
     """Generate (or refine) the project's design and store the HTML."""
     await _owned_project(project_id, user)
+    from compass.design import artwork
     from compass.design.skills import DESIGN_SYSTEM_PROMPT, TEMPLATE_PROMPTS
     from compass.design.store import get_design_store
     from compass.design.systems import get_system_store, system_prompt_block
@@ -1721,6 +1722,11 @@ async def design_generate(
 
     if note := _image_note(seen, folded):
         parts.append(note)
+    # Whether this kind of design gets commissioned artwork, and on an
+    # install that can draw at all. See compass/design/artwork.py for which
+    # templates and why — the briefs are specific about what must stay SVG.
+    if block := artwork.prompt_block(template):
+        parts.append(block)
     parts.append("Request: " + body.prompt)
 
     try:
@@ -1758,6 +1764,12 @@ async def design_generate(
         if m:
             html = m.group(1).strip()
     html = _place_images(html, slots)
+    # The artwork the model asked for, drawn now that the markup exists. A
+    # design whose pictures fail is still a design: the placeholders come
+    # out and the layout closes over them.
+    html, drawn, asked = await artwork.fill(html)
+    if asked:
+        logger.info("design artwork: %d of %d drawn", drawn, asked)
     if not html:
         raise HTTPException(
             status_code=502,
