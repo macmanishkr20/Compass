@@ -1002,9 +1002,16 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 }
 
 /* The skeleton sits in the same column the messages will, so the shapes
-   stand exactly where their content is about to. */
+   stand exactly where their content is about to. Mirrors `.chat-log`
+   deliberately, down to the padding.
+
+   The width is stated rather than left to `max-width` and `margin: 0 auto`.
+   `.home-scroll` is a flex column, and an auto cross-axis margin turns off
+   the stretch that would otherwise fill it — which collapsed this to
+   shrink-to-fit, 156px against the 482px the messages occupy, so the
+   placeholder was a quarter the size of the thing it stood in for. */
 .home-skeleton {
-  max-width: 720px;
+  width: min(100%, 760px);
   margin: 0 auto;
-  padding: 10px 0 0;
+  padding: 26px 18px 10px;
 }
