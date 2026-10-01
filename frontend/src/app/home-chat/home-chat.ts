@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
-import { CompassApiService } from '../compass-api.service';
+import { CompassApiService, TranscriptResponse } from '../compass-api.service';
 import { AuthService } from '../auth.service';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
@@ -717,6 +717,9 @@ export class HomeChat {
     this.sessionId = null;
     this.loadedId = null;
     this.currentAssistant = null;
+    // Or a new thread would offer to load the previous one's earlier pages.
+    this.earlierSeq.set(null);
+    this.loadingEarlier.set(false);
   }
 
   private async loadThread(id: string): Promise<void> {
@@ -729,13 +732,68 @@ export class HomeChat {
       // it before showing anything made opening a conversation cost two
       // round trips instead of one.
       const [t] = await Promise.all([
-        this.api.chatTranscript(id),
+        this.api.chatTranscript(id, { limit: HomeChat.THREAD_PAGE }),
         this.api.createChatSession({ resume: true, sessionId: id }),
       ]);
       // A newer click wins. Two conversations opened quickly resolve in
       // whatever order the network decides, and without this the slower of
       // the two paints last — showing a thread the user has already left.
       if (this.loadedId !== id) return;
+      this.earlierSeq.set(t.before_seq ?? null);
+      const msgs = this.buildMessages(t.messages);
+      if (this.loadedId !== id) return;
+      this.messages.set(msgs);
+    } catch {
+      if (this.loadedId === id) this.messages.set([]);
+    }
+  }
+
+  /** How much of a thread is fetched when it is opened.
+   *
+   *  Home threads are short — the longest of the 79 here is 36 messages — so
+   *  in practice this fetches all of them and the control below never shows.
+   *  It is here because "in practice" is a statement about today's data, and
+   *  a thread with a year of history in it should open as quickly as a new
+   *  one. The same number Code uses, for the same reason. */
+  private static readonly THREAD_PAGE = 150;
+
+  /** Where the page above the one on screen ends, or null when the whole
+   *  thread is showing. */
+  readonly earlierSeq = signal<number | null>(null);
+  readonly loadingEarlier = signal(false);
+
+  /** Fetch the page before the one on screen and put it above. */
+  async loadEarlier(): Promise<void> {
+    const id = this.loadedId;
+    const cursor = this.earlierSeq();
+    if (!id || cursor === null || this.loadingEarlier()) return;
+    this.loadingEarlier.set(true);
+    try {
+      const t = await this.api.chatTranscript(id, {
+        limit: HomeChat.THREAD_PAGE,
+        beforeSeq: cursor,
+      });
+      // The thread may have been left while this was in flight.
+      if (this.loadedId !== id) return;
+      const older = this.buildMessages(t.messages);
+      this.messages.update((msgs) => [...older, ...msgs]);
+      this.earlierSeq.set(t.before_seq ?? null);
+    } catch {
+      // Left as it was, with the control still offering to try again.
+    } finally {
+      this.loadingEarlier.set(false);
+    }
+  }
+
+  /** Stored messages turned into what the thread draws.
+   *
+   *  Pulled out of `loadThread` so a page fetched later is built exactly the
+   *  same way as the first — two builders would drift, and the one used less
+   *  often would be the one that drifted.
+   */
+  private buildMessages(source: TranscriptResponse['messages']): ChatMsg[] {
+    const t = { messages: source };
+    {
       const msgs: ChatMsg[] = [];
       for (const m of t.messages) {
         if (m.role !== 'user' && m.role !== 'assistant') continue;
@@ -784,10 +842,7 @@ export class HomeChat {
             (meta['transcript_unavailable'] as boolean | undefined) || undefined,
         });
       }
-      if (this.loadedId !== id) return;
-      this.messages.set(msgs);
-    } catch {
-      if (this.loadedId === id) this.messages.set([]);
+      return msgs;
     }
   }
 

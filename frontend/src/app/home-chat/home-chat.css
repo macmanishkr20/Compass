@@ -967,3 +967,36 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 }
 .cspoken svg { width: 12px; height: 12px; }
 .cbubble .ctext.muted { opacity: 0.5; font-style: italic; }
+
+/* "Load earlier messages" — the way back up a thread opened at its end.
+   Quiet by design: it sits above the oldest message on screen and is a thing
+   you look for rather than one that announces itself. Existing tokens only,
+   so it follows light and dark without knowing which it is in. */
+.earlier {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 12px;
+}
+
+.earlier-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 450;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.earlier-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--border) 60%, var(--ink));
+}
+
+.earlier-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}

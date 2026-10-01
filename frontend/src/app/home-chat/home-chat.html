@@ -11,6 +11,17 @@
       </div>
     } @else {
       <div class="chat-log">
+        <!-- A long thread opens at its end; this is the way back up it. Not
+             shown when the whole thread is already on screen, which for a
+             thread of ordinary length is always. -->
+        @if (earlierSeq() !== null) {
+          <div class="earlier">
+            <button class="earlier-btn" (click)="loadEarlier()"
+              [disabled]="loadingEarlier()">
+              {{ loadingEarlier() ? 'Loading earlier messages…' : 'Load earlier messages' }}
+            </button>
+          </div>
+        }
         @for (m of messages(); track m.id; let last = $last) {
           <div class="crow" [class.mine]="m.role === 'user'"
             [class.has-byline]="m.role === 'assistant'">
