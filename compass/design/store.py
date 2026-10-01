@@ -149,6 +149,16 @@ class DesignStore:
     async def get(self, project_id: str) -> dict | None:
         return await self._filled(project_id)
 
+    async def meta(self, project_id: str) -> dict | None:
+        """One project without its markup: a point read and nothing else.
+
+        For the questions that can be answered from the document — who owns
+        it, when it changed, how long it is. Asking `get` for those fetched
+        every page's markup from blob storage to read one field, which is what
+        made a cached thumbnail cost three seconds.
+        """
+        return await _projects.get(project_id)
+
     async def touch(self, project_id: str) -> dict | None:
         """Record that the project was opened — the table sorts on this, the way
         claude.ai's "Last viewed" column does."""

@@ -75,6 +75,60 @@ export class CompassApiService {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
 
+  /** Transcripts already fetched, by session id.
+   *
+   *  A conversation is an append-only log, so the copy held here is only ever
+   *  short by whatever has been said since — and every path that says
+   *  something (sending a turn, regenerating, editing, deleting) drops its
+   *  entry, so what is served is either current or not served at all.
+   *
+   *  Worth holding because of what it saves. Reading a transcript is a round
+   *  trip to a Cosmos account on another continent, around 450ms of latency
+   *  whatever the conversation weighs, and the obvious thing a person does is
+   *  click between two conversations and back. The second visit should not
+   *  cost what the first did.
+   *
+   *  The entry is the in-flight promise, not the result, so two components
+   *  asking at once make one request between them rather than one each.
+   */
+  private readonly transcripts = new Map<string, Promise<TranscriptResponse>>();
+
+  /** Forget a conversation's cached transcript, because it has changed. */
+  invalidateTranscript(sessionId: string): void {
+    this.transcripts.delete(sessionId);
+  }
+
+  /** Forget whatever conversation this URL writes to.
+   *
+   *  Driven by the URL rather than by each caller remembering, because the
+   *  cost of forgetting one is a conversation that silently stops showing its
+   *  newest messages. Every write goes through one of two places — the
+   *  streaming request below, which carries every send, regenerate and edit
+   *  in both Home and Code, and the handful of plain deletes — so matching
+   *  here covers the ones that exist now and the ones added later.
+   */
+  private invalidateFromUrl(url: string): void {
+    const m = /\/v1\/(?:chat\/)?sessions\/([^/?#]+)/.exec(url);
+    if (m) this.transcripts.delete(decodeURIComponent(m[1]));
+  }
+
+  private cachedTranscript(
+    sessionId: string,
+    fetch: () => Promise<TranscriptResponse>,
+  ): Promise<TranscriptResponse> {
+    const hit = this.transcripts.get(sessionId);
+    if (hit) return hit;
+    const pending = fetch().catch((err) => {
+      // A failure is never cached. Leaving the rejected promise in place
+      // would make one dropped request look like a permanently empty
+      // conversation for as long as the tab stayed open.
+      this.transcripts.delete(sessionId);
+      throw err;
+    });
+    this.transcripts.set(sessionId, pending);
+    return pending;
+  }
+
   health(): Promise<HealthInfo> {
     return firstValueFrom(this.http.get<HealthInfo>('/healthz'));
   }
@@ -107,6 +161,7 @@ export class CompassApiService {
   }
 
   deleteSession(sessionId: string): Promise<unknown> {
+    this.transcripts.delete(sessionId);
     return firstValueFrom(this.http.delete(`/v1/sessions/${sessionId}`));
   }
 
@@ -428,9 +483,11 @@ export class CompassApiService {
   }
 
   transcript(sessionId: string): Promise<TranscriptResponse> {
-    return firstValueFrom(
-      this.http.get<TranscriptResponse>(
-        `/v1/sessions/${sessionId}/transcript`,
+    return this.cachedTranscript(sessionId, () =>
+      firstValueFrom(
+        this.http.get<TranscriptResponse>(
+          `/v1/sessions/${sessionId}/transcript`,
+        ),
       ),
     );
   }
@@ -515,6 +572,9 @@ export class CompassApiService {
   recordVoiceTurn(
     sessionId: string, turnId: string, heard: string, reply: string,
   ): Promise<{ stored: boolean; turn_id: string }> {
+    // A spoken exchange is two more messages in the transcript, and it does
+    // not go through the streaming path that drops the cache for the rest.
+    this.transcripts.delete(sessionId);
     return firstValueFrom(
       this.http.post<{ stored: boolean; turn_id: string }>(
         `/v1/chat/sessions/${sessionId}/voice-turn`,
@@ -576,8 +636,10 @@ export class CompassApiService {
   }
 
   chatTranscript(sessionId: string): Promise<TranscriptResponse> {
-    return firstValueFrom(
-      this.http.get<TranscriptResponse>(`/v1/chat/sessions/${sessionId}/transcript`),
+    return this.cachedTranscript(sessionId, () =>
+      firstValueFrom(
+        this.http.get<TranscriptResponse>(`/v1/chat/sessions/${sessionId}/transcript`),
+      ),
     );
   }
 
@@ -588,6 +650,7 @@ export class CompassApiService {
   }
 
   deleteChatSession(sessionId: string): Promise<{ deleted: string }> {
+    this.transcripts.delete(sessionId);
     return firstValueFrom(
       this.http.delete<{ deleted: string }>(`/v1/chat/sessions/${sessionId}`),
     );
@@ -1155,38 +1218,54 @@ export class CompassApiService {
     // Raw fetch (EventSource can't POST or carry these headers, HttpClient
     // buffers) — the auth cookie rides along via credentials; the interceptor
     // can't see this call.
+    //
+    // Which is also why the cached transcript is dropped here rather than in
+    // an interceptor: every turn, regeneration and edit in both Home and Code
+    // is sent through this function, and none of them is visible to one.
+    //
+    // Dropped twice, deliberately: once before the turn, and once in the
+    // `finally` below after it. The first is for anything that reads while
+    // the turn is still running — a read like that would store a transcript
+    // missing the very messages being written — and the second puts that
+    // right however the turn ended, including when it was aborted or the
+    // connection died mid-stream.
+    if (method === 'POST') this.invalidateFromUrl(url);
     const controller = new AbortController();
-    const res = await fetch(url, {
-      method,
-      headers: method === 'POST' ? { 'content-type': 'application/json' } : {},
-      credentials: 'include',
-      body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
-      signal: controller.signal,
-    });
-    if (res.status === 401) {
-      this.auth.sessionExpired();
-      throw new Error('authentication required');
-    }
-    if (!res.ok || !res.body) {
-      // Carry the status. Without it a caller can only say something generic,
-      // and "could not reach the service" is a poor description of a 404 from
-      // a service that answered.
-      throw new Error(`${res.status} ${(await res.text()) || res.statusText}`);
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    for (;;) {
-      const { done, value } = await this.readOrGiveUp(reader, controller);
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf('\n\n')) >= 0) {
-        const frame = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        const event = this.parseFrame(frame);
-        if (event) onEvent(event);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: method === 'POST' ? { 'content-type': 'application/json' } : {},
+        credentials: 'include',
+        body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+        signal: controller.signal,
+      });
+      if (res.status === 401) {
+        this.auth.sessionExpired();
+        throw new Error('authentication required');
       }
+      if (!res.ok || !res.body) {
+        // Carry the status. Without it a caller can only say something
+        // generic, and "could not reach the service" is a poor description of
+        // a 404 from a service that answered.
+        throw new Error(`${res.status} ${(await res.text()) || res.statusText}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await this.readOrGiveUp(reader, controller);
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const event = this.parseFrame(frame);
+          if (event) onEvent(event);
+        }
+      }
+    } finally {
+      if (method === 'POST') this.invalidateFromUrl(url);
     }
   }
 

@@ -60,6 +60,13 @@ class CosmosChatStore:
         self._worker: asyncio.Task | None = None
         self._seq: dict[str, int] = {}
         self._init_lock = asyncio.Lock()
+        #: The meta document per thread, once read. These are what the sidebar
+        #: is made of — a title, a star, two timestamps — and the query behind
+        #: them cost 0.46s on every load of Home. Written through by the three
+        #: things that change them: a message arriving, a rename or a star,
+        #: and a thread being deleted.
+        self._cards: dict[str, dict] | None = None
+        self._cards_lock = asyncio.Lock()
 
     async def _get_container(self):
         if self._container is not None:
@@ -116,22 +123,30 @@ class CosmosChatStore:
 
     async def _touch_meta(self, container, session_id: str, message: Message) -> None:
         now = time.time()
-        try:
-            meta = await container.read_item(_META_ID, partition_key=session_id)
-        except Exception:  # noqa: BLE001 — first write for this session
-            meta = {
-                "id": _META_ID,
-                "sessionId": session_id,
-                "type": "meta",
-                "title": "",
-                "pinned": False,
-                "created_at": now,
-                "updated_at": now,
-            }
+        metas = await self._metas()
+        meta = metas.get(session_id)
+        if meta is None:
+            # Not in what we hold. Either this is the thread's first message,
+            # or something wrote it elsewhere — ask, rather than assume, since
+            # getting this wrong would overwrite a title somebody chose.
+            try:
+                meta = await container.read_item(_META_ID, partition_key=session_id)
+            except Exception:  # noqa: BLE001 — first write for this session
+                meta = {
+                    "id": _META_ID,
+                    "sessionId": session_id,
+                    "type": "meta",
+                    "title": "",
+                    "pinned": False,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+        meta = dict(meta)
         meta["updated_at"] = now
         if not meta.get("title") and message.role == "user":
             meta["title"] = _title_from(message)
         await container.upsert_item(meta)
+        metas[session_id] = meta
 
     # -- ChatStore API ------------------------------------------------------
     def append(self, session_id: str, message: Message) -> None:
@@ -178,31 +193,42 @@ class CosmosChatStore:
         items = container.query_items(query="SELECT DISTINCT VALUE c.sessionId FROM c")
         return sorted([sid async for sid in items])
 
+    async def _metas(self) -> dict[str, dict]:
+        """Every thread's meta document, read once and then kept."""
+        if self._cards is not None:
+            return self._cards
+        async with self._cards_lock:
+            if self._cards is not None:
+                return self._cards
+            container = await self._get_container()
+            items = container.query_items(query="SELECT * FROM c WHERE c.type='meta'")
+            self._cards = {m["sessionId"]: m async for m in items}
+            return self._cards
+
+    async def refresh(self) -> None:
+        """Forget what is cached, for anything that wrote behind this store."""
+        async with self._cards_lock:
+            self._cards = None
+
     async def list_cards(self) -> list[dict]:
-        container = await self._get_container()
-        items = container.query_items(query="SELECT * FROM c WHERE c.type='meta'")
-        cards: list[dict] = []
-        async for m in items:
-            cards.append(
-                {
-                    "id": m["sessionId"],
-                    "title": m.get("title") or "New chat",
-                    "pinned": bool(m.get("pinned")),
-                    "owner": m.get("owner", "") or "",
-                    "updated_at": m.get("updated_at", 0),
-                    "created_at": m.get("created_at", 0),
-                }
-            )
+        metas = await self._metas()
+        cards = [
+            {
+                "id": sid,
+                "title": m.get("title") or "New chat",
+                "pinned": bool(m.get("pinned")),
+                "owner": m.get("owner", "") or "",
+                "updated_at": m.get("updated_at", 0),
+                "created_at": m.get("created_at", 0),
+            }
+            for sid, m in metas.items()
+        ]
         cards.sort(key=lambda c: c["updated_at"], reverse=True)
         return cards
 
     async def owner_of(self, session_id: str) -> str:
-        container = await self._get_container()
-        try:
-            meta = await container.read_item(_META_ID, partition_key=session_id)
-        except Exception:  # noqa: BLE001
-            return ""
-        return meta.get("owner", "") or ""
+        meta = (await self._metas()).get(session_id)
+        return (meta or {}).get("owner", "") or ""
 
     async def set_meta(
         self, session_id: str, *, title: str | None = None,
@@ -210,13 +236,17 @@ class CosmosChatStore:
     ) -> None:
         container = await self._get_container()
         now = time.time()
-        try:
-            meta = await container.read_item(_META_ID, partition_key=session_id)
-        except Exception:  # noqa: BLE001
-            meta = {
-                "id": _META_ID, "sessionId": session_id, "type": "meta",
-                "title": "", "pinned": False, "created_at": now, "updated_at": now,
-            }
+        metas = await self._metas()
+        meta = metas.get(session_id)
+        if meta is None:
+            try:
+                meta = await container.read_item(_META_ID, partition_key=session_id)
+            except Exception:  # noqa: BLE001
+                meta = {
+                    "id": _META_ID, "sessionId": session_id, "type": "meta",
+                    "title": "", "pinned": False, "created_at": now, "updated_at": now,
+                }
+        meta = dict(meta)
         if title is not None:
             meta["title"] = title
         if pinned is not None:
@@ -224,6 +254,7 @@ class CosmosChatStore:
         if owner is not None:
             meta["owner"] = owner
         await container.upsert_item(meta)
+        metas[session_id] = meta
 
     async def delete(self, session_id: str) -> None:
         container = await self._get_container()
@@ -235,6 +266,7 @@ class CosmosChatStore:
         async for row in ids:
             await container.delete_item(row["id"], partition_key=session_id)
         self._seq.pop(session_id, None)
+        (await self._metas()).pop(session_id, None)
         await large_content.discard(session_id)
 
     async def rewrite(self, session_id: str, messages: list[Message]) -> None:
@@ -259,6 +291,7 @@ class CosmosChatStore:
         await self.flush()
 
     async def close(self) -> None:
+        self._cards = None
         if self._worker and not self._worker.done():
             await self._queue.put(None)
             await self._worker

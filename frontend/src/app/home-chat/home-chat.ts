@@ -724,7 +724,18 @@ export class HomeChat {
     this.sessionId = id;
     this.currentAssistant = null;
     try {
-      const t = await this.api.chatTranscript(id);
+      // Both at once. The thread is drawn from the transcript; the session
+      // object is only needed before the *next* turn is sent, so waiting for
+      // it before showing anything made opening a conversation cost two
+      // round trips instead of one.
+      const [t] = await Promise.all([
+        this.api.chatTranscript(id),
+        this.api.createChatSession({ resume: true, sessionId: id }),
+      ]);
+      // A newer click wins. Two conversations opened quickly resolve in
+      // whatever order the network decides, and without this the slower of
+      // the two paints last — showing a thread the user has already left.
+      if (this.loadedId !== id) return;
       const msgs: ChatMsg[] = [];
       for (const m of t.messages) {
         if (m.role !== 'user' && m.role !== 'assistant') continue;
@@ -773,11 +784,10 @@ export class HomeChat {
             (meta['transcript_unavailable'] as boolean | undefined) || undefined,
         });
       }
-      // Ensure a chat session object exists on the server for follow-up turns.
-      await this.api.createChatSession({ resume: true, sessionId: id });
+      if (this.loadedId !== id) return;
       this.messages.set(msgs);
     } catch {
-      this.messages.set([]);
+      if (this.loadedId === id) this.messages.set([]);
     }
   }
 

@@ -306,10 +306,18 @@ async def design_create(body: DesignCreate, user: str = Depends(require_user)) -
 
 async def _owned_project(project_id: str, user: str) -> dict:
     """The project, if this user may see it. Reported as missing rather than
-    forbidden, so a guessed id learns nothing about what exists."""
+    forbidden, so a guessed id learns nothing about what exists.
+
+    Without its markup. Ownership is one field of the document, and this used
+    to ask for the whole project — so every endpoint that checks ownership and
+    then fetches the project fetched it twice, markup and all. Ten of them do
+    exactly that, and none of them reads what this returns, so the saving is
+    free: a design open went from two fills to one, and a thumbnail whose
+    image is already on disk now fetches no markup at all.
+    """
     from compass.design.store import get_design_store
 
-    p = await get_design_store().get(project_id)
+    p = await get_design_store().meta(project_id)
     if p is None or not visible_to(user, p.get("owner", "") or ""):
         raise HTTPException(status_code=404, detail="no such design project")
     return p
@@ -317,13 +325,13 @@ async def _owned_project(project_id: str, user: str) -> dict:
 
 @router.get("/v1/design/projects/{project_id}")
 async def design_get(project_id: str, user: str = Depends(require_user)) -> dict:
-    await _owned_project(project_id, user)
-    from compass.design.store import get_design_store
+    from compass.design import markup
 
-    p = await get_design_store().get(project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="no such design project")
-    return p
+    # The ownership check already read the document; this fills in its markup
+    # rather than reading it a second time. Opening a design was two point
+    # reads to the same row, one of them thrown away.
+    p = await _owned_project(project_id, user)
+    return await markup.fill(p)
 
 
 @router.patch("/v1/design/projects/{project_id}")
@@ -1011,21 +1019,30 @@ async def design_comment_delete(
 @router.get("/v1/design/projects/{project_id}/thumbnail")
 async def design_thumbnail(project_id: str, user: str = Depends(require_user)) -> Response:
     """A small render of the design, cached on disk until the design changes."""
-    await _owned_project(project_id, user)
+    # The cache is checked before the markup is fetched, not after. The
+    # gallery asks for one of these per project at once, and each was
+    # fetching the whole design from blob storage only to find the image
+    # already rendered — four thumbnails took 2.7 to 3.7 seconds each, which
+    # is what made opening Design feel slow. The cache key needs the
+    # document, not the markup. Kept out of the docstring because that is the
+    # endpoint's public description and this is how it is built.
+    from compass.design import markup
     from compass.design.store import get_design_store
 
-    p = await get_design_store().get(project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="no such design project")
-    html = p.get("html") or ""
-    if not html:
-        raise HTTPException(status_code=404, detail="no design yet")
+    p = await _owned_project(project_id, user)
 
     settings = get_settings()
     cache_dir = settings.workspace_root / settings.data_dir / "design_thumbs"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cached = cache_dir / f"{project_id}-{int(p.get('updated_at', 0))}.png"
     if not cached.is_file():
+        # A miss, and only now is the markup worth fetching.
+        if markup.length(p) == 0:
+            raise HTTPException(status_code=404, detail="no design yet")
+        full = await get_design_store().get(project_id)
+        html = (full or {}).get("html") or ""
+        if not html:
+            raise HTTPException(status_code=404, detail="no design yet")
         from compass.design import export as ex
 
         try:

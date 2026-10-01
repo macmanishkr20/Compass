@@ -14,6 +14,7 @@ own transcript namespace. Nothing here touches the console code paths.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid as _uuid
 
@@ -217,10 +218,15 @@ async def abort_chat_turn(session_id: str, user: str = Depends(require_user)) ->
 
 @router.get("/sessions/{session_id}/transcript")
 async def chat_transcript(session_id: str, user: str = Depends(require_user)) -> dict:
-    await _owned_chat(session_id, user)
-    if not await chat_engine.store.exists(session_id):
+    # Together rather than one after another: three independent round trips to
+    # another continent, and in sequence the browser waits for their sum.
+    _owned, exists, messages = await asyncio.gather(
+        _owned_chat(session_id, user),
+        chat_engine.store.exists(session_id),
+        chat_engine.store.load(session_id),
+    )
+    if not exists:
         raise HTTPException(status_code=404, detail="unknown chat session")
-    messages = await chat_engine.store.load(session_id)
     return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
 
 

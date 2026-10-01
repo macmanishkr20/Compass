@@ -444,12 +444,18 @@ async def transcript(
     include_sidechains: bool = False,
     user: str = Depends(require_user),
 ) -> dict:
-    await _owned_session(session_id, user)
-    if not await engine.store.exists(session_id):
-        raise HTTPException(status_code=404, detail="unknown session")
-    messages = await engine.store.load(
-        session_id, include_sidechains=include_sidechains
+    # All three at once. They do not depend on each other, and each is a round
+    # trip to another continent — 241ms for the ownership read, 242ms to ask
+    # whether the session exists, 553ms to load it. Run in sequence that is
+    # the better part of eleven hundred milliseconds before a single message
+    # reaches the browser; run together it is the slowest one.
+    owned, exists, messages = await asyncio.gather(
+        _owned_session(session_id, user),
+        engine.store.exists(session_id),
+        engine.store.load(session_id, include_sidechains=include_sidechains),
     )
+    if not exists:
+        raise HTTPException(status_code=404, detail="unknown session")
     return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
 
 
@@ -475,7 +481,14 @@ async def list_sessions(
             continue
         if not visible_to(user, meta.owner):
             continue
-        cards.append(meta.to_dict())
+        card = meta.to_dict()
+        # Never a blank line in the sidebar. A conversation gets its title from
+        # its first turn, so one that has not had a turn yet has none — and a
+        # row that went missing leaves one with messages and no title at all,
+        # which is what 72 of these looked like. Home has always defaulted the
+        # same way; this one returned an empty string and the list showed it.
+        card["title"] = (card.get("title") or "").strip() or "New conversation"
+        cards.append(card)
     cards.sort(key=lambda c: c["updated_at"], reverse=True)
     return {"sessions": cards}
 

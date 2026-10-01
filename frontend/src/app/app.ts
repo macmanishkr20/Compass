@@ -3310,8 +3310,13 @@ export class App {
     this.currentBubble = null;
   }
 
+  /** Which conversation the user last asked for. Compared when a load
+   *  finishes, so a slower earlier request cannot overwrite a newer one. */
+  private openingSessionId = '';
+
   async resumeSession(id: string): Promise<void> {
     if (!id) return this.newSession();
+    this.openingSessionId = id;
     this.view.set('chat');
     this.activeDotColor.set(this.randomDotColor()); // light up this conv's dot
     const card = this.cards().find((c) => c.id === id);
@@ -3319,17 +3324,28 @@ export class App {
     this.activeEffort.set(card?.effort ?? 'medium');
     if (card?.model) this.activeModel.set(card.model);
     if (card?.workspace) this.activeWorkspaceId.set(card.workspace);
-    const res = await this.api.createSession({
-      resume: true,
-      sessionId: id,
-      permissionMode: card?.mode,
-      effort: card?.effort,
-      model: card?.model || this.activeModel() || undefined,
-      workspaceId: card?.workspace || this.activeWorkspaceId(),
-    });
+    // Both at once. Resuming a session and reading its transcript are
+    // independent — the transcript is read from storage, not from the
+    // resumed session — and each is a round trip to another continent. One
+    // after the other, opening a conversation waited for the sum of them.
+    const [res, t] = await Promise.all([
+      this.api.createSession({
+        resume: true,
+        sessionId: id,
+        permissionMode: card?.mode,
+        effort: card?.effort,
+        model: card?.model || this.activeModel() || undefined,
+        workspaceId: card?.workspace || this.activeWorkspaceId(),
+      }),
+      this.api.transcript(id),
+    ]);
+    // A click on another conversation while this one was loading wins: its
+    // request started later and would otherwise be overwritten by this one
+    // arriving second. Without this, clicking down a list quickly leaves the
+    // window showing whichever reply happened to be slowest.
+    if (this.openingSessionId !== id) return;
     this.sessionId.set(res.session_id);
     this.currentBubble = null;
-    const t = await this.api.transcript(id);
     const items: TimelineItem[] = [];
     // What each call returned, so a restored card can show its result. The
     // results arrive as their own `tool` messages, keyed by call id.

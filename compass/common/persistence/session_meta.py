@@ -127,10 +127,32 @@ class LocalSessionMetaStore:
 # Cosmos backend — one document per session (type="meta"), partitioned by id.
 # --------------------------------------------------------------------------- #
 class CosmosSessionMetaStore:
+    """Sidebar metadata in Cosmos, held in memory once it has been read.
+
+    Cached because of what this is and how it is used. It is one small row per
+    conversation — 76 of them here, a few hundred bytes each — and it is read
+    on the way into *every* request that names a conversation, to decide
+    whether the caller may see it. Against a Cosmos account on another
+    continent that is 241ms of pure latency per request, and 455ms when the
+    row is missing, because the SDK retries the 404.
+
+    Safe to cache because this process is the only writer: every change goes
+    through `upsert` or `delete` here, and both update the cache as they go.
+    The one thing that writes behind its back is a migration script, which is
+    an offline operation on a stopped server — and `refresh()` exists for
+    anything that wants to be sure.
+
+    The whole table is loaded on the first miss rather than row by row. It is
+    one query either way, the result is kilobytes, and the sidebar is going to
+    ask for all of it a moment later regardless.
+    """
+
     def __init__(self) -> None:
         self._client = None
         self._container = None
         self._init_lock = asyncio.Lock()
+        self._cache: dict[str, SessionMeta] | None = None
+        self._cache_lock = asyncio.Lock()
 
     async def _get_container(self):
         if self._container is not None:
@@ -158,19 +180,36 @@ class CosmosSessionMetaStore:
                 )
             return self._container
 
-    async def get(self, session_id: str) -> SessionMeta | None:
-        from azure.cosmos import exceptions
+    async def _loaded(self) -> dict[str, SessionMeta]:
+        """Every row, read once. Locked so a burst of first requests makes one
+        query between them rather than one each."""
+        if self._cache is not None:
+            return self._cache
+        async with self._cache_lock:
+            if self._cache is not None:
+                return self._cache
+            container = await self._get_container()
+            items = container.query_items(query="SELECT * FROM c")
+            rows = [SessionMeta.from_dict(i) async for i in items]
+            self._cache = {m.id: m for m in rows}
+            logger.info("session metadata: %d row(s) cached", len(rows))
+            return self._cache
 
-        container = await self._get_container()
-        try:
-            item = await container.read_item(session_id, partition_key=session_id)
-            return SessionMeta.from_dict(item)
-        except exceptions.CosmosResourceNotFoundError:
-            return None
+    async def refresh(self) -> None:
+        """Forget what is cached, for anything that wrote behind this store."""
+        async with self._cache_lock:
+            self._cache = None
+
+    async def get(self, session_id: str) -> SessionMeta | None:
+        return (await self._loaded()).get(session_id)
 
     async def upsert(self, meta: SessionMeta) -> None:
         container = await self._get_container()
         await container.upsert_item({**meta.to_dict(), "id": meta.id})
+        # After the write, not before: a row that failed to store must not be
+        # served from memory as though it had.
+        cache = await self._loaded()
+        cache[meta.id] = meta
 
     async def delete(self, session_id: str) -> None:
         from azure.cosmos import exceptions
@@ -180,13 +219,13 @@ class CosmosSessionMetaStore:
             await container.delete_item(session_id, partition_key=session_id)
         except exceptions.CosmosResourceNotFoundError:
             pass
+        (await self._loaded()).pop(session_id, None)
 
     async def list_all(self) -> list[SessionMeta]:
-        container = await self._get_container()
-        items = container.query_items(query="SELECT * FROM c")
-        return [SessionMeta.from_dict(i) async for i in items]
+        return list((await self._loaded()).values())
 
     async def close(self) -> None:
+        self._cache = None
         if self._client is not None:
             await self._client.close()
             self._client = None

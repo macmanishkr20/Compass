@@ -28,6 +28,7 @@ rewriting, so the shape is declared and the difference stops at this file.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 from pathlib import Path
@@ -59,7 +60,7 @@ def _loop_state() -> dict[str, Any]:
     key = id(asyncio.get_running_loop())
     state = _per_loop.get(key)
     if state is None:
-        state = {"client": None, "containers": {}, "locks": {}}
+        state = {"client": None, "containers": {}, "locks": {}, "docs": {}}
         _per_loop[key] = state
     return state
 
@@ -311,12 +312,42 @@ class Collection:
     def describe(self) -> str:
         return f"{self.kind} ({self.filename} -> {self.container})"
 
+    @property
+    def _cache_key(self) -> str:
+        return f"docs:{self.kind}:{id(self)}"
+
+    def _cached(self) -> list[dict] | None:
+        return _loop_state()["docs"].get(self._cache_key)
+
+    def _invalidate(self) -> None:
+        _loop_state()["docs"].pop(self._cache_key, None)
+
     # ── the contract ────────────────────────────────────────────────────
     async def all(self) -> list[dict]:
-        """Every document, in no particular order — callers sort."""
+        """Every document, in no particular order — callers sort.
+
+        Held in memory on the cosmos backend. These collections are the small
+        configuration-shaped ones this module was written for — the largest
+        here is 87 records — and the query behind this is a cross-partition
+        read costing the better part of a second against an account on another
+        continent, on every request that wants a list.
+
+        Everything that changes a collection goes through `put`, `remove` or
+        `replace_all`, and each of those updates what is held, so the cache
+        cannot drift while this process is the one writing. A migration that
+        writes directly is an offline operation against a stopped server.
+
+        Copies, not the stored dicts. Callers do mutate what comes back —
+        `viewed_at` on a design, fields on a routine — and handing out the
+        cached objects would let one request's edit become every later
+        request's truth without ever being written down.
+        """
         if not _use_cosmos():
             async with self._lock:
                 return self._read_local()
+        hit = self._cached()
+        if hit is not None:
+            return copy.deepcopy(hit)
         container = await _container(self.container, f'/{self.partition_field}')
         out: list[dict] = []
         items = container.query_items(
@@ -327,6 +358,7 @@ class Collection:
             doc = row.get("doc")
             if isinstance(doc, dict):
                 out.append(doc)
+        _loop_state()["docs"][self._cache_key] = copy.deepcopy(out)
         return out
 
     async def get(self, doc_id: str) -> dict | None:
@@ -334,6 +366,16 @@ class Collection:
             for row in await self.all():
                 if str(row.get(self.id_field)) == str(doc_id):
                     return row
+            return None
+        # From what is already held, when it is held. The cache is written
+        # through, so this is exactly as true as the point read below and
+        # costs nothing — and this is the hot path: every design request
+        # checks ownership, which is one of these.
+        hit = self._cached()
+        if hit is not None:
+            for row in hit:
+                if str(row.get(self.id_field)) == str(doc_id):
+                    return copy.deepcopy(row)
             return None
         container = await _container(self.container, f'/{self.partition_field}')
         # When the partition key comes from the id, the caller already holds
@@ -384,6 +426,9 @@ class Collection:
             return doc
         container = await _container(self.container, f'/{self.partition_field}')
         await container.upsert_item(self._wrap(doc))
+        # After the write landed, never before: a document that failed to
+        # store must not be served from memory as though it had.
+        self._invalidate()
         return doc
 
     async def remove(self, doc_id: str) -> bool:
@@ -408,6 +453,7 @@ class Collection:
         await container.delete_item(
             self._item_id(str(doc_id)), partition_key=self._partition(existing)
         )
+        self._invalidate()
         return True
 
     async def replace_all(self, docs: list[dict]) -> None:
@@ -424,3 +470,6 @@ class Collection:
                 await self.remove(old_id)
         for doc in docs:
             await self.put(doc)
+        # `put` and `remove` each cleared it on the way through; this is for
+        # the case where neither ran because nothing actually changed.
+        self._invalidate()
