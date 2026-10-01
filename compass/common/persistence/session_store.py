@@ -43,6 +43,27 @@ class SessionStore:
             messages.append(message)
         return messages
 
+    async def load_page(
+        self,
+        session_id: str,
+        *,
+        limit: int,
+        before_seq: int | None = None,
+        include_sidechains: bool = False,
+    ) -> tuple[list[Message], int | None]:
+        """The last `limit` messages. See TranscriptStore.
+
+        Read whole and then sliced, unlike the Cosmos backend, which reads
+        backwards and stops. A local file has no round trip to save: the
+        expensive part there is the network, and here there is none. The
+        position in the file stands in for a sequence number, which is what
+        it is — these are written in order and never renumbered.
+        """
+        messages = await self.load(session_id, include_sidechains=include_sidechains)
+        end = len(messages) if before_seq is None else max(0, int(before_seq))
+        start = max(0, end - limit)
+        return messages[start:end], (start if start > 0 else None)
+
     async def exists(self, session_id: str) -> bool:
         return self._path(session_id).is_file()
 

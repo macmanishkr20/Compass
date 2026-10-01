@@ -177,6 +177,42 @@ class CosmosChatStore:
         # not one download at a time.
         return [Message.from_record(r) for r in await large_content.fill_all(records)]
 
+    async def load_page(
+        self, session_id: str, *, limit: int, before_seq: int | None = None,
+    ) -> tuple[list[Message], int | None]:
+        """The last `limit` messages of a thread, oldest first, and where the
+        page before it starts. Read backwards and stopped early — see the
+        transcript store's version, which this mirrors."""
+        container = await self._get_container()
+        where = "c.sessionId=@sid AND c.type='msg'"
+        params: list[dict] = [{"name": "@sid", "value": session_id}]
+        if before_seq is not None:
+            where += " AND c.seq < @before"
+            params.append({"name": "@before", "value": int(before_seq)})
+        items = container.query_items(
+            query=f"SELECT * FROM c WHERE {where} ORDER BY c.seq DESC",
+            parameters=params,
+            partition_key=session_id,
+        )
+        records: list[dict] = []
+        seqs: list[int] = []
+        more = False
+        async for item in items:
+            if len(records) >= limit:
+                more = True
+                break
+            records.append(item["record"])
+            seqs.append(int(item.get("seq", 0)))
+        records.reverse()
+        seqs.reverse()
+        if seqs and before_seq is None:
+            self._seq[session_id] = max(self._seq.get(session_id, 0), seqs[-1] + 1)
+        filled = await large_content.fill_all(records)
+        return (
+            [Message.from_record(r) for r in filled],
+            seqs[0] if (more and seqs) else None,
+        )
+
     async def exists(self, session_id: str) -> bool:
         container = await self._get_container()
         items = container.query_items(

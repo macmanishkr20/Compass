@@ -217,17 +217,38 @@ async def abort_chat_turn(session_id: str, user: str = Depends(require_user)) ->
 
 
 @router.get("/sessions/{session_id}/transcript")
-async def chat_transcript(session_id: str, user: str = Depends(require_user)) -> dict:
+async def chat_transcript(
+    session_id: str,
+    limit: int = 0,
+    before_seq: int | None = None,
+    user: str = Depends(require_user),
+) -> dict:
+    """A thread's messages, oldest first.
+
+    `limit` asks for the end of the thread rather than all of it, and
+    `before_seq` — taken from a previous response — asks for the page before
+    that one. Without `limit`, the whole thread, as before.
+    """
     # Together rather than one after another: three independent round trips to
     # another continent, and in sequence the browser waits for their sum.
-    _owned, exists, messages = await asyncio.gather(
+    page = (
+        chat_engine.store.load_page(session_id, limit=limit, before_seq=before_seq)
+        if limit > 0
+        else chat_engine.store.load(session_id)
+    )
+    _owned, exists, loaded = await asyncio.gather(
         _owned_chat(session_id, user),
         chat_engine.store.exists(session_id),
-        chat_engine.store.load(session_id),
+        page,
     )
     if not exists:
         raise HTTPException(status_code=404, detail="unknown chat session")
-    return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
+    messages, earlier = loaded if limit > 0 else (loaded, None)
+    return {
+        "session_id": session_id,
+        "messages": [for_the_browser(m.to_record()) for m in messages],
+        "before_seq": earlier,
+    }
 
 
 #: A spoken turn is two short strings; anything longer is not something a

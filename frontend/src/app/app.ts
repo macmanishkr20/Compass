@@ -11,7 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
 import { AuthService } from './auth.service';
-import { CompassApiService } from './compass-api.service';
+import { CompassApiService, TranscriptResponse } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TurnStatus } from './turn-status';
@@ -3337,7 +3337,7 @@ export class App {
         model: card?.model || this.activeModel() || undefined,
         workspaceId: card?.workspace || this.activeWorkspaceId(),
       }),
-      this.api.transcript(id),
+      this.api.transcript(id, { limit: App.TRANSCRIPT_PAGE }),
     ]);
     // A click on another conversation while this one was loading wins: its
     // request started later and would otherwise be overwritten by this one
@@ -3346,6 +3346,63 @@ export class App {
     if (this.openingSessionId !== id) return;
     this.sessionId.set(res.session_id);
     this.currentBubble = null;
+    // Where the conversation continues above this page, if it does. A long
+    // one is opened at its end — see TRANSCRIPT_PAGE — and this is what the
+    // "Load earlier messages" control asks for.
+    this.earlierSeq.set(t.before_seq ?? null);
+    this.timeline.set(this.buildTimeline(t.messages));
+  }
+
+  /** How much of a conversation is fetched when it is opened.
+   *
+   *  A conversation is read from its end, like every other chat application,
+   *  because the end is what somebody opening it wants to see. The one long
+   *  conversation here is 2,005 messages and 2.5MB — twelve seconds before
+   *  anything appeared — and almost all of it is tool calls from turns that
+   *  finished weeks ago.
+   *
+   *  150 rather than a round 50: a turn that uses tools is a dozen messages,
+   *  so this is still several turns of scrollback, and it leaves 76 of the 77
+   *  conversations here arriving whole in one page, behaving exactly as they
+   *  did before paging existed. */
+  private static readonly TRANSCRIPT_PAGE = 150;
+
+  /** The sequence number the page above the current one ends at, or null when
+   *  the whole conversation is on screen. */
+  readonly earlierSeq = signal<number | null>(null);
+  readonly loadingEarlier = signal(false);
+
+  /** Fetch the page before the one on screen and put it above. */
+  async loadEarlier(): Promise<void> {
+    const sid = this.sessionId();
+    const cursor = this.earlierSeq();
+    if (!sid || cursor === null || this.loadingEarlier()) return;
+    this.loadingEarlier.set(true);
+    try {
+      const t = await this.api.transcript(sid, {
+        limit: App.TRANSCRIPT_PAGE,
+        beforeSeq: cursor,
+      });
+      // The conversation may have been left while this was in flight.
+      if (this.sessionId() !== sid) return;
+      const older = this.buildTimeline(t.messages);
+      this.timeline.update((items) => [...older, ...items]);
+      this.earlierSeq.set(t.before_seq ?? null);
+    } catch {
+      // Left as it was, with the control still offering to try again.
+    } finally {
+      this.loadingEarlier.set(false);
+    }
+  }
+
+  /** Stored messages turned into what the timeline draws.
+   *
+   *  Pulled out of `resumeSession` so that a page fetched later is built the
+   *  same way as the first one — two builders would drift, and the one used
+   *  less often would be the one that drifted.
+   */
+  private buildTimeline(messages: TranscriptResponse['messages']): TimelineItem[] {
+    const t = { messages };
     const items: TimelineItem[] = [];
     // What each call returned, so a restored card can show its result. The
     // results arrive as their own `tool` messages, keyed by call id.
@@ -3409,7 +3466,7 @@ export class App {
         }
       }
     }
-    this.timeline.set(items);
+    return items;
   }
 
   /** Plain text from a stored message's content — a string, or the text parts

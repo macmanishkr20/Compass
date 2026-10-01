@@ -139,6 +139,68 @@ class CosmosTranscriptStore:
         # the query returned them in.
         return [Message.from_record(r) for r in await large_content.fill_all(records)]
 
+    async def load_page(
+        self,
+        session_id: str,
+        *,
+        limit: int,
+        before_seq: int | None = None,
+        include_sidechains: bool = False,
+    ) -> tuple[list[Message], int | None]:
+        """The last `limit` messages, newest page first. See TranscriptStore.
+
+        Read backwards and stopped early, which is the point: the one large
+        conversation here is 2,005 messages and 5MB, and reading it to show
+        the last fifty took several seconds. Descending order means the
+        database returns the end of the conversation first, and the iterator
+        is abandoned as soon as there is a screenful — so what is transferred
+        is a page, not a transcript.
+
+        Sidechains are filtered as the rows arrive rather than in the query,
+        so that `limit` counts messages the caller will actually be shown. It
+        is also the same test `load` uses, which matters more than saving a
+        few rows: two different definitions of what counts as a sidechain
+        would mean the paged view and the full one disagreed.
+        """
+        container = await self._get_container()
+        where = "c.sessionId = @sid"
+        params: list[dict] = [{"name": "@sid", "value": session_id}]
+        if before_seq is not None:
+            where += " AND c.seq < @before"
+            params.append({"name": "@before", "value": int(before_seq)})
+        items = container.query_items(
+            query=f"SELECT * FROM c WHERE {where} ORDER BY c.seq DESC",
+            parameters=params,
+            partition_key=session_id,
+        )
+        records: list[dict] = []
+        seqs: list[int] = []
+        more = False
+        async for item in items:
+            record = item["record"]
+            if not include_sidechains and (record.get("meta") or {}).get("agent_id"):
+                continue
+            if len(records) >= limit:
+                # One row past the page, which is how we know there is one.
+                # The iterator is dropped here rather than drained.
+                more = True
+                break
+            records.append(record)
+            seqs.append(int(item.get("seq", 0)))
+        records.reverse()
+        seqs.reverse()
+        if seqs and before_seq is None:
+            # The newest page carries the highest sequence number, so reading
+            # it is enough to keep appends continuing the conversation rather
+            # than restarting at zero. `max` because an older page must never
+            # drag the counter backwards.
+            self._seq[session_id] = max(self._seq.get(session_id, 0), seqs[-1] + 1)
+        filled = await large_content.fill_all(records)
+        return (
+            [Message.from_record(r) for r in filled],
+            seqs[0] if (more and seqs) else None,
+        )
+
     async def exists(self, session_id: str) -> bool:
         container = await self._get_container()
         query = "SELECT VALUE COUNT(1) FROM c WHERE c.sessionId = @sid"

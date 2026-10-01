@@ -68,7 +68,13 @@ interface TranscriptResponse {
     tool_call_id?: string;
     is_error?: boolean;
   }>;
+  /** Where the page above this one ends, when the conversation was asked for
+   *  a page at a time. Null means this is the start of it — there is nothing
+   *  earlier to fetch. */
+  before_seq?: number | null;
 }
+
+export type { TranscriptResponse };
 
 @Injectable({ providedIn: 'root' })
 export class CompassApiService {
@@ -482,14 +488,26 @@ export class CompassApiService {
     return res.blob();
   }
 
-  transcript(sessionId: string): Promise<TranscriptResponse> {
-    return this.cachedTranscript(sessionId, () =>
-      firstValueFrom(
-        this.http.get<TranscriptResponse>(
-          `/v1/sessions/${sessionId}/transcript`,
-        ),
-      ),
-    );
+  transcript(
+    sessionId: string,
+    page?: { limit?: number; beforeSeq?: number | null },
+  ): Promise<TranscriptResponse> {
+    const url = `/v1/sessions/${sessionId}/transcript${this.pageQuery(page)}`;
+    const fetch = () =>
+      firstValueFrom(this.http.get<TranscriptResponse>(url));
+    // Only the newest page is kept. An earlier page is read once, when
+    // somebody scrolls back to it, and holding every page of a long
+    // conversation would be keeping the very thing paging exists to avoid.
+    return page?.beforeSeq != null ? fetch() : this.cachedTranscript(sessionId, fetch);
+  }
+
+  /** `?limit=…&before_seq=…`, or nothing at all when neither was asked for —
+   *  and no query string means the whole transcript, as it always did. */
+  private pageQuery(page?: { limit?: number; beforeSeq?: number | null }): string {
+    if (!page?.limit) return '';
+    const q = new URLSearchParams({ limit: String(page.limit) });
+    if (page.beforeSeq != null) q.set('before_seq', String(page.beforeSeq));
+    return `?${q}`;
   }
 
   // -- Home/Chat (separate, tool-free workflow: /v1/chat/*) -----------------
@@ -635,12 +653,14 @@ export class CompassApiService {
     return firstValueFrom(this.http.post(`/v1/chat/sessions/${sessionId}/abort`, {}));
   }
 
-  chatTranscript(sessionId: string): Promise<TranscriptResponse> {
-    return this.cachedTranscript(sessionId, () =>
-      firstValueFrom(
-        this.http.get<TranscriptResponse>(`/v1/chat/sessions/${sessionId}/transcript`),
-      ),
-    );
+  chatTranscript(
+    sessionId: string,
+    page?: { limit?: number; beforeSeq?: number | null },
+  ): Promise<TranscriptResponse> {
+    const url = `/v1/chat/sessions/${sessionId}/transcript${this.pageQuery(page)}`;
+    const fetch = () =>
+      firstValueFrom(this.http.get<TranscriptResponse>(url));
+    return page?.beforeSeq != null ? fetch() : this.cachedTranscript(sessionId, fetch);
   }
 
   listChatSessions(): Promise<{ sessions: ChatCard[] }> {

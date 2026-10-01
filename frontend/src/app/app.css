@@ -4380,3 +4380,37 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
   margin: 5px 6px;
   background: var(--border);
 }
+
+/* "Load earlier messages" — the way back up a conversation that was opened
+   at its end. Deliberately quiet: it sits above the oldest message on screen
+   and is a thing you look for rather than a thing that announces itself.
+   Uses the existing tokens, so it follows light and dark without knowing
+   which it is in. */
+.earlier {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 10px;
+}
+
+.earlier-btn {
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 450;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.earlier-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--border) 60%, var(--ink));
+}
+
+.earlier-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}

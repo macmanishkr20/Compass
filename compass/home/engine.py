@@ -248,6 +248,17 @@ class ChatStore:
                 continue
         return out
 
+    async def load_page(
+        self, session_id: str, *, limit: int, before_seq: int | None = None,
+    ) -> tuple[list[Message], int | None]:
+        """The last `limit` messages, oldest first, and where the page before
+        it starts. Whole-file and sliced: there is no round trip to save on a
+        local disk, and position in the file is the sequence number."""
+        messages = await self.load(session_id)
+        end = len(messages) if before_seq is None else max(0, int(before_seq))
+        start = max(0, end - limit)
+        return messages[start:end], (start if start > 0 else None)
+
     async def exists(self, session_id: str) -> bool:
         return self._path(session_id).is_file()
 

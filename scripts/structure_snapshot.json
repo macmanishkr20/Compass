@@ -207,7 +207,7 @@
   "PUT /v1/estimates/rate-card",
   "WS /v1/browser/ws"
  ],
- "schema": "82aca00c84a35ea1",
+ "schema": "1d2ac5c6a4bce239",
  "smoke": {
   "/": "200",
   "/docs": "200",

@@ -880,6 +880,18 @@
         </section>
       }
 
+      <!-- A long conversation opens at its end, so this is the way back up
+           it. Shown only when there is something above: a conversation that
+           arrived whole never sees it. -->
+      @if (earlierSeq() !== null) {
+        <div class="earlier">
+          <button class="earlier-btn" (click)="loadEarlier()"
+            [disabled]="loadingEarlier()">
+            {{ loadingEarlier() ? 'Loading earlier messages…' : 'Load earlier messages' }}
+          </button>
+        </div>
+      }
+
       @for (block of renderBlocks(); track trackBlock($index, block)) {
         @if (block.kind === 'activity') {
           <!-- The tools a turn used, as a flat list that is simply there.

@@ -442,21 +442,47 @@ async def abort_turn(session_id: str, user: str = Depends(require_user)) -> dict
 async def transcript(
     session_id: str,
     include_sidechains: bool = False,
+    limit: int = 0,
+    before_seq: int | None = None,
     user: str = Depends(require_user),
 ) -> dict:
-    # All three at once. They do not depend on each other, and each is a round
-    # trip to another continent — 241ms for the ownership read, 242ms to ask
-    # whether the session exists, 553ms to load it. Run in sequence that is
-    # the better part of eleven hundred milliseconds before a single message
-    # reaches the browser; run together it is the slowest one.
-    owned, exists, messages = await asyncio.gather(
+    """A conversation's messages, oldest first.
+
+    `limit` asks for the end of the conversation rather than all of it, and
+    `before_seq` — taken from a previous response's `before_seq` — asks for
+    the page before that one. Without `limit` the whole transcript comes
+    back, which is what every caller got before paging existed and what a
+    conversation of ordinary size still gets.
+    """
+    # All of it at once. These do not depend on each other, and each is a
+    # round trip to another continent — 241ms for the ownership read, 242ms
+    # to ask whether the session exists, 553ms to load it. Run in sequence
+    # that is the better part of eleven hundred milliseconds before a single
+    # message reaches the browser; run together it is the slowest one.
+    page = (
+        engine.store.load_page(
+            session_id, limit=limit, before_seq=before_seq,
+            include_sidechains=include_sidechains,
+        )
+        if limit > 0
+        else engine.store.load(session_id, include_sidechains=include_sidechains)
+    )
+    owned, exists, loaded = await asyncio.gather(
         _owned_session(session_id, user),
         engine.store.exists(session_id),
-        engine.store.load(session_id, include_sidechains=include_sidechains),
+        page,
     )
     if not exists:
         raise HTTPException(status_code=404, detail="unknown session")
-    return {"session_id": session_id, "messages": [for_the_browser(m.to_record()) for m in messages]}
+    messages, earlier = loaded if limit > 0 else (loaded, None)
+    return {
+        "session_id": session_id,
+        "messages": [for_the_browser(m.to_record()) for m in messages],
+        # Where the page before this one starts, or null at the beginning of
+        # the conversation. Absent-as-null rather than omitted, so a client
+        # can tell "no more" from "this server does not page".
+        "before_seq": earlier,
+    }
 
 
 @router.get("/v1/sessions")
