@@ -41,24 +41,55 @@ logger = logging.getLogger("compass.persistence")
 #: how they are always read.
 CONTAINER = "catalog"
 
-#: Containers, by name. Most collections share `catalog`; the two that are
-#: big or hot enough to deserve their own — designs, users — say so.
-_containers: dict[str, Any] = {}
-_cosmos_client: Any = None
-_cosmos_lock = asyncio.Lock()
+# An async Cosmos client belongs to the event loop it was made on — the
+# aiohttp session underneath it does — and so does an asyncio.Lock, which
+# binds to the first loop that waits on it. The server has one loop and never
+# notices. Anything that runs several, which includes this repo's own
+# `structure_snapshot` guard, got "Lock is bound to a different event loop"
+# from the second one onwards, and a design project could not be created at
+# all — so the guard could not be run against the cosmos backend, which is the
+# configuration that most wants guarding.
+#
+# Keyed by loop, therefore: each loop gets its own client, its own container
+# handles and its own locks, and none of them reaches across.
+_per_loop: dict[int, dict[str, Any]] = {}
+
+
+def _loop_state() -> dict[str, Any]:
+    key = id(asyncio.get_running_loop())
+    state = _per_loop.get(key)
+    if state is None:
+        state = {"client": None, "containers": {}, "locks": {}}
+        _per_loop[key] = state
+    return state
+
+
+def _lock(name: str) -> asyncio.Lock:
+    locks = _loop_state()["locks"]
+    lock = locks.get(name)
+    if lock is None:
+        lock = locks[name] = asyncio.Lock()
+    return lock
 
 
 async def close() -> None:
-    """Release the shared Cosmos client.
+    """Release this loop's Cosmos client.
 
     Called from the app's shutdown, beside the transcript store's own close.
     Without it the aiohttp session behind the SDK is never released and
     Python says so on exit — "Unclosed client session", once per connection,
     which is both a leak and a warning nobody can act on.
     """
-    global _cosmos_client
-    client, _cosmos_client = _cosmos_client, None
-    _containers.clear()
+    # This loop's, and only this loop's. A client made on another loop cannot
+    # be closed from here: aiohttp finishes the job in a task on the loop that
+    # created the connector, and if that loop is gone the task can never run.
+    # Trying it swaps "Unclosed client session" for "Task was destroyed but it
+    # is pending" and fixes nothing — so a loop closes its own, and a script
+    # that wants no warnings does not open several loops onto the cloud.
+    state = _per_loop.pop(id(asyncio.get_running_loop()), None)
+    if state is None:
+        return
+    client = state["client"]
     if client is not None:
         try:
             await client.close()
@@ -80,23 +111,24 @@ async def _container(name: str, pk_path: str) -> Any:
     container instead of an error, which is how `transcripts_meta` nearly
     ended up beside `transcripts-meta`.
     """
-    hit = _containers.get(name)
+    state = _loop_state()
+    containers = state["containers"]
+    hit = containers.get(name)
     if hit is not None:
         return hit
-    async with _cosmos_lock:
-        hit = _containers.get(name)
+    async with _lock("cosmos"):
+        hit = containers.get(name)
         if hit is not None:
             return hit
         from azure.cosmos import PartitionKey
         from azure.cosmos.aio import CosmosClient
 
-        global _cosmos_client
         cfg = get_settings().storage
-        if _cosmos_client is None:
-            _cosmos_client = CosmosClient(
+        if state["client"] is None:
+            state["client"] = CosmosClient(
                 cfg.cosmos_endpoint, credential=cfg.cosmos_key
             )
-        db = await _cosmos_client.create_database_if_not_exists(cfg.cosmos_database)
+        db = await state["client"].create_database_if_not_exists(cfg.cosmos_database)
         pk = PartitionKey(path=pk_path)
         try:
             container = await db.create_container_if_not_exists(id=name, partition_key=pk)
@@ -104,7 +136,7 @@ async def _container(name: str, pk_path: str) -> Any:
             container = await db.create_container_if_not_exists(
                 id=name, partition_key=pk, offer_throughput=400
             )
-        _containers[name] = container
+        containers[name] = container
         return container
 
 
@@ -143,7 +175,17 @@ class Collection:
         #: partitions by `/parentId` and calls the field `routine_id`; the
         #: record keeps its own name and the item carries both.
         self.partition_source = partition_source or self.partition_field
-        self._lock = asyncio.Lock()
+
+    @property
+    def _lock(self) -> asyncio.Lock:
+        """This collection's write lock, for the loop that is asking.
+
+        A plain `asyncio.Lock()` built in `__init__` binds to whichever loop
+        waits on it first and refuses every other one. These collections are
+        module-level singletons, so that made them single-loop for the life of
+        the process.
+        """
+        return _lock(f"{self.kind}:{id(self)}")
 
     # ── local ───────────────────────────────────────────────────────────
     def _path(self) -> Path:

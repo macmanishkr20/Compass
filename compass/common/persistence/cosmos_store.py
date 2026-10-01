@@ -115,7 +115,7 @@ class CosmosTranscriptStore:
             parameters=[{"name": "@sid", "value": session_id}],
             partition_key=session_id,
         )
-        messages: list[Message] = []
+        records: list[dict] = []
         max_seq = -1
         async for item in items:
             max_seq = max(max_seq, item.get("seq", 0))
@@ -124,10 +124,12 @@ class CosmosTranscriptStore:
             # turn that this caller does not want should not cost a download.
             if not include_sidechains and (record.get("meta") or {}).get("agent_id"):
                 continue
-            messages.append(Message.from_record(await large_content.fill(record)))
+            records.append(record)
         # Resume continues the sequence rather than restarting it.
         self._seq[session_id] = max(self._seq.get(session_id, 0), max_seq + 1)
-        return messages
+        # Filled together rather than one at a time; `fill_all` keeps the order
+        # the query returned them in.
+        return [Message.from_record(r) for r in await large_content.fill_all(records)]
 
     async def exists(self, session_id: str) -> bool:
         container = await self._get_container()

@@ -49,6 +49,15 @@ CONTENT_REF = "content_ref"
 #: with it.
 PREFIX = "messages"
 
+#: How a 20MB message is moved: in 1MB pieces, sixteen at a time. The default
+#: is one request for the whole blob, and measured against this account that
+#: ran at 0.30 MB/s — 57 seconds for one 17MB message, which is how the first
+#: live read of a thread managed to time out on content that was sitting
+#: there. The same blob in 1MB ranges, sixteen in flight, takes 7.1 seconds.
+#: Measured, not assumed: 4MB/8-way came to 11.2s, so the small pieces win.
+CHUNK_BYTES = 1024 * 1024
+CONCURRENCY = 16
+
 _service = None
 
 
@@ -69,7 +78,13 @@ def _container():
 
     cfg = get_settings().storage
     if _service is None:
-        _service = BlobServiceClient.from_connection_string(cfg.blob_connection_string)
+        _service = BlobServiceClient.from_connection_string(
+            cfg.blob_connection_string,
+            max_single_get_size=CHUNK_BYTES,
+            max_chunk_get_size=CHUNK_BYTES,
+            max_single_put_size=CHUNK_BYTES,
+            max_block_size=CHUNK_BYTES,
+        )
     client = _service.get_container_client("compass-media")
     try:
         client.create_container()
@@ -79,11 +94,18 @@ def _container():
 
 
 def _put_sync(ref: str, payload: str) -> None:
-    _container().upload_blob(ref, payload.encode("utf-8"), overwrite=True)
+    _container().upload_blob(
+        ref, payload.encode("utf-8"), overwrite=True, max_concurrency=CONCURRENCY
+    )
 
 
 def _get_sync(ref: str) -> str:
-    return _container().download_blob(ref).readall().decode("utf-8", "replace")
+    return (
+        _container()
+        .download_blob(ref, max_concurrency=CONCURRENCY)
+        .readall()
+        .decode("utf-8", "replace")
+    )
 
 
 async def spill(record: dict, session_id: str) -> dict:
@@ -132,32 +154,61 @@ async def spill(record: dict, session_id: str) -> dict:
     return out
 
 
+async def _read_blob(ref: str) -> tuple[str, bool]:
+    """(body, absent). `absent` is only true when the blob really is not there.
+
+    The distinction is the point. A read that failed and a blob that is gone
+    used to look the same here, and the caller said "no longer stored" for
+    both — so a slow transfer was reported to the reader as lost data while
+    the bytes sat in the container untouched. That is what happened on the
+    first live read of a 24MB message.
+    """
+    from azure.core.exceptions import ResourceNotFoundError
+
+    last: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            return await asyncio.to_thread(_get_sync, ref), False
+        except ResourceNotFoundError:
+            return "", True
+        except Exception as err:  # noqa: BLE001 — transport, timeout, throttle
+            last = err
+            if attempt == 1:
+                logger.warning("re-reading large message %s after %s", ref, err)
+    logger.error("could not read large message %s: %s", ref, last)
+    return "", False
+
+
 async def fill(record: dict) -> dict:
     """The record with its content back, if it was moved out."""
     ref = record.get(CONTENT_REF)
     if not ref:
         return record
     body = ""
+    absent = True
     if _blob_enabled():
-        try:
-            body = await asyncio.to_thread(_get_sync, str(ref))
-        except Exception:  # noqa: BLE001 — may predate the move to blob
-            body = ""
+        body, absent = await _read_blob(str(ref))
     if not body:
+        # Local disk regardless of which backend is configured now: an install
+        # that was local yesterday still has yesterday's content on disk.
         try:
             path = _local_dir() / str(ref)
             if path.is_file():
                 body = await asyncio.to_thread(path.read_text, "utf-8")
         except OSError as err:
-            logger.warning("could not read large message %s: %s", ref, err)
+            logger.warning("could not read local copy of %s: %s", ref, err)
     out = dict(record)
     out.pop(CONTENT_REF, None)
     if not body:
         # Said out loud in the transcript rather than returned as an empty
         # message: a turn that silently loses what somebody attached reads
-        # as though they never attached it.
-        logger.warning("large message content %s is missing", ref)
-        out["content"] = "(this message's content is no longer stored)"
+        # as though they never attached it. Which of the two it is matters —
+        # one is gone, the other is worth reloading the page for.
+        if absent:
+            logger.warning("large message content %s is missing", ref)
+            out["content"] = "(this message's content is no longer stored)"
+        else:
+            out["content"] = "(this message's content could not be loaded — retry)"
         return out
     try:
         parsed = json.loads(body)
@@ -165,6 +216,22 @@ async def fill(record: dict) -> dict:
     except (ValueError, AttributeError):
         out["content"] = body
     return out
+
+
+async def fill_all(records: list[dict]) -> list[dict]:
+    """Every record with its content back, fetched concurrently.
+
+    Worth not doing one at a time: a thread here holds three stored messages
+    totalling 67MB, and awaiting them in a loop makes the reader wait for the
+    sum of three downloads rather than the longest. Order is preserved, which
+    is the whole point of the sequence they were read in.
+
+    Records that were never spilled cost nothing — `fill` returns them as they
+    are without touching the network.
+    """
+    if not records:
+        return []
+    return list(await asyncio.gather(*(fill(r) for r in records)))
 
 
 async def discard(session_id: str) -> int:

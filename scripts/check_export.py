@@ -27,6 +27,13 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("COMPASS_PIPELINES", "1")
 os.environ.setdefault("COMPASS_AUTH_ENABLED", "0")
 os.environ.setdefault("COMPASS_WORKSPACE", tempfile.mkdtemp(prefix="plexport-"))
+# Locally, like the temp workspace above and for the same reason: this compares
+# two implementations of a graph walk, which is the same answer whatever holds
+# the graph. On the cosmos backend it instead talked to the cloud across
+# several event loops, which is slower, needs credentials, and left "Unclosed
+# client session" printed under the result — noise exactly where a real
+# warning would go unread.
+os.environ.setdefault("COMPASS_STORAGE_BACKEND", "local")
 
 FAILED = 0
 

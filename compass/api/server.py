@@ -27,7 +27,6 @@ from compass.code.routes import router as code_router
 from compass.common.routes import router as common_router
 from compass.design.routes import router as design_router
 from compass.home.routes import router as chat_router
-from compass.common.persistence.factory import get_transcript_store
 from compass.code.mcp.manager import get_mcp_manager
 from compass.common.telemetry import log_event, setup_telemetry
 
@@ -109,30 +108,12 @@ async def lifespan(app: FastAPI):
     if mission_scheduler is not None:
         mission_scheduler.cancel()
     await manager.stop()
-    # Every store that holds a Cosmos client gets closed, not just the
-    # transcript one. Four of them do, and the three that were missed here
-    # kept their connection pools open for the life of the process — which on
-    # a reload meant the old pools were still there beside the new ones.
-    from compass.common.memory import get_memory_store
-    from compass.common.persistence import catalog
-    from compass.common.persistence.session_meta import get_meta_store
-    from compass.home.engine import get_chat_store
+    # Every store that holds a connection, not just the transcript one. Three
+    # of the five were missed here for as long as they existed, so the list
+    # lives in one place now and the scripts use it too.
+    from compass.common.persistence.shutdown import close_all
 
-    for store in (
-        get_transcript_store(),
-        get_chat_store(),
-        get_meta_store(),
-        get_memory_store(),
-    ):
-        close = getattr(store, "close", None)
-        if close is None:
-            continue
-        try:
-            await close()
-        except Exception:  # noqa: BLE001 — one bad close must not skip the rest
-            logger.warning("could not close %s", type(store).__name__, exc_info=True)
-    # The catalog keeps its own Cosmos client, so it gets its own close.
-    await catalog.close()
+    await close_all()
 
 
 app = FastAPI(title="Compass", version="0.2.0", lifespan=lifespan)

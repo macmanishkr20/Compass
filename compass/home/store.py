@@ -151,13 +151,16 @@ class CosmosChatStore:
             parameters=[{"name": "@sid", "value": session_id}],
             partition_key=session_id,
         )
-        out: list[Message] = []
+        records: list[dict] = []
         max_seq = -1
         async for item in items:
             max_seq = max(max_seq, item.get("seq", 0))
-            out.append(Message.from_record(await large_content.fill(item["record"])))
+            records.append(item["record"])
         self._seq[session_id] = max(self._seq.get(session_id, 0), max_seq + 1)
-        return out
+        # Collected first, filled together: the query is already in seq order
+        # and `fill_all` keeps it, so this is the same list either way — just
+        # not one download at a time.
+        return [Message.from_record(r) for r in await large_content.fill_all(records)]
 
     async def exists(self, session_id: str) -> bool:
         container = await self._get_container()

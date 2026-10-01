@@ -22,6 +22,24 @@ from compass.common.tools.base import PermissionBroker  # noqa: E402
 
 
 async def main() -> int:
+    """One real turn, against whatever backend is configured.
+
+    Deliberately not pinned to local the way `check_export` is: this one is
+    worth running against the cloud, because persisting a turn is part of what
+    it is checking.
+    """
+    from compass.common.persistence.shutdown import close_all
+
+    try:
+        return await _turn()
+    finally:
+        # Closed inside this loop, which is the only place it can be done —
+        # otherwise the aiohttp sessions behind the Cosmos clients print
+        # "Unclosed client session" underneath the result.
+        await close_all()
+
+
+async def _turn() -> int:
     engine = QueryEngine()
     session = Session(broker=PermissionBroker(policy="auto_grant"))
     seen: list[str] = []
