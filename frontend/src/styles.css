@@ -666,3 +666,239 @@ app-home-chat .prose li::marker { color: var(--ink); }
   letter-spacing: 0.01em;
 }
 .pick-item.on .pick-model { color: var(--muted); }
+
+/* ============================================================
+   Loading a conversation
+   ------------------------------------------------------------
+   Opening a stored conversation is a request to a database on
+   another continent. It is usually under half a second and
+   occasionally several, and the difference between those two
+   feeling "quick" and "broken" is entirely whether the window
+   says anything while it waits.
+
+   Four things say it, in increasing order of patience:
+     the bar     — something is happening, at the top of the panel
+     the row     — *this* conversation is what is happening
+     the shapes  — and it will look roughly like this
+     the note    — still going; after a while, why
+
+   Shared rather than per-module so Home, Code and anything else
+   that opens a stored conversation wait in the same language.
+   Built from the existing tokens, so this follows light and dark
+   without knowing which it is in.
+   ============================================================ */
+
+/* The indeterminate bar. Across the top of the panel being filled,
+   not the whole window: it belongs to the thing that is loading. */
+.loadbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.loadbar i {
+  position: absolute;
+  inset: 0;
+  width: 38%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: compass-sweep 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Inside a scroll region rather than over a positioned panel: stuck to the
+   top of the thing being filled, for layouts that have no positioning
+   context to hang an absolute bar from. */
+.loadbar.in-scroll {
+  position: sticky;
+  top: 0;
+  left: auto;
+  right: auto;
+  margin-bottom: -2px;
+  /* The scroll region is a column flex container, which collapsed a 2px
+     child to nothing: the sweep was running inside a box with no height.
+     Stated as a basis so it is neither grown nor shrunk. */
+  flex: 0 0 2px;
+}
+
+@keyframes compass-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(360%); }
+}
+
+/* The spinner that replaces a sidebar row's dot while that row is
+   the one being fetched. */
+.conv-spin {
+  /* Pulled back against the row's 12px gap: a spinner that far from the
+     title reads as a separate control rather than as the row's own state. */
+  margin-right: -6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1.6px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: compass-spin 0.62s linear infinite;
+}
+
+@keyframes compass-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Skeleton turns: the shape of a conversation before it is one.
+   Sized like the real thing so the window does not jump when the
+   messages replace them. */
+@keyframes compass-shimmer {
+  0%   { background-position: 210% 0; }
+  100% { background-position: -210% 0; }
+}
+
+.skl {
+  border-radius: 7px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 22%,
+    var(--bg-2) 50%,
+    var(--surface-2) 78%
+  );
+  background-size: 220% 100%;
+  animation: compass-shimmer 1.5s ease-in-out infinite;
+}
+
+.sk-turn { margin-bottom: 26px; }
+.sk-u    { margin-left: auto; width: 58%; height: 40px; border-radius: 14px 14px 4px 14px; }
+.sk-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+.sk-av   { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
+.sk-nm   { width: 74px; height: 11px; }
+.sk-l    { height: 12px; margin-bottom: 9px; }
+
+/* The note under the shapes. It says what is happening, and after a
+   while says why it is still happening — silence past a second reads
+   as a hang, and "the archive is cold" is both true and finite. */
+.sk-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 0 2px;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+
+.sk-note .sp2 {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.6px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: compass-spin 0.62s linear infinite;
+}
+
+/* When it does not arrive. Says what happened, says the conversation
+   is still there — which is the thing somebody actually wants to know
+   — and offers the two ways out. */
+.lderr {
+  max-width: 430px;
+  margin: 40px auto;
+  padding: 20px;
+  border-radius: var(--radius);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.lderr .ic {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  margin: 0 auto 12px;
+  background: var(--danger-tint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lderr .ic svg { width: 17px; height: 17px; stroke: var(--danger); stroke-width: 2; fill: none; }
+.lderr b { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 6px; }
+.lderr p { font-size: 0.8rem; line-height: 1.6; color: var(--muted); }
+
+.lderr .code {
+  display: inline-block;
+  margin-top: 9px;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.lderr .acts2 { display: flex; gap: 7px; justify-content: center; margin-top: 14px; }
+
+.lderr .btn2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.lderr .btn2:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+
+.lderr .btn2.pri {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.lderr .btn2.pri:hover { background: var(--accent-strong); }
+.lderr .btn2 svg { width: 13px; height: 13px; stroke: currentColor; stroke-width: 2; fill: none; }
+
+/* The composer, while the conversation it belongs to is still arriving.
+   Dimmed and inert rather than hidden: a box that vanishes and comes
+   back is more startling than one that is visibly not ready yet. */
+.comp-locked { opacity: 0.55; pointer-events: none; }
+
+/* Where the stored conversation begins, so restored history reads as
+   restored rather than as something that just happened. */
+.restored {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 22px;
+}
+
+.restored span {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.restored .ln { flex: 1; height: 1px; background: var(--border); }
+
+@media (prefers-reduced-motion: reduce) {
+  .loadbar i,
+  .conv-spin,
+  .sk-note .sp2,
+  .skl { animation: none; }
+  .skl { background: var(--surface-2); }
+}

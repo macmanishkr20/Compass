@@ -11,7 +11,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet, TitleCasePipe } from '@angular/common';
 import { AuthService } from './auth.service';
-import { CompassApiService, TranscriptResponse } from './compass-api.service';
+import { CompassApiService, TranscriptResponse, describeHttpError } from './compass-api.service';
 import { ThemeService } from './theme.service';
 import { ModuleKey, TurnNotifyService } from './turn-notify.service';
 import { TurnStatus } from './turn-status';
@@ -409,6 +409,16 @@ export class App {
   // -- Home conversation history (separate from agent Conversations) -------
   readonly homeSessions = signal<ChatCard[]>([]);
   readonly homeActiveId = signal<string | null>(null);
+
+  /** The sidebar row currently waiting on the network, per module, or "".
+   *
+   *  The rail already says which conversation is *open*; this says which one
+   *  is still arriving, which during the second or so between the click and
+   *  the messages is the more useful of the two. Home's comes from the chat
+   *  component through `loadingChanged`, because that is where the fetch
+   *  lives; Code's is set here, because that is where its fetch lives. */
+  readonly homeLoadingId = signal('');
+  readonly codeLoadingId = signal('');
   // Show 4 initially; the down-arrow reveals 4 more at a time (like the agent).
   readonly homeLimit = signal(CONV_PAGE);
   // Home chats honour the same Group/Sort controls as the agent list.
@@ -3297,6 +3307,14 @@ export class App {
     this.view.set('chat');
     this.activeMode.set('default');
     this.activeEffort.set('medium');
+    // A fetch in flight stops owning the window the moment a new conversation
+    // is started; its own guard will drop the result when it arrives.
+    this.openingSessionId = '';
+    this.loadingSession.set('');
+    this.codeLoadingId.set('');
+    this.loadingSessionSlow.set(false);
+    this.loadSessionError.set(null);
+    this.earlierSeq.set(null);
     // Keep the currently-selected model and workspace for the new conversation.
     const res = await this.api.createSession({
       permissionMode: 'default',
@@ -3324,33 +3342,76 @@ export class App {
     this.activeEffort.set(card?.effort ?? 'medium');
     if (card?.model) this.activeModel.set(card.model);
     if (card?.workspace) this.activeWorkspaceId.set(card.workspace);
-    // Both at once. Resuming a session and reading its transcript are
-    // independent — the transcript is read from storage, not from the
-    // resumed session — and each is a round trip to another continent. One
-    // after the other, opening a conversation waited for the sum of them.
-    const [res, t] = await Promise.all([
-      this.api.createSession({
-        resume: true,
-        sessionId: id,
-        permissionMode: card?.mode,
-        effort: card?.effort,
-        model: card?.model || this.activeModel() || undefined,
-        workspaceId: card?.workspace || this.activeWorkspaceId(),
-      }),
-      this.api.transcript(id, { limit: App.TRANSCRIPT_PAGE }),
-    ]);
-    // A click on another conversation while this one was loading wins: its
-    // request started later and would otherwise be overwritten by this one
-    // arriving second. Without this, clicking down a list quickly leaves the
-    // window showing whichever reply happened to be slowest.
-    if (this.openingSessionId !== id) return;
-    this.sessionId.set(res.session_id);
-    this.currentBubble = null;
-    // Where the conversation continues above this page, if it does. A long
-    // one is opened at its end — see TRANSCRIPT_PAGE — and this is what the
-    // "Load earlier messages" control asks for.
-    this.earlierSeq.set(t.before_seq ?? null);
-    this.timeline.set(this.buildTimeline(t.messages));
+    // Cleared before the skeleton goes up, so the conversation being left is
+    // never shown underneath a spinner that belongs to another one.
+    this.timeline.set([]);
+    this.earlierSeq.set(null);
+    this.loadSessionError.set(null);
+    this.loadingSession.set(id);
+    this.codeLoadingId.set(id);
+    this.loadingSessionSlow.set(false);
+    const slow = setTimeout(() => {
+      if (this.openingSessionId === id) this.loadingSessionSlow.set(true);
+    }, App.SLOW_AFTER_MS);
+    try {
+      // Both at once. Resuming a session and reading its transcript are
+      // independent — the transcript is read from storage, not from the
+      // resumed session — and each is a round trip to another continent. One
+      // after the other, opening a conversation waited for the sum of them.
+      const [res, t] = await Promise.all([
+        this.api.createSession({
+          resume: true,
+          sessionId: id,
+          permissionMode: card?.mode,
+          effort: card?.effort,
+          model: card?.model || this.activeModel() || undefined,
+          workspaceId: card?.workspace || this.activeWorkspaceId(),
+        }),
+        this.api.transcript(id, { limit: App.TRANSCRIPT_PAGE }),
+      ]);
+      // A click on another conversation while this one was loading wins: its
+      // request started later and would otherwise be overwritten by this one
+      // arriving second. Without this, clicking down a list quickly leaves the
+      // window showing whichever reply happened to be slowest.
+      if (this.openingSessionId !== id) return;
+      this.sessionId.set(res.session_id);
+      this.currentBubble = null;
+      // Where the conversation continues above this page, if it does. A long
+      // one is opened at its end — see TRANSCRIPT_PAGE — and this is what the
+      // "Load earlier messages" control asks for.
+      this.earlierSeq.set(t.before_seq ?? null);
+      this.timeline.set(this.buildTimeline(t.messages));
+    } catch (err) {
+      // Said out loud rather than shown as an empty conversation. The two
+      // looked identical before, and only one of them is worth retrying.
+      if (this.openingSessionId !== id) return;
+      this.timeline.set([]);
+      this.loadSessionError.set({ id, detail: describeHttpError(err) });
+    } finally {
+      clearTimeout(slow);
+      if (this.openingSessionId === id) {
+        this.loadingSession.set('');
+        this.codeLoadingId.set('');
+        this.loadingSessionSlow.set(false);
+      }
+    }
+  }
+
+  /** How long a fetch may take before the note says why it is still going. */
+  private static readonly SLOW_AFTER_MS = 900;
+
+  /** Which conversation is being fetched, or "". Drives the bar, the
+   *  skeleton and the locked composer; `codeLoadingId` drives the sidebar. */
+  readonly loadingSession = signal('');
+  readonly loadingSessionSlow = signal(false);
+  readonly loadSessionError = signal<{ id: string; detail: string } | null>(null);
+
+  /** Try the failed conversation again. */
+  retrySession(): void {
+    const failed = this.loadSessionError();
+    if (!failed) return;
+    this.loadSessionError.set(null);
+    void this.resumeSession(failed.id);
   }
 
   /** How much of a conversation is fetched when it is opened.

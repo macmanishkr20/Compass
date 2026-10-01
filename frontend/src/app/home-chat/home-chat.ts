@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
-import { CompassApiService, TranscriptResponse } from '../compass-api.service';
+import { CompassApiService, TranscriptResponse, describeHttpError } from '../compass-api.service';
 import { AuthService } from '../auth.service';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
@@ -158,6 +158,15 @@ export class HomeChat {
   readonly sessionCreated = output<string>();
   // The thread changed (new session or a completed turn) — refresh the list.
   readonly threadChanged = output<void>();
+
+  /** "Start a new conversation", from the failed-to-load card. The active
+   *  thread is an input, so clearing it is the parent's to do. */
+  readonly startNewThread = output<void>();
+
+  /** Which thread is being fetched, or "" — for the sidebar, which lives in
+   *  the parent and otherwise has no way to know that the row just clicked
+   *  is still waiting on the network. */
+  readonly loadingChanged = output<string>();
 
   /** What the selected deployment will think at; see the note on EFFORTS. */
   readonly efforts = computed<readonly string[]>(
@@ -720,12 +729,46 @@ export class HomeChat {
     // Or a new thread would offer to load the previous one's earlier pages.
     this.earlierSeq.set(null);
     this.loadingEarlier.set(false);
+    // And a fetch in flight must stop owning the window the moment somebody
+    // starts a new conversation — its own guard will drop the result.
+    this.loadingThread.set('');
+    this.loadingSlow.set(false);
+    this.loadError.set(null);
   }
+
+  /** Which thread is being fetched, or "" when none is.
+   *
+   *  Drives all of it: the bar across the top of the panel, the spinner on
+   *  the sidebar row, the skeleton in the window and the locked composer.
+   *  One signal rather than four, so they cannot disagree about whether
+   *  something is loading. */
+  readonly loadingThread = signal('');
+
+  /** Set when a fetch has been going long enough to be worth explaining. */
+  readonly loadingSlow = signal(false);
+
+  /** The thread that failed, and why, or null. */
+  readonly loadError = signal<{ id: string; detail: string } | null>(null);
+
+  /** How long a fetch may take before the note says why it is still going.
+   *  A fetch under this is simply quick; past it, silence reads as a hang. */
+  private static readonly SLOW_AFTER_MS = 900;
 
   private async loadThread(id: string): Promise<void> {
     this.loadedId = id;
     this.sessionId = id;
     this.currentAssistant = null;
+    this.loadError.set(null);
+    this.earlierSeq.set(null);
+    // Cleared before the skeleton goes up, so the previous conversation is
+    // never left on screen underneath a spinner that belongs to another one.
+    this.messages.set([]);
+    this.loadingThread.set(id);
+    this.loadingChanged.emit(id);
+    this.loadingSlow.set(false);
+    const slow = setTimeout(() => {
+      if (this.loadedId === id) this.loadingSlow.set(true);
+    }, HomeChat.SLOW_AFTER_MS);
     try {
       // Both at once. The thread is drawn from the transcript; the session
       // object is only needed before the *next* turn is sent, so waiting for
@@ -743,9 +786,29 @@ export class HomeChat {
       const msgs = this.buildMessages(t.messages);
       if (this.loadedId !== id) return;
       this.messages.set(msgs);
-    } catch {
-      if (this.loadedId === id) this.messages.set([]);
+    } catch (err) {
+      // Said out loud rather than shown as an empty thread. A conversation
+      // that failed to load and one with nothing in it looked identical
+      // before, and only one of them is worth pressing Try again on.
+      if (this.loadedId !== id) return;
+      this.messages.set([]);
+      this.loadError.set({ id, detail: describeHttpError(err) });
+    } finally {
+      clearTimeout(slow);
+      if (this.loadedId === id) {
+        this.loadingThread.set('');
+        this.loadingChanged.emit('');
+        this.loadingSlow.set(false);
+      }
     }
+  }
+
+  /** Try the failed thread again. */
+  retryThread(): void {
+    const failed = this.loadError();
+    if (!failed) return;
+    this.loadError.set(null);
+    void this.loadThread(failed.id);
   }
 
   /** How much of a thread is fetched when it is opened.

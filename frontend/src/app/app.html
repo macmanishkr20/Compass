@@ -422,6 +422,9 @@
                     [style.background]="c.id === homeActiveId() ? 'var(--accent)' : null"
                     [style.border-color]="c.id === homeActiveId() ? 'var(--accent)' : null"
                     [style.box-shadow]="c.id === homeActiveId() ? '0 0 7px var(--accent)' : null"></span>
+                  @if (homeLoadingId() === c.id) {
+                    <span class="conv-spin" aria-hidden="true"></span>
+                  }
                   <span class="conv-title">{{ capFirst(c.title) || 'New chat' }}</span>
                   <button class="conv-icon" [class.pinned]="c.pinned"
                     [attr.aria-label]="c.pinned ? 'Unstar' : 'Star'" (click)="toggleHomePin(c, $event)">
@@ -531,6 +534,9 @@
           [style.background]="convActive ? activeDotColor() : null"
           [style.border-color]="convActive ? activeDotColor() : null"
           [style.box-shadow]="convActive && activeDotColor() ? '0 0 7px ' + activeDotColor() : null"></span>
+        @if (codeLoadingId() === c.id) {
+          <span class="conv-spin" aria-hidden="true"></span>
+        }
         <span class="conv-title">{{ capFirst(c.title) }}</span>
         @if (c.archived) { <span class="conv-badge">archived</span> }
         <button class="conv-icon" [class.pinned]="c.pinned"
@@ -825,6 +831,8 @@
       [voiceAvailable]="voiceAvailable()"
       (switchToAgent)="enterCode()"
       (sessionCreated)="onHomeSessionCreated($event)"
+      (startNewThread)="homeActiveId.set(null)"
+      (loadingChanged)="homeLoadingId.set($event)"
       (threadChanged)="loadHomeSessions()" />
 
     <!-- Design stays mounted once visited, so an open project and its chat
@@ -856,7 +864,55 @@
 
     @if (section() === 'code' && view() === 'chat') {
     <main #log class="log" aria-live="polite" (click)="onLogClick($event)" (scroll)="onLogScroll()">
-      @if (timeline().length === 0) {
+      @if (loadingSession()) {
+        <!-- Inside the scroll region and stuck to its top: `.main` is a grid
+             with no positioning context of its own, and giving it one would
+             change where every other absolutely-placed thing in it lands. -->
+        <div class="loadbar in-scroll" aria-hidden="true"><i></i></div>
+      }
+      @if (loadingSession()) {
+        <!-- The shape of a conversation before it is one. -->
+        <div role="status" aria-live="polite">
+          <div class="sk-turn"><div class="skl sk-u"></div></div>
+          <div class="sk-turn">
+            <div class="sk-head"><div class="skl sk-av"></div><div class="skl sk-nm"></div></div>
+            <div class="skl sk-l" style="width:96%"></div>
+            <div class="skl sk-l" style="width:88%"></div>
+            <div class="skl sk-l" style="width:71%"></div>
+          </div>
+          <div class="sk-turn"><div class="skl sk-u" style="width:42%;height:34px"></div></div>
+          <div class="sk-turn">
+            <div class="sk-head"><div class="skl sk-av"></div><div class="skl sk-nm"></div></div>
+            <div class="skl sk-l" style="width:91%"></div>
+            <div class="skl sk-l" style="width:64%"></div>
+          </div>
+          <div class="sk-note">
+            <span class="sp2" aria-hidden="true"></span>
+            {{ loadingSessionSlow() ? 'Still fetching — the archive is cold' : 'Fetching conversation…' }}
+          </div>
+        </div>
+      } @else if (loadSessionError(); as failed) {
+        <div class="lderr" role="alert">
+          <div class="ic" aria-hidden="true">
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="9"/>
+            </svg>
+          </div>
+          <b>Couldn't load this conversation</b>
+          <p>The transcript store didn't answer. Nothing is lost — the
+            conversation is still there.</p>
+          <span class="code">{{ failed.detail }}</span>
+          <div class="acts2">
+            <button class="btn2 pri" (click)="retrySession()">
+              <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/>
+              </svg>
+              Try again
+            </button>
+            <button class="btn2" (click)="newSession()">Start a new conversation</button>
+          </div>
+        </div>
+      } @else if (timeline().length === 0) {
         <section class="hero">
           <div class="hero-mark">
             <span class="hero-halo" aria-hidden="true"></span>
@@ -1422,7 +1478,11 @@
       </div>
 
       <!-- Prompt box: input row + meta row inside one rounded panel -->
+      <!-- Dimmed and inert while the conversation it belongs to is still
+           arriving: a message typed into a session the server has not
+           resumed yet would go somewhere unexpected. -->
       <div class="composer-box" [class.drag]="agentDragOver()"
+        [class.comp-locked]="!!loadingSession()"
         (dragover)="onAttachDragOver($event)" (dragleave)="onAttachDragLeave()" (drop)="onAttachDrop($event)">
       @if (agentDragOver()) {
         <div class="cmp-drop-hint">

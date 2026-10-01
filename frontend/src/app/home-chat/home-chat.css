@@ -1000,3 +1000,11 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   cursor: default;
   opacity: 0.7;
 }
+
+/* The skeleton sits in the same column the messages will, so the shapes
+   stand exactly where their content is about to. */
+.home-skeleton {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10px 0 0;
+}

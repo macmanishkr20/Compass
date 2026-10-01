@@ -76,6 +76,33 @@ interface TranscriptResponse {
 
 export type { TranscriptResponse };
 
+/** One line describing why a request failed, fit to put in front of someone.
+ *
+ *  Angular rejects with an `HttpErrorResponse`, which is not an `Error` and
+ *  whose `toString` is `[object Object]` — which is what the failed-to-load
+ *  card said until this existed. The server's own `detail` is preferred when
+ *  there is one, because it is the only part written for a reader; the status
+ *  line is the fallback, and it is still better than nothing.
+ */
+export function describeHttpError(err: unknown): string {
+  const any = err as {
+    status?: number; statusText?: string; message?: string;
+    error?: { detail?: string } | string;
+  } | null;
+  const detail =
+    typeof any?.error === 'string' ? any.error : any?.error?.detail;
+  if (detail) return String(detail).trim().slice(0, 140);
+  if (typeof any?.status === 'number' && any.status > 0) {
+    return `${any.status} ${any.statusText || 'request failed'}`.trim();
+  }
+  // status 0 is the browser refusing to say more — offline, DNS, CORS.
+  if (typeof any?.status === 'number') return 'could not reach the server';
+  if (err instanceof Error && err.message) return err.message.trim().slice(0, 140);
+  const text = String(err ?? '').trim();
+  return text && text !== '[object Object]' ? text.slice(0, 140)
+    : 'the request did not complete';
+}
+
 @Injectable({ providedIn: 'root' })
 export class CompassApiService {
   private readonly http = inject(HttpClient);
