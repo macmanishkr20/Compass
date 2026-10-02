@@ -89,6 +89,7 @@
   "GET /v1/estimates/{estimate_id}/export/excel",
   "GET /v1/estimates/{estimate_id}/export/pdf",
   "GET /v1/github/repos",
+  "GET /v1/media",
   "GET /v1/media/generated/{name}",
   "GET /v1/memory",
   "GET /v1/missions",
@@ -208,7 +209,7 @@
   "PUT /v1/estimates/rate-card",
   "WS /v1/browser/ws"
  ],
- "schema": "ba2917d645c1934f",
+ "schema": "e6f2d433bae9c902",
  "smoke": {
   "/": "200",
   "/docs": "200",
@@ -232,6 +233,7 @@
   "/v1/estimates/catalog": "200",
   "/v1/estimates/rate-card": "200",
   "/v1/github/repos": "400",
+  "/v1/media": "200",
   "/v1/memory": "200",
   "/v1/missions": "200",
   "/v1/models": "200",

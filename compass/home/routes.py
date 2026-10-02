@@ -535,6 +535,11 @@ async def delete_chat_session(session_id: str, user: str = Depends(require_user)
     # whichever backend holds the transcript — and it clears both the stored
     # copy and the one on disk.
     await media.forget(session_id)
+    # And the rows that described them, so the index does not outlive the
+    # conversation it was describing.
+    from compass.common import media_index
+
+    await media_index.forget_session(session_id)
     chat_sessions.pop(session_id, None)
     return {"deleted": session_id}
 

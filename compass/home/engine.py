@@ -413,6 +413,8 @@ class ChatSession:
     abort_event: asyncio.Event = field(default_factory=asyncio.Event)
     effort: str | None = None
     model: str | None = None
+    #: Who the thread belongs to, so anything made in it is filed under them.
+    owner: str = ""
     turn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def make_context(self) -> ToolUseContext:
@@ -457,6 +459,7 @@ class ChatSession:
 
         return ToolUseContext(
             session_id=self.id,
+            owner=self.owner,
             tools=tools,
             broker=PermissionBroker(policy="auto_deny"),
             cost_tracker=self.cost_tracker,
@@ -473,6 +476,11 @@ class ChatEngine:
     async def resume(self, session_id: str, **kwargs) -> ChatSession:
         session = ChatSession(id=session_id, **kwargs)
         session.messages = await self.store.load(session_id)
+        # Read from the thread rather than passed in: whoever resumes a
+        # conversation is not necessarily the field that says who owns it,
+        # and what a tool files its work under must be the latter.
+        if not session.owner:
+            session.owner = await self.store.owner_of(session_id)
         return session
 
     async def ask(

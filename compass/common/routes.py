@@ -351,3 +351,23 @@ async def generated_image(name: str) -> Response:
         media_type=content_type,
         headers={"cache-control": "public, max-age=31536000, immutable"},
     )
+
+
+@router.get("/v1/media")
+async def list_media(
+    session_id: str = "", user: str = Depends(require_user)
+) -> dict:
+    """Everything this person has made, or one conversation's worth.
+
+    The point of the index: a picture drawn on one machine is listed, shown
+    and downloaded on another, because neither the bytes nor the row that
+    describes them is on the machine that made it.
+
+    Scoped to the caller. A `session_id` narrows it, and only within what
+    they already own — passing someone else's conversation returns nothing
+    rather than someone else's pictures.
+    """
+    from compass.common import media_index
+
+    rows = await media_index.for_owner(user, session_id=session_id)
+    return {"media": rows}

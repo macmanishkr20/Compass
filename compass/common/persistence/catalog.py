@@ -425,7 +425,32 @@ class Collection:
                     self._write_local(rows)
             return doc
         container = await _container(self.container, f'/{self.partition_field}')
-        await container.upsert_item(self._wrap(doc))
+        item = self._wrap(doc)
+        # A partition key cannot be changed in place. Cosmos has no "move":
+        # an upsert carrying a new partition value writes a SECOND document
+        # under the same id in the new partition and leaves the first where
+        # it was, so the collection quietly gains a duplicate that `all()`
+        # returns twice — once with the old value and once with the new.
+        #
+        # Found by changing the owner on 81 media rows and getting 334 rows
+        # back from 253 documents. The old copy is removed after the new one
+        # lands, so an interruption leaves a duplicate rather than nothing.
+        before = await self.get(str(doc.get(self.id_field, "")))
+        moved = (
+            before is not None
+            and self._partition(before) != self._partition(doc)
+        )
+        await container.upsert_item(item)
+        if moved:
+            try:
+                await container.delete_item(
+                    item["id"], partition_key=self._partition(before)
+                )
+            except Exception:  # noqa: BLE001 — the new copy is already stored
+                logger.warning(
+                    "%s: left a copy of %s in its old partition",
+                    self.kind, doc.get(self.id_field),
+                )
         # After the write landed, never before: a document that failed to
         # store must not be served from memory as though it had.
         self._invalidate()

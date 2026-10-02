@@ -227,6 +227,10 @@ class ToolUseContext:
     # None, tools fall back to the global workspace (get_settings). Set from
     # the session's selected workspace.
     workspace_root: "Path | None" = None
+    # Who this conversation belongs to. Carried so that anything a tool
+    # stores can be found again by the person who made it, from another
+    # browser or another machine — see compass/common/media_index.py.
+    owner: str = ""
     agent_id: str | None = None  # set only inside subagent sidechains
     depth: int = 0
     # path -> mtime at last read; enforces read-before-edit and staleness

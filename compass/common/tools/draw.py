@@ -108,6 +108,7 @@ class DrawTool(Tool):
             # page without the picture, or try a prompt the filter accepts.
             yield ToolOutput(f"Could not draw that: {picture.error}", is_error=True)
             return
+        await _file_it(picture, "image", ctx, inp.prompt)
         yield ToolOutput(
             f"Drew it. Use this exact URL as the image source:\n{picture.url}\n"
             f"({picture.width}x{picture.height}, {picture.bytes / 1024:.0f}KB)"
@@ -159,7 +160,37 @@ class EditImageTool(Tool):
         if not picture.ok:
             yield ToolOutput(f"Could not edit that: {picture.error}", is_error=True)
             return
+        await _file_it(picture, "edit", ctx, inp.prompt, source=inp.image)
         yield ToolOutput(
             f"Edited. Use this exact URL as the image source:\n{picture.url}\n"
             f"({picture.width}x{picture.height}, {picture.bytes / 1024:.0f}KB)"
         )
+
+
+async def _file_it(
+    picture, kind: str, ctx: ToolUseContext, prompt: str, *, source: str = "",
+) -> None:
+    """Write the row that says what this picture is and whose it is.
+
+    Separate from storing the bytes because they answer different questions:
+    the blob is how a picture is shown again, and this is how it is *found* —
+    everything this person has made, everything this conversation made — from
+    a browser that has never seen the machine that drew it.
+
+    Never raises. A picture whose row failed to write is still drawn, still
+    stored and still in the reply.
+    """
+    from compass.common import media_index
+
+    await media_index.record(
+        blob_name=picture.url.split("/v1/media/", 1)[-1],
+        url=picture.url,
+        kind=kind,
+        session_id=getattr(ctx, "session_id", "") or "",
+        owner=getattr(ctx, "owner", "") or "",
+        prompt=prompt,
+        width=picture.width,
+        height=picture.height,
+        size_bytes=picture.bytes,
+        source=source,
+    )
