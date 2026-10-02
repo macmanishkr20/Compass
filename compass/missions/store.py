@@ -36,6 +36,7 @@ def _to_dict(mission: Mission) -> dict:
         "model": mission.model,
         "budget_usd": mission.budget_usd,
         "spent_usd": mission.spent_usd,
+        "owner": mission.owner,
         "triggers": list(mission.triggers),
         "created_at": getattr(mission, "created_at", time.time()),
         "sessions": [vars(s) for s in mission.sessions],
@@ -50,6 +51,7 @@ def _from_dict(row: dict) -> Mission:
         model=row.get("model") or None,
         budget_usd=float(row.get("budget_usd") or DEFAULT_BUDGET_USD),
         spent_usd=float(row.get("spent_usd") or 0.0),
+        owner=str(row.get("owner") or ""),
         triggers=list(row.get("triggers") or []),
     )
     mission.created_at = float(row.get("created_at") or time.time())
@@ -111,9 +113,10 @@ class MissionStore:
 
     async def create(self, *, goal: str, workspace: Path, model: str | None = None,
                      budget_usd: float = DEFAULT_BUDGET_USD,
-                     triggers: list[dict] | None = None) -> Mission:
+                     triggers: list[dict] | None = None,
+                     owner: str = "") -> Mission:
         mission = Mission(id=str(uuid.uuid4()), goal=goal.strip(),
-                          workspace=workspace, model=model,
+                          workspace=workspace, model=model, owner=owner,
                           budget_usd=budget_usd, triggers=list(triggers or []))
         mission.created_at = time.time()
         workspace.mkdir(parents=True, exist_ok=True)

@@ -266,6 +266,11 @@ class ToolUseContext:
         root."""
         return ToolUseContext(
             session_id=self.session_id,
+            # The subagent is working for the same person. Without this, a
+            # picture it draws or a screenshot it takes is filed under
+            # nobody — and a sidechain is exactly where the long, tool-heavy
+            # work happens, so it is most of what there would be to lose.
+            owner=self.owner,
             tools=tools,
             broker=self.broker,
             cost_tracker=self.cost_tracker,

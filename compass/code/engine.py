@@ -88,6 +88,7 @@ class Session:
             self.shelf = shelf
         return ToolUseContext(
             session_id=self.id,
+            owner=self.owner,
             tools=catalogue,
             shelf=self.shelf,
             broker=self.broker,

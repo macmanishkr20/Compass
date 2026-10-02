@@ -507,7 +507,7 @@ class ChatEngine:
             # Written through to storage, so the disk is a working copy rather
             # than the only one.
             if kept:
-                await media.upload(session.id, kept)
+                await media.upload(session.id, kept, owner=session.owner)
             # Looked at once, here, so that a reel asked for three turns later
             # can be ordered by what is in the photographs rather than by
             # their filenames. Never fatal: undescribed pictures still work.

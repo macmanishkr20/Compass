@@ -105,6 +105,13 @@ class Mission:
     model: str | None = None
     budget_usd: float = DEFAULT_BUDGET_USD
     spent_usd: float = 0.0
+    #: Who started it. Recorded so that a picture or a screenshot a mission
+    #: session stores is filed under a person like any other — a mission runs
+    #: for hours with the full tool catalogue, so it is not a small share of
+    #: what gets made here. It does not yet filter the mission list: every
+    #: mission on this box predates the field, and scoping the list on it
+    #: would empty the screen. See `compass.common.ownership`.
+    owner: str = ""
     #: When it may start itself, in Routines' trigger shape. Empty means it
     #: only ever runs because somebody asked it to.
     triggers: list[dict] = field(default_factory=list)
@@ -248,6 +255,7 @@ class MissionEngine:
         # because it was inside the wrong workspace.
         return ToolUseContext(
             session_id=f"{mission.id}-{len(mission.sessions) + 1}",
+            owner=mission.owner,
             tools=self._tools_for(persona),
             broker=PermissionBroker(policy="auto_grant"),
             cost_tracker=CostTracker(),

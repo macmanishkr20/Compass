@@ -449,12 +449,25 @@ def _names_sync(session_id: str) -> dict[str, int]:
     }
 
 
-async def upload(session_id: str, files: list[MediaFile] | None = None) -> int:
+async def upload(
+    session_id: str,
+    files: list[MediaFile] | None = None,
+    *,
+    owner: str = "",
+) -> int:
     """Write this thread's files through to blob storage. Returns how many.
 
     `files` names what just arrived; without it, everything in the directory
     that is not already stored. The manifest goes too — it is the only record
     of what each upload was really called.
+
+    Each file that lands also gets a row in the media index, under `owner` and
+    this thread. The bytes were already reachable without one — the serving
+    route builds its path from the session id — but only by somebody who
+    already knew which conversation to look in. The row is what makes an
+    upload findable as a thing this person has, from a browser that has never
+    seen this machine, which is the whole point of putting it in blob storage
+    rather than leaving it on disk.
 
     Never raises. A file that could not be uploaded is still on disk and still
     works; the turn that was saving it is not the place to fail.
@@ -464,6 +477,10 @@ async def upload(session_id: str, files: list[MediaFile] | None = None) -> int:
     directory = session_dir(session_id)
     if not directory.is_dir():
         return 0
+    #: What the caller already knows each file to be. A rendered film is
+    #: handed over as one; sniffing would agree, but only by reading the
+    #: bytes back off the disk it was just written to.
+    declared = {f.path.name: f.kind for f in (files or [])}
     if files is None:
         wanted = [p for p in sorted(directory.iterdir()) if p.is_file()]
     else:
@@ -473,12 +490,29 @@ async def upload(session_id: str, files: list[MediaFile] | None = None) -> int:
             wanted.append(manifest)
 
     async def one(path: Path) -> bool:
+        name = _blob_name(session_id, path.name)
         try:
-            await asyncio.to_thread(_upload_sync, _blob_name(session_id, path.name), path)
-            return True
+            await asyncio.to_thread(_upload_sync, name, path)
         except Exception as err:  # noqa: BLE001 — on disk already; log and move on
             logger.warning("could not upload %s: %s", path.name, err)
             return False
+        # The manifest is bookkeeping about the uploads, not one of them.
+        if path.name != _MANIFEST:
+            from compass.common import media_index
+
+            kind = declared.get(path.name) or sniff_kind(path)
+            await media_index.record(
+                blob_name=name,
+                url=url_for(session_id, path.name),
+                # A film is a film wherever it came from; everything else a
+                # thread holds is "upload", which is what it is — the index
+                # keeps the distinction the person would make, not the codec.
+                kind="video" if kind == "video" else "upload",
+                owner=owner,
+                session_id=session_id,
+                size_bytes=path.stat().st_size if path.is_file() else 0,
+            )
+        return True
 
     done = await asyncio.gather(*(one(p) for p in wanted))
     return sum(done)

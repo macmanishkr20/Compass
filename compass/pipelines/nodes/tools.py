@@ -60,14 +60,33 @@ def _handler_for(tool: Any):
         except Exception as err:  # noqa: BLE001 — surfaced as a node failure
             raise ValueError(f"invalid settings for {tool.name}: {err}") from err
 
-        from compass.common.tools.base import ToolOutput, ToolUseContext
+        from compass.common.tools.base import (
+            CostTracker,
+            PermissionBroker,
+            ToolOutput,
+            ToolUseContext,
+        )
 
         # A pipeline node runs with no conversation behind it, so the tool
         # context is minimal by construction. Permission was already settled
         # by the engine against the pipeline's capabilities.
+        #
+        # The four below are required and were not being passed, so building
+        # this raised TypeError before the tool was ever called — every tool
+        # node failed, whatever the tool. They are given the values the
+        # absence implied: no catalogue to search, nobody to prompt, and a
+        # cost tracker of its own because the run is not a conversation.
         tool_ctx = ToolUseContext(
+            session_id=ctx.run_id,
+            tools=[],
+            broker=PermissionBroker(policy="auto_grant"),
+            cost_tracker=CostTracker(),
             workspace_root=ctx.workspace_root or None,
             permission_mode="bypass",
+            # There is no conversation, so the run stands in for one: anything
+            # this node stores is filed under the person whose pipeline it is,
+            # against the run that produced it.
+            owner=ctx.owner,
         )
 
         text_parts: list[str] = []

@@ -178,7 +178,7 @@ async def create_mission(body: CreateMissionRequest,
     mission = await get_mission_store().create(
         goal=body.goal, workspace=workspace, model=body.model,
         budget_usd=max(1.0, float(body.budget_usd)),
-        triggers=body.triggers)
+        triggers=body.triggers, owner=user)
     logger.info("mission %s created in %s", mission.id, workspace)
     return _view(mission)
 

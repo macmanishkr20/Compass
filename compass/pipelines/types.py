@@ -102,6 +102,10 @@ class NodeContext:
     #: powerful check it; the engine checks it too, before calling them.
     allowed: frozenset[str] = frozenset()
     workspace_root: str = ""
+    #: Who the run belongs to. A pipeline has no conversation behind it, so
+    #: this is the only identity a node has — and a node that draws a picture
+    #: or takes a screenshot stores it like any other, under a person.
+    owner: str = ""
 
 
 Handler = Callable[[dict[str, Any], NodeContext], Awaitable[NodeResult]]

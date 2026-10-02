@@ -397,6 +397,7 @@ class VideoTool(Tool):
             ctx.session_id,
             [media.MediaFile(id=result.path.name, name=result.path.name,
                              kind="video", path=result.path, bytes=result.bytes)],
+            owner=ctx.owner,
         )
         url = media.url_for(ctx.session_id, result.path.name)
         yield ToolOutput(

@@ -1767,7 +1767,9 @@ async def design_generate(
     # The artwork the model asked for, drawn now that the markup exists. A
     # design whose pictures fail is still a design: the placeholders come
     # out and the layout closes over them.
-    html, drawn, asked = await artwork.fill(html)
+    html, drawn, asked = await artwork.fill(
+        html, owner=user, session_id=project_id
+    )
     if asked:
         logger.info("design artwork: %d of %d drawn", drawn, asked)
     if not html:

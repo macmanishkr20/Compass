@@ -67,6 +67,13 @@ _CACHE_MAX = 40
 #: Where the durable copy goes, beside the generated pictures.
 _PREFIX = "screenshots"
 
+#: The filing tasks still in flight. `create_task` holds only a weak
+#: reference, so a task nobody else is holding can be collected part-way
+#: through and simply stop — which is what was happening: the bytes reached
+#: blob storage sometimes and the index row was written less often than that,
+#: with no error either way. Held here until each one finishes.
+_IN_FLIGHT: set = set()
+
 
 def _keep(sid: str, png: bytes, owner: str = "", session_id: str = "") -> None:
     """Hold it in memory and put it somewhere it survives a restart.
@@ -88,7 +95,11 @@ def _keep(sid: str, png: bytes, owner: str = "", session_id: str = "") -> None:
     try:
         import asyncio
 
-        asyncio.get_running_loop().create_task(_persist(sid, png, owner, session_id))
+        task = asyncio.get_running_loop().create_task(
+            _persist(sid, png, owner, session_id)
+        )
+        _IN_FLIGHT.add(task)
+        task.add_done_callback(_IN_FLIGHT.discard)
     except RuntimeError:
         # No loop (a sync caller outside the server) — memory only.
         pass

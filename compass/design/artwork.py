@@ -127,7 +127,9 @@ def prompt_block(template: str) -> str:
     return PROMPT_BLOCK
 
 
-async def fill(html: str) -> tuple[str, int, int]:
+async def fill(
+    html: str, *, owner: str = "", session_id: str = ""
+) -> tuple[str, int, int]:
     """Replace every `data-draw` placeholder with a drawn picture.
 
     Returns the markup, how many were drawn and how many were asked for. A
@@ -135,6 +137,12 @@ async def fill(html: str) -> tuple[str, int, int]:
     pointing at nothing: a broken image icon in the middle of a poster is
     worse than the poster without it, and the layout was written to tolerate
     the slot being empty far better than it tolerates a 404.
+
+    `owner` is the person the design belongs to and `session_id` is the design
+    project. Both are recorded against every picture drawn here, for the same
+    reason they are recorded for a picture drawn in a conversation: the bytes
+    sit in blob storage, and the row is the only thing that can later say
+    whose they are and what they were drawn for.
     """
     if not html:
         return html, 0, 0
@@ -169,6 +177,24 @@ async def fill(html: str) -> tuple[str, int, int]:
         if not picture.ok:
             logger.warning("design artwork failed (%s): %s", prompt[:60], picture.error)
             return ""
+        # Filed under the person and the project, like any other picture.
+        # Best-effort by construction — `record` swallows its own failures —
+        # because a design that drew its artwork is finished whether or not
+        # the index heard about it.
+        from compass.common import media_index
+
+        await media_index.record(
+            blob_name=picture.url.split("/v1/media/", 1)[-1],
+            url=picture.url,
+            kind="image",
+            owner=owner,
+            session_id=session_id,
+            prompt=prompt,
+            width=picture.width,
+            height=picture.height,
+            size_bytes=picture.bytes,
+            source="design",
+        )
         # The placeholder's own attributes are kept — the model styled it —
         # and only `data-draw` is traded for a `src`.
         tag = match.group(0)

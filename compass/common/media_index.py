@@ -52,15 +52,34 @@ async def record(
 
     `source` names the picture this one was edited from, so a chain of edits
     can be followed back to what it started as.
+
+    One row per blob, enforced here. Drawn pictures and screenshots each mint
+    a fresh name, so for those it never bites; a thread's uploads do not —
+    the path is the session and the filename, and `home.media.upload` writes
+    them through again whenever the thread is saved. Called twice for the same
+    bytes, this keeps the original row and its id and updates it in place,
+    which is also how a file uploaded before anyone was recorded gets its
+    owner the next time round.
     """
+    existing = None
+    try:
+        for candidate in await _media.all():
+            if candidate.get("blob_name") == blob_name:
+                existing = candidate
+                break
+    except Exception:  # noqa: BLE001 — unreadable index: write and move on
+        logger.debug("could not check the index for %s", blob_name)
+
     row = {
-        "id": uuid.uuid4().hex,
+        "id": existing.get("id") if existing else uuid.uuid4().hex,
         "blob_name": blob_name,
         "url": url,
         # "image" | "edit" | "video" | "screenshot" | "upload"
         "kind": kind,
-        "session_id": session_id,
-        "owner": owner,
+        # A later write that does not know who it is for must not erase a
+        # row that does. Identity is only ever filled in, never blanked.
+        "session_id": session_id or (existing.get("session_id", "") if existing else ""),
+        "owner": owner or (existing.get("owner", "") if existing else ""),
         # Truncated: this is a label, not the brief. The brief that produced
         # it is in the conversation, which is where it belongs.
         "prompt": (prompt or "")[:500],
@@ -68,7 +87,8 @@ async def record(
         "height": height,
         "bytes": size_bytes,
         "source": source,
-        "created_at": time.time(),
+        # When it first appeared, not when it was last written through.
+        "created_at": (existing.get("created_at") if existing else None) or time.time(),
     }
     try:
         await _media.put(row)

@@ -501,6 +501,7 @@ class PipelineEngine:
             connection=self._connection_resolver(node.connection_id, run.owner),
             allowed=frozenset(pipeline.capabilities),
             workspace_root=str(get_settings().workspace_root),
+            owner=run.owner,
         )
 
         attempts = max(1, node.retries + 1)
