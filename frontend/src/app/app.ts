@@ -1598,10 +1598,10 @@ export class App {
     void this.refreshBgTasks();
     setInterval(() => void this.refreshBgTasks(), 2500);
     setInterval(() => this.nowTick.set(Date.now()), 1000);
-    // Populate the sidebar Routines section up front.
-    void this.loadRoutines();
-    // Populate the Home conversation list (shown when the Home tab is active).
-    void this.loadHomeSessions();
+    // Routines and the Home conversation list are NOT loaded here. They are
+    // somebody's, and at this point nobody has signed in — these calls were
+    // two guaranteed 401s on a cold start. `enterWorkspace` asks for them
+    // once there is a person to ask for.
     // Is Work IQ (Azure AI Search) configured? Drives the Home toggle.
     void this.loadWorkIqStatus();
     // Is realtime voice configured? Drives the Home voice-mode button.
@@ -1651,6 +1651,14 @@ export class App {
   private async enterWorkspace(): Promise<void> {
     await this.refreshWorkspaces();
     await this.refreshSessions();
+    // Home's list and the routines belong to whoever just signed in, and
+    // this is the only moment that is known. They were loaded once in the
+    // constructor instead — before anybody had signed in, so on a fresh
+    // start that call is a 401 and the list stays empty until something
+    // else happens to ask again, which is why switching tabs "fixed" it.
+    // It went unnoticed while signing out left the previous list on screen.
+    void this.loadHomeSessions();
+    void this.loadRoutines();
     await this.newSession();
   }
 
