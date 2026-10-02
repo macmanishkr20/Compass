@@ -68,13 +68,19 @@ _CACHE_MAX = 40
 _PREFIX = "screenshots"
 
 
-def _keep(sid: str, png: bytes) -> None:
+def _keep(sid: str, png: bytes, owner: str = "", session_id: str = "") -> None:
     """Hold it in memory and put it somewhere it survives a restart.
 
     Fire-and-forget, and never fatal: a screenshot that could not be filed is
     still in the cache and still shows in the turn that took it. The write is
     scheduled rather than awaited because every caller of this is sync and on
     the hot path of a tool result.
+
+    `owner` is taken here or not at all. A screenshot is the one artefact
+    whose owner cannot be recovered afterwards: the id is served to the
+    browser rather than written into the message, so nothing in the stored
+    conversation points at it, and an hour later there is no way left to say
+    whose it was. The route that serves these reads what is recorded here.
     """
     _CACHE[sid] = png
     while len(_CACHE) > _CACHE_MAX:
@@ -82,19 +88,33 @@ def _keep(sid: str, png: bytes) -> None:
     try:
         import asyncio
 
-        asyncio.get_running_loop().create_task(_persist(sid, png))
+        asyncio.get_running_loop().create_task(_persist(sid, png, owner, session_id))
     except RuntimeError:
         # No loop (a sync caller outside the server) — memory only.
         pass
 
 
-async def _persist(sid: str, png: bytes) -> None:
+async def _persist(sid: str, png: bytes, owner: str = "", session_id: str = "") -> None:
     from compass.common.gateway import images
 
+    name = f"{_PREFIX}/{sid}.png"
     try:
-        await images.store_bytes(f"{_PREFIX}/{sid}.png", png)
+        await images.store_bytes(name, png)
     except Exception:  # noqa: BLE001 — the cache already has it
         logger.debug("could not file screenshot %s", sid, exc_info=True)
+        return
+    # Only once the bytes are down: a row pointing at nothing would make the
+    # serving route refuse a picture that was never there to refuse.
+    from compass.common import media_index
+
+    await media_index.record(
+        blob_name=name,
+        url=f"/v1/screenshot-cache/{sid}",
+        kind="screenshot",
+        owner=owner,
+        session_id=session_id,
+        size_bytes=len(png),
+    )
 
 
 async def load_stored(sid: str) -> bytes | None:
@@ -105,22 +125,30 @@ async def load_stored(sid: str) -> bytes | None:
     return raw
 
 
-async def capture_cached(url: str, *, full_page: bool = False) -> tuple[str, int, int]:
+async def capture_cached(
+    url: str,
+    *,
+    full_page: bool = False,
+    owner: str = "",
+    session_id: str = "",
+) -> tuple[str, int, int]:
     """Capture and store the PNG; return (id, width, height)."""
     png = await capture(url, full_page=full_page)
     sid = _uuid.uuid4().hex[:12]
-    _keep(sid, png)
+    _keep(sid, png, owner, session_id)
     # cheap PNG dimension read (IHDR at bytes 16..24)
     w = int.from_bytes(png[16:20], "big") if len(png) > 24 else 0
     h = int.from_bytes(png[20:24], "big") if len(png) > 24 else 0
     return sid, w, h
 
 
-def store_png(png: bytes) -> tuple[str, int, int]:
+def store_png(
+    png: bytes, *, owner: str = "", session_id: str = ""
+) -> tuple[str, int, int]:
     """Cache raw PNG bytes (e.g. from the agent browser) under a short id and
     return (id, width, height) — the same screenshot://<id> path the UI serves."""
     sid = _uuid.uuid4().hex[:12]
-    _keep(sid, png)
+    _keep(sid, png, owner, session_id)
     w = int.from_bytes(png[16:20], "big") if len(png) > 24 else 0
     h = int.from_bytes(png[20:24], "big") if len(png) > 24 else 0
     return sid, w, h

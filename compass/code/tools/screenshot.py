@@ -39,7 +39,12 @@ class ScreenshotTool(Tool):
         from compass.common.screenshot import capture_cached
 
         try:
-            sid, w, h = await capture_cached(inp.url, full_page=inp.full_page)
+            sid, w, h = await capture_cached(
+                inp.url,
+                full_page=inp.full_page,
+                owner=ctx.owner,
+                session_id=ctx.session_id,
+            )
         except RuntimeError as err:
             yield ToolOutput(str(err), is_error=True)
             return

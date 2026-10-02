@@ -309,8 +309,36 @@ async def delete_memory(entry_id: str, user: str = Depends(require_user)) -> dic
 
 
 @router.get("/v1/screenshot-cache/{shot_id}")
-async def screenshot_cache(shot_id: str) -> Response:
-    """Serve a cached agent screenshot (referenced by screenshot://<id>)."""
+async def screenshot_cache(
+    shot_id: str, user: str = Depends(require_user)
+) -> Response:
+    """Serve a cached agent screenshot (referenced by screenshot://<id>).
+
+    Behind the login, unlike the drawn-picture route below. A screenshot is
+    whatever the agent's browser was looking at — a staging site, a signed-in
+    page, a console — which is a different kind of thing from a picture
+    somebody asked a model to draw, and the id is only twelve hex characters,
+    so it leans on the login rather than on being unguessable.
+
+    It can afford to: these are rendered by `<img src>` in the chat itself,
+    on the app's own origin, so the session cookie is sent. The design canvas
+    is the case that cannot, and nothing puts a screenshot there.
+
+    Logged in is not the same as entitled, so the owner recorded when the shot
+    was taken is checked too. Missing from the index, or recorded with no
+    owner, still serves — that is the rule the rest of the stores follow, and
+    the alternative is blanking the pictures out of conversations somebody
+    already has open.
+    """
+    from compass.common import media_index
+    from compass.common.ownership import visible_to
+
+    owner = await media_index.owner_of(f"screenshots/{shot_id}.png")
+    if owner and not visible_to(user, owner):
+        # Someone else's. 404 rather than 403: whether a given id exists is
+        # not this caller's business either.
+        raise HTTPException(status_code=404, detail="screenshot expired")
+
     from compass.common.screenshot import get_cached
 
     png = get_cached(shot_id)
@@ -334,6 +362,19 @@ async def generated_image(name: str) -> Response:
     referenced by `<img src>` from inside a design's markup — which is
     rendered in a sandboxed iframe that carries no cookies, so a route that
     required the session cookie would simply show a broken image.
+    `sandbox="allow-scripts allow-popups"` gives that frame an opaque origin
+    and so a null site-for-cookies, and a SameSite=Lax cookie is withheld from
+    a request made in one. Reasoned from the cookie rules rather than measured:
+    a loopback harness cannot show it, because an opaque-origin document there
+    is refused the request before a cookie is ever considered.
+
+    So the URL is the credential, and the honest limit of that is worth
+    writing down: anyone holding one of these links can fetch the picture
+    without logging in, and a link does not expire. 128 bits is not guessable,
+    but it is copyable — out of a log, a referrer, a shared screen. Drawn
+    pictures are what somebody asked a model to make; put nothing here that
+    the login is the only thing protecting. Screenshots, which are, are served
+    by the route above instead.
 
     Cached hard. The bytes never change: a new picture is a new id.
     """

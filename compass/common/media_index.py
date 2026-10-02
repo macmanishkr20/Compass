@@ -88,6 +88,24 @@ async def for_owner(owner: str, *, session_id: str = "") -> list[dict]:
     return rows
 
 
+async def owner_of(blob_name: str) -> str | None:
+    """Who the bytes at `blob_name` belong to, or None if nothing is on record.
+
+    None and "" are different answers and the caller must treat them so. ""
+    is a row that exists and names nobody — legacy, from before owners were
+    written down. None is no row at all, which is the same thing a typo gets.
+
+    A scan rather than a lookup, because the index is partitioned by owner and
+    the owner is the question. It is cheap anyway: `all()` is held in memory
+    per event loop and refreshed only when something is written, so this costs
+    one dictionary comparison per row after the first call.
+    """
+    for row in await _media.all():
+        if row.get("blob_name") == blob_name:
+            return str(row.get("owner") or "")
+    return None
+
+
 async def for_session(session_id: str) -> list[dict]:
     """Everything made in one conversation, newest first.
 

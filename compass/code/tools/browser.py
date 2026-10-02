@@ -138,7 +138,7 @@ class BrowserTool(Tool):
             png = await browser.screenshot()
         except Exception:  # noqa: BLE001
             return ""
-        sid, _w, _h = store_png(png)
+        sid, _w, _h = store_png(png, owner=ctx.owner, session_id=ctx.session_id)
         ctx.pending_vision.append(
             "data:image/png;base64," + base64.b64encode(png).decode()
         )
