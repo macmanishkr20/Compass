@@ -360,8 +360,22 @@ async def delete_session(
 ) -> dict:
     await _owned_session(session_id, user)
     await _known_session(session_id)
+    meta = await engine.meta.get(session_id)
+    title = getattr(meta, "title", "") or ""
     await engine.delete_session(session_id)
+    # The screenshots this session took and the pictures it drew. Home has
+    # done this since its media moved to blob; Code never did, so every shot
+    # an agent took outlived the conversation that explains it, under a name
+    # nothing could look up.
+    from compass.common import audit, media_index
+
+    tally = await media_index.purge_session(session_id)
     sessions.pop(session_id, None)
+    await audit.note_deletion(
+        module="code", kind="session", record_id=session_id,
+        owner=owner_for(user), session_id=session_id, title=title,
+        removed={"transcript": True, "meta": True, **tally},
+    )
     return {"deleted": session_id}
 
 

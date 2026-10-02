@@ -294,5 +294,24 @@ async def delete_mission(mission_id: str, user: str = Depends(require_user)) -> 
     if get_runners().running(mission_id):
         raise HTTPException(status_code=409,
                             detail="stop the mission before deleting it")
-    await _mission_or_404(mission_id, user)
-    return {"deleted": await get_mission_store().delete(mission_id)}
+    mission = await _mission_or_404(mission_id, user)
+    from compass.common import audit, media_index
+    from compass.common.ownership import owner_for
+
+    # Anything its sessions drew or captured. The workspace on disk is left
+    # exactly where it is — see MissionStore.delete; deleting somebody's code
+    # because they closed a job is not a thing this gets to decide — so the
+    # note says so rather than implying everything went.
+    tally = {}
+    for index in range(1, len(mission.sessions) + 1):
+        for key, value in (await media_index.purge_session(
+                f"{mission.id}-{index}")).items():
+            tally[key] = tally.get(key, 0) + value
+    deleted = await get_mission_store().delete(mission_id)
+    await audit.note_deletion(
+        module="missions", kind="mission", record_id=mission_id,
+        owner=owner_for(user), title=mission.goal[:200],
+        removed={"mission": deleted, "workspace_kept": str(mission.workspace),
+                 "sessions": len(mission.sessions), **tally},
+    )
+    return {"deleted": deleted}

@@ -529,18 +529,31 @@ async def patch_chat_session(
 async def delete_chat_session(session_id: str, user: str = Depends(require_user)) -> dict:
     await _owned_chat(session_id, user)
     await _known_chat(session_id)
+    # Read before it is gone: the audit note keeps the label, because an id
+    # alone answers nothing three months later.
+    title = next(
+        (c.get("title", "") for c in await chat_engine.store.list_cards()
+         if c.get("id") == session_id),
+        "",
+    )
     await chat_engine.store.delete(session_id)
     # The uploads go with the thread, which is what media.py has always said
     # and did not do. Here rather than in either store, so it happens once
     # whichever backend holds the transcript — and it clears both the stored
     # copy and the one on disk.
     await media.forget(session_id)
-    # And the rows that described them, so the index does not outlive the
-    # conversation it was describing.
-    from compass.common import media_index
+    # And the pictures, films and rows that described them — bytes included.
+    # `forget_session` only dropped the index, which left every drawn picture
+    # and screenshot in blob storage with nothing able to name it again.
+    from compass.common import audit, media_index
 
-    await media_index.forget_session(session_id)
+    tally = await media_index.purge_session(session_id)
     chat_sessions.pop(session_id, None)
+    await audit.note_deletion(
+        module="home", kind="conversation", record_id=session_id,
+        owner=owner_for(user), session_id=session_id, title=title,
+        removed={"transcript": True, "uploads": True, **tally},
+    )
     return {"deleted": session_id}
 
 
@@ -646,7 +659,15 @@ async def edit_prompt(prompt_id: str, body: SavePromptRequest,
 async def delete_prompt(prompt_id: str, user: str = Depends(require_user)) -> dict:
     from compass.home.prompts import get_prompt_library
 
-    return {"deleted": await get_prompt_library().delete(prompt_id, owner_for(user))}
+    from compass.common import audit
+
+    gone = await get_prompt_library().delete(prompt_id, owner_for(user))
+    if gone:
+        await audit.note_deletion(
+            module="home", kind="prompt", record_id=prompt_id,
+            owner=owner_for(user), removed={"prompt": True},
+        )
+    return {"deleted": gone}
 
 
 @router.post("/prompts/sharpen")

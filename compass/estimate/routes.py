@@ -411,5 +411,14 @@ async def export_excel(estimate_id: str,
 @router.delete("/v1/estimates/{estimate_id}")
 async def delete_estimate(estimate_id: str,
                           user: str = Depends(require_user)) -> dict:
-    await _owned_estimate(estimate_id, user)
-    return {"deleted": await estore.estimates.delete(estimate_id)}
+    record = await _owned_estimate(estimate_id, user)
+    deleted = await estore.estimates.delete(estimate_id)
+    from compass.common import audit
+    from compass.common.ownership import owner_for
+
+    await audit.note_deletion(
+        module="estimate", kind="estimate", record_id=estimate_id,
+        owner=owner_for(user), title=getattr(record, "name", "") or "",
+        removed={"estimate": deleted},
+    )
+    return {"deleted": deleted}

@@ -103,7 +103,7 @@ def _use_cosmos() -> bool:
     return cfg.backend == "cosmos" and cfg.cosmos_configured
 
 
-async def _container(name: str, pk_path: str) -> Any:
+async def _container(name: str, pk_path: str, *, default_ttl: int | None = None) -> Any:
     """One container, created on first use and then reused.
 
     `create_container_if_not_exists` is deliberate rather than an assumption
@@ -131,11 +131,18 @@ async def _container(name: str, pk_path: str) -> Any:
             )
         db = await state["client"].create_database_if_not_exists(cfg.cosmos_database)
         pk = PartitionKey(path=pk_path)
+        # `default_ttl=-1` turns expiry on without expiring anything by
+        # default, which is what lets a single document ask to be forgotten
+        # by carrying its own `ttl`. Without it on the container, a `ttl` on
+        # an item is ignored and the row would simply never go away.
+        extra = {} if default_ttl is None else {"default_ttl": default_ttl}
         try:
-            container = await db.create_container_if_not_exists(id=name, partition_key=pk)
+            container = await db.create_container_if_not_exists(
+                id=name, partition_key=pk, **extra
+            )
         except TypeError:  # older SDKs want throughput named for provisioned
             container = await db.create_container_if_not_exists(
-                id=name, partition_key=pk, offer_throughput=400
+                id=name, partition_key=pk, offer_throughput=400, **extra
             )
         containers[name] = container
         return container

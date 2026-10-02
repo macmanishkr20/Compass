@@ -380,6 +380,11 @@ class RunStore(_JsonStore):
     async def save(self, run: PipelineRun) -> None:
         await self._write(run.id, run.to_dict())
 
+    async def delete(self, run_id: str) -> bool:
+        """Drop one run. Needed because deleting a pipeline deletes its
+        history, and until now there was no way to remove a run at all."""
+        return await self._delete(run_id)
+
 
 pipelines = PipelineStore()
 connections = ConnectionStore()

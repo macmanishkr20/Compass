@@ -349,13 +349,24 @@ async def design_patch(
 
 @router.delete("/v1/design/projects/{project_id}")
 async def design_delete(project_id: str, user: str = Depends(require_user)) -> dict:
-    await _owned_project(project_id, user)
+    project = await _owned_project(project_id, user)
+    from compass.common import audit, media_index
     from compass.design import files as design_files
     from compass.design.store import get_design_store
 
+    # The artwork drawn into this design. The store already takes the markup
+    # and the history with it; the pictures are addressed by their own random
+    # ids and nothing else can reach them once the design is gone.
+    tally = await media_index.purge_session(project_id)
     deleted = await get_design_store().delete(project_id)
     if deleted:
         design_files.delete_project(project_id)
+    await audit.note_deletion(
+        module="design", kind="project", record_id=project_id,
+        owner=owner_for(user), session_id=project_id,
+        title=(project or {}).get("name", "") if isinstance(project, dict) else "",
+        removed={"project": deleted, "markup": deleted, "files": deleted, **tally},
+    )
     return {"deleted": deleted}
 
 

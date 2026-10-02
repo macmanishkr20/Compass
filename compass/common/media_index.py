@@ -149,3 +149,49 @@ async def forget_session(session_id: str) -> int:
         except Exception:  # noqa: BLE001 — best-effort, like the rest
             logger.debug("could not drop media row %s", row.get("id"))
     return gone
+
+
+async def purge_session(session_id: str) -> dict:
+    """Delete a conversation's stored media outright — bytes and rows.
+
+    `forget_session` drops the index and leaves the blobs, which is right
+    when something else is already removing them: a thread's uploads live
+    under a path its own module deletes wholesale. It is wrong for everything
+    else, because a drawn picture and a screenshot are named by a random id
+    and nothing else knows where they are. Dropping only the row makes them
+    unreachable and permanent at the same time — paid for, forever, by
+    nobody who can find them.
+
+    Returns a tally of what went, for the audit note. Best-effort throughout:
+    a blob that refuses to delete must not stop the rest, and the row goes
+    regardless, since a row pointing at bytes nobody can serve is worse than
+    no row.
+    """
+    rows = await for_session(session_id)
+    tally = {"media_rows": 0, "blobs": 0, "blob_failures": 0}
+    if not rows:
+        return tally
+    container = None
+    try:
+        from compass.common.persistence import blob
+
+        if blob.enabled():
+            container = blob.container("compass-media")
+    except Exception:  # noqa: BLE001 — no blob configured, or unreachable
+        logger.debug("no blob container for the media purge")
+
+    for row in rows:
+        name = str(row.get("blob_name") or "")
+        if container is not None and name:
+            try:
+                container.delete_blob(name)
+                tally["blobs"] += 1
+            except Exception:  # noqa: BLE001 — already gone counts as gone
+                tally["blob_failures"] += 1
+                logger.debug("could not delete blob %s", name)
+        try:
+            if await _media.remove(str(row["id"])):
+                tally["media_rows"] += 1
+        except Exception:  # noqa: BLE001
+            logger.debug("could not drop media row %s", row.get("id"))
+    return tally

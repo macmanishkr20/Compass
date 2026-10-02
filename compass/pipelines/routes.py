@@ -218,8 +218,27 @@ async def patch_pipeline(pipeline_id: str, body: PipelinePatch,
 @router.delete("/v1/pipelines/{pipeline_id}")
 async def delete_pipeline(pipeline_id: str,
                           user: str = Depends(require_user)) -> dict:
-    await _owned_pipeline(pipeline_id, user)
-    return {"deleted": await pstore.pipelines.delete(pipeline_id)}
+    pipeline = await _owned_pipeline(pipeline_id, user)
+    # The run history goes with the pipeline. It never did: runs partition by
+    # the pipeline they belong to, so deleting the definition left a whole
+    # partition of records describing something that no longer exists, which
+    # nothing lists and nothing cleans up.
+    runs = 0
+    for run in await pstore.runs.list(pipeline_id, limit=1_000_000):
+        try:
+            if await pstore.runs.delete(run.id):
+                runs += 1
+        except Exception:  # noqa: BLE001 — one stubborn run is not the delete
+            logger.warning("could not delete run %s of %s", run.id, pipeline_id)
+    deleted = await pstore.pipelines.delete(pipeline_id)
+    from compass.common import audit
+
+    await audit.note_deletion(
+        module="pipelines", kind="pipeline", record_id=pipeline_id,
+        owner=owner_for(user), title=getattr(pipeline, "name", ""),
+        removed={"pipeline": deleted, "runs": runs},
+    )
+    return {"deleted": deleted}
 
 
 @router.post("/v1/pipelines/{pipeline_id}/validate")

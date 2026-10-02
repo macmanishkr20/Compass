@@ -495,6 +495,17 @@ class StorageSettings(BaseModel):
     # Blob storage for large artifacts (tool-result spills). Empty = local disk.
     blob_connection_string: str = ""
     blob_container: str = "compass-artifacts"
+    # Where a record of what was deleted goes, and for how long it is kept.
+    # Deleting means deleting — the rows and the bytes go — so what is left
+    # behind is a note that it happened: who, what, which conversation, when
+    # and what went with it. Never the content itself.
+    #
+    # Cosmos expires these rows itself, from the per-item `ttl` this number
+    # becomes, so nothing has to run a sweep. Months rather than days because
+    # that is how retention is written down in the policies this answers to;
+    # `COMPASS_AUDIT_RETENTION_MONTHS=0` keeps them forever.
+    cosmos_audit_container: str = "audit"
+    audit_retention_months: float = 3.0
 
     @property
     def cosmos_configured(self) -> bool:
@@ -980,6 +991,17 @@ def get_settings() -> Settings:
         "AZURE_STORAGE_CONNECTION_STRING", storage.blob_connection_string
     )
     storage.blob_container = os.environ.get("AZURE_STORAGE_CONTAINER", storage.blob_container)
+    storage.cosmos_audit_container = os.environ.get(
+        "COMPASS_AUDIT_CONTAINER", storage.cosmos_audit_container
+    )
+    if months := os.environ.get("COMPASS_AUDIT_RETENTION_MONTHS"):
+        try:
+            storage.audit_retention_months = max(0.0, float(months))
+        except ValueError:
+            logger.warning(
+                "COMPASS_AUDIT_RETENTION_MONTHS is not a number; keeping %s",
+                storage.audit_retention_months,
+            )
     storage.cosmos_meta_container = os.environ.get(
         "AZURE_COSMOS_META_CONTAINER", storage.cosmos_meta_container
     )
