@@ -848,6 +848,7 @@
       (switchToAgent)="enterCode()"
       (sessionCreated)="onHomeSessionCreated($event)"
       (startNewThread)="homeActiveId.set(null)"
+      (gone)="onHomeConversationGone($event)"
       (loadingChanged)="homeLoadingId.set($event)"
       (threadChanged)="loadHomeSessions()" />
 

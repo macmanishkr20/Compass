@@ -166,6 +166,11 @@ export class HomeChat {
    *  thread is an input, so clearing it is the parent's to do. */
   readonly startNewThread = output<void>();
 
+  /** This thread is not there — deleted, or never this account's. Same reason
+   *  as above: the active thread is an input, so the parent has to be the one
+   *  to stop pointing at it and to drop the row from its list. */
+  readonly gone = output<string>();
+
   /** Which thread is being fetched, or "" — for the sidebar, which lives in
    *  the parent and otherwise has no way to know that the row just clicked
    *  is still waiting on the network. */
@@ -817,6 +822,17 @@ export class HomeChat {
       // before, and only one of them is worth pressing Try again on.
       if (this.loadedId !== id) return;
       this.messages.set([]);
+      // Unless there is no such conversation. The card says the store did not
+      // answer and the conversation is still there, and for a 404 both halves
+      // are untrue: it is gone, or it was somebody else's and the server is
+      // right to refuse it. Trying again cannot help, so the thread simply
+      // resets to an empty one — which is what a new conversation looks like,
+      // and what somebody signing in to a fresh account should see.
+      if ((err as { status?: number })?.status === 404) {
+        this.resetThread();
+        this.gone.emit(id);
+        return;
+      }
       this.loadError.set({ id, detail: describeHttpError(err) });
     } finally {
       clearTimeout(slow);

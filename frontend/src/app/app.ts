@@ -487,6 +487,15 @@ export class App {
     this.section.set('home');
     this.homeActiveId.set(id);
   }
+  /** A conversation the chat tried to open is not there — deleted elsewhere,
+   *  or belonging to an account that is no longer the one signed in. Stop
+   *  pointing at it and take the row out of the list, rather than leaving a
+   *  highlighted row that cannot be opened. */
+  onHomeConversationGone(id: string): void {
+    if (this.homeActiveId() === id) this.homeActiveId.set(null);
+    this.homeSessions.update((cards) => cards.filter((c) => c.id !== id));
+  }
+
   /** The HomeChat created a fresh session on its first message. */
   onHomeSessionCreated(id: string): void {
     this.homeActiveId.set(id);
@@ -1661,6 +1670,11 @@ export class App {
     );
     if (ok) {
       this.loginPassword.set('');
+      // Again here, not only on the way out. A session that expired never ran
+      // `signOut`, so the screen still holds the previous person's lists when
+      // the login panel appears over them — and whoever signs in next would
+      // inherit them.
+      this.forgetTheLastUser();
       await this.enterWorkspace();
     }
   }
@@ -1675,10 +1689,43 @@ export class App {
   signOut(): void {
     this.userMenuOpen.set(false);
     void this.auth.logout();
+    this.forgetTheLastUser();
+  }
+
+  /** Drop everything on screen that belonged to whoever was signed in.
+   *
+   *  Signing out does not reload the page, so without this the next person to
+   *  sign in inherits the last one's view: their conversation titles still in
+   *  the sidebar, and `homeActiveId` still pointing at a thread that is not
+   *  theirs — which the server then refuses, and the screen reports as a
+   *  failure to load. Only Code's three signals were being cleared here, so
+   *  Home kept all of it.
+   *
+   *  The server is the boundary and always was; this is the screen catching
+   *  up with it. Lists are emptied rather than re-fetched: there is nobody to
+   *  fetch them for until somebody signs in, and `enterWorkspace` loads them
+   *  again when they do.
+   */
+  private forgetTheLastUser(): void {
+    // Code
     this.sessionId.set(null);
     this.timeline.set([]);
     this.usage.set(null);
     this.cards.set([]);
+    this.sessionsError.set('');
+    this.routines.set([]);
+    // Home
+    this.homeActiveId.set(null);
+    this.homeSessions.set([]);
+    this.homeSessionsError.set('');
+    this.homeLoadingId.set('');
+    this.homeLimit.set(CONV_PAGE);
+    this.homeMenuOpenId.set(null);
+    this.homeRenamingId.set(null);
+    // Everything else the shell holds on somebody's behalf
+    this.workspaces.set([]);
+    this.missionOffer.set(null);
+    this.missionError.set('');
   }
 
   /** Short repo name for the composer status bar — the git remote's basename
