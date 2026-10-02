@@ -877,6 +877,12 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .pl-btn:hover:not(:disabled) { border-color: var(--border-strong); }
 .pl-btn:disabled { opacity: 0.45; cursor: default; }
 .pl-btn svg { width: 14px; height: 14px; }
+/* In the library's header the action sits beside the close button, so it
+   carries its own outline to read as a button rather than as a second
+   heading, and shrinks to leave the title the room. */
+.pl-head-acts { display: inline-flex; align-items: center; gap: 6px; }
+.pl-btn.small { padding: 5px 10px; font-size: 0.78rem; }
+.pl-head-acts .pl-btn.ghost { border-color: var(--border); color: var(--ink); }
 .pl-btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .pl-btn.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
 .pl-btn.primary {

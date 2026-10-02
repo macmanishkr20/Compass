@@ -670,6 +670,29 @@ async def delete_prompt(prompt_id: str, user: str = Depends(require_user)) -> di
     return {"deleted": gone}
 
 
+class RefineRequest(BaseModel):
+    text: str = Field(description="The saved prompt, as it stands.")
+    title: str = Field(default="", description="Its current title, if it has one.")
+
+
+@router.post("/prompts/refine")
+async def refine_prompt(body: RefineRequest,
+                        user: str = Depends(require_user)) -> dict:
+    """A better-written version of one saved prompt, from the prompt alone.
+
+    The sibling of `/prompts/sharpen`, and deliberately a separate route
+    rather than a flag on it. Sharpening merges a thread out of the
+    conversation a prompt came from; that is the right offer while saving
+    and a meaningless one afterwards, when the prompt is opened from the
+    library and there is no conversation in front of it.
+
+    Always answers: on any failure it returns the prompt it was given.
+    """
+    from compass.home.prompts import refine
+
+    return await refine(body.text, body.title)
+
+
 @router.post("/prompts/sharpen")
 async def sharpen_prompt(body: SharpenRequest,
                          user: str = Depends(require_user)) -> dict:

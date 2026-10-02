@@ -542,6 +542,124 @@ async def sharpen(text: str, context: str = "",
             "used": [anchor] if anchor else []}
 
 
+#: Rewriting one prompt on its own terms. Deliberately not SHARPEN_SYSTEM:
+#: that one selects a thread out of a conversation and merges it, which is
+#: the right job when a prompt is first saved and the wrong one afterwards.
+#: A prompt already in the library has no conversation behind it any more —
+#: the only material is the prompt itself.
+REFINE_SYSTEM = """You improve a single saved prompt so that it works better
+when it is used to start a new conversation.
+
+The prompt is the whole input. There is no conversation to draw on and
+nothing to merge. Work only with what is in front of you.
+
+WHAT TO DO:
+
+  * Keep what the person is asking for exactly as they meant it. This is the
+    one rule that outranks the others. A clearer prompt that asks for
+    something different is a failure, however well written.
+  * Make it self-contained, so it reads correctly with no prior context.
+  * Say what good output looks like when the prompt implies it and does not
+    say it: the form (a list, a table, a draft, a short answer), the
+    audience, the tone, the length. Add these only when they are genuinely
+    implied — inventing requirements is changing the request.
+  * Keep the person's voice. A prompt written in the first person about
+    their own day stays in the first person. Do not make it corporate, do
+    not pad it, do not add flattery or preamble.
+  * Keep it tight. A prompt that has doubled in length is usually worse.
+    Most good prompts here are one to four sentences.
+
+WHAT NOT TO DO:
+
+  * Do not answer the prompt. You are rewriting the request, not fulfilling
+    it.
+  * Do not add placeholders like [insert topic] unless the original already
+    had one.
+  * Do not add a greeting, a sign-off, or "please".
+  * If the prompt is already clear, self-contained and specific, return it
+    essentially unchanged. Saying so with a near-identical answer is a
+    correct outcome; changing it for the sake of changing it is not.
+
+Be careful not to read that last rule as a reason to do nothing. A vague
+prompt is not a clear one, and leaving it vague is the common failure here.
+Where the subject is fixed but the shape of the answer is not, settling the
+shape is exactly the improvement being asked for — that is not inventing a
+requirement, it is spelling out what was already implied.
+
+Two worked examples.
+
+  Vague in, specific out:
+    "write something about our quarter"
+  becomes
+    "Write a short summary of how our last quarter went. Cover what we
+    shipped, how we did against the targets we set, and the one or two
+    things that most need attention next quarter. Keep it to a few
+    paragraphs, plain and factual, for an internal audience."
+
+  Already good, so barely touched:
+    "Ask how I'm doing today and offer to either listen while I vent or
+    help me tackle one small nagging task."
+  becomes essentially itself. It is specific, self-contained, and in the
+  person's own voice. Tightening the wording slightly is fine; restructuring
+  it, formalising it, or bolting requirements onto it is not.
+
+Also give it a short title — at most a few words, naming what the prompt is
+for, in the person's own register.
+
+Answer with JSON only, and nothing else:
+
+{"title": "...", "text": "..."}
+"""
+
+
+async def refine(text: str, title: str = "") -> dict:
+    """A better-written version of one saved prompt, and a title for it.
+
+    The counterpart to `sharpen`, for a prompt that is already in the
+    library. Sharpening reaches into the conversation a prompt came from;
+    once it is saved that conversation is no longer the point, and on a
+    prompt opened from the library it is usually not even there. This reads
+    the prompt alone.
+
+    Returns the original on any failure, for the same reason `sharpen` does:
+    it sits behind an optional button, and somebody who asked for a tidy-up
+    should be left with their own words rather than an error.
+    """
+    from compass.common.gateway.azure_client import get_model_client
+
+    text = _clean(text, MAX_TEXT)
+    if not text:
+        return {"title": _clean(title, MAX_TITLE), "text": ""}
+
+    ask = f"The saved prompt to improve:\n{text}"
+    if title.strip():
+        ask += f"\n\nIts current title: {_clean(title, MAX_TITLE)}"
+
+    try:
+        collected = ""
+        async for item in get_model_client().stream_chat(
+            [{"role": "system", "content": REFINE_SYSTEM},
+             {"role": "user", "content": ask}],
+            max_output_tokens=900,
+            # The same reasoning as in `sharpen`: the weakest level both
+            # deployed model families accept.
+            effort="low",
+        ):
+            collected += getattr(item, "text", "") or ""
+        parsed = _parse(collected)
+        if parsed:
+            parsed.pop("used", None)
+            parsed["text"] = _strip_opener(parsed["text"])
+            if not is_opener(parsed["text"]):
+                return {"title": parsed["title"], "text": parsed["text"]}
+            logger.info("refining returned an opener; keeping the original")
+        else:
+            logger.info("prompt refining returned nothing usable")
+    except Exception:  # noqa: BLE001 — an optional nicety must not fail an edit
+        logger.exception("prompt refining failed")
+    return {"title": _clean(title, MAX_TITLE) or _title_from(text), "text": text}
+
+
 def _strip_opener(text: str) -> str:
     """Drop a greeting the model put at the front of an otherwise good prompt.
 

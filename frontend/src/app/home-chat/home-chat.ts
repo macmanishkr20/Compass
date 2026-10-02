@@ -286,6 +286,11 @@ export class HomeChat {
     title: string;
     text: string;
     original: string;    // what was typed, so a sharpen can be undone
+    originalTitle: string; // ...and the title, which refining also rewrites
+    /** Opened from a message in this conversation, so there is a thread
+     *  behind it to merge. A prompt written or edited in the library has
+     *  no anchor and nothing to read, whatever is on screen. */
+    fromMessage: boolean;
     sharpened: boolean;
     /** Which of the session's prompts were merged, by their number in the
      *  conversation. Shown rather than kept quiet: a prompt assembled out of
@@ -383,6 +388,7 @@ export class HomeChat {
     if (!text) return;
     this.promptError.set('');
     this.saveDialog.set({ id: '', title: '', text, original: text,
+                          originalTitle: '', fromMessage: true,
                           sharpened: false, used: [] });
   }
 
@@ -390,7 +396,7 @@ export class HomeChat {
     this.promptError.set('');
     this.saveDialog.set({
       id: p.id, title: p.title, text: p.text, original: p.text,
-      sharpened: false, used: [],
+      originalTitle: p.title, fromMessage: false, sharpened: false, used: [],
     });
   }
 
@@ -434,6 +440,52 @@ export class HomeChat {
     } finally {
       this.sharpening.set(false);
     }
+  }
+
+  /** Ask the model to improve a prompt that is already saved.
+   *
+   *  Separate from `sharpen` because the material is different, not because
+   *  the wording is. Sharpening merges the thread a prompt came out of; a
+   *  prompt opened from the library has no thread in front of it, and
+   *  offering to build one from "this session" when the session is a blank
+   *  Home screen promises something it cannot do. This reads the prompt.
+   *
+   *  A suggestion, like sharpening: it lands in the boxes and "Use what I
+   *  had" puts the person's own words back. */
+  async refine(): Promise<void> {
+    const d = this.saveDialog();
+    if (!d || this.sharpening()) return;
+    this.sharpening.set(true);
+    this.promptError.set('');
+    try {
+      const res = await this.api.refinePrompt(d.text, d.title);
+      this.saveDialog.set({
+        ...d,
+        // `original` is deliberately left alone: it is what the person had
+        // before any of this, and refining twice must still be undoable
+        // back to that rather than to the previous machine answer.
+        title: res.title || d.title,
+        text: res.text || d.text,
+        sharpened: true,
+        used: [],
+      });
+    } catch (err) {
+      this.promptError.set(describeHttpError(err));
+    } finally {
+      this.sharpening.set(false);
+    }
+  }
+
+  /** Open the editor on a blank prompt, from the library itself — so the
+   *  library is somewhere to write one, not only somewhere they arrive. */
+  newSavedPrompt(): void {
+    this.promptError.set('');
+    this.returnToLibrary = this.libraryOpen();
+    this.libraryOpen.set(false);
+    this.saveDialog.set({
+      id: '', title: '', text: '', original: '', originalTitle: '',
+      fromMessage: false, sharpened: false, used: [],
+    });
   }
 
   /** Everything this answer cited, for the strip under it.
@@ -534,7 +586,16 @@ export class HomeChat {
   /** Put back what was typed, if the rewrite went somewhere they did not mean. */
   undoSharpen(): void {
     const d = this.saveDialog();
-    if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false, used: [] });
+    if (!d) return;
+    // The title comes back only for a refine. Sharpening never rewrote it,
+    // so restoring it there would undo something the person typed.
+    this.saveDialog.set({
+      ...d,
+      text: d.original,
+      title: d.fromMessage ? d.title : (d.originalTitle || d.title),
+      sharpened: false,
+      used: [],
+    });
   }
 
   /** The conversation to reason over, oldest first.

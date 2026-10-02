@@ -666,6 +666,19 @@ export class CompassApiService {
     );
   }
 
+  /** A better-written version of a prompt already in the library, from the
+   *  prompt alone — no conversation, because an edited prompt no longer has
+   *  one. Always resolves: the server returns the original on any failure. */
+  refinePrompt(
+    text: string,
+    title = '',
+  ): Promise<{ title: string; text: string }> {
+    return firstValueFrom(
+      this.http.post<{ title: string; text: string }>(
+        '/v1/chat/prompts/refine', { text, title }),
+    );
+  }
+
   // -- realtime voice mode (Azure OpenAI Realtime / WebRTC) -----------------
   voiceStatus(): Promise<{ available: boolean }> {
     return firstValueFrom(this.http.get<{ available: boolean }>('/v1/chat/voice'));
