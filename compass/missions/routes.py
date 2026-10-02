@@ -34,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from compass.common.auth import require_user
+from compass.common.ownership import owned, visible_to
 from compass.common.config import get_settings
 from compass.common.gateway import limits
 from compass.common.models.events import ErrorEvent
@@ -70,9 +71,20 @@ class CreateMissionRequest(BaseModel):
                     "runs only when asked.")
 
 
-async def _mission_or_404(mission_id: str) -> Mission:
+async def _mission_or_404(mission_id: str, user: str = "") -> Mission:
+    """The mission, if this person may see it.
+
+    Every route that touches one mission comes through here, which is why the
+    check lives here and not in each of them: reading it, running it, watching
+    it, aborting it and deleting it are all the same question about the same
+    record, and five copies of an answer is five chances to miss one.
+
+    Not theirs reads as not there. A 403 would confirm the mission exists to
+    somebody who has no business knowing even that, and the id is the only
+    thing they would need to ask again.
+    """
     mission = await get_mission_store().get(mission_id)
-    if mission is None:
+    if mission is None or not visible_to(user, mission.owner):
         raise HTTPException(status_code=404, detail="unknown mission")
     return mission
 
@@ -185,12 +197,13 @@ async def create_mission(body: CreateMissionRequest,
 
 @router.get("")
 async def list_missions(user: str = Depends(require_user)) -> dict:
-    return {"missions": [_view(m) for m in await get_mission_store().list()]}
+    return {"missions": [_view(m)
+                         for m in owned(await get_mission_store().list(), user)]}
 
 
 @router.get("/{mission_id}")
 async def get_mission(mission_id: str, user: str = Depends(require_user)) -> dict:
-    return _view(await _mission_or_404(mission_id), features=True)
+    return _view(await _mission_or_404(mission_id, user), features=True)
 
 
 @router.post("/{mission_id}/run")
@@ -205,7 +218,7 @@ async def run_mission(mission_id: str, force: bool = False,
     — a stall, repeated failures, the session cap. It buys one more session,
     never a finished or overspent mission, and never more than one.
     """
-    mission = await _mission_or_404(mission_id)
+    mission = await _mission_or_404(mission_id, user)
     runners = get_runners()
     store = get_mission_store()
     # A mission already running is a second window onto it, not a new start,
@@ -239,7 +252,7 @@ async def stream_mission(mission_id: str,
     the events it has in hand and closes, rather than hanging on a stream that
     will never produce anything.
     """
-    await _mission_or_404(mission_id)
+    await _mission_or_404(mission_id, user)
     run = get_runners().get(mission_id)
     if run is None:
         raise HTTPException(status_code=404, detail="this mission is not running")
@@ -269,7 +282,7 @@ def _watch(run, *, replay: bool) -> StreamingResponse:
 
 @router.post("/{mission_id}/abort")
 async def abort_mission(mission_id: str, user: str = Depends(require_user)) -> dict:
-    await _mission_or_404(mission_id)
+    await _mission_or_404(mission_id, user)
     if not get_runners().abort(mission_id):
         return {"aborted": False, "detail": "not running"}
     # After the session in flight, not during it: see Supervisor.abort.
@@ -281,5 +294,5 @@ async def delete_mission(mission_id: str, user: str = Depends(require_user)) -> 
     if get_runners().running(mission_id):
         raise HTTPException(status_code=409,
                             detail="stop the mission before deleting it")
-    await _mission_or_404(mission_id)
+    await _mission_or_404(mission_id, user)
     return {"deleted": await get_mission_store().delete(mission_id)}
