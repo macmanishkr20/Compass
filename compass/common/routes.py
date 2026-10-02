@@ -315,6 +315,12 @@ async def screenshot_cache(shot_id: str) -> Response:
 
     png = get_cached(shot_id)
     if png is None:
+        # Not in memory: a restart, or forty shots ago. The durable copy is
+        # what makes a reopened conversation still have its pictures.
+        from compass.common.screenshot import load_stored
+
+        png = await load_stored(shot_id)
+    if png is None:
         raise HTTPException(status_code=404, detail="screenshot expired")
     return Response(content=png, media_type="image/png")
 

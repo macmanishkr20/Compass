@@ -212,6 +212,29 @@ def _put_sync(name: str, raw: bytes, content_type: str) -> None:
     )
 
 
+async def store_bytes(name: str, raw: bytes) -> bool:
+    """Put arbitrary image bytes under `name`, for anything that makes a
+    picture some other way — the screenshot tool, which has one already and
+    only needs it to outlive the process. Same two places, same order."""
+    ok = False
+    try:
+        await asyncio.to_thread(
+            (_local_dir() / name.split("/", 1)[-1]).write_bytes, raw
+        )
+        ok = True
+    except OSError as err:
+        logger.warning("could not keep %s locally: %s", name, err)
+    from compass.common.persistence import blob
+
+    if blob.enabled():
+        try:
+            await asyncio.to_thread(_put_sync, name, raw, "image/png")
+            ok = True
+        except Exception as err:  # noqa: BLE001
+            logger.warning("could not store %s: %s", name, err)
+    return ok
+
+
 async def _store(raw: bytes, ext: str) -> str:
     """Put the picture where a browser can fetch it. Returns a URL, or "".
 
