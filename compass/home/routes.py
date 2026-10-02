@@ -590,14 +590,14 @@ async def list_prompts(user: str = Depends(require_user)) -> dict:
     from compass.home.prompts import ON_SCREEN, get_prompt_library
 
     library = get_prompt_library()
-    rows = await library.list()
+    rows = await library.list(owner_for(user))
     return {
         "prompts": [r.to_dict() for r in rows],
         "on_screen": ON_SCREEN,
         # The arrangement, if one was ever set. Sent alongside rather than
         # applied here: it also covers the client's own built-in starters,
         # which the server has never seen.
-        "order": await library.order(),
+        "order": await library.order(owner_for(user)),
     }
 
 
@@ -613,7 +613,7 @@ async def set_prompt_order(body: PromptOrderRequest,
     """
     from compass.home.prompts import get_prompt_library
 
-    return {"order": await get_prompt_library().set_order(body.order)}
+    return {"order": await get_prompt_library().set_order(body.order, owner_for(user))}
 
 
 @router.post("/prompts")
@@ -623,7 +623,8 @@ async def save_prompt(body: SavePromptRequest,
 
     try:
         row = await get_prompt_library().add(
-            title=body.title, text=body.text, session_id=body.session_id)
+            title=body.title, text=body.text, session_id=body.session_id,
+            owner=owner_for(user))
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
     return row.to_dict()
@@ -635,7 +636,7 @@ async def edit_prompt(prompt_id: str, body: SavePromptRequest,
     from compass.home.prompts import get_prompt_library
 
     row = await get_prompt_library().update(
-        prompt_id, title=body.title, text=body.text)
+        prompt_id, title=body.title, text=body.text, owner=owner_for(user))
     if row is None:
         raise HTTPException(status_code=404, detail="no such prompt")
     return row.to_dict()
@@ -645,7 +646,7 @@ async def edit_prompt(prompt_id: str, body: SavePromptRequest,
 async def delete_prompt(prompt_id: str, user: str = Depends(require_user)) -> dict:
     from compass.home.prompts import get_prompt_library
 
-    return {"deleted": await get_prompt_library().delete(prompt_id)}
+    return {"deleted": await get_prompt_library().delete(prompt_id, owner_for(user))}
 
 
 @router.post("/prompts/sharpen")

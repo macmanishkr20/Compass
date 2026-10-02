@@ -21,6 +21,7 @@ rewrite that quietly changes what somebody meant is worse than the original.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -65,6 +66,12 @@ class SavedPrompt:
     #: Where it came from, when it came from a conversation. Kept so a saved
     #: prompt can be traced back to the chat that produced it.
     session_id: str = ""
+    #: Whose library this is in. A saved prompt is a private note in the
+    #: person's own words — more so than most records here, since people
+    #: write them about their own work and their own day — so unlike the
+    #: other stores this one does not fail open on an empty owner. See the
+    #: note on `list`.
+    owner: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -142,8 +149,21 @@ class PromptLibrary:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _order_path(self) -> Path:
-        return self._folder() / "prompt_order.json"
+    def _order_path(self, owner: str = "") -> Path:
+        """Where this person's arrangement is kept.
+
+        One file per person. It was one file for the box, so dragging a row
+        in one account rearranged the next account's list — the arrangement
+        is as personal as the prompts it arranges. The unsuffixed name is
+        kept for the empty owner so an install that never had accounts reads
+        the file it already wrote.
+        """
+        if not owner:
+            return self._folder() / "prompt_order.json"
+        # Hashed rather than spelled out: an owner is an email address, and
+        # that is somebody's identity sitting in a filename on disk.
+        tag = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:16]
+        return self._folder() / f"prompt_order.{tag}.json"
 
     def _clean(self, rows: list[dict]) -> list[SavedPrompt]:
         """Turn stored rows into prompts, dropping what cannot be one."""
@@ -173,11 +193,23 @@ class PromptLibrary:
     async def _read(self) -> list[SavedPrompt]:
         return self._clean(await _prompts().all())
 
-    async def list(self) -> list[SavedPrompt]:
-        rows = await self._read()
+    async def list(self, owner: str = "") -> list[SavedPrompt]:
+        """This person's prompts, newest first.
+
+        An exact match, deliberately, where the rest of Compass treats an
+        empty owner as legacy and shows it to everybody. A prompt is the one
+        thing here somebody writes *about themselves* — "ask how I'm doing
+        today", in their own voice — and showing one person's to the next is
+        a different kind of wrong from showing them a shared pipeline. The
+        cost of being strict is that prompts saved before owners existed stop
+        appearing until `scripts/claim_unowned_prompts.py` names them; the
+        cost of being lax is that they appear for strangers.
+        """
+        rows = [r for r in await self._read() if (r.owner or "") == (owner or "")]
         return sorted(rows, key=lambda r: r.created_at, reverse=True)
 
-    async def add(self, *, title: str, text: str, session_id: str = "") -> SavedPrompt:
+    async def add(self, *, title: str, text: str, session_id: str = "",
+                  owner: str = "") -> SavedPrompt:
         text = _clean(text, MAX_TEXT)
         if not text:
             raise ValueError("a saved prompt needs some text")
@@ -187,13 +219,17 @@ class PromptLibrary:
             text=text,
             icon=icon_for(f"{title} {text}"),
             session_id=session_id,
+            owner=owner,
         )
         await _prompts().put(prompt.to_dict())
         return prompt
 
-    async def update(self, prompt_id: str, *, title: str, text: str) -> SavedPrompt | None:
+    async def update(self, prompt_id: str, *, title: str, text: str,
+                     owner: str = "") -> SavedPrompt | None:
         for row in await self._read():
-            if row.id != prompt_id:
+            # Not theirs reads as not there, so editing by id tells a
+            # stranger nothing about whether the id exists.
+            if row.id != prompt_id or (row.owner or "") != (owner or ""):
                 continue
             row.title = _clean(title, MAX_TITLE) or row.title
             row.text = _clean(text, MAX_TEXT) or row.text
@@ -202,7 +238,10 @@ class PromptLibrary:
             return row
         return None
 
-    async def delete(self, prompt_id: str) -> bool:
+    async def delete(self, prompt_id: str, owner: str = "") -> bool:
+        mine = {r.id for r in await self._read() if (r.owner or "") == (owner or "")}
+        if prompt_id not in mine:
+            return False
         return await _prompts().remove(prompt_id)
 
     # ── the order they are shown in ─────────────────────────────────────
@@ -215,8 +254,8 @@ class PromptLibrary:
     # what the names mean. Anything it cannot match is skipped when the list
     # is drawn, so a deleted prompt or a retired starter leaves no hole.
 
-    def _read_order(self) -> list[str]:
-        path = self._order_path()
+    def _read_order(self, owner: str = "") -> list[str]:
+        path = self._order_path(owner)
         if not path.exists():
             return []
         try:
@@ -226,16 +265,17 @@ class PromptLibrary:
             return []
         return _clean_keys(keys)
 
-    async def order(self) -> list[str]:
+    async def order(self, owner: str = "") -> list[str]:
         async with self._lock:
-            return self._read_order()
+            return self._read_order(owner)
 
-    async def set_order(self, keys: list[str]) -> list[str]:
+    async def set_order(self, keys: list[str], owner: str = "") -> list[str]:
         clean = _clean_keys(keys)
         async with self._lock:
-            tmp = self._order_path().with_suffix(".json.tmp")
+            path = self._order_path(owner)
+            tmp = path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(clean, indent=1))
-            tmp.replace(self._order_path())
+            tmp.replace(path)
         return clean
 
 
