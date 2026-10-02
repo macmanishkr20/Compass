@@ -442,7 +442,7 @@ class ChatSession:
         without having granted itself any is refused rather than silently
         allowed."""
         from compass.common.gateway import images
-        from compass.common.tools.draw import DrawTool
+        from compass.common.tools.draw import DrawTool, EditImageTool
         from compass.common.tools.memory import MemoryTool
         from compass.common.tools.web_fetch import WebFetchTool
         from compass.home.video_tool import VideoTool
@@ -453,7 +453,7 @@ class ChatSession:
         # so a request to make something from nothing had no answer at all.
         # With this, the pictures can be drawn and then cut together.
         if images.available():
-            tools.append(DrawTool())
+            tools += [DrawTool(), EditImageTool()]
 
         return ToolUseContext(
             session_id=self.id,

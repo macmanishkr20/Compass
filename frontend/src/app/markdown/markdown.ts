@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import { ArtifactService } from '../artifact.service';
+import { ImageActionsService } from '../image-actions.service';
 import { Artifact } from '../models';
 
 interface ProseSeg {
@@ -28,7 +29,14 @@ interface VideoSeg {
   url: string;
   name: string;
 }
-type Seg = ProseSeg | CodeSeg | ArtifactSeg | VideoSeg;
+/** A picture this server drew, on a line of its own, so it can carry the
+ *  two things somebody wants from a picture: keep it, or change it. */
+interface PicSeg {
+  type: 'pic';
+  url: string;
+  alt: string;
+}
+type Seg = ProseSeg | CodeSeg | ArtifactSeg | VideoSeg | PicSeg;
 
 /**
  * A link that is a playable file this server produced. Deliberately narrow:
@@ -40,6 +48,17 @@ type Seg = ProseSeg | CodeSeg | ArtifactSeg | VideoSeg;
  */
 const MEDIA_LINE =
   /^\s*\[([^\]]+)\]\((\/v1\/chat\/sessions\/[\w-]+\/media\/[^)\s]+\.(?:mp4|webm|m4v|mov))\)\s*$/i;
+
+/**
+ * A picture Compass drew, written on a line of its own. As narrow as the
+ * video rule above and for the same reason: only this origin's generated
+ * route, only the hex id the server mints. Anything else stays an ordinary
+ * inline image, which is the safe failure — Download and Edit are offered
+ * for pictures this server can actually act on, and an Edit button over
+ * somebody else's URL would be a promise it cannot keep.
+ */
+const DRAWN_LINE =
+  /^\s*!\[([^\]]*)\]\((\/v1\/media\/generated\/[0-9a-f]{32}\.png)\)\s*$/i;
 
 /**
  * The host a citation names, or "" when the link is ordinary prose.
@@ -110,6 +129,23 @@ function citeHost(label: string, url: string): string {
           </span>
           <svg class="artifact-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+      } @else if (seg.type === 'pic') {
+        <figure class="md-pic">
+          <img [src]="asPic(seg).url" [alt]="asPic(seg).alt" loading="lazy" />
+          <figcaption>
+            <!-- The download attribute on an anchor to this origin saves
+                 rather than navigates, which is what a browser would
+                 otherwise do with a 2MB PNG: display it again. -->
+            <a [href]="asPic(seg).url" [download]="fileName(asPic(seg).url)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"/></svg>
+              Download
+            </a>
+            <button type="button" (click)="editPicture(asPic(seg).url)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z"/></svg>
+              Edit
+            </button>
+          </figcaption>
+        </figure>
       } @else if (seg.type === 'video') {
         <figure class="md-video">
           <!-- Bound, not written into innerHTML: the sanitizer's element list
@@ -133,6 +169,7 @@ export class Markdown {
   readonly copiedIdx = signal<number | null>(null);
   readonly expanded = signal<Set<number>>(new Set());
   readonly artifacts = inject(ArtifactService);
+  private readonly imageActions = inject(ImageActionsService);
 
   readonly segments = computed<Seg[]>(() => this.parse(this.text()));
 
@@ -149,6 +186,19 @@ export class Markdown {
   asProse = (s: Seg) => s as ProseSeg;
   asArt = (s: Seg) => s as ArtifactSeg;
   asVideo = (s: Seg) => s as VideoSeg;
+  asPic = (s: Seg) => s as PicSeg;
+
+  /** What the browser should call the file it saves. The stored name is a
+   *  32-character hex id, which is a fine key and a poor filename. */
+  fileName(url: string): string {
+    return 'compass-image-' + (url.split('/').pop() || 'image.png').slice(0, 8) + '.png';
+  }
+
+  /** Hand the picture to whichever composer is on screen; see
+   *  ImageActionsService for why it goes through a signal. */
+  editPicture(url: string): void {
+    this.imageActions.requestEdit(url);
+  }
 
   openArtifact(a: Artifact): void {
     this.artifacts.open(a);
@@ -244,9 +294,13 @@ export class Markdown {
     };
     for (const line of text.split('\n')) {
       const match = MEDIA_LINE.exec(line);
+      const drawn = match ? null : DRAWN_LINE.exec(line);
       if (match) {
         flush();
         segs.push({ type: 'video', url: match[2], name: match[1] });
+      } else if (drawn) {
+        flush();
+        segs.push({ type: 'pic', url: drawn[2], alt: drawn[1] });
       } else {
         buffer.push(line);
       }

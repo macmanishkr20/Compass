@@ -267,6 +267,20 @@
     <!-- Dimmed and inert while the conversation it belongs to is still
          arriving: typing into a thread that has not loaded would send the
          message into a session the server has not resumed yet. -->
+    <!-- What Edit on a picture put here: the picture being changed, shown so
+         the instruction typed below is obviously about it. -->
+    @if (editingPicture(); as pic) {
+      <div class="editing-pic">
+        <img [src]="pic" alt="" />
+        <span class="editing-pic-label">Editing this picture</span>
+        <button type="button" class="editing-pic-clear" (click)="cancelPictureEdit()"
+          aria-label="Stop editing this picture">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    }
+
     <div class="home-composer" [class.drag]="dragOver()" [class.picking]="!!pickMenu()"
       [class.comp-locked]="!!loadingThread()">
       @if (dragOver()) {
@@ -311,8 +325,8 @@
         </div>
       }
 
-      <textarea class="home-input" rows="1"
-        placeholder="Message Compass Chat…"
+      <textarea class="home-input" rows="1" #composer
+        [placeholder]="editingPicture() ? 'Say what to change about the picture…' : 'Message Compass Chat…'"
         [value]="draft()" (input)="draft.set($any($event.target).value)"
         (paste)="onPaste($event)" (keydown)="onKeydown($event)"></textarea>
 

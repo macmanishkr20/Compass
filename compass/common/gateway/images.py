@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -177,6 +179,85 @@ async def draw(
     if not url:
         return Picture(error="the picture was drawn but could not be stored")
     return Picture(url=url, prompt=text, width=w, height=h, bytes=len(raw))
+
+
+async def edit(source: str, prompt: str, *, size: str = "") -> Picture:
+    """Change a picture that already exists, and store the result.
+
+    `source` is a generated picture's URL or its stored name. The result is a
+    NEW picture under a new id rather than a replacement: the original is in
+    a conversation somebody can scroll back to, and an edit that overwrote it
+    would rewrite what was already said.
+
+    Never raises, for the same reason `draw` does not.
+    """
+    text = (prompt or "").strip()
+    if not text:
+        return Picture(error="no instruction was given")
+    azure = get_settings().azure
+    if not azure.image_configured:
+        return Picture(error="image generation is not configured on this install")
+
+    name = _stored_name(source)
+    if not name:
+        return Picture(
+            error="that is not a picture this conversation made — editing works "
+            "on images Compass drew"
+        )
+    raw, _ = await fetch(name)
+    if raw is None:
+        return Picture(error="the original picture could not be found")
+
+    want = _normalised_size(size or azure.image_size)
+    buf = io.BytesIO(raw)
+    # The SDK sends this as a file part and uses the name to pick the type.
+    buf.name = "source.png"
+    try:
+        result = await _get_client().images.edit(
+            model=azure.image_deployment, image=buf, prompt=text, size=want,
+        )
+    except Exception as err:  # noqa: BLE001
+        logger.warning("image edit failed: %s", err)
+        return Picture(error=_explain(err))
+
+    data = getattr(result, "data", None) or []
+    b64 = getattr(data[0], "b64_json", None) if data else None
+    if not b64:
+        return Picture(error="the image model returned nothing to show")
+    try:
+        out = base64.b64decode(b64)
+    except Exception:  # noqa: BLE001
+        return Picture(error="the image model returned something unreadable")
+
+    w, h = (int(n) for n in want.split("x"))
+    url = await _store(out, "png")
+    if not url:
+        return Picture(error="the edit was made but could not be stored")
+    return Picture(url=url, prompt=text, width=w, height=h, bytes=len(out))
+
+
+def _stored_name(source: str) -> str:
+    """The stored name behind a generated picture's URL, or "".
+
+    Deliberately narrow. Only this server's own generated pictures can be
+    edited: anything else is either someone else's URL or a path, and an
+    "edit" that fetched an arbitrary address would be a request forgery with
+    a friendly name.
+    """
+    raw = (source or "").strip()
+    marker = f"/v1/media/{PREFIX}/"
+    if marker in raw:
+        raw = raw.split(marker, 1)[1]
+    elif raw.startswith(f"{PREFIX}/"):
+        raw = raw.split("/", 1)[1]
+    leaf = raw.split("?", 1)[0].split("#", 1)[0].rsplit("/", 1)[-1]
+    if not leaf or not _SAFE_NAME.fullmatch(leaf):
+        return ""
+    return f"{PREFIX}/{leaf}"
+
+
+#: A stored picture's name: the hex id this module mints, and nothing else.
+_SAFE_NAME = re.compile(r"[0-9a-f]{32}\.png")
 
 
 def _explain(err: Exception) -> str:

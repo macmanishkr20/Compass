@@ -15,7 +15,7 @@ from compass.common.tools.memory import MemoryTool
 from compass.code.tools.screenshot import ScreenshotTool
 from compass.code.tools.search import GlobTool, GrepTool
 from compass.code.tools.todo import TodoWriteTool
-from compass.common.tools.draw import DrawTool
+from compass.common.tools.draw import DrawTool, EditImageTool
 
 
 def get_all_tools() -> list[Tool]:
@@ -41,7 +41,7 @@ def get_all_tools() -> list[Tool]:
     # what Code, Missions and the Pipelines builder all take their tools
     # from, so one condition here covers the three of them.
     if images.available():
-        tools.append(DrawTool())
+        tools += [DrawTool(), EditImageTool()]
     return tools
 
 
@@ -76,5 +76,5 @@ def subagent_tools(subagent_type: str) -> list[Tool]:
     # would have drawn; one sent off to read does not, and `explore` above
     # does not get it.
     if images.available():
-        general.append(DrawTool())
+        general += [DrawTool(), EditImageTool()]
     return general

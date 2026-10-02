@@ -112,3 +112,54 @@ class DrawTool(Tool):
             f"Drew it. Use this exact URL as the image source:\n{picture.url}\n"
             f"({picture.width}x{picture.height}, {picture.bytes / 1024:.0f}KB)"
         )
+
+
+class EditInput(BaseModel):
+    image: str = Field(
+        description=(
+            "The URL of the picture to change, exactly as it was given to "
+            "you — /v1/media/generated/<id>.png. Only pictures Compass drew "
+            "can be edited."
+        )
+    )
+    prompt: str = Field(
+        description=(
+            "What to change, said as a change rather than as a new brief. "
+            "Name the one thing that moves and say the rest stays: 'Change "
+            "the headline to read MYSURU, keep everything else identical' "
+            "beats 'a poster for Mysuru'. A description that restates the "
+            "whole picture gets you a different picture, not an edit."
+        )
+    )
+    shape: Literal["square", "landscape", "portrait"] = Field(
+        default="portrait",
+        description="The aspect to return. Match the original unless the "
+                    "person asked for a different one.",
+    )
+
+
+class EditImageTool(Tool):
+    name = "edit_image"
+    description = (
+        "Change a picture Compass already drew — fix the wording, swap a "
+        "colour, move something, take something out — and get back a URL for "
+        "the new version. The original is left alone: an edit is a new "
+        "picture, because the old one is in the conversation above and "
+        "rewriting it would change what was already said."
+    )
+    input_model = EditInput
+
+    def is_read_only(self, inp: EditInput) -> bool:
+        return True
+
+    async def call(self, inp: EditInput, ctx: ToolUseContext) -> AsyncIterator[ToolYield]:
+        picture = await images.edit(
+            inp.image, inp.prompt, size=_SHAPES.get(inp.shape, _SHAPES["portrait"])
+        )
+        if not picture.ok:
+            yield ToolOutput(f"Could not edit that: {picture.error}", is_error=True)
+            return
+        yield ToolOutput(
+            f"Edited. Use this exact URL as the image source:\n{picture.url}\n"
+            f"({picture.width}x{picture.height}, {picture.bytes / 1024:.0f}KB)"
+        )

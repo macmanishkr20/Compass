@@ -1015,3 +1015,50 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   margin: 0 auto;
   padding: 26px 18px 10px;
 }
+
+/* The picture Edit was pressed on, sitting above the composer so the
+   instruction being typed is obviously about it. */
+.editing-pic {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 6px;
+  padding: 6px 8px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.editing-pic img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+
+.editing-pic-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex: 1;
+  min-width: 0;
+}
+
+.editing-pic-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.editing-pic-clear:hover { color: var(--ink); background: var(--bg-2); }
+.editing-pic-clear svg { width: 14px; height: 14px; }

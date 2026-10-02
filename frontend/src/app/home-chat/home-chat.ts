@@ -14,6 +14,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService, TranscriptResponse, describeHttpError } from '../compass-api.service';
+import { ImageActionsService } from '../image-actions.service';
 import { LoadError } from '../load-error';
 import { AuthService } from '../auth.service';
 import { CompassMark } from '../compass-mark/compass-mark';
@@ -134,6 +135,7 @@ const EFFORTS = ['low', 'medium', 'high'] as const;
 })
 export class HomeChat {
   private readonly api = inject(CompassApiService);
+  private readonly imageActions = inject(ImageActionsService);
   private readonly auth = inject(AuthService);
   private readonly turnNotify = inject(TurnNotifyService);
   readonly lightbox = inject(LightboxService);
@@ -197,12 +199,24 @@ export class HomeChat {
   }
 
   readonly draft = signal('');
+
+  /** The picture Edit was pressed on, or "" — see ImageActionsService.
+   *
+   *  Held here rather than written into the draft so the instruction stays
+   *  the person's own words: the URL is attached to the turn when it is
+   *  sent, which keeps a 60-character id out of the box they are typing in. */
+  readonly editingPicture = signal('');
+
+  cancelPictureEdit(): void {
+    this.editingPicture.set('');
+  }
   readonly messages = signal<ChatMsg[]>([]);
   readonly streaming = signal(false);
   readonly attachments = signal<UiAttachment[]>([]);
   readonly dragOver = signal(false);
   readonly attachError = signal('');
   private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  private readonly composer = viewChild<ElementRef<HTMLTextAreaElement>>('composer');
   // -- Voice mode (Azure OpenAI Realtime, speech-to-speech over WebRTC) -----
   readonly voiceMode = signal(false);
   readonly voiceState = signal<'connecting' | 'listening' | 'speaking'>('connecting');
@@ -663,6 +677,16 @@ export class HomeChat {
   }
 
   constructor() {
+    // Edit, pressed on a picture anywhere in the thread. Taken up here and
+    // cleared, so pressing it twice on two pictures leaves the second one
+    // showing rather than both.
+    effect(() => {
+      const wanted = this.imageActions.editing();
+      if (!wanted) return;
+      this.editingPicture.set(wanted);
+      this.imageActions.taken();
+      queueMicrotask(() => this.composer()?.nativeElement.focus());
+    });
     setInterval(() => this.nowTick.set(Date.now()), 30_000);
     // The library is what Home offers before anything is typed, so it is
     // fetched once on boot rather than when the ideas row happens to render.
@@ -1043,10 +1067,12 @@ export class HomeChat {
   async send(): Promise<void> {
     const content = this.draft().trim();
     const atts = this.attachments();
+    const editing = this.editingPicture();
     if ((!content && atts.length === 0) || this.streaming()) return;
     this.stickBottom = true; // a fresh prompt re-arms auto-follow
     this.draft.set('');
     this.attachments.set([]);
+    this.editingPicture.set('');
     this.push({
       id: crypto.randomUUID(),
       role: 'user',
@@ -1057,13 +1083,20 @@ export class HomeChat {
     });
 
     const payload = toWire(atts);
+    // When Edit was pressed, the picture rides along with the instruction.
+    // Said to the model rather than shown to the person: the bubble above
+    // carries what they typed, and this line is the part that tells the
+    // model which picture "this" is.
+    const sent = editing
+      ? `Edit this image: ${editing}\n\n${content}`
+      : content;
     await this.runStream(async () => {
       // Same path voice uses, so a thread opened by speaking and one opened
       // by typing are created identically.
       const sessionId = await this.ensureSession();
       await this.api.streamChatMessage(
         sessionId,
-        content,
+        sent,
         (ev) => this.onEvent(ev),
         payload,
         this.workIq(),

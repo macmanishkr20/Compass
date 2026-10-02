@@ -151,3 +151,61 @@
   text-underline-offset: 2px;
 }
 .md-video figcaption a:hover { color: var(--ink); }
+
+/* A picture Compass drew, with the two things anyone wants from one. The
+   actions sit under it rather than over it: a toolbar floating on the image
+   covers the thing it is about, and on a phone there is no hover to reveal
+   it with. */
+.md-pic {
+  margin: 10px 0;
+  max-width: 520px;
+}
+
+.md-pic img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.md-pic figcaption {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.md-pic figcaption a,
+.md-pic figcaption button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.md-pic figcaption a:hover,
+.md-pic figcaption button:hover {
+  color: var(--ink);
+  border-color: color-mix(in oklab, var(--border) 60%, var(--ink));
+}
+
+.md-pic figcaption svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
