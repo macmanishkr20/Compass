@@ -36,6 +36,7 @@ import {
   PipelineSummary,
   Recap,
   PermissionBehavior,
+  RefinedPrompt,
   Routine,
   RoutineRun,
   RoutinesResponse,
@@ -672,10 +673,11 @@ export class CompassApiService {
   refinePrompt(
     text: string,
     title = '',
-  ): Promise<{ title: string; text: string }> {
+    variant: 'clearer' | 'shorter' | 'specific' = 'clearer',
+  ): Promise<RefinedPrompt> {
     return firstValueFrom(
-      this.http.post<{ title: string; text: string }>(
-        '/v1/chat/prompts/refine', { text, title }),
+      this.http.post<RefinedPrompt>(
+        '/v1/chat/prompts/refine', { text, title, variant }),
     );
   }
 

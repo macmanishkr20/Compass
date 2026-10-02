@@ -673,6 +673,11 @@ async def delete_prompt(prompt_id: str, user: str = Depends(require_user)) -> di
 class RefineRequest(BaseModel):
     text: str = Field(description="The saved prompt, as it stands.")
     title: str = Field(default="", description="Its current title, if it has one.")
+    variant: str = Field(
+        default="clearer",
+        description="Which way to pull it: clearer, shorter or specific. "
+                    "Anything unrecognised is treated as clearer.",
+    )
 
 
 @router.post("/prompts/refine")
@@ -690,7 +695,7 @@ async def refine_prompt(body: RefineRequest,
     """
     from compass.home.prompts import refine
 
-    return await refine(body.text, body.title)
+    return await refine(body.text, body.title, body.variant)
 
 
 @router.post("/prompts/sharpen")

@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -606,13 +607,83 @@ Two worked examples.
 Also give it a short title — at most a few words, naming what the prompt is
 for, in the person's own register.
 
+MARK WHAT YOU CHANGED. In the rewritten prompt, wrap each phrase you added
+or materially altered in ‹ and ›. Mark whole phrases, not single words, and
+mark only what genuinely changed — a rewrite where everything is marked
+tells the reader nothing. If you changed nothing of substance, mark nothing.
+
+Say what you did in `note`: a few words per change, separated by " · ", in
+the present tense and about the prompt rather than about yourself. "Split
+the two offers into a clear choice · added a wait-for-answer instruction",
+not "I have restructured your prompt".
+
 Answer with JSON only, and nothing else:
 
-{"title": "...", "text": "..."}
+{"title": "...", "text": "...", "note": "..."}
 """
 
+#: What each variant asks for on top of the rules above. The person picks
+#: one from the review bar; `clearer` is what the first run does.
+REFINE_VARIANTS: dict[str, str] = {
+    "clearer": (
+        "This run: make it CLEARER. Resolve what is vague, put the steps in "
+        "the order they happen, and make sure each sentence does one job."
+    ),
+    "shorter": (
+        "This run: make it SHORTER. Same request, fewer words — cut "
+        "repetition, hedging and anything the model would infer anyway. Do "
+        "not drop a requirement to save words; losing part of the ask is a "
+        "failure, not a shorter prompt."
+    ),
+    "specific": (
+        "This run: make it MORE SPECIFIC. Name the form of the answer, the "
+        "steps to follow, and the failure modes to avoid, as far as the "
+        "prompt already implies them. This is the one variant where being "
+        "longer is usually right."
+    ),
+}
 
-async def refine(text: str, title: str = "") -> dict:
+#: The span markers the model is asked for, and the pattern that finds them.
+#: Chosen because they are vanishingly rare in real prose, so a prompt that
+#: happens to contain one is not a case worth designing around.
+_MARK_OPEN, _MARK_CLOSE = "‹", "›"
+_MARKED = re.compile(f"{_MARK_OPEN}([^{_MARK_CLOSE}]*){_MARK_CLOSE}")
+
+
+def _unmark(text: str) -> str:
+    """The prompt as it will be stored: the markers taken back out."""
+    return text.replace(_MARK_OPEN, "").replace(_MARK_CLOSE, "")
+
+
+def _unchanged(text: str, title: str) -> dict:
+    """What refining answers with when it could not do better: what it was
+    given, marked as nothing changed."""
+    return {"title": _clean(title, MAX_TITLE) or _title_from(text),
+            "text": text, "marked": text, "note": "", "changes": 0}
+
+
+def _note_from(raw: str) -> str:
+    """The `note` field, read from the same reply `_parse` read.
+
+    Parsed here rather than inside `_parse`, which is shared with sharpening
+    and returns its dict straight to the caller — a key added there would
+    change what that endpoint answers with.
+    """
+    body = (raw or "").strip()
+    if "```" in body:
+        body = max(body.split("```"), key=len)
+        if body.lstrip().startswith("json"):
+            body = body.lstrip()[4:]
+    start, end = body.find("{"), body.rfind("}")
+    if start < 0 or end <= start:
+        return ""
+    try:
+        return _clean(str(json.loads(body[start:end + 1]).get("note") or ""), 240)
+    except json.JSONDecodeError:
+        return ""
+
+
+async def refine(text: str, title: str = "", variant: str = "clearer") -> dict:
     """A better-written version of one saved prompt, and a title for it.
 
     The counterpart to `sharpen`, for a prompt that is already in the
@@ -620,6 +691,14 @@ async def refine(text: str, title: str = "") -> dict:
     once it is saved that conversation is no longer the point, and on a
     prompt opened from the library it is usually not even there. This reads
     the prompt alone.
+
+    `variant` is which way to pull: clearer, shorter, or more specific. The
+    editor offers all three after the first run, because "better" is not one
+    direction and the person is the one who knows which they wanted.
+
+    Returns `text` ready to store, `marked` with the changed phrases wrapped
+    for the editor to highlight, a `note` saying what was done and a count
+    of the marked spans.
 
     Returns the original on any failure, for the same reason `sharpen` does:
     it sits behind an optional button, and somebody who asked for a tidy-up
@@ -629,11 +708,13 @@ async def refine(text: str, title: str = "") -> dict:
 
     text = _clean(text, MAX_TEXT)
     if not text:
-        return {"title": _clean(title, MAX_TITLE), "text": ""}
+        return {"title": _clean(title, MAX_TITLE), "text": "",
+                "marked": "", "note": "", "changes": 0}
 
     ask = f"The saved prompt to improve:\n{text}"
     if title.strip():
         ask += f"\n\nIts current title: {_clean(title, MAX_TITLE)}"
+    ask += "\n\n" + REFINE_VARIANTS.get(variant, REFINE_VARIANTS["clearer"])
 
     try:
         collected = ""
@@ -649,15 +730,23 @@ async def refine(text: str, title: str = "") -> dict:
         parsed = _parse(collected)
         if parsed:
             parsed.pop("used", None)
-            parsed["text"] = _strip_opener(parsed["text"])
-            if not is_opener(parsed["text"]):
-                return {"title": parsed["title"], "text": parsed["text"]}
+            marked = _strip_opener(parsed["text"])
+            clean = _unmark(marked)
+            if not is_opener(clean):
+                spans = [s for s in _MARKED.findall(marked) if s.strip()]
+                return {
+                    "title": _unmark(parsed["title"]),
+                    "text": clean,
+                    "marked": marked,
+                    "note": _note_from(collected),
+                    "changes": len(spans),
+                }
             logger.info("refining returned an opener; keeping the original")
         else:
             logger.info("prompt refining returned nothing usable")
     except Exception:  # noqa: BLE001 — an optional nicety must not fail an edit
         logger.exception("prompt refining failed")
-    return {"title": _clean(title, MAX_TITLE) or _title_from(text), "text": text}
+    return _unchanged(text, title)
 
 
 def _strip_opener(text: str) -> str:

@@ -20,7 +20,7 @@ import { AuthService } from '../auth.service';
 import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
 import { Reorder } from '../reorder/reorder';
-import { SavedPrompt } from '../models';
+import { RefinedPrompt, SavedPrompt } from '../models';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
@@ -403,6 +403,7 @@ export class HomeChat {
   closeSaveDialog(): void {
     this.saveDialog.set(null);
     this.sharpening.set(false);
+    this.resetRefine();
     this.promptError.set('');
     if (this.returnToLibrary) {
       this.returnToLibrary = false;
@@ -412,7 +413,12 @@ export class HomeChat {
 
   patchDialog(patch: Partial<{ title: string; text: string }>): void {
     const d = this.saveDialog();
-    if (d) this.saveDialog.set({ ...d, ...patch });
+    if (!d) return;
+    this.saveDialog.set({ ...d, ...patch });
+    // Editing the prose abandons a suggestion still on offer: the review
+    // bar describes a rewrite of what was in the box a moment ago, and
+    // leaving it up over edited text would describe nothing.
+    if (patch.text !== undefined && this.refinePhase() === 'review') this.resetRefine();
   }
 
   /** Ask the model for a version that stands on its own.
@@ -452,28 +458,227 @@ export class HomeChat {
    *
    *  A suggestion, like sharpening: it lands in the boxes and "Use what I
    *  had" puts the person's own words back. */
-  async refine(): Promise<void> {
-    const d = this.saveDialog();
-    if (!d || this.sharpening()) return;
-    this.sharpening.set(true);
-    this.promptError.set('');
-    try {
-      const res = await this.api.refinePrompt(d.text, d.title);
-      this.saveDialog.set({
-        ...d,
-        // `original` is deliberately left alone: it is what the person had
-        // before any of this, and refining twice must still be undoable
-        // back to that rather than to the previous machine answer.
-        title: res.title || d.title,
-        text: res.text || d.text,
-        sharpened: true,
-        used: [],
-      });
-    } catch (err) {
-      this.promptError.set(describeHttpError(err));
-    } finally {
-      this.sharpening.set(false);
+  /** What the field is doing. 'idle' is an ordinary textarea; 'work' is the
+   *  aura and the sweep while the model reads; 'streaming' lands the words;
+   *  'review' is the bar underneath with Keep and Revert. */
+  readonly refinePhase = signal<'idle' | 'work' | 'streaming' | 'review'>('idle');
+  /** The caption under the orb, which moves through the run so a wait of a
+   *  few seconds reads as progress rather than as a hang. */
+  readonly refineStep = signal('');
+  readonly refineElapsed = signal('0.0s');
+  /** The words as they land, each carrying whether the model marked it as
+   *  changed. Rendered span by span so the arrival can be animated. */
+  readonly refineWords = signal<{ text: string; changed: boolean }[]>([]);
+  /** Lets the marked phrases fade their highlight once the prose has settled. */
+  readonly refineSettled = signal(false);
+  readonly refineNote = signal('');
+  readonly refineChanges = signal(0);
+  readonly refineVariant = signal<'clearer' | 'shorter' | 'specific'>('clearer');
+  readonly showOriginal = signal(false);
+  /** The text the run produced, held back until Keep. Nothing is replaced
+   *  until the person says so — the field shows it, the dialog does not
+   *  own it yet. */
+  private refined: RefinedPrompt | null = null;
+  private refineTimers: ReturnType<typeof setTimeout>[] = [];
+  private refineClock: ReturnType<typeof setInterval> | null = null;
+
+  /** The captions, and how long each is shown. They are paced to the request
+   *  rather than reporting it: the model streams one JSON object at the end,
+   *  so there is no real progress to report, and a caption that claims to
+   *  know would be lying. They say what it is doing, which is true. */
+  private static readonly REFINE_STEPS: [string, number][] = [
+    ['Reading your prompt', 620],
+    ['Finding what is vague', 540],
+    ['Rewriting', 700],
+    ['Checking it still asks the same thing', 480],
+  ];
+
+  private clearRefineTimers(): void {
+    this.refineTimers.forEach(clearTimeout);
+    this.refineTimers = [];
+    if (this.refineClock !== null) {
+      clearInterval(this.refineClock);
+      this.refineClock = null;
     }
+  }
+
+  /** Back to an ordinary field, keeping whatever text is in the dialog. */
+  resetRefine(): void {
+    this.clearRefineTimers();
+    this.refined = null;
+    this.refinePhase.set('idle');
+    this.refineWords.set([]);
+    this.refineNote.set('');
+    this.refineChanges.set(0);
+    this.refineSettled.set(false);
+    this.showOriginal.set(false);
+  }
+
+  /** How many words are in the box, for the counter in the dock. */
+  wordCount(text: string): string {
+    const t = (text || '').trim();
+    return t ? `${t.split(/\s+/).length} words` : '';
+  }
+
+  /** Run the refine agent and play the result into the field.
+   *
+   *  The request and the animation run together rather than one after the
+   *  other: the captions start immediately so the wait is furnished, and the
+   *  words begin landing whenever the answer arrives — after the captions if
+   *  the model was quick, interrupting them if it was slow. */
+  async refine(variant?: 'clearer' | 'shorter' | 'specific'): Promise<void> {
+    const d = this.saveDialog();
+    if (!d || this.refinePhase() === 'work' || this.refinePhase() === 'streaming') return;
+    const source = d.text.trim();
+    if (!source) return;
+
+    this.clearRefineTimers();
+    if (variant) this.refineVariant.set(variant);
+    this.promptError.set('');
+    this.showOriginal.set(false);
+    this.refineSettled.set(false);
+    this.refineWords.set([]);
+    this.refinePhase.set('work');
+
+    const started = performance.now();
+    this.refineElapsed.set('0.0s');
+    this.refineClock = setInterval(() => {
+      this.refineElapsed.set(((performance.now() - started) / 1000).toFixed(1) + 's');
+    }, 100);
+
+    let at = 0;
+    for (const [label, ms] of HomeChat.REFINE_STEPS) {
+      this.refineTimers.push(setTimeout(() => this.refineStep.set(label), at));
+      at += ms;
+    }
+
+    try {
+      const res = await this.api.refinePrompt(source, d.title, this.refineVariant());
+      if (this.refinePhase() !== 'work') return;   // cancelled while waiting
+      this.refined = res;
+      this.clearRefineTimers();
+      this.refineStep.set('Writing');
+      this.refineElapsed.set('');
+      this.refinePhase.set('streaming');
+      this.streamRefined(res);
+    } catch (err) {
+      this.clearRefineTimers();
+      this.refinePhase.set('idle');
+      this.promptError.set(describeHttpError(err));
+    }
+  }
+
+  /** Land the rewrite a word at a time.
+   *
+   *  Not decoration: the field is showing a suggestion over the top of
+   *  something the person wrote, and watching it arrive makes plain that it
+   *  is being proposed rather than that their text was silently swapped. */
+  private streamRefined(res: RefinedPrompt): void {
+    const words = HomeChat.splitMarked(res.marked || res.text);
+    let i = 0;
+    const next = (): void => {
+      if (i >= words.length) {
+        this.refineTimers.push(setTimeout(() => {
+          this.refineSettled.set(true);
+          this.refineNote.set(res.note || '');
+          this.refineChanges.set(res.changes || 0);
+          this.refinePhase.set('review');
+        }, 420));
+        return;
+      }
+      const word = words[i++];
+      this.refineWords.update((list) => [...list, word]);
+      // Whitespace costs nothing; a word that ends a clause gets a beat, so
+      // the prose arrives with the rhythm of someone writing it.
+      const pause = /^\s+$/.test(word.text) ? 0 : /[.,:;]$/.test(word.text) ? 96 : 34;
+      this.refineTimers.push(setTimeout(next, pause));
+    };
+    next();
+  }
+
+  /** Split marked prose into words, carrying the ‹…› flag onto each.
+   *  Whitespace is kept as its own entry so the original spacing survives. */
+  private static splitMarked(marked: string): { text: string; changed: boolean }[] {
+    const out: { text: string; changed: boolean }[] = [];
+    let changed = false;
+    let buffer = '';
+    const flush = (): void => {
+      if (!buffer) return;
+      for (const piece of buffer.split(/(\s+)/)) {
+        if (piece) out.push({ text: piece, changed: changed && !!piece.trim() });
+      }
+      buffer = '';
+    };
+    for (const ch of marked) {
+      if (ch === '‹') { flush(); changed = true; continue; }
+      if (ch === '›') { flush(); changed = false; continue; }
+      buffer += ch;
+    }
+    flush();
+    return out;
+  }
+
+  /** ⌘ on a Mac, Ctrl everywhere else — the key the shortcut actually wants,
+   *  shown rather than assumed, because a Windows user reading ⌘ learns the
+   *  wrong thing. */
+  readonly metaKey = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent)
+    ? '⌘' : 'Ctrl+';
+
+  /** The line under the dialog, which says what is possible right now. */
+  refineHint(): string {
+    switch (this.refinePhase()) {
+      case 'work':
+      case 'streaming':
+        return 'Refining — your original is kept';
+      case 'review':
+        return 'Keep to apply · Revert to undo';
+      default:
+        return `${this.metaKey}↵ to refine · Esc to close`;
+    }
+  }
+
+  /** ⌘↵ refines, Esc backs out of whatever is in front.
+   *
+   *  Bound on the dialog rather than the document so it exists only while
+   *  the dialog does, and cannot reach a composer or the library behind it. */
+  onDialogKeydown(ev: KeyboardEvent): void {
+    const d = this.saveDialog();
+    if (!d || d.fromMessage) return;
+    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
+      ev.preventDefault();
+      void this.refine();
+      return;
+    }
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      // One step at a time: a run in flight or a suggestion on offer is what
+      // Escape dismisses first, and only a quiet dialog closes.
+      if (this.refinePhase() === 'idle') this.closeSaveDialog();
+      else this.resetRefine();
+    }
+  }
+
+  /** Take the rewrite. Only now does it become the prompt being edited. */
+  keepRefined(): void {
+    const d = this.saveDialog();
+    const res = this.refined;
+    if (!d || !res) return;
+    this.saveDialog.set({
+      ...d,
+      // `original` is deliberately left alone: it is what the person had
+      // before any of this, and refining twice must still be undoable back
+      // to that rather than to the previous machine answer.
+      title: res.title || d.title,
+      text: res.text,
+      sharpened: true,
+      used: [],
+    });
+    this.resetRefine();
+  }
+
+  /** Throw the rewrite away and leave what they had. */
+  revertRefined(): void {
+    this.resetRefine();
   }
 
   /** Open the editor on a blank prompt, from the library itself — so the

@@ -828,3 +828,16 @@ export interface SavedPrompt {
   /** The conversation it was taken from, when it came from one. */
   session_id: string;
 }
+
+/** What the refine agent answers with. `text` is what gets stored; `marked`
+ *  is the same prose with the phrases it changed wrapped in ‹…›, which the
+ *  editor uses to show what moved and then lets fade. */
+export interface RefinedPrompt {
+  title: string;
+  text: string;
+  marked: string;
+  /** What it did, in a few words per change, separated by " · ". */
+  note: string;
+  /** How many phrases it marked. 0 means it judged the prompt already good. */
+  changes: number;
+}

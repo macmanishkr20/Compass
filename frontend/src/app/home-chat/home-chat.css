@@ -1068,3 +1068,335 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 
 .editing-pic-clear:hover { color: var(--ink); background: var(--bg-2); }
 .editing-pic-clear svg { width: 14px; height: 14px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   The refine surface — the prompt field of an edited saved prompt.
+
+   Built on Compass's own tokens rather than a palette of its own: the
+   brass in the mockup is `--accent`, and the lighter and softer steps are
+   mixed from it so the whole thing follows the theme, light and dark,
+   without a second set of colours to keep in step.
+   ══════════════════════════════════════════════════════════════════════ */
+.rf-field {
+  --rf-lift: color-mix(in oklab, var(--accent) 62%, white);
+  --rf-glow: color-mix(in oklab, var(--accent) 34%, white);
+  position: relative;
+  border-radius: 14px;
+  padding: 1.5px;                 /* the border IS the aura, so it animates */
+  /* `clip`, not `hidden`. The aura below is a square twice the field's width
+     -- about a thousand pixels tall -- and `overflow: hidden` would make this
+     a scroll container holding it. It does: focusing the Refine button made
+     the browser scroll the field to reveal it, carrying the text up out of
+     the clip and leaving a blank gold panel. `clip` clips the paint without
+     ever becoming scrollable. */
+  overflow: clip;
+  background: var(--border);
+  transition: background 0.3s;
+}
+.rf-field:focus-within { background: var(--accent); }
+
+/* The aura: one conic gradient, rotated. A ring drawn with a border could
+   not sweep round the corners of a rounded rect; a square twice the width,
+   spun behind the content and clipped by the radius, can. */
+.rf-field::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  opacity: 0;
+  transition: opacity 0.35s;
+  pointer-events: none;
+  background: conic-gradient(from 0deg,
+    transparent 0 42%, var(--rf-glow) 52%, var(--rf-lift) 58%,
+    var(--accent) 64%, transparent 76% 100%);
+  animation: rf-orbit 1.5s linear infinite;
+}
+@keyframes rf-orbit { to { rotate: 360deg; } }
+.rf-field.work::before, .rf-field.streaming::before { opacity: 1; }
+.rf-field.streaming::before { animation-duration: 2.4s; }
+
+.rf-inner {
+  position: relative;
+  z-index: 1;
+  border-radius: 12.5px;
+  background: var(--surface-2);
+  overflow: hidden;
+  transition: background 0.3s;
+}
+.rf-field:focus-within .rf-inner,
+.rf-field.work .rf-inner,
+.rf-field.streaming .rf-inner { background: var(--surface); }
+
+/* The text layer. The textarea and the streamed version share a size so the
+   field does not jump when one replaces the other. */
+.rf-canvas {
+  display: block;
+  width: 100%;
+  min-height: 148px;
+  padding: 14px 16px 42px;        /* room for the dock along the bottom */
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.62;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rf-canvas.live { resize: none; }
+.rf-field.work .rf-canvas { opacity: 0.42; filter: saturate(0.3); }
+.rf-field.streaming .rf-canvas { opacity: 1; filter: none; }
+/* What they wrote, still legible under the sweep while the model reads it. */
+.rf-prev { white-space: pre-wrap; }
+
+/* The sweep: a highlight passing over the text, so "reading" is something
+   you can see happening to the words rather than a spinner beside them. */
+.rf-sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 42%,
+    color-mix(in oklab, var(--accent) 16%, transparent) 50%, transparent 58%);
+  background-size: 260% 100%;
+}
+.rf-field.work .rf-sweep { opacity: 1; animation: rf-scan 1.25s cubic-bezier(0.45, 0, 0.3, 1) infinite; }
+@keyframes rf-scan {
+  0% { background-position: 160% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* Each word arrives out of focus and in the accent, then settles into ink —
+   the same motion as something being written rather than pasted. */
+.rf-w { display: inline; opacity: 0; animation: rf-land 0.34s cubic-bezier(0.2, 0.9, 0.3, 1) forwards; }
+@keyframes rf-land {
+  0% { opacity: 0; filter: blur(5px); color: var(--rf-glow); }
+  55% { opacity: 1; filter: blur(0); color: var(--accent); }
+  100% { opacity: 1; filter: blur(0); color: var(--ink); }
+}
+/* A phrase the model changed, underlined until the prose has settled. It
+   fades rather than persisting: it answers "what moved?" while that is the
+   question, and then stops colouring a prompt the person has accepted. */
+.rf-nw {
+  position: relative;
+  border-radius: 3px;
+  box-shadow: inset 0 -0.55em 0 var(--accent-tint);
+  transition: box-shadow 1s ease 0.8s;
+}
+.rf-field.settled .rf-nw { box-shadow: inset 0 0 0 transparent; }
+.rf-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  vertical-align: -0.16em;
+  margin-left: 1px;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: rf-blink 0.85s steps(2) infinite;
+}
+@keyframes rf-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+/* The dock sits inside the field, so the action is on the thing it acts on. */
+.rf-dock {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 9px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;           /* the gap between the controls stays the field */
+}
+.rf-dock > * { pointer-events: auto; }
+.rf-refine {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: 0.18s;
+}
+.rf-refine:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint), var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.rf-refine:active:not(:disabled) { transform: translateY(0); }
+.rf-refine:disabled { opacity: 0.45; cursor: default; }
+.rf-sp, .rf-sp svg { width: 14px; height: 14px; flex-shrink: 0; }
+.rf-sp svg { stroke: var(--accent); stroke-width: 1.7; }
+.rf-kb {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--faint);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  margin-left: 2px;
+}
+.rf-cnt {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  color: var(--faint);
+  transition: opacity 0.25s;
+}
+/* While it is working the dock gives way to the status chip in its place. */
+.rf-field.work .rf-refine, .rf-field.streaming .rf-refine {
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+}
+.rf-field.work .rf-cnt, .rf-field.streaming .rf-cnt { opacity: 0; }
+
+.rf-status {
+  position: absolute;
+  left: 12px;
+  bottom: 9px;
+  z-index: 4;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--accent-tint);
+  box-shadow: var(--shadow-sm);
+}
+.rf-field.work .rf-status, .rf-field.streaming .rf-status {
+  display: flex;
+  animation: rf-fade 0.25s ease both;
+}
+@keyframes rf-fade { from { opacity: 0; } to { opacity: 1; } }
+.rf-orb { width: 13px; height: 13px; flex-shrink: 0; position: relative; }
+.rf-orb i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.6px solid transparent;
+  border-top-color: var(--accent);
+  border-right-color: var(--rf-lift);
+  animation: rf-orbit 0.72s linear infinite;
+}
+.rf-tx { transition: opacity 0.2s; }
+.rf-el { font-family: var(--mono); font-size: 0.64rem; color: var(--faint); font-weight: 400; }
+
+/* ── the review bar ── */
+.rf-review {
+  margin-top: 11px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  animation: rf-slide 0.32s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes rf-slide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+.rf-rv1 { display: flex; align-items: center; gap: 10px; padding: 11px 13px; }
+.rf-tick {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--success-tint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--success);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.rf-rv1 .rf-tx { flex: 1; font-size: 0.79rem; line-height: 1.5; }
+.rf-rv1 .rf-tx b { font-weight: 600; }
+.rf-rv1 .rf-tx small { display: block; color: var(--faint); font-size: 0.74rem; margin-top: 2px; }
+.rf-rv1 .pl-btn { padding: 6px 12px; font-size: 0.76rem; }
+.rf-rv2 { display: flex; align-items: center; gap: 7px; padding: 0 13px 11px; }
+.rf-vlab {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-right: 2px;
+}
+.rf-chip {
+  padding: 5px 11px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.73rem;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.rf-chip:hover { border-color: var(--accent); color: var(--ink); }
+.rf-chip.on { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+.rf-cmp-btn {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.74rem;
+  color: var(--faint);
+  background: none;
+  border: 0;
+  padding: 5px 9px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.rf-cmp-btn:hover { background: var(--surface); color: var(--ink); }
+.rf-cmp { padding: 0 13px 13px; animation: rf-fade 0.22s ease both; }
+.rf-ob {
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.79rem;
+  line-height: 1.6;
+  color: var(--faint);
+  white-space: pre-wrap;
+}
+.rf-lb {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* The footer keeps its right-aligned buttons; the hint takes the free space. */
+.rf-hint { font-family: var(--mono); font-size: 0.66rem; color: var(--faint); align-self: center; }
+.pl-foot-sp { flex: 1; }
+
+/* Someone who has asked for less motion gets the states without the motion:
+   the aura, the sweep, the blur and the blink all stop, and the words appear
+   rather than arrive. */
+@media (prefers-reduced-motion: reduce) {
+  .rf-field::before, .rf-field.work .rf-sweep, .rf-orb i, .rf-caret { animation: none; }
+  .rf-w { animation: none; opacity: 1; }
+  .rf-review { animation: none; }
+}

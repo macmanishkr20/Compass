@@ -500,7 +500,8 @@
   <!-- ══════ save a prompt ══════ -->
   @if (saveDialog(); as d) {
     <div class="pl-veil" (click)="closeSaveDialog()"></div>
-    <div class="pl-modal" role="dialog" aria-modal="true" aria-label="Save to your prompt library">
+    <div class="pl-modal" role="dialog" aria-modal="true"
+      aria-label="Save to your prompt library" (keydown)="onDialogKeydown($event)">
       <div class="pl-head">
         <span class="pl-eyeb">{{ d.id ? 'Edit saved prompt' : 'Save to your prompt library' }}</span>
         <button class="pl-x" type="button" (click)="closeSaveDialog()" aria-label="Close">
@@ -514,8 +515,111 @@
         (input)="patchDialog({ title: $any($event.target).value })">
 
       <label class="pl-label" for="pl-text">Prompt</label>
-      <textarea id="pl-text" class="pl-text" rows="6" [value]="d.text"
-        (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+
+      <!-- A prompt saved out of a conversation keeps the plain box and the
+           session agent below it: that offer reads the thread, and nothing
+           about the field itself changes what it can do.
+
+           A prompt opened from the library gets the refine surface. The
+           rewrite happens *in* the field rather than replacing it, because
+           it is a suggestion laid over something the person wrote — watching
+           it arrive is what makes that legible. Nothing is applied until
+           Keep. -->
+      @if (d.fromMessage) {
+        <textarea id="pl-text" class="pl-text" rows="6" [value]="d.text"
+          (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+      } @else {
+        <div class="rf-field" [class.work]="refinePhase() === 'work'"
+          [class.streaming]="refinePhase() === 'streaming'"
+          [class.settled]="refineSettled()">
+          <div class="rf-inner">
+            @if (refinePhase() === 'idle') {
+              <textarea id="pl-text" class="rf-canvas" rows="6" [value]="d.text"
+                placeholder="Describe what you want Compass to do…"
+                (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+            } @else {
+              <!-- Read-only from the moment the model starts until the
+                   person decides. While it works, the text under the sweep
+                   is on its way out; once it has answered, what is on
+                   screen is a proposal, and it stays on screen so Keep and
+                   Revert are a choice between two things you can both see.
+                   Editing resumes after Keep. -->
+              <div class="rf-canvas live" aria-live="polite">
+                @for (w of refineWords(); track $index) {
+                  <span class="rf-w" [class.rf-nw]="w.changed">{{ w.text }}</span>
+                }
+                @if (refinePhase() === 'streaming') { <span class="rf-caret"></span> }
+                @if (refinePhase() === 'work') { <span class="rf-prev">{{ d.text }}</span> }
+              </div>
+            }
+
+            <div class="rf-sweep" aria-hidden="true"></div>
+
+            <div class="rf-dock">
+              <button class="rf-refine" type="button" (click)="refine()"
+                [disabled]="!d.text.trim()">
+                <span class="rf-sp">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l1.5 4.6L18 9l-4.5 1.4L12 15l-1.5-4.6L6 9l4.5-1.4z"/>
+                    <path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>
+                  </svg>
+                </span>
+                {{ refinePhase() === 'review' ? 'Refine again' : 'Refine' }}
+                <span class="rf-kb">{{ metaKey }}↵</span>
+              </button>
+              <span class="rf-cnt">{{ wordCount(d.text) }}</span>
+            </div>
+
+            <div class="rf-status">
+              <span class="rf-orb" aria-hidden="true"><i></i></span>
+              <span class="rf-tx">{{ refineStep() }}</span>
+              <span class="rf-el">{{ refineElapsed() }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── review ── -->
+        @if (refinePhase() === 'review') {
+          <div class="rf-review">
+            <div class="rf-rv1">
+              <span class="rf-tick" aria-hidden="true">✓</span>
+              <span class="rf-tx">
+                <b>{{ refineChanges() ? 'Refined — ' + refineChanges() + (refineChanges() === 1 ? ' change' : ' changes') : 'Already clear — nothing changed' }}</b>
+                @if (refineNote()) { <small>{{ refineNote() }}</small> }
+              </span>
+              <button class="pl-btn" type="button" (click)="revertRefined()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 2.6-6.4M3 3v6h6"/>
+                </svg>
+                Revert
+              </button>
+              <button class="pl-btn primary" type="button" (click)="keepRefined()">Keep</button>
+            </div>
+            <div class="rf-rv2">
+              <span class="rf-vlab">Try</span>
+              <button class="rf-chip" type="button" [class.on]="refineVariant() === 'clearer'"
+                (click)="refine('clearer')">Clearer</button>
+              <button class="rf-chip" type="button" [class.on]="refineVariant() === 'shorter'"
+                (click)="refine('shorter')">Shorter</button>
+              <button class="rf-chip" type="button" [class.on]="refineVariant() === 'specific'"
+                (click)="refine('specific')">More specific</button>
+              <button class="rf-cmp-btn" type="button" (click)="showOriginal.set(!showOriginal())">
+                {{ showOriginal() ? 'Hide original' : 'Show original' }}
+              </button>
+            </div>
+            @if (showOriginal()) {
+              <div class="rf-cmp">
+                <div class="rf-ob">
+                  <span class="rf-lb">Your original</span>
+                  <span>{{ d.text }}</span>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
 
       <!-- Offered, never applied on its own: a prompt that quietly changes
            what somebody meant is worse than the one they typed. The label
@@ -529,38 +633,44 @@
            thread in front of it — so that button would promise to read a
            session that is usually a blank Home screen. An existing prompt
            gets the one thing that is still possible: improve what is here. -->
-      <div class="pl-sharpen">
-        <button class="pl-btn ghost" type="button"
-          (click)="d.fromMessage ? sharpen() : refine()"
-          [disabled]="sharpening() || (!d.fromMessage && !d.text.trim())">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
-            <path d="M18 15l.8 2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1z"/>
-          </svg>
-          @if (sharpening()) {
-            {{ d.fromMessage ? 'Building…' : 'Improving…' }}
+      @if (d.fromMessage) {
+        <div class="pl-sharpen">
+          <button class="pl-btn ghost" type="button"
+            (click)="d.fromMessage ? sharpen() : refine()"
+            [disabled]="sharpening() || (!d.fromMessage && !d.text.trim())">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
+              <path d="M18 15l.8 2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1z"/>
+            </svg>
+            @if (sharpening()) {
+              {{ d.fromMessage ? 'Building…' : 'Improving…' }}
+            } @else {
+              {{ d.fromMessage ? 'Build with session prompts' : 'Improve with AI' }}
+            }
+          </button>
+          @if (d.sharpened) {
+            <button class="pl-btn ghost" type="button" (click)="undoSharpen()">{{ d.fromMessage ? 'Use what I typed' : 'Use what I had' }}</button>
+            @if (!d.fromMessage) {
+              <span class="pl-note">Rewritten from this prompt — edit it freely.</span>
+            } @else {
+              <span class="pl-note" [title]="usedDetail(d.used)">{{ usedLine(d.used) || 'Built from this session\'s prompts' }} — edit it freely.</span>
+            }
+          } @else if (!d.fromMessage) {
+            <span class="pl-note">Rewrites this prompt to be clearer and self-contained, without changing what it asks for.</span>
           } @else {
-            {{ d.fromMessage ? 'Build with session prompts' : 'Improve with AI' }}
+            <span class="pl-note">Reads what you asked around this and writes one complete prompt.</span>
           }
-        </button>
-        @if (d.sharpened) {
-          <button class="pl-btn ghost" type="button" (click)="undoSharpen()">{{ d.fromMessage ? 'Use what I typed' : 'Use what I had' }}</button>
-          @if (!d.fromMessage) {
-            <span class="pl-note">Rewritten from this prompt — edit it freely.</span>
-          } @else {
-            <span class="pl-note" [title]="usedDetail(d.used)">{{ usedLine(d.used) || 'Built from this session\'s prompts' }} — edit it freely.</span>
-          }
-        } @else if (!d.fromMessage) {
-          <span class="pl-note">Rewrites this prompt to be clearer and self-contained, without changing what it asks for.</span>
-        } @else {
-          <span class="pl-note">Reads what you asked around this and writes one complete prompt.</span>
-        }
-      </div>
+        </div>
+      }
 
       @if (promptError()) { <p class="pl-err">{{ promptError() }}</p> }
 
       <div class="pl-foot">
+        @if (!d.fromMessage) {
+          <span class="rf-hint">{{ refineHint() }}</span>
+        }
+        <span class="pl-foot-sp"></span>
         <button class="pl-btn ghost" type="button" (click)="closeSaveDialog()">Cancel</button>
         <button class="pl-btn primary" type="button" (click)="commitSavePrompt()"
           [disabled]="!d.text.trim() || savingPrompt()">
