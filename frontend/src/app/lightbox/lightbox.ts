@@ -20,7 +20,21 @@ import { LightboxService } from '../lightbox.service';
   host: { '(document:keydown)': 'onKeydown($event)' },
 })
 export class Lightbox {
+
   readonly svc = inject(LightboxService);
+
+  /** What the browser should call the file it saves.
+   *
+   *  A generated picture is stored under a 32-character hex id and a
+   *  screenshot under a short one — fine as keys, poor as filenames, but
+   *  still the only name the thing has. The extension is kept when there is
+   *  one and assumed to be .png when there is not, which is what every
+   *  route here serves. */
+  fileName(): string {
+    const last = (this.svc.src() || '').split('/').pop()?.split('?')[0] || '';
+    if (!last) return 'image.png';
+    return /\.[a-z0-9]{3,4}$/i.test(last) ? last : `${last}.png`;
+  }
 
   // Pan offset (px), reset whenever the image or zoom returns to 1×.
   readonly tx = signal(0);

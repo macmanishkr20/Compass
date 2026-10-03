@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { ArtifactService } from '../artifact.service';
 import { ImageActionsService } from '../image-actions.service';
+import { LightboxService } from '../lightbox.service';
 import { Artifact } from '../models';
 
 interface ProseSeg {
@@ -131,7 +132,14 @@ function citeHost(label: string, url: string): string {
         </button>
       } @else if (seg.type === 'pic') {
         <figure class="md-pic">
-          <img [src]="asPic(seg).url" [alt]="asPic(seg).alt" loading="lazy" />
+          <!-- Click to see it properly. In a chat column a poster is a
+               thumbnail; the overlay is where it is actually legible. -->
+          <img [src]="asPic(seg).url" [alt]="asPic(seg).alt" loading="lazy"
+            class="md-pic-open" tabindex="0" role="button"
+            [attr.aria-label]="'Open ' + (asPic(seg).alt || 'image') + ' full size'"
+            (click)="openPicture(asPic(seg))"
+            (keydown.enter)="openPicture(asPic(seg))"
+            (keydown.space)="$event.preventDefault(); openPicture(asPic(seg))" />
           <figcaption>
             <!-- The download attribute on an anchor to this origin saves
                  rather than navigates, which is what a browser would
@@ -170,6 +178,7 @@ export class Markdown {
   readonly expanded = signal<Set<number>>(new Set());
   readonly artifacts = inject(ArtifactService);
   private readonly imageActions = inject(ImageActionsService);
+  private readonly lightbox = inject(LightboxService);
 
   readonly segments = computed<Seg[]>(() => this.parse(this.text()));
 
@@ -187,6 +196,11 @@ export class Markdown {
   asArt = (s: Seg) => s as ArtifactSeg;
   asVideo = (s: Seg) => s as VideoSeg;
   asPic = (s: Seg) => s as PicSeg;
+
+  /** Hand the picture to the viewer mounted at the top of the app. */
+  openPicture(pic: PicSeg): void {
+    this.lightbox.open(pic.url, pic.alt || 'Image');
+  }
 
   /** What the browser should call the file it saves. The stored name is a
    *  32-character hex id, which is a fine key and a poor filename. */

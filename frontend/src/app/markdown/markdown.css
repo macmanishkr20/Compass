@@ -169,6 +169,18 @@
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
+/* It opens full size, so it has to look like it does. In a chat column a
+   poster is a thumbnail — the border lifting on hover is the only thing
+   saying there is more of it to see. */
+.md-pic img.md-pic-open { cursor: zoom-in; transition: border-color 0.15s, box-shadow 0.15s; }
+.md-pic img.md-pic-open:hover {
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-md);
+}
+.md-pic img.md-pic-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .md-pic figcaption {
   display: flex;

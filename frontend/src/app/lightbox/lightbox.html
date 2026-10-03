@@ -9,6 +9,15 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
       </button>
       <span class="lbx-sep"></span>
+      <!-- Saving the picture is most of why people open it full size, and
+           the download attribute on a same-origin link saves rather than
+           navigates — without it the browser just shows the PNG again, in a
+           tab, with no way back to the conversation. -->
+      <a class="lbx-btn" [href]="svc.src()" [download]="fileName()"
+        (click)="$event.stopPropagation()" aria-label="Download" title="Download">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <span class="lbx-sep"></span>
       <button class="lbx-btn" (click)="svc.close()" aria-label="Close" title="Close (Esc)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
       </button>
