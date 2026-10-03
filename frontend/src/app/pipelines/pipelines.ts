@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { JsonPipe } from '@angular/common';
 import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService } from '../compass-api.service';
+import { ConfirmService } from '../confirm.service';
+import { NoticeService } from '../notice.service';
 import {
   ConnectionKind,
   CredentialTypeInfo,
@@ -54,6 +56,8 @@ import { EstimateSummary } from '../estimate/models';
 })
 export class Pipelines {
   private readonly api = inject(CompassApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   private readonly turnNotify = inject(TurnNotifyService);
   /** The Estimate module's own service, injected rather than duplicated. The
    *  dependency points one way and only from here: Estimate does not know
@@ -928,12 +932,31 @@ export class Pipelines {
 
   async deletePipeline(id: string, ev: Event): Promise<void> {
     ev.stopPropagation();
+    const row = this.pipelines().find((p) => p.id === id);
+    const label = row?.name || 'this pipeline';
+    if (!(await this.confirm.ask({
+      title: 'Delete this pipeline?',
+      subject: label,
+      body: 'Its whole run history goes with it, and anything scheduled on '
+        + 'it stops. This cannot be undone.',
+    }))) return;
+
+    const before = this.pipelines();
+    const wasOpen = this.open()?.id === id;
+    const openBefore = this.open();
+    this.pipelines.update((all) => all.filter((p) => p.id !== id));
+    if (wasOpen) this.open.set(null);
+
     try {
       await this.api.deletePipeline(id);
-      this.pipelines.update((all) => all.filter((p) => p.id !== id));
-      if (this.open()?.id === id) this.open.set(null);
+      this.notice.ok(`Deleted “${label}”.`);
     } catch (err: unknown) {
-      this.error.set(this.message(err));
+      this.pipelines.set(before);
+      if (wasOpen) this.open.set(openBefore);
+      this.notice.error(`Could not delete it — ${this.message(err)}`, {
+        label: 'Try again',
+        run: () => void this.deletePipeline(id, ev),
+      });
     }
   }
 
@@ -1729,11 +1752,27 @@ export class Pipelines {
   }
 
   async deleteConnection(id: string): Promise<void> {
+    const row = this.connections().find((c) => c.id === id);
+    const label = row?.name || 'this connection';
+    if (!(await this.confirm.ask({
+      title: 'Delete this connection?',
+      subject: label,
+      body: 'Any pipeline step using it stops working until it is given '
+        + 'another one. This cannot be undone.',
+    }))) return;
+
+    const before = this.connections();
+    this.connections.update((all) => all.filter((c) => c.id !== id));
+
     try {
       await this.api.deleteConnection(id);
-      this.connections.update((all) => all.filter((c) => c.id !== id));
+      this.notice.ok(`Deleted “${label}”.`);
     } catch (err: unknown) {
-      this.error.set(this.message(err));
+      this.connections.set(before);
+      this.notice.error(`Could not delete it — ${this.message(err)}`, {
+        label: 'Try again',
+        run: () => void this.deleteConnection(id),
+      });
     }
   }
 

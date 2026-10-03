@@ -8,6 +8,8 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { CompassApiService } from '../compass-api.service';
+import { ConfirmService } from '../confirm.service';
+import { NoticeService } from '../notice.service';
 import { ActivityKind, MissionActivityService } from './mission-activity.service';
 import {
   CompassEvent,
@@ -51,6 +53,8 @@ import {
 })
 export class Missions {
   private readonly api = inject(CompassApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   /** Public so the template can render the feed the nav's pulse opens. */
   readonly feed = inject(MissionActivityService);
 
@@ -255,12 +259,30 @@ export class Missions {
   }
 
   async remove(id: string): Promise<void> {
+    const mission = this.missions().find((m) => m.id === id);
+    const label = (mission?.goal || 'this mission').slice(0, 120);
+    if (!(await this.confirm.ask({
+      title: 'Delete this mission?',
+      subject: label,
+      body: 'Its record and session history go. The workspace it built is '
+        + 'left on disk exactly as it is. This cannot be undone.',
+    }))) return;
+
+    const before = this.missions();
+    const wasOpen = this.openId() === id;
+    this.missions.update((list) => list.filter((m) => m.id !== id));
+    if (wasOpen) this.closeMission();
+
     try {
       await this.api.deleteMission(id);
-      if (this.openId() === id) this.closeMission();
+      this.notice.ok('Mission deleted.');
       await this.refresh();
     } catch (err) {
-      this.error.set(String(err));
+      this.missions.set(before);
+      this.notice.error(`Could not delete it — ${String(err)}`, {
+        label: 'Try again',
+        run: () => void this.remove(id),
+      });
     }
   }
 

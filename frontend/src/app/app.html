@@ -2406,6 +2406,11 @@
 
   <app-lightbox />
 
+<!-- Asked before anything is destroyed, and said afterwards. Both are
+     mounted once here so every module shares one of each. -->
+<app-confirm />
+<app-notice />
+
 
   @if (prModalOpen()) {
     <div class="diff-overlay" (click)="prModalOpen.set(false)">

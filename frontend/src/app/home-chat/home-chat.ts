@@ -21,6 +21,8 @@ import { CompassMark } from '../compass-mark/compass-mark';
 import { Markdown } from '../markdown/markdown';
 import { Reorder } from '../reorder/reorder';
 import { RefinedPrompt, SavedPrompt } from '../models';
+import { ConfirmService } from '../confirm.service';
+import { NoticeService } from '../notice.service';
 import { CompassEvent } from '../models';
 import { ATTACH_ACCEPT, UiAttachment, formatSize, readFiles, toWire } from '../attachments';
 import { SmoothText } from '../smooth-text';
@@ -135,6 +137,8 @@ const EFFORTS = ['low', 'medium', 'high'] as const;
 })
 export class HomeChat {
   private readonly api = inject(CompassApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   private readonly imageActions = inject(ImageActionsService);
   private readonly auth = inject(AuthService);
   private readonly turnNotify = inject(TurnNotifyService);
@@ -1172,11 +1176,25 @@ export class HomeChat {
   }
 
   async removeSaved(p: SavedPrompt): Promise<void> {
+    if (!(await this.confirm.ask({
+      title: 'Delete this saved prompt?',
+      subject: p.title || p.text.slice(0, 80),
+      body: 'It is removed from your library. This cannot be undone.',
+    }))) return;
+
+    const before = this.saved();
+    this.saved.update((list) => list.filter((row) => row.id !== p.id));
+
     try {
       await this.api.deleteSavedPrompt(p.id);
+      this.notice.ok(`Deleted “${p.title || 'prompt'}”.`);
       await this.loadPrompts();
     } catch (err) {
-      this.promptError.set(String(err));
+      this.saved.set(before);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.removeSaved(p),
+      });
     }
   }
 

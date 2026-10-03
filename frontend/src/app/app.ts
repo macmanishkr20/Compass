@@ -29,7 +29,11 @@ import { Design } from './design/design';
 import { Pipelines } from './pipelines/pipelines';
 import { Estimate } from './estimate/estimate';
 import { Missions } from './missions/missions';
+import { Confirm } from './confirm/confirm';
+import { ConfirmService } from './confirm.service';
 import { Lightbox } from './lightbox/lightbox';
+import { NoticeService } from './notice.service';
+import { NoticeStack } from './notice/notice';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LightboxService } from './lightbox.service';
 import { BrowserSelectService } from './browser-select.service';
@@ -134,6 +138,8 @@ const CONV_PAGE = 4;
     Estimate,
     Missions,
     Lightbox,
+    Confirm,
+    NoticeStack,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -145,6 +151,8 @@ const CONV_PAGE = 4;
 })
 export class App {
   private readonly api = inject(CompassApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   readonly theme = inject(ThemeService);
   readonly auth = inject(AuthService);
   readonly artifacts = inject(ArtifactService);
@@ -504,13 +512,35 @@ export class App {
   async deleteHomeConversation(card: ChatCard, ev?: Event): Promise<void> {
     ev?.stopPropagation();
     this.homeMenuOpenId.set(null);
+    if (!(await this.confirm.ask({
+      title: 'Delete this conversation?',
+      subject: card.title || 'Untitled conversation',
+      body: 'Its messages and anything attached to it go with it. '
+        + 'This cannot be undone.',
+    }))) return;
+
+    // Gone from the list before the request leaves: the row is what the
+    // person is looking at, and leaving it there while the round trip
+    // happens is the lag they reported. Kept here so it can be put back.
+    const before = this.homeSessions();
+    const wasActive = this.homeActiveId() === card.id;
+    this.homeSessions.update((cards) => cards.filter((c) => c.id !== card.id));
+    if (wasActive) this.homeActiveId.set(null);
+
     try {
       await this.api.deleteChatSession(card.id);
-    } catch {
-      /* ignore */
+      this.notice.ok(`Deleted “${card.title || 'Untitled conversation'}”.`);
+      await this.loadHomeSessions();
+    } catch (err) {
+      // Put it back exactly as it was. A row that vanished and stayed gone
+      // while the server still has it is worse than never removing it.
+      this.homeSessions.set(before);
+      if (wasActive) this.homeActiveId.set(card.id);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.deleteHomeConversation(card),
+      });
     }
-    if (this.homeActiveId() === card.id) this.homeActiveId.set(null);
-    await this.loadHomeSessions();
   }
 
   // -- Home chat-row menu: Rename / Star / Delete (like claude.ai + Code) ----
@@ -3302,9 +3332,25 @@ export class App {
   async deleteRoutineDetail(): Promise<void> {
     const r = this.activeRoutine();
     if (!r) return;
-    await this.api.deleteRoutine(r.id);
-    await this.loadRoutines();
+    if (!(await this.confirm.ask({
+      title: 'Delete this routine?',
+      subject: r.name || 'Untitled routine',
+      body: 'It stops running on its schedule and its run history goes. '
+        + 'This cannot be undone.',
+    }))) return;
+
+    const before = this.routines();
+    this.routines.update((list) => list.filter((x) => x.id !== r.id));
     this.routineView.set('list');
+
+    try {
+      await this.api.deleteRoutine(r.id);
+      this.notice.ok(`Deleted “${r.name || 'Untitled routine'}”.`);
+      await this.loadRoutines();
+    } catch (err) {
+      this.routines.set(before);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`);
+    }
   }
   async toggleRoutineActive(): Promise<void> {
     const r = this.activeRoutine();
@@ -3802,9 +3848,30 @@ export class App {
 
   async deleteConversation(card: SessionCard): Promise<void> {
     this.closeMenu();
-    await this.api.deleteSession(card.id);
-    await this.refreshSessions();
-    if (this.sessionId() === card.id) await this.newSession();
+    if (!(await this.confirm.ask({
+      title: 'Delete this session?',
+      subject: card.title || 'Untitled session',
+      body: 'Its transcript goes, along with the screenshots the agent took '
+        + 'and anything it drew. The workspace on disk is untouched. '
+        + 'This cannot be undone.',
+    }))) return;
+
+    const before = this.cards();
+    const wasOpen = this.sessionId() === card.id;
+    this.cards.update((list) => list.filter((c) => c.id !== card.id));
+
+    try {
+      await this.api.deleteSession(card.id);
+      this.notice.ok(`Deleted “${card.title || 'Untitled session'}”.`);
+      await this.refreshSessions();
+      if (wasOpen) await this.newSession();
+    } catch (err) {
+      this.cards.set(before);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.deleteConversation(card),
+      });
+    }
   }
 
   // -- mode / effort -------------------------------------------------------
@@ -3997,9 +4064,31 @@ export class App {
   async removeWorkspace(ws: Workspace, ev: Event): Promise<void> {
     ev.stopPropagation();
     if (ws.id === 'default') return;
-    await this.api.deleteWorkspace(ws.id);
-    if (this.activeWorkspaceId() === ws.id) this.activeWorkspaceId.set('default');
-    await this.refreshWorkspaces();
+    if (!(await this.confirm.ask({
+      title: 'Remove this workspace?',
+      subject: ws.name || ws.id,
+      body: 'Compass forgets the folder. Nothing inside it is deleted — the '
+        + 'files stay exactly where they are on disk.',
+      confirmLabel: 'Remove',
+    }))) return;
+
+    const before = this.workspaces();
+    const wasActive = this.activeWorkspaceId() === ws.id;
+    this.workspaces.update((list) => list.filter((w) => w.id !== ws.id));
+    if (wasActive) this.activeWorkspaceId.set('default');
+
+    try {
+      await this.api.deleteWorkspace(ws.id);
+      this.notice.ok(`Removed “${ws.name || ws.id}”.`);
+      await this.refreshWorkspaces();
+    } catch (err) {
+      this.workspaces.set(before);
+      if (wasActive) this.activeWorkspaceId.set(ws.id);
+      this.notice.error(`Could not remove it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.removeWorkspace(ws, ev),
+      });
+    }
   }
 
   // -- sending / editing / regenerating -----------------------------------

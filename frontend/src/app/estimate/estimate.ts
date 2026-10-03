@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 
 import { TurnNotifyService } from '../turn-notify.service';
+import { ConfirmService } from '../confirm.service';
+import { NoticeService } from '../notice.service';
 import { EstimateApi } from './estimate-api';
 import { EstimateReport } from './report';
 import {
@@ -56,6 +58,8 @@ const BUILD_HOURS: Record<string, number> = {
 })
 export class Estimate {
   private readonly api = inject(EstimateApi);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   private readonly turnNotify = inject(TurnNotifyService);
 
   readonly view = signal<View>('portfolio');
@@ -441,11 +445,26 @@ export class Estimate {
 
   async remove(id: string, event: Event): Promise<void> {
     event.stopPropagation();
+    const row = this.estimates().find((r) => r.id === id);
+    const label = row?.name || 'this estimate';
+    if (!(await this.confirm.ask({
+      title: 'Delete this estimate?',
+      subject: label,
+      body: 'The brief and the costing go with it. This cannot be undone.',
+    }))) return;
+
+    const before = this.estimates();
+    this.estimates.update((rows) => rows.filter((r) => r.id !== id));
+
     try {
       await this.api.remove(id);
-      this.estimates.update((rows) => rows.filter((r) => r.id !== id));
+      this.notice.ok(`Deleted “${label}”.`);
     } catch (err) {
-      this.error.set(this.message(err));
+      this.estimates.set(before);
+      this.notice.error(`Could not delete it — ${this.message(err)}`, {
+        label: 'Try again',
+        run: () => void this.remove(id, event),
+      });
     }
   }
 

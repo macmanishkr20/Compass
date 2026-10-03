@@ -16,6 +16,8 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TurnNotifyService } from '../turn-notify.service';
 import { CompassApiService, describeHttpError } from '../compass-api.service';
+import { ConfirmService } from '../confirm.service';
+import { NoticeService } from '../notice.service';
 import { LoadError } from '../load-error';
 import { FitMenuDirective } from './fit-menu.directive';
 import { TickSound } from './tick.service';
@@ -82,6 +84,8 @@ const LANDING_ROWS = 4;
 })
 export class Design {
   private readonly api = inject(CompassApiService);
+  private readonly confirm = inject(ConfirmService);
+  private readonly notice = inject(NoticeService);
   private readonly turnNotify = inject(TurnNotifyService);
   readonly tick = inject(TickSound);
   private readonly sanitizer = inject(DomSanitizer);
@@ -1750,7 +1754,11 @@ export class Design {
     event.stopPropagation();
     const project = this.open();
     if (!project || this.pages().length < 2) return;
-    if (!window.confirm(`Delete ${page.name}?`)) return;
+    if (!(await this.confirm.ask({
+      title: 'Delete this page?',
+      subject: page.name,
+      body: 'Its markup goes with it. This cannot be undone.',
+    }))) return;
     const updated = await this.api.deleteDesignPage(project.id, page.id);
     this.open.set(updated);
     await this.loadPages(project.id);
@@ -1815,7 +1823,11 @@ export class Design {
     event.stopPropagation();
     const project = this.open();
     if (!project) return;
-    if (!window.confirm(`Delete ${file.name}?`)) return;
+    if (!(await this.confirm.ask({
+      title: 'Delete this file?',
+      subject: file.name,
+      body: 'It is removed from the design. This cannot be undone.',
+    }))) return;
     await this.api.deleteDesignFile(project.id, file.path);
     if (this.previewFile()?.path === file.path) this.previewFile.set(null);
     await this.listFiles(this.filesPath());
@@ -2602,10 +2614,30 @@ export class Design {
   async remove(project: DesignProject, event?: Event): Promise<void> {
     event?.stopPropagation();
     this.closeMenus();
-    if (!window.confirm(`Delete “${project.name}”? This cannot be undone.`)) return;
+    if (!(await this.confirm.ask({
+      title: 'Delete this design?',
+      subject: project.name,
+      body: 'Every page, its history and the artwork drawn into it go with '
+        + 'it. This cannot be undone.',
+    }))) return;
+
+    const before = this.projects();
+    const wasOpen = this.open()?.id === project.id;
+    const openBefore = this.open();
     this.projects.update((rows) => rows.filter((r) => r.id !== project.id));
-    if (this.open()?.id === project.id) this.open.set(null);
-    await this.api.deleteDesign(project.id);
+    if (wasOpen) this.open.set(null);
+
+    try {
+      await this.api.deleteDesign(project.id);
+      this.notice.ok(`Deleted “${project.name}”.`);
+    } catch (err) {
+      this.projects.set(before);
+      if (wasOpen) this.open.set(openBefore);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.remove(project),
+      });
+    }
   }
 
   openRowMenu(project: DesignProject, event: Event): void {
@@ -3023,9 +3055,29 @@ export class Design {
 
   async removeSystem(system: DesignSystem, event: Event): Promise<void> {
     event.stopPropagation();
+    if (!(await this.confirm.ask({
+      title: 'Delete this design system?',
+      subject: system.name,
+      body: 'Designs already built with it keep their look; new ones can no '
+        + 'longer be based on it. This cannot be undone.',
+    }))) return;
+
+    const before = this.systems();
+    const chosenBefore = this.chosenSystems();
     this.systems.update((rows) => rows.filter((r) => r.id !== system.id));
     this.chosenSystems.update((ids) => ids.filter((id) => id !== system.id));
-    await this.api.deleteDesignSystem(system.id);
+
+    try {
+      await this.api.deleteDesignSystem(system.id);
+      this.notice.ok(`Deleted “${system.name}”.`);
+    } catch (err) {
+      this.systems.set(before);
+      this.chosenSystems.set(chosenBefore);
+      this.notice.error(`Could not delete it — ${describeHttpError(err)}`, {
+        label: 'Try again',
+        run: () => void this.removeSystem(system, event),
+      });
+    }
   }
 
   /** Swatches for a card. An imported system may carry none, in which case the
