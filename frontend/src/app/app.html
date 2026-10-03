@@ -1040,7 +1040,20 @@
                     <div class="bubble-atts">
                       @for (a of b.atts!; track a.id) {
                         @if (a.kind === 'image') {
-                          <img class="bubble-att-img" [src]="a.dataUrl" [alt]="a.name" />
+                          <!-- Clickable here too. It opens in the same viewer
+                               Home's do; it simply never had the handler. -->
+                          <img class="bubble-att-img" [src]="a.dataUrl" [alt]="a.name"
+                            (click)="lightbox.open(a.dataUrl, a.name, 'image')" />
+                        } @else if (a.kind === 'video') {
+                          <button class="bubble-att-vid" type="button"
+                            [attr.aria-label]="'Play ' + a.name"
+                            (click)="lightbox.open(a.dataUrl, a.name, 'video', a.name)">
+                            <video [src]="a.dataUrl" preload="metadata" muted playsinline></video>
+                            <span class="bubble-att-play" aria-hidden="true">
+                              <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            </span>
+                            <span class="bubble-att-vid-name">{{ a.name }}</span>
+                          </button>
                         } @else {
                           <span class="bubble-att-file">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3v5h5M14 3l5 5v11a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z" stroke-linejoin="round"/></svg>

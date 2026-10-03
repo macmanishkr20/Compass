@@ -1593,3 +1593,60 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .pl-foot { border-top: 1px solid var(--border); padding-top: 14px; }
 /* Why the save is unavailable, in place of the shortcut hint. */
 .rf-hint.needs { color: var(--accent); }
+
+/* An attached film in the bubble: its first frame, a play badge, and the
+   name along the bottom. The same footprint as an attached picture, so a
+   message carrying both reads as one row of things rather than two kinds. */
+.cbubble-vid {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+  cursor: zoom-in;
+  line-height: 0;
+}
+.cbubble-vid video {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  object-fit: cover;
+  /* Decoration: the tile is the button, and the film plays in the viewer. */
+  pointer-events: none;
+}
+.cbubble-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.cbubble-play svg {
+  width: 38px;
+  height: 38px;
+  fill: #fff;
+  stroke: none;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.65));
+}
+.cbubble-vid-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 8px 5px;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  color: #fff;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Legible over whatever the frame happens to be. */
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.75));
+  pointer-events: none;
+}
+.cbubble-vid:hover { border-color: var(--accent-line); }
+.cbubble-vid:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
