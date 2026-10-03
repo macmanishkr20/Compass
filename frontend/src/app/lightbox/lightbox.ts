@@ -8,9 +8,11 @@ import {
 import { LightboxService } from '../lightbox.service';
 
 /**
- * Full-screen image viewer: click an image in chat to open it, zoom in/out
- * (buttons, wheel, or double-click), pan when zoomed, and close (✕, backdrop,
- * or Esc). Rendered once in the root component; driven by LightboxService.
+ * Full-screen viewer: click a picture or a film in chat to open it, save it,
+ * and close it (✕, backdrop, or Esc). A picture also zooms — buttons, wheel
+ * or double-click — and pans when zoomed; a film plays with its own controls
+ * and ignores all of that. Rendered once in the root component; driven by
+ * LightboxService.
  */
 @Component({
   selector: 'app-lightbox',
@@ -31,9 +33,13 @@ export class Lightbox {
    *  one and assumed to be .png when there is not, which is what every
    *  route here serves. */
   fileName(): string {
+    // A film arrives with the name it was rendered under, which is a real
+    // one; a picture does not.
+    if (this.svc.name()) return this.svc.name();
     const last = (this.svc.src() || '').split('/').pop()?.split('?')[0] || '';
-    if (!last) return 'image.png';
-    return /\.[a-z0-9]{3,4}$/i.test(last) ? last : `${last}.png`;
+    if (!last) return this.svc.kind() === 'video' ? 'video.mp4' : 'image.png';
+    if (/\.[a-z0-9]{3,4}$/i.test(last)) return last;
+    return this.svc.kind() === 'video' ? `${last}.mp4` : `${last}.png`;
   }
 
   // Pan offset (px), reset whenever the image or zoom returns to 1×.
@@ -58,13 +64,17 @@ export class Lightbox {
 
   onKeydown(ev: KeyboardEvent): void {
     if (!this.svc.isOpen()) return;
-    if (ev.key === 'Escape') this.svc.close();
-    else if (ev.key === '+' || ev.key === '=') this.svc.zoomIn();
+    if (ev.key === 'Escape') { this.svc.close(); return; }
+    // The zoom keys would otherwise fight a video's own keyboard handling,
+    // and there is nothing for them to do to one.
+    if (this.svc.kind() === 'video') return;
+    if (ev.key === '+' || ev.key === '=') this.svc.zoomIn();
     else if (ev.key === '-' || ev.key === '_') this.svc.zoomOut();
     else if (ev.key === '0') this.svc.reset();
   }
 
   onWheel(ev: WheelEvent): void {
+    if (this.svc.kind() === 'video') return;
     ev.preventDefault();
     this.svc.setScale(this.svc.scale() + (ev.deltaY < 0 ? 0.2 : -0.2));
   }

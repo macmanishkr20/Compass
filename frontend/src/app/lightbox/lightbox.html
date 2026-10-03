@@ -1,14 +1,18 @@
 @if (svc.isOpen()) {
   <div class="lbx" (click)="svc.close()" (wheel)="onWheel($event)">
     <div class="lbx-bar" (click)="$event.stopPropagation()">
-      <button class="lbx-btn" (click)="svc.zoomOut()" aria-label="Zoom out" title="Zoom out ( − )">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
-      </button>
-      <span class="lbx-pct" (click)="svc.reset()" title="Reset (0)">{{ pct() }}%</span>
-      <button class="lbx-btn" (click)="svc.zoomIn()" aria-label="Zoom in" title="Zoom in ( + )">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
-      </button>
-      <span class="lbx-sep"></span>
+      <!-- Zoom is for pictures. A film has its own controls along its
+           bottom edge, and scaling it would push them off the screen. -->
+      @if (svc.kind() === 'image') {
+        <button class="lbx-btn" (click)="svc.zoomOut()" aria-label="Zoom out" title="Zoom out ( − )">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+        <span class="lbx-pct" (click)="svc.reset()" title="Reset (0)">{{ pct() }}%</span>
+        <button class="lbx-btn" (click)="svc.zoomIn()" aria-label="Zoom in" title="Zoom in ( + )">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+        </button>
+        <span class="lbx-sep"></span>
+      }
       <!-- Saving the picture is most of why people open it full size, and
            the download attribute on a same-origin link saves rather than
            navigates — without it the browser just shows the PNG again, in a
@@ -23,12 +27,20 @@
       </button>
     </div>
 
-    <img class="lbx-img" [src]="svc.src()" [alt]="svc.alt()"
-      [class.grab]="svc.scale() > 1"
-      [style.transform]="'translate(' + tx() + 'px,' + ty() + 'px) scale(' + svc.scale() + ')'"
-      (click)="$event.stopPropagation()"
-      (dblclick)="toggleZoom()"
-      (pointerdown)="onDown($event)" (pointermove)="onMove($event)"
-      (pointerup)="onUp()" (pointerleave)="onUp()" />
+    @if (svc.kind() === 'video') {
+      <!-- Plays on open, because opening it is the request. Clicks are kept
+           from the backdrop so using the scrubber does not close the thing
+           being scrubbed. -->
+      <video class="lbx-video" [src]="svc.src()" controls autoplay playsinline
+        (click)="$event.stopPropagation()"></video>
+    } @else {
+      <img class="lbx-img" [src]="svc.src()" [alt]="svc.alt()"
+        [class.grab]="svc.scale() > 1"
+        [style.transform]="'translate(' + tx() + 'px,' + ty() + 'px) scale(' + svc.scale() + ')'"
+        (click)="$event.stopPropagation()"
+        (dblclick)="toggleZoom()"
+        (pointerdown)="onDown($event)" (pointermove)="onMove($event)"
+        (pointerup)="onUp()" (pointerleave)="onUp()" />
+    }
   </div>
 }

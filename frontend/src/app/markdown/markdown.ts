@@ -162,6 +162,12 @@ function citeHost(label: string, url: string): string {
           <video [src]="asVideo(seg).url" controls playsinline preload="metadata"></video>
           <figcaption>
             <span class="md-video-name">{{ asVideo(seg).name }}</span>
+            <!-- Full size, like a picture. The player in the column is a few
+                 hundred pixels wide; this is the one somebody watches. -->
+            <button type="button" class="md-video-open" (click)="openVideo(asVideo(seg))">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6M21 3l-8 8M9 21H3v-6M3 21l8-8"/></svg>
+              Full size
+            </button>
             <a [href]="asVideo(seg).url" [download]="asVideo(seg).name">Download</a>
           </figcaption>
         </figure>
@@ -199,7 +205,13 @@ export class Markdown {
 
   /** Hand the picture to the viewer mounted at the top of the app. */
   openPicture(pic: PicSeg): void {
-    this.lightbox.open(pic.url, pic.alt || 'Image');
+    this.lightbox.open(pic.url, pic.alt || 'Image', 'image');
+  }
+
+  /** The same viewer, for a film. Its name goes too: unlike a picture's id,
+   *  it is what the file should be called when it is saved. */
+  openVideo(vid: VideoSeg): void {
+    this.lightbox.open(vid.url, vid.name || 'Video', 'video', vid.name);
   }
 
   /** What the browser should call the file it saves. The stored name is a

@@ -144,6 +144,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* The name yields first, so the two actions beside it never wrap away. */
+  flex: 1;
+  min-width: 0;
 }
 .md-video figcaption a {
   color: var(--muted);
@@ -221,3 +224,32 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+/* "Full size" sits beside Download under a film, matching the controls a
+   picture gets. The player itself keeps its own click behaviour — clicking
+   it plays or pauses, which is what anyone expects of a video. */
+.md-video-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md-video-open:hover { color: var(--ink); }
+.md-video-open svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.md-video figcaption a { flex-shrink: 0; }
