@@ -361,6 +361,7 @@ async def design_delete(project_id: str, user: str = Depends(require_user)) -> d
     deleted = await get_design_store().delete(project_id)
     if deleted:
         design_files.delete_project(project_id)
+        await design_files.forget(project_id)
     await audit.note_deletion(
         module="design", kind="project", record_id=project_id,
         owner=owner_for(user), session_id=project_id,
@@ -869,6 +870,8 @@ async def design_files(
     await _owned_project(project_id, user)
     from compass.design import files as design_files
 
+    # A second machine has the project but not its files until this runs.
+    await design_files.hydrate(project_id)
     try:
         return design_files.listing(project_id, path)
     except ValueError as err:
@@ -884,6 +887,7 @@ async def design_file_read(
     await _owned_project(project_id, user)
     from compass.design import files as design_files
 
+    await design_files.hydrate(project_id)
     try:
         blob, media = design_files.read_bytes(project_id, path)
     except ValueError as err:
@@ -902,14 +906,19 @@ async def design_file_write(
 
     try:
         if not body.text and not body.data_url:
+            # A folder is nothing in blob storage — only the files in it are.
             return design_files.make_folder(project_id, body.path)
-        return design_files.write(
+        written = design_files.write(
             project_id, body.path, text=body.text, data_url=body.data_url
         )
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
     except IsADirectoryError:
         raise HTTPException(status_code=400, detail="that path is a folder")
+    # Through to blob before answering, so the file is durable by the time
+    # the browser is told it was saved.
+    await design_files.store(project_id, written["path"])
+    return written
 
 
 @router.delete("/v1/design/projects/{project_id}/files")
@@ -920,7 +929,10 @@ async def design_file_delete(
     from compass.design import files as design_files
 
     try:
-        return {"deleted": design_files.remove(project_id, path)}
+        gone = design_files.remove(project_id, path)
+        if gone:
+            await design_files.forget(project_id, path)
+        return {"deleted": gone}
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err))
 
@@ -1356,11 +1368,13 @@ async def _keep_images(project_id: str, images: list[str]) -> None:
     for n, url in enumerate(images, 1):
         head, _, _ = url.partition(",")
         mime = head[len("data:image/"):].split(";")[0].lower() if "image/" in head else "png"
+        rel = f"uploads/attachment-{n}.{kinds.get(mime, mime or 'png')}"
         try:
-            design_files.write(
-                project_id, f"uploads/attachment-{n}.{kinds.get(mime, mime or 'png')}",
-                data_url=url,
-            )
+            design_files.write(project_id, rel, data_url=url)
+            # Through to blob like any other file in the project — an
+            # attachment that only exists on this disk is one the project
+            # loses the moment it is opened anywhere else.
+            await design_files.store(project_id, rel)
         except Exception:  # noqa: BLE001 - keeping it is a courtesy, not a gate
             pass
 

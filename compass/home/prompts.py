@@ -21,14 +21,12 @@ rewrite that quietly changes what somebody meant is worse than the original.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import re
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from pathlib import Path
 
 from compass.common.config import get_settings
 from compass.common.persistence.catalog import Collection
@@ -138,33 +136,36 @@ def _prompts() -> Collection:
 _collection: Collection | None = None
 
 
+#: One row per person: their arrangement of the library.
+#:
+#: It was a JSON file on the box, which made it the last thing in Home that
+#: did not travel. Somebody who ordered their prompts on a laptop found them
+#: unordered on the next machine, and the file was the only copy there was.
+#: In the shared catalog, partitioned by owner, like the prompts it arranges.
+_orders: Collection | None = None
+
+
+def _order_rows() -> Collection:
+    global _orders
+    if _orders is None:
+        _orders = Collection("prompt_order", "prompt_order.json", shape="map")
+    return _orders
+
+
+#: What an unowned arrangement is filed under. Cosmos will not take an empty
+#: id, and an install with no login still has an arrangement worth keeping.
+_NOBODY = "__nobody__"
+
+
+def _order_key(owner: str) -> str:
+    return owner or _NOBODY
+
+
 class PromptLibrary:
     """Saved prompts, newest first. Local JSON or Cosmos — see persistence."""
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-
-    def _folder(self) -> Path:
-        settings = get_settings()
-        folder = settings.workspace_root / settings.data_dir
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder
-
-    def _order_path(self, owner: str = "") -> Path:
-        """Where this person's arrangement is kept.
-
-        One file per person. It was one file for the box, so dragging a row
-        in one account rearranged the next account's list — the arrangement
-        is as personal as the prompts it arranges. The unsuffixed name is
-        kept for the empty owner so an install that never had accounts reads
-        the file it already wrote.
-        """
-        if not owner:
-            return self._folder() / "prompt_order.json"
-        # Hashed rather than spelled out: an owner is an email address, and
-        # that is somebody's identity sitting in a filename on disk.
-        tag = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:16]
-        return self._folder() / f"prompt_order.{tag}.json"
 
     def _clean(self, rows: list[dict]) -> list[SavedPrompt]:
         """Turn stored rows into prompts, dropping what cannot be one."""
@@ -255,28 +256,27 @@ class PromptLibrary:
     # what the names mean. Anything it cannot match is skipped when the list
     # is drawn, so a deleted prompt or a retired starter leaves no hole.
 
-    def _read_order(self, owner: str = "") -> list[str]:
-        path = self._order_path(owner)
-        if not path.exists():
-            return []
-        try:
-            keys = json.loads(path.read_text() or "[]")
-        except (OSError, json.JSONDecodeError):
-            logger.warning("prompt order unreadable at %s", path)
-            return []
-        return _clean_keys(keys)
-
     async def order(self, owner: str = "") -> list[str]:
-        async with self._lock:
-            return self._read_order(owner)
+        """This person's arrangement, or empty if they have never set one.
+
+        Never raises: the arrangement is a nicety on top of a list that is
+        perfectly usable in its default order, so a store that cannot be
+        reached costs the sequence and not the prompts.
+        """
+        try:
+            row = await _order_rows().get(_order_key(owner))
+        except Exception:  # noqa: BLE001
+            logger.warning("could not read the prompt order for %r", owner)
+            return []
+        return _clean_keys((row or {}).get("keys") or [])
 
     async def set_order(self, keys: list[str], owner: str = "") -> list[str]:
         clean = _clean_keys(keys)
-        async with self._lock:
-            path = self._order_path(owner)
-            tmp = path.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(clean, indent=1))
-            tmp.replace(path)
+        key = _order_key(owner)
+        try:
+            await _order_rows().put({"id": key, "owner": key, "keys": clean})
+        except Exception:  # noqa: BLE001 — same reasoning as `order`
+            logger.warning("could not save the prompt order for %r", owner)
         return clean
 
 

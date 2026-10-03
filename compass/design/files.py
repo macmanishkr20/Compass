@@ -194,3 +194,144 @@ def delete_project(project_id: str) -> None:
     root = settings.workspace_root / settings.data_dir / "design_files" / project_id
     if root.exists():
         shutil.rmtree(root, ignore_errors=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Written through to blob storage.
+#
+# The folder above is a working copy, not the record. Everything else a
+# design is made of — its markup, its history, its row — moved to the cloud;
+# its own files did not, so a project opened on a second machine showed an
+# empty Files pane and a design restored from Cosmos came back without the
+# assets it was built from.
+#
+# The same arrangement `home.media` uses for a thread's uploads, and for the
+# same reasons: the disk stays because reading and listing are synchronous
+# and want real paths, and blob holds the copy that survives the machine.
+# ══════════════════════════════════════════════════════════════════════════
+
+import asyncio
+import logging
+
+from compass.common.persistence import blob
+
+logger = logging.getLogger("compass.design.files")
+
+#: Where a project's files live inside `compass-design`, beside the markup.
+BLOB_PREFIX = "files"
+
+
+def _blob_enabled() -> bool:
+    return blob.enabled()
+
+
+def _container():
+    return blob.container("compass-design")
+
+
+def _blob_name(project_id: str, rel: str) -> str:
+    return f"{BLOB_PREFIX}/{project_id}/{rel}"
+
+
+def _put_sync(name: str, path: Path) -> None:
+    with path.open("rb") as handle:
+        _container().upload_blob(
+            name, handle, overwrite=True, max_concurrency=blob.CONCURRENCY
+        )
+
+
+def _get_sync(name: str, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".part")
+    with tmp.open("wb") as handle:
+        _container().download_blob(name, max_concurrency=blob.CONCURRENCY).readinto(handle)
+    tmp.replace(path)
+
+
+def _names_sync(project_id: str) -> dict[str, int]:
+    prefix = _blob_name(project_id, "")
+    return {
+        b.name[len(prefix):]: b.size
+        for b in _container().list_blobs(name_starts_with=prefix)
+        if b.name != prefix
+    }
+
+
+def _drop_sync(prefix: str) -> int:
+    gone = 0
+    for b in list(_container().list_blobs(name_starts_with=prefix)):
+        try:
+            _container().delete_blob(b.name)
+            gone += 1
+        except Exception:  # noqa: BLE001 — already gone counts as gone
+            logger.debug("could not delete %s", b.name)
+    return gone
+
+
+async def store(project_id: str, rel: str) -> bool:
+    """Write one file through to blob. Never raises: it is already on disk
+    and already in the answer the browser is about to get."""
+    if not _blob_enabled() or not rel:
+        return False
+    try:
+        path = resolve(project_id, rel)
+        if not path.is_file():
+            return False
+        await asyncio.to_thread(_put_sync, _blob_name(project_id, rel), path)
+        return True
+    except Exception as err:  # noqa: BLE001
+        logger.warning("could not store %s/%s: %s", project_id, rel, err)
+        return False
+
+
+async def hydrate(project_id: str) -> int:
+    """Make sure this project's files are on disk. Returns how many came down.
+
+    Does nothing in the normal case, where they are already there — one
+    listing of the prefix and no transfers. It earns its place on a second
+    machine, a rebuilt container, or a disk that was cleared.
+
+    Compared by size as well as presence, so a file that was truncated or
+    half-written is fetched again rather than trusted.
+    """
+    if not _blob_enabled():
+        return 0
+    try:
+        remote = await asyncio.to_thread(_names_sync, project_id)
+    except Exception as err:  # noqa: BLE001 — offline is not a failed request
+        logger.warning("could not list stored files for %s: %s", project_id, err)
+        return 0
+    if not remote:
+        return 0
+    root = project_root(project_id)
+
+    async def one(rel: str, size: int) -> bool:
+        path = root / rel
+        try:
+            if path.is_file() and path.stat().st_size == size:
+                return False
+            await asyncio.to_thread(_get_sync, _blob_name(project_id, rel), path)
+            return True
+        except Exception as err:  # noqa: BLE001
+            logger.warning("could not fetch %s: %s", rel, err)
+            return False
+
+    done = await asyncio.gather(*(one(r, s) for r, s in remote.items()))
+    return sum(done)
+
+
+async def forget(project_id: str, rel: str = "") -> int:
+    """Remove one file, or the whole project's files, from blob storage.
+
+    Called beside the local delete rather than instead of it: a file that
+    goes from the disk and stays in blob comes back on the next hydrate,
+    which looks exactly like a delete that did not work.
+    """
+    if not _blob_enabled():
+        return 0
+    prefix = _blob_name(project_id, rel) if rel else _blob_name(project_id, "")
+    try:
+        return await asyncio.to_thread(_drop_sync, prefix)
+    except Exception as err:  # noqa: BLE001
+        logger.warning("could not drop stored files for %s: %s", project_id, err)
+        return 0
