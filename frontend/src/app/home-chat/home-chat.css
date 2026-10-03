@@ -1390,7 +1390,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 
 /* The footer keeps its right-aligned buttons; the hint takes the free space. */
 .rf-hint { font-family: var(--mono); font-size: 0.66rem; color: var(--faint); align-self: center; }
-.pl-foot-sp { flex: 1; }
+.pl-foot-sp { flex: 0 0 auto; }
 
 /* Someone who has asked for less motion gets the states without the motion:
    the aura, the sweep, the blur and the blink all stop, and the words appear
@@ -1400,3 +1400,176 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   .rf-w { animation: none; opacity: 1; }
   .rf-review { animation: none; }
 }
+
+/* ── building from the session: the sentence highlight and the source tray ──
+   The field, the dock, the status chip and the review bar are the same ones
+   refining uses; only what sits under them differs. */
+
+/* Each kept message contributes one sentence, and hovering its row lights
+   that sentence — which is what makes "built from nine messages" checkable
+   rather than something to take on trust. */
+.rf-sent { border-radius: 4px; transition: background 0.25s, box-shadow 0.25s; }
+.rf-sent.lit {
+  background: var(--accent-tint);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+/* The suggested title, offered beside the field rather than written into it. */
+.rf-sugt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 0.73rem;
+  color: var(--accent);
+  background: var(--accent-tint);
+  border: 1px dashed var(--accent);
+  cursor: pointer;
+  transition: 0.15s;
+  animation: rf-fade 0.28s ease both;
+}
+.rf-sugt:hover { background: var(--accent); color: #fff; border-style: solid; }
+.rf-sugt svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+.rf-tray {
+  margin-top: 11px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  animation: rf-slide 0.32s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.rf-th {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--border);
+}
+.rf-lb {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.rf-tk { flex: 1; height: 1px; background: var(--border); }
+.rf-ct { font-family: var(--mono); font-size: 0.66rem; color: var(--faint); }
+/* Bounded: a long session should scroll inside the tray rather than push
+   the prompt and the buttons off the dialog. */
+.rf-tb { max-height: 208px; overflow-y: auto; }
+.rf-scanning {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 13px;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+.rf-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.6px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: rf-orbit 0.66s linear infinite;
+}
+
+.rf-src {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 13px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  font: inherit;
+  cursor: pointer;
+  transition: 0.15s;
+  animation: rf-slidein 0.34s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes rf-slidein {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+.rf-src:last-child { border-bottom: none; }
+.rf-src:hover { background: var(--surface); }
+.rf-box {
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+  transition: 0.16s;
+}
+.rf-src.in .rf-box { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rf-src.out .rf-box { background: transparent; }
+.rf-stx { flex: 1; min-width: 0; }
+.rf-q { font-size: 0.79rem; line-height: 1.5; color: var(--ink); transition: color 0.2s; }
+/* A dropped message is struck through rather than hidden: the point of the
+   tray is that you can see what was left out and put it back. */
+.rf-src.out .rf-q {
+  color: var(--faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--border-strong);
+}
+.rf-why {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 4px;
+  font-size: 0.66rem;
+  color: var(--faint);
+}
+.rf-tag {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.rf-src.in .rf-tag {
+  color: var(--success);
+  border-color: var(--success-tint);
+  background: var(--success-tint);
+}
+/* The one they bookmarked, marked as such — it is why the dialog is open. */
+.rf-src.self { background: var(--accent-tint); }
+.rf-src.self .rf-q { font-weight: 600; }
+.rf-tf {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 13px;
+  border-top: 1px solid var(--border);
+}
+.rf-thint { font-size: 0.72rem; color: var(--faint); line-height: 1.45; }
+.rf-tf .rf-cmp-btn { margin-left: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rf-src, .rf-tray, .rf-sugt { animation: none; }
+  .rf-spin { animation: none; }
+}
+
+/* The footer hint takes the slack and the buttons never give any: without
+   this the longest hint ("Revert to go back to the one message") squeezed
+   Save prompt onto two lines. */
+.rf-hint { flex: 1; min-width: 0; }
+.pl-foot .pl-btn { flex-shrink: 0; white-space: nowrap; }
+/* A flex child will not shrink below its content unless told to, which was
+   clipping the end of the review's explanation. */
+.rf-rv1 .rf-tx { min-width: 0; }
+.rf-rv1 .rf-tx small { overflow-wrap: anywhere; }
+.rf-rv1 .pl-btn { flex-shrink: 0; }

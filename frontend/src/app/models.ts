@@ -829,6 +829,27 @@ export interface SavedPrompt {
   session_id: string;
 }
 
+/** One message the compose agent judged, and what it contributed.
+ *  `n` is its number among the person's own messages, oldest first. */
+export interface ComposedPart {
+  n: number;
+  /** Whether it is in the merged prompt. The dialog may flip this. */
+  keep: boolean;
+  /** A few words saying why — "format", "a question, not an instruction". */
+  tag: string;
+  /** The sentence it contributes, in the imperative. Empty when dropped. */
+  line: string;
+}
+
+/** What the compose agent answers with: the merged prompt and its working. */
+export interface ComposedPrompt {
+  title: string;
+  text: string;
+  parts: ComposedPart[];
+  /** Which number was the saved message — it can never be dropped. */
+  anchor?: number;
+}
+
 /** What the refine agent answers with. `text` is what gets stored; `marked`
  *  is the same prose with the phrases it changed wrapped in ‹…›, which the
  *  editor uses to show what moved and then lets fade. */

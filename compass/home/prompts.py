@@ -787,3 +787,156 @@ def _parse(raw: str) -> dict | None:
             # Raw here; `sharpen` validates it against the conversation it
             # actually sent, which is the only place that knows the range.
             "used": data.get("used")}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Composing a saved prompt out of a conversation, with its working shown.
+#
+# A third agent, beside `sharpen` and `refine`, and it exists because the
+# save dialog now shows what was read rather than only what came out.
+# Sharpening answers with the merged prompt and the numbers it used; that is
+# the right answer for the endpoint it serves and it is left exactly as it
+# is. This one is asked a different question — for every message, in or out,
+# why, and what it contributed — so the dialog can list them, let somebody
+# disagree, and re-join the lines without asking a model again.
+# ══════════════════════════════════════════════════════════════════════════
+
+COMPOSE_SYSTEM = """You read one conversation and decide which of the
+person's own messages belong in a single saved prompt, then say what each
+one contributes.
+
+The person's messages are numbered. One is marked <<SAVED>> — that is the
+one they chose to keep, and it is always in.
+
+FOR EVERY NUMBERED MESSAGE, decide `keep`:
+
+  in  — it is part of the same request as the saved one: it refines it, adds
+        a requirement, narrows a constraint, adds content or a rule, or is
+        the request a bare opener was leading up to.
+  out — it is not. The usual reasons, and the words to use for them:
+          "a question, not an instruction"  — they asked you something
+          "a different task"                — a separate request entirely
+          "no instruction in it"            — a greeting, thanks, an ack
+          "already covered"                 — it repeats one that is in
+
+A message belongs by subject, not by position. A thread can pause and
+resume: if 1 and 2 are about a poster, 3 to 7 about something else, and 8
+returns to the poster, then 8 is in and 3 to 7 are out.
+
+FOR EVERY MESSAGE YOU KEEP, write `line`: the one sentence it contributes to
+the finished prompt, in the imperative, as an instruction to Compass. Not a
+quote of what they typed — the instruction inside it. "Use the darker gold,
+not the yellow one." contributes "Use the darker EY gold rather than the
+yellow." Read in order, the kept lines must read as one coherent prompt,
+with no repetition between them and nothing that contradicts another.
+
+FOR EVERY MESSAGE, write `tag`: a few words saying why, in lower case. For a
+kept one say what it does — "format", "adds content", "narrows a
+constraint", "adds a rule", "refines the output". For the saved one, "the
+one you saved". For a dropped one, use the wording above.
+
+Also give `title`: a few words naming what the whole prompt is for.
+
+Answer with JSON only, and nothing else:
+
+{"title": "...",
+ "parts": [{"n": 1, "keep": true, "tag": "...", "line": "..."}, ...]}
+
+Every numbered message gets an entry. A dropped one has no `line`.
+"""
+
+
+async def compose(turns: list[dict], selected: str) -> dict:
+    """Build a saved prompt from a conversation and show the working.
+
+    Returns the title, the merged text, and one part per message the person
+    wrote: its number, whether it is in, why, and the line it contributes.
+    The dialog re-joins the kept lines itself when somebody unticks one, so
+    disagreeing with the model costs nothing and asks it nothing.
+
+    Returns the selected message alone on any failure — the same promise the
+    other two make, for the same reason.
+    """
+    from compass.common.gateway.azure_client import get_model_client
+
+    selected = _clean(selected, MAX_TEXT)
+    asked = [t for t in (turns or []) if (t.get("role") == "user")
+             and str(t.get("text") or "").strip()]
+    if not selected or not asked:
+        return {"title": _title_from(selected), "text": selected, "parts": []}
+
+    body, anchor, count = _transcript(turns, selected)
+    ask = (f"The conversation, oldest first:\n{body}\n\n"
+           f"Message {anchor} is the one they saved. Decide every message, "
+           f"and write the line each kept one contributes.")
+
+    try:
+        collected = ""
+        async for item in get_model_client().stream_chat(
+            [{"role": "system", "content": COMPOSE_SYSTEM},
+             {"role": "user", "content": ask}],
+            max_output_tokens=1600,
+            effort="low",
+        ):
+            collected += getattr(item, "text", "") or ""
+        parsed = _compose_parse(collected, anchor, count)
+        if parsed["parts"]:
+            return parsed
+        logger.info("composing returned nothing usable")
+    except Exception:  # noqa: BLE001 — an optional nicety must not fail a save
+        logger.exception("composing a saved prompt failed")
+    return {"title": _title_from(selected), "text": selected, "parts": []}
+
+
+def _compose_parse(raw: str, anchor: int, count: int) -> dict:
+    """The model's JSON, validated against the conversation actually sent.
+
+    A number it invented, or one outside the range, is dropped rather than
+    shown: the tray is a claim about specific messages, and a row pointing at
+    a message that was never there would make the whole list untrustworthy.
+    """
+    body = (raw or "").strip()
+    if "```" in body:
+        body = max(body.split("```"), key=len)
+        if body.lstrip().startswith("json"):
+            body = body.lstrip()[4:]
+    start, end = body.find("{"), body.rfind("}")
+    if start < 0 or end <= start:
+        return {"title": "", "text": "", "parts": []}
+    try:
+        data = json.loads(body[start:end + 1])
+    except json.JSONDecodeError:
+        return {"title": "", "text": "", "parts": []}
+
+    seen: set[int] = set()
+    parts: list[dict] = []
+    for row in data.get("parts") or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            n = int(row.get("n"))
+        except (TypeError, ValueError):
+            continue
+        if n < 1 or n > count or n in seen:
+            continue
+        seen.add(n)
+        line = _clean(str(row.get("line") or ""), MAX_TEXT)
+        # The saved message is always in, whatever the model decided, and it
+        # must carry a line or the merged prompt could come out empty.
+        keep = bool(row.get("keep")) or n == anchor
+        if keep and not line:
+            keep = n == anchor and bool(line)
+        parts.append({
+            "n": n,
+            "keep": keep and bool(line),
+            "tag": _clean(str(row.get("tag") or ""), 60),
+            "line": line,
+        })
+    parts.sort(key=lambda p: p["n"])
+    text = " ".join(p["line"] for p in parts if p["keep"])
+    return {
+        "title": _clean(str(data.get("title") or ""), MAX_TITLE) or _title_from(text),
+        "text": text,
+        "parts": parts,
+        "anchor": anchor,
+    }

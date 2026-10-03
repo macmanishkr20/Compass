@@ -35,6 +35,7 @@ import {
   PipelineRun,
   PipelineSummary,
   Recap,
+  ComposedPrompt,
   PermissionBehavior,
   RefinedPrompt,
   Routine,
@@ -664,6 +665,19 @@ export class CompassApiService {
     return firstValueFrom(
       this.http.post<{ title: string; text: string; used: number[] }>(
         '/v1/chat/prompts/sharpen', { text, turns }),
+    );
+  }
+
+  /** The merged prompt plus a verdict on every message in the session —
+   *  what the save dialog lists so somebody can disagree with it.
+   *  Always resolves: the server returns the one message on any failure. */
+  composePrompt(
+    text: string,
+    turns: { role: string; text: string }[] = [],
+  ): Promise<ComposedPrompt> {
+    return firstValueFrom(
+      this.http.post<ComposedPrompt>(
+        '/v1/chat/prompts/compose', { text, turns }),
     );
   }
 

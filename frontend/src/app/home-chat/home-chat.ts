@@ -404,6 +404,8 @@ export class HomeChat {
     this.saveDialog.set(null);
     this.sharpening.set(false);
     this.resetRefine();
+    this.resetBuild();
+    this.buildTitle.set('');
     this.promptError.set('');
     if (this.returnToLibrary) {
       this.returnToLibrary = false;
@@ -618,6 +620,253 @@ export class HomeChat {
     return out;
   }
 
+  // ── building a saved prompt out of the session ────────────────────────
+  //
+  // The same field surface as refining, and a different agent behind it:
+  // this one reads the conversation and reports on every message in it, so
+  // the dialog can show its working rather than only its answer.
+
+  /** One row of the tray: the message, what the agent decided, and the line
+   *  it contributes. `keep` is the person's to change. */
+  readonly buildParts = signal<
+    { n: number; text: string; at?: number; keep: boolean; tag: string; line: string }[]
+  >([]);
+  /** The saved message's number. It is always in, and saying so is kinder
+   *  than a tick that silently refuses to move. */
+  readonly buildAnchor = signal(0);
+  readonly buildTitle = signal('');
+  /** Which source the pointer is over, so its sentence can light up. */
+  readonly buildLit = signal(0);
+  readonly buildScanning = signal(false);
+  /** The line under the tray, which explains itself as you use it. */
+  readonly buildHint = signal('');
+  private static readonly BUILD_HINT =
+    'Hover a message to see the line it contributed. Untick one to leave it out.';
+
+  /** The streamed prompt, grouped so each sentence knows which message it
+   *  came from — that grouping is the whole point of the hover. */
+  readonly buildWords = signal<{ text: string; src: number }[]>([]);
+
+  private static readonly BUILD_STEPS: [string, number][] = [
+    ['Reading this session', 560],
+    ['Weighing each message', 480],
+    ['Keeping what shapes this prompt', 620],
+    ['Writing one complete prompt', 460],
+  ];
+
+  /** How many of the person's own messages this session has — the count on
+   *  the button, so the offer says how much it is about to read. */
+  sessionPromptCount(): number {
+    return this.messages().filter((m) => m.role === 'user' && (m.text || '').trim()).length;
+  }
+
+  keptCount(): number {
+    return this.buildParts().filter((p) => p.keep).length;
+  }
+
+  /** The dropped ones' reasons, for the review line. */
+  droppedTags(): string {
+    return this.buildParts().filter((p) => !p.keep).map((p) => p.tag).filter(Boolean).join(', ');
+  }
+
+  resetBuild(): void {
+    this.clearRefineTimers();
+    this.refinePhase.set('idle');
+    this.buildParts.set([]);
+    this.buildWords.set([]);
+    this.buildScanning.set(false);
+    this.buildLit.set(0);
+    this.buildHint.set(HomeChat.BUILD_HINT);
+    // `buildTitle` deliberately survives: the suggestion stays on offer
+    // after Keep until it is taken or the dialog closes.
+  }
+
+  /** Read the session and build one prompt from it, showing the working. */
+  async build(): Promise<void> {
+    const d = this.saveDialog();
+    if (!d || this.refinePhase() === 'work' || this.refinePhase() === 'streaming') return;
+    const anchorText = d.original || d.text;
+    if (!anchorText.trim()) return;
+
+    this.clearRefineTimers();
+    this.promptError.set('');
+    this.buildWords.set([]);
+    this.buildParts.set([]);
+    this.buildHint.set(HomeChat.BUILD_HINT);
+    this.refinePhase.set('work');
+
+    const started = performance.now();
+    this.refineElapsed.set('0.0s');
+    this.refineClock = setInterval(() => {
+      this.refineElapsed.set(((performance.now() - started) / 1000).toFixed(1) + 's');
+    }, 100);
+
+    let at = 0;
+    for (const [label, ms] of HomeChat.BUILD_STEPS) {
+      this.refineTimers.push(setTimeout(() => {
+        this.refineStep.set(label);
+        // The tray opens part-way through, scanning, so the wait shows the
+        // material rather than only a caption about it.
+        if (label === HomeChat.BUILD_STEPS[1][0]) this.buildScanning.set(true);
+      }, at));
+      at += ms;
+    }
+
+    try {
+      const res = await this.api.composePrompt(anchorText, this.threadForSharpen());
+      if (this.refinePhase() !== 'work') return;
+      this.clearRefineTimers();
+      this.buildScanning.set(false);
+      this.buildAnchor.set(res.anchor ?? 0);
+      this.buildTitle.set(res.title || '');
+      // The agent reports by number; the text and the time come from the
+      // messages on screen, which is where the person recognises them.
+      const asked = this.messages().filter((m) => m.role === 'user' && (m.text || '').trim());
+      this.buildParts.set(
+        (res.parts || []).map((p) => ({
+          n: p.n,
+          text: asked[p.n - 1]?.text ?? '',
+          at: asked[p.n - 1]?.at,
+          keep: p.keep,
+          tag: p.tag,
+          line: p.line,
+        })).filter((p) => p.text),
+      );
+      if (!this.buildParts().length) {
+        this.refinePhase.set('idle');
+        this.promptError.set('Nothing in this session could be read into a prompt.');
+        return;
+      }
+      this.refineStep.set('Writing');
+      this.refineElapsed.set('');
+      this.refinePhase.set('streaming');
+      this.streamBuilt(false);
+    } catch (err) {
+      this.clearRefineTimers();
+      this.buildScanning.set(false);
+      this.refinePhase.set('idle');
+      this.promptError.set(describeHttpError(err));
+    }
+  }
+
+  /** Land the merged prompt, remembering which message each word came from.
+   *  `fast` is the re-stream after a tick is changed, which should feel like
+   *  a correction rather than a second wait. */
+  private streamBuilt(fast: boolean): void {
+    const words: { text: string; src: number }[] = [];
+    const kept = this.buildParts().filter((p) => p.keep);
+    kept.forEach((part, index) => {
+      for (const piece of part.line.split(/(\s+)/)) {
+        if (piece) words.push({ text: piece, src: part.n });
+      }
+      if (index < kept.length - 1) words.push({ text: ' ', src: part.n });
+    });
+    this.buildWords.set([]);
+    let i = 0;
+    const next = (): void => {
+      if (i >= words.length) {
+        this.refineTimers.push(setTimeout(() => {
+          this.refinePhase.set('review');
+        }, fast ? 180 : 380));
+        return;
+      }
+      const word = words[i++];
+      this.buildWords.update((list) => [...list, word]);
+      const pause = /^\s+$/.test(word.text)
+        ? 0
+        : /[.,:;—]$/.test(word.text) ? (fast ? 40 : 90) : (fast ? 12 : 30);
+      this.refineTimers.push(setTimeout(next, pause));
+    };
+    next();
+  }
+
+  /** Tick or untick one source, and re-join what is left. */
+  toggleSource(n: number): void {
+    if (this.refinePhase() === 'work' || this.refinePhase() === 'streaming') return;
+    const part = this.buildParts().find((p) => p.n === n);
+    if (!part) return;
+    if (n === this.buildAnchor()) {
+      this.buildHint.set('This is the message you saved — it always stays in.');
+      return;
+    }
+    if (!part.line) {
+      this.buildHint.set("There's no instruction in this one to add.");
+      return;
+    }
+    this.buildParts.update((list) =>
+      list.map((p) => (p.n === n ? { ...p, keep: !p.keep } : p)));
+    this.clearRefineTimers();
+    this.refinePhase.set('streaming');
+    this.streamBuilt(true);
+  }
+
+  /** Put every message that has an instruction in it back in. */
+  selectAllSources(): void {
+    if (this.refinePhase() === 'work' || this.refinePhase() === 'streaming') return;
+    if (this.buildParts().every((p) => p.keep || !p.line)) return;
+    this.buildParts.update((list) => list.map((p) => (p.line ? { ...p, keep: true } : p)));
+    this.clearRefineTimers();
+    this.refinePhase.set('streaming');
+    this.streamBuilt(true);
+  }
+
+  /** The time a message was sent, as the tray shows it. */
+  clockOf(at: number): string {
+    return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  litSource(n: number): void {
+    this.buildLit.set(n);
+    const part = this.buildParts().find((p) => p.n === n);
+    this.buildHint.set(
+      part && part.keep && part.line
+        ? 'Highlighted: the line this message contributed.'
+        : HomeChat.BUILD_HINT,
+    );
+  }
+
+  unlitSource(): void {
+    this.buildLit.set(0);
+    this.buildHint.set(HomeChat.BUILD_HINT);
+  }
+
+  /** Take the merged prompt into the dialog. Still not saved — that is the
+   *  Save prompt button, and only that. */
+  keepBuilt(): void {
+    const d = this.saveDialog();
+    if (!d) return;
+    const text = this.buildParts().filter((p) => p.keep).map((p) => p.line).join(' ');
+    if (!text) return;
+    this.saveDialog.set({
+      ...d,
+      // The prose only. The title is offered separately and taken by
+      // clicking it: one somebody did not choose is the one they never
+      // notice is wrong.
+      text,
+      sharpened: true,
+      used: this.buildParts().filter((p) => p.keep).map((p) => p.n),
+    });
+    this.resetBuild();
+  }
+
+  /** Back to the single message they bookmarked. */
+  revertBuilt(): void {
+    const d = this.saveDialog();
+    if (d) this.saveDialog.set({ ...d, text: d.original, sharpened: false, used: [] });
+    this.resetBuild();
+  }
+
+  /** Offer the agent's title only when they have not written one. */
+  suggestedTitle(): string {
+    const d = this.saveDialog();
+    return d && !d.title.trim() && this.buildTitle() ? this.buildTitle() : '';
+  }
+
+  takeSuggestedTitle(): void {
+    const d = this.saveDialog();
+    if (d) this.saveDialog.set({ ...d, title: this.buildTitle() });
+  }
+
   /** ⌘ on a Mac, Ctrl everywhere else — the key the shortcut actually wants,
    *  shown rather than assumed, because a Windows user reading ⌘ learns the
    *  wrong thing. */
@@ -626,14 +875,21 @@ export class HomeChat {
 
   /** The line under the dialog, which says what is possible right now. */
   refineHint(): string {
+    const building = this.saveDialog()?.fromMessage;
     switch (this.refinePhase()) {
       case 'work':
       case 'streaming':
-        return 'Refining — your original is kept';
+        return building
+          ? 'Reading the session — your saved message is kept'
+          : 'Refining — your original is kept';
       case 'review':
-        return 'Keep to apply · Revert to undo';
+        return building
+          ? 'Keep to apply · Revert to go back to the one message'
+          : 'Keep to apply · Revert to undo';
       default:
-        return `${this.metaKey}↵ to refine · Esc to close`;
+        return building
+          ? `${this.metaKey}↵ to build · Esc to close`
+          : `${this.metaKey}↵ to refine · Esc to close`;
     }
   }
 
@@ -643,10 +899,10 @@ export class HomeChat {
    *  the dialog does, and cannot reach a composer or the library behind it. */
   onDialogKeydown(ev: KeyboardEvent): void {
     const d = this.saveDialog();
-    if (!d || d.fromMessage) return;
+    if (!d) return;
     if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') {
       ev.preventDefault();
-      void this.refine();
+      void (d.fromMessage ? this.build() : this.refine());
       return;
     }
     if (ev.key === 'Escape') {
@@ -654,6 +910,7 @@ export class HomeChat {
       // One step at a time: a run in flight or a suggestion on offer is what
       // Escape dismisses first, and only a quiet dialog closes.
       if (this.refinePhase() === 'idle') this.closeSaveDialog();
+      else if (d.fromMessage) this.resetBuild();
       else this.resetRefine();
     }
   }

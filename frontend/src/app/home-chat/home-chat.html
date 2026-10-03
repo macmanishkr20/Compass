@@ -513,6 +513,17 @@
       <input id="pl-title" class="pl-input" [value]="d.title" maxlength="80"
         placeholder="What this prompt is for"
         (input)="patchDialog({ title: $any($event.target).value })">
+      <!-- Offered rather than filled in: a title somebody did not choose is
+           the one they never notice is wrong. -->
+      @if (suggestedTitle(); as t) {
+        <button class="rf-sugt" type="button" (click)="takeSuggestedTitle()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l1.3 4L17 8.3l-3.7 1.3L12 13l-1.3-3.4L7 8.3 10.7 7z"/>
+          </svg>
+          <span>Suggested: <b>{{ t }}</b></span>
+        </button>
+      }
 
       <label class="pl-label" for="pl-text">Prompt</label>
 
@@ -526,8 +537,123 @@
            it arrive is what makes that legible. Nothing is applied until
            Keep. -->
       @if (d.fromMessage) {
-        <textarea id="pl-text" class="pl-text" rows="6" [value]="d.text"
-          (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+        <!-- Saving out of a conversation. The instruction is usually spread
+             across several messages, so the offer is to gather them — and to
+             show which, because a prompt assembled from turns you cannot see
+             is one you have to take on trust. -->
+        <div class="rf-field" [class.work]="refinePhase() === 'work'"
+          [class.streaming]="refinePhase() === 'streaming'">
+          <div class="rf-inner">
+            @if (refinePhase() === 'idle') {
+              <textarea id="pl-text" class="rf-canvas" rows="6" [value]="d.text"
+                placeholder="What should Compass do?"
+                (input)="patchDialog({ text: $any($event.target).value })"></textarea>
+            } @else {
+              <div class="rf-canvas live" aria-live="polite">
+                @for (w of buildWords(); track $index) {
+                  <span class="rf-w rf-sent" [class.lit]="buildLit() === w.src">{{ w.text }}</span>
+                }
+                @if (refinePhase() === 'streaming') { <span class="rf-caret"></span> }
+                @if (refinePhase() === 'work') { <span class="rf-prev">{{ d.text }}</span> }
+              </div>
+            }
+
+            <div class="rf-sweep" aria-hidden="true"></div>
+
+            <div class="rf-dock">
+              <button class="rf-refine" type="button" (click)="build()"
+                [disabled]="!d.text.trim() || sessionPromptCount() < 2">
+                <span class="rf-sp">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3l1.5 4.6L18 9l-4.5 1.4L12 15l-1.5-4.6L6 9l4.5-1.4z"/>
+                    <path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>
+                  </svg>
+                </span>
+                Build with session prompts
+                <span class="rf-kb">{{ sessionPromptCount() }} msgs</span>
+              </button>
+              <span class="rf-cnt">{{ wordCount(d.text) }}</span>
+            </div>
+
+            <div class="rf-status">
+              <span class="rf-orb" aria-hidden="true"><i></i></span>
+              <span class="rf-tx">{{ refineStep() }}</span>
+              <span class="rf-el">{{ refineElapsed() }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── what it read ── -->
+        @if (buildScanning() || buildParts().length) {
+          <div class="rf-tray">
+            <div class="rf-th">
+              <span class="rf-lb">What it read</span>
+              <span class="rf-tk"></span>
+              @if (buildParts().length) {
+                <span class="rf-ct">{{ keptCount() }} of {{ buildParts().length }} kept</span>
+              }
+            </div>
+            <div class="rf-tb">
+              @if (buildScanning() && !buildParts().length) {
+                <div class="rf-scanning">
+                  <span class="rf-spin" aria-hidden="true"></span>
+                  Scanning {{ sessionPromptCount() }} messages in this session…
+                </div>
+              }
+              @for (p of buildParts(); track p.n) {
+                <button class="rf-src" type="button"
+                  [class.in]="p.keep" [class.out]="!p.keep"
+                  [class.self]="p.n === buildAnchor()"
+                  (mouseenter)="litSource(p.n)" (mouseleave)="unlitSource()"
+                  (focus)="litSource(p.n)" (blur)="unlitSource()"
+                  (click)="toggleSource(p.n)">
+                  <span class="rf-box" aria-hidden="true">✓</span>
+                  <span class="rf-stx">
+                    <span class="rf-q">{{ p.text }}</span>
+                    <span class="rf-why">
+                      <span class="rf-tag">{{ p.tag }}</span>
+                      @if (p.at) { <span>{{ clockOf(p.at) }}</span> }
+                    </span>
+                  </span>
+                </button>
+              }
+            </div>
+            @if (buildParts().length) {
+              <div class="rf-tf">
+                <span class="rf-thint">{{ buildHint() }}</span>
+                <button class="rf-cmp-btn" type="button" (click)="selectAllSources()">Select all</button>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- ── review ── -->
+        @if (refinePhase() === 'review') {
+          <div class="rf-review">
+            <div class="rf-rv1">
+              <span class="rf-tick" aria-hidden="true">✓</span>
+              <span class="rf-tx">
+                <b>Built from {{ keptCount() }} of {{ buildParts().length }} messages</b>
+                <small>
+                  @if (keptCount() < buildParts().length) {
+                    {{ buildParts().length - keptCount() }} left out — {{ droppedTags() }}
+                  } @else {
+                    Every message in the session contributed something.
+                  }
+                </small>
+              </span>
+              <button class="pl-btn" type="button" (click)="revertBuilt()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 2.6-6.4M3 3v6h6"/>
+                </svg>
+                Revert
+              </button>
+              <button class="pl-btn primary" type="button" (click)="keepBuilt()">Keep</button>
+            </div>
+          </div>
+        }
       } @else {
         <div class="rf-field" [class.work]="refinePhase() === 'work'"
           [class.streaming]="refinePhase() === 'streaming'"
@@ -621,55 +747,10 @@
         }
       }
 
-      <!-- Offered, never applied on its own: a prompt that quietly changes
-           what somebody meant is worse than the one they typed. The label
-           names the session's prompts because that is what it works from:
-           it reads the related turns in this conversation and assembles one
-           complete prompt, which is a different promise from tidying the
-           line in the box. -->
-      <!-- Two different offers, not one with a different label. Saving a
-           prompt out of a conversation can merge the thread it came from;
-           editing one already in the library cannot, because there is no
-           thread in front of it — so that button would promise to read a
-           session that is usually a blank Home screen. An existing prompt
-           gets the one thing that is still possible: improve what is here. -->
-      @if (d.fromMessage) {
-        <div class="pl-sharpen">
-          <button class="pl-btn ghost" type="button"
-            (click)="d.fromMessage ? sharpen() : refine()"
-            [disabled]="sharpening() || (!d.fromMessage && !d.text.trim())">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4z"/>
-              <path d="M18 15l.8 2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-1z"/>
-            </svg>
-            @if (sharpening()) {
-              {{ d.fromMessage ? 'Building…' : 'Improving…' }}
-            } @else {
-              {{ d.fromMessage ? 'Build with session prompts' : 'Improve with AI' }}
-            }
-          </button>
-          @if (d.sharpened) {
-            <button class="pl-btn ghost" type="button" (click)="undoSharpen()">{{ d.fromMessage ? 'Use what I typed' : 'Use what I had' }}</button>
-            @if (!d.fromMessage) {
-              <span class="pl-note">Rewritten from this prompt — edit it freely.</span>
-            } @else {
-              <span class="pl-note" [title]="usedDetail(d.used)">{{ usedLine(d.used) || 'Built from this session\'s prompts' }} — edit it freely.</span>
-            }
-          } @else if (!d.fromMessage) {
-            <span class="pl-note">Rewrites this prompt to be clearer and self-contained, without changing what it asks for.</span>
-          } @else {
-            <span class="pl-note">Reads what you asked around this and writes one complete prompt.</span>
-          }
-        </div>
-      }
-
       @if (promptError()) { <p class="pl-err">{{ promptError() }}</p> }
 
       <div class="pl-foot">
-        @if (!d.fromMessage) {
-          <span class="rf-hint">{{ refineHint() }}</span>
-        }
+        <span class="rf-hint">{{ refineHint() }}</span>
         <span class="pl-foot-sp"></span>
         <button class="pl-btn ghost" type="button" (click)="closeSaveDialog()">Cancel</button>
         <button class="pl-btn primary" type="button" (click)="commitSavePrompt()"

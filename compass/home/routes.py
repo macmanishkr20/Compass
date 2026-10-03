@@ -698,6 +698,25 @@ async def refine_prompt(body: RefineRequest,
     return await refine(body.text, body.title, body.variant)
 
 
+@router.post("/prompts/compose")
+async def compose_prompt(body: SharpenRequest,
+                         user: str = Depends(require_user)) -> dict:
+    """Build a saved prompt from the session, and show what it read.
+
+    The third of these, and a separate route rather than a flag on
+    `/prompts/sharpen`, which is unchanged: sharpening answers with the
+    merged prompt, and this answers with the merged prompt *and* a verdict on
+    every message the person wrote — in or out, why, and the line it
+    contributes — because the save dialog now lists them and lets somebody
+    disagree.
+
+    Always answers: on any failure it returns the message it was given.
+    """
+    from compass.home.prompts import compose
+
+    return await compose([t.model_dump() for t in body.turns], body.text)
+
+
 @router.post("/prompts/sharpen")
 async def sharpen_prompt(body: SharpenRequest,
                          user: str = Depends(require_user)) -> dict:
