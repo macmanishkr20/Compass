@@ -4,10 +4,9 @@ import { NoticeService } from '../notice.service';
 /**
  * The stack of short confirmations, bottom-left. Mounted once.
  *
- * Bottom-left because the other two toasts in this app (a finished turn, a
- * finished routine) sit top-right, and two kinds of message arriving in the
- * same corner read as one queue when they answer completely different
- * questions.
+ * Bottom-right, where this app's other confirmations live. The two toasts
+ * that announce a finished turn or routine sit top-right; these sit opposite
+ * them, out of the way of the sidebar and the composer.
  */
 @Component({
   selector: 'app-notice',

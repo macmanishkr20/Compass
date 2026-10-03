@@ -1,7 +1,14 @@
+/* The host must not occupy a layout cell: it sits in the shell grid, and
+   the notice stack it renders is position:fixed. Without this each of
+   these added a stray row and shrank the main area -- visible as the
+   sidebar being lifted off the bottom of the window. */
+:host { display: contents; }
+
 .ntc-stack {
   position: fixed;
-  left: 18px;
+  right: 18px;
   bottom: 18px;
+  align-items: flex-end;
   z-index: 190;
   display: flex;
   flex-direction: column;

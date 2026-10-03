@@ -1,3 +1,9 @@
+/* The host must not occupy a layout cell: it sits in the shell grid, and
+   the confirmation it renders is position:fixed. Without this each of
+   these added a stray row and shrank the main area -- visible as the
+   sidebar being lifted off the bottom of the window. */
+:host { display: contents; }
+
 /* Above the modals it may be asked from (the prompt dialogs sit at 81) and
    below the picture viewer, which is the only thing that should ever cover
    a question somebody is being asked. */
