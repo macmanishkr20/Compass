@@ -664,9 +664,26 @@ export class HomeChat {
     return this.buildParts().filter((p) => p.keep).length;
   }
 
-  /** The dropped ones' reasons, for the review line. */
+  /** The dropped ones' reasons, for the review line.
+   *
+   *  Deduplicated. Most of a long session is greetings and acknowledgements,
+   *  so the raw list read "no instruction in it, no instruction in it, no
+   *  instruction in it…" fourteen times over and buried the one reason that
+   *  was interesting. Each distinct reason is worth saying once. */
   droppedTags(): string {
-    return this.buildParts().filter((p) => !p.keep).map((p) => p.tag).filter(Boolean).join(', ');
+    const seen = new Set<string>();
+    for (const part of this.buildParts()) {
+      if (!part.keep && part.tag) seen.add(part.tag);
+    }
+    return [...seen].join(', ');
+  }
+
+  /** Whether the only thing standing between this and the library is a
+   *  title. Said out loud in the footer, because a button that is simply
+   *  dim tells somebody nothing about what to do next. */
+  needsTitle(): boolean {
+    const d = this.saveDialog();
+    return !!d && !!d.text.trim() && !d.title.trim();
   }
 
   resetBuild(): void {
@@ -1078,6 +1095,15 @@ export class HomeChat {
   async commitSavePrompt(): Promise<void> {
     const d = this.saveDialog();
     if (!d || this.savingPrompt() || !d.text.trim()) return;
+    // The button is already disabled without one; this is for every other
+    // way in — a keyboard shortcut, a stale click, a later caller — so the
+    // rule lives with the save rather than only on the control.
+    if (!d.title.trim()) {
+      this.promptError.set('Give it a title first.');
+      queueMicrotask(() =>
+        (document.getElementById('pl-title') as HTMLInputElement | null)?.focus());
+      return;
+    }
     this.savingPrompt.set(true);
     this.promptError.set('');
     try {

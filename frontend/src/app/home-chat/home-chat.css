@@ -1573,3 +1573,23 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
 .rf-rv1 .rf-tx { min-width: 0; }
 .rf-rv1 .rf-tx small { overflow-wrap: anywhere; }
 .rf-rv1 .pl-btn { flex-shrink: 0; }
+
+/* The dialog's scrolling middle. The head and the buttons stay put; the
+   title, the field, the tray and the review bar scroll between them —
+   without which a long session's tray pushed Keep, Revert and Save off the
+   bottom of the modal with no way to reach them. */
+.pl-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the focus ring and the field's aura, which would otherwise be
+     shaved off against the scroll container's edge. */
+  padding: 2px 2px 4px;
+  margin: 0 -2px;
+}
+.pl-head, .pl-foot { flex-shrink: 0; }
+/* A rule under the buttons once the content above can scroll, so the footer
+   reads as fixed rather than as the end of the list. */
+.pl-foot { border-top: 1px solid var(--border); padding-top: 14px; }
+/* Why the save is unavailable, in place of the shortcut hint. */
+.rf-hint.needs { color: var(--accent); }
