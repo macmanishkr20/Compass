@@ -522,6 +522,21 @@ export class HomeChat {
     return t ? `${t.split(/\s+/).length} words` : '';
   }
 
+  /** The prose the field is actually showing.
+   *
+   *  While a suggestion is on offer that is the suggestion, not `text` —
+   *  which still holds what it would replace. The counter reads this, or it
+   *  reports the length of something nobody can see. */
+  displayedText(): string {
+    const d = this.saveDialog();
+    if (!d) return '';
+    const showing = this.refinePhase() === 'streaming' || this.refinePhase() === 'review';
+    if (!showing) return d.text;
+    return d.fromMessage
+      ? this.buildParts().filter((p) => p.keep).map((p) => p.line).join(' ')
+      : (this.refined?.text ?? d.text);
+  }
+
   /** Run the refine agent and play the result into the field.
    *
    *  The request and the animation run together rather than one after the
@@ -904,9 +919,12 @@ export class HomeChat {
           ? 'Keep to apply · Revert to go back to the one message'
           : 'Keep to apply · Revert to undo';
       default:
-        return building
-          ? `${this.metaKey}↵ to build · Esc to close`
-          : `${this.metaKey}↵ to refine · Esc to close`;
+        // Nothing. The shortcut was printed here in monospace on every idle
+        // dialog, which read as debug output and said nothing about what to
+        // do next; both shortcuts still work. The footer speaks only when it
+        // has something to say — a run in flight, a suggestion waiting, or a
+        // missing title.
+        return '';
     }
   }
 
@@ -1093,8 +1111,21 @@ export class HomeChat {
   }
 
   async commitSavePrompt(): Promise<void> {
+    if (this.savingPrompt()) return;
+    // What is on screen is what gets saved.
+    //
+    // A suggestion on offer is shown in the field while `text` still holds
+    // what it would replace — that is what makes Revert possible. Saving
+    // from there stored the text nobody was looking at: the field read one
+    // thing, the library got another, and nothing said so. Pressing Save
+    // with a suggestion in front of you is accepting it, so it is taken
+    // first and then saved. Revert is still the way to decline it.
+    if (this.refinePhase() === 'review') {
+      if (this.saveDialog()?.fromMessage) this.keepBuilt();
+      else this.keepRefined();
+    }
     const d = this.saveDialog();
-    if (!d || this.savingPrompt() || !d.text.trim()) return;
+    if (!d || !d.text.trim()) return;
     // The button is already disabled without one; this is for every other
     // way in — a keyboard shortcut, a stale click, a later caller — so the
     // rule lives with the save rather than only on the control.

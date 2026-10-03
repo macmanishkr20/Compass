@@ -578,7 +578,7 @@
                   Build with session prompts
                   <span class="rf-kb">{{ sessionPromptCount() }} msgs</span>
                 </button>
-                <span class="rf-cnt">{{ wordCount(d.text) }}</span>
+                <span class="rf-cnt">{{ wordCount(displayedText()) }}</span>
               </div>
 
               <div class="rf-status">
@@ -699,7 +699,7 @@
                   {{ refinePhase() === 'review' ? 'Refine again' : 'Refine' }}
                   <span class="rf-kb">{{ metaKey }}↵</span>
                 </button>
-                <span class="rf-cnt">{{ wordCount(d.text) }}</span>
+                <span class="rf-cnt">{{ wordCount(displayedText()) }}</span>
               </div>
 
               <div class="rf-status">
