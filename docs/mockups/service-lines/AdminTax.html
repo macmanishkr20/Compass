@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Admin, Tax service line</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif; }
+a { color: #B8860B; text-decoration: none; }
+a:hover { color: #A0740A; }
+.lbl { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #515154; font-weight: 680; }
+.set { padding: 15px 17px; border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; background: #FFFFFF; display: flex; flex-direction: column; gap: 5px; }
+.set .k { font-size: 11.2px; color: #515154; font-weight: 600; }
+.set .v { font-size: 14px; font-weight: 640; line-height: 1.35; }
+.set .n { margin: 2px 0 0; font-size: 11.3px; color: #515154; line-height: 1.5; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 10px 13px; vertical-align: middle; }
+th { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: #515154; font-weight: 680; border-bottom: 1px solid rgba(0,0,0,0.13); }
+td { font-size: 12.3px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 3px 8px; border-radius: 6px; }
+.btn { padding: 6px 11px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; background: #FFFFFF; font-size: 11.4px; font-weight: 600; font-family: inherit; color: #1D1D1F; cursor: pointer; min-height: 32px; }
+</style>
+</head>
+<body>
+<div style="min-height: 980px; background: #F5F5F7; color: #1D1D1F; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-sizing: border-box">
+
+  <!-- The admin banner. Practitioners never see any screen carrying this. -->
+  <div style="background: #1D1D1F; border-radius: 14px; padding: 11px 17px; display: flex; align-items: center; gap: 11px; flex-wrap: wrap">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.9" aria-hidden="true" style="flex: none"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path><circle cx="12" cy="11" r="2"></circle><path d="M12 13v3" stroke-linecap="round"></path></svg>
+    <span style="font-size: 12.8px; font-weight: 660; color: #FFFFFF">Admin &mdash; Tax service line</span>
+    <span style="width: 1px; height: 14px; background: rgba(255,255,255,0.25)"></span>
+    <span style="font-size: 11.8px; color: rgba(255,255,255,0.75)">Only the Tax service-line owner sees this. Practitioners never do.</span>
+    <span style="flex: 1"></span>
+    <a href="Main.html" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; background: rgba(255,255,255,0.14); font-size: 11.6px; font-weight: 600; color: #FFFFFF; min-height: 32px; box-sizing: border-box">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      Leave admin
+    </a>
+  </div>
+
+  <header style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 44px; box-sizing: border-box">
+    <svg width="24" height="24" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color: #B8860B; flex: none"><circle cx="100" cy="100" r="94" stroke="currentColor" stroke-width="7"></circle><path d="M100 14 L116 86 L100 100 L84 86 Z" fill="currentColor" opacity="0.75"></path></svg>
+    <span style="flex: 1 1 60px; min-width: 0; font-size: 12.5px; color: #515154">Admin &middot; Tax &middot; <strong style="color: #1D1D1F; font-weight: 620">Settings and skills</strong></span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.2px; font-weight: 600; padding: 4px 10px; border-radius: 20px; background: #ECECEF">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path></svg>
+      You are the service-line owner
+    </span>
+    <span style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #ECECEF; font-size: 11px; font-weight: 640; flex: none">AV</span>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-direction: column; gap: 10px">
+
+    <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 20px 22px">
+      <h1 style="margin: 0 0 4px; font-size: 21px; font-weight: 660; letter-spacing: -0.015em">Tax</h1>
+      <p style="margin: 0; font-size: 12.8px; color: #515154; line-height: 1.55">Four settings and a list of skills. These four answers govern every engagement opened under Tax.</p>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 10px">
+      <div class="set">
+        <span class="k">1 &middot; What kind of data</span>
+        <span class="v">Client-confidential</span>
+        <p class="n">Stored in India (South). Never leaves the region.</p>
+        <button type="button" class="btn" style="align-self: flex-start; margin-top: 4px">Change</button>
+      </div>
+      <div class="set">
+        <span class="k">2 &middot; How long it is kept</span>
+        <span class="v">8 years</span>
+        <p class="n">Statutory for tax working papers. Overrides Compass's own default.</p>
+        <button type="button" class="btn" style="align-self: flex-start; margin-top: 4px">Change</button>
+      </div>
+      <div class="set">
+        <span class="k">3 &middot; Who signs work off</span>
+        <span class="v">Engagement partner</span>
+        <p class="n">Nothing is emitted without a named person approving it.</p>
+        <button type="button" class="btn" style="align-self: flex-start; margin-top: 4px">Change</button>
+      </div>
+      <div class="set" style="background: #FBFBFD">
+        <span class="k">4 &middot; What agents may never do</span>
+        <span class="v" style="color: #515154">No web, shell or files</span>
+        <p class="n">Set firm-wide. You cannot switch this on for Tax.</p>
+        <span class="chip" style="background: #ECECEF; color: #515154; align-self: flex-start; margin-top: 4px">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3" stroke-linecap="round"></path></svg>
+          Locked
+        </span>
+      </div>
+    </div>
+
+    <div style="flex: 1; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 14px 17px; border-bottom: 1px solid rgba(0,0,0,0.08); flex-wrap: wrap">
+        <h2 style="margin: 0; font-size: 14px; font-weight: 650">Skills</h2>
+        <span style="font-size: 11.5px; color: #515154">What practitioners can run</span>
+        <span style="flex: 1"></span>
+        <a href="Approve.html" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; background: #FFFFFF; font-size: 11.8px; font-weight: 600; color: #1D1D1F; min-height: 34px; box-sizing: border-box">
+          Approvals
+          <span style="font-size: 10px; font-weight: 680; padding: 1px 6px; border-radius: 20px; background: rgba(255,149,0,0.18); color: #8A4B00">2</span>
+        </a>
+        <a href="Manifest.html" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 8px; background: #1D1D1F; font-size: 11.8px; font-weight: 640; color: #FFFFFF; min-height: 34px; box-sizing: border-box">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke-linecap="round"></path></svg>
+          Add a skill
+        </a>
+      </div>
+
+      <div style="overflow-x: auto">
+        <table>
+          <thead><tr><th>Skill</th><th style="width: 128px">Version</th><th style="width: 148px">Status</th><th style="width: 186px">What it produces</th><th style="width: 96px"></th></tr></thead>
+          <tbody>
+            <tr>
+              <td style="font-weight: 600">Form 26 Prefill</td>
+              <td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">1.3.0</td>
+              <td><span class="chip" style="background: rgba(52,199,89,0.14); color: #1C7A33">Live</span></td>
+              <td style="color: #515154">A published form</td>
+              <td><a href="Manifest.html" style="font-size: 11.6px; font-weight: 600">Edit</a></td>
+            </tr>
+            <tr>
+              <td style="font-weight: 600">TDS Reconciliation</td>
+              <td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">2.0.4</td>
+              <td><span class="chip" style="background: rgba(52,199,89,0.14); color: #1C7A33">Live</span></td>
+              <td style="color: #515154">A reconciliation</td>
+              <td><a href="Manifest.html" style="font-size: 11.6px; font-weight: 600">Edit</a></td>
+            </tr>
+            <tr>
+              <td style="font-weight: 600">Notice Response Draft</td>
+              <td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">1.1.0</td>
+              <td><span class="chip" style="background: rgba(52,199,89,0.14); color: #1C7A33">Live</span></td>
+              <td style="color: #515154">A letter, for review</td>
+              <td><a href="Manifest.html" style="font-size: 11.6px; font-weight: 600">Edit</a></td>
+            </tr>
+            <tr style="background: #FBFBFD">
+              <td style="font-weight: 600">15CA / 15CB Drafting</td>
+              <td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px; color: #515154">&mdash;</td>
+              <td><span class="chip" style="background: rgba(255,149,0,0.16); color: #8A4B00">Waiting on you</span></td>
+              <td style="color: #515154">A certificate pair</td>
+              <td><a href="Approve.html" style="font-size: 11.6px; font-weight: 600">Review</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top: auto; padding: 15px 18px; border-top: 1px solid rgba(0,0,0,0.08); background: #FBFBFD; display: flex; align-items: center; gap: 13px; flex-wrap: wrap">
+        <div style="flex: 999 1 340px; min-width: 0">
+          <div style="font-size: 12.4px; font-weight: 640; margin-bottom: 3px">Who is in Tax</div>
+          <p style="margin: 0; font-size: 11.6px; color: #515154; line-height: 1.55">18 practitioners. Being in Tax lets you see the service line; it does not let you see any engagement &mdash; that is granted one engagement at a time.</p>
+        </div>
+        <button type="button" class="btn" style="flex: none">Manage people</button>
+      </div>
+    </div>
+  </div>
+
+  <nav style="background: #1D1D1F; border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap" aria-label="Walkthrough">
+    <span style="font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.65)">Admin &middot; Step 1 of 3</span>
+    <span style="font-size: 12.4px; font-weight: 620; color: #FFFFFF">Set up the service line</span>
+    <span style="flex: 1"></span>
+    <a href="AdminTalent.html" style="padding: 8px 13px; border: 1px solid rgba(255,255,255,0.22); border-radius: 9px; font-size: 12.2px; font-weight: 600; color: #FFFFFF; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center">See Talent's admin</a>
+    <a href="Manifest.html" style="padding: 8px 15px; border-radius: 9px; background: #FFFFFF; font-size: 12.2px; font-weight: 640; color: #1D1D1F; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px">Next &mdash; Add a skill
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg></a>
+  </nav>
+</div>
+</body>
+</html>

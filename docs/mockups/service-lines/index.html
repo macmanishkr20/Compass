@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Service Line Agents, UI mockups</title>
+<style>
+  :root {
+    --bg: #F5F5F7; --bg-2: #ECECEF; --surface: #FFFFFF; --surface-2: #FBFBFD;
+    --border: rgba(0,0,0,0.08); --border-strong: rgba(0,0,0,0.13);
+    --ink: #1D1D1F; --muted: #515154; --accent: #B8860B;
+    --accent-tint: rgba(184,134,11,0.10); --accent-line: rgba(184,134,11,0.26);
+    --radius: 14px;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+  a { text-decoration: none; color: inherit; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 46px 24px 72px; }
+  .brand { display: flex; align-items: center; gap: 13px; margin-bottom: 28px; }
+  h1 { margin: 0 0 8px; font-size: 27px; font-weight: 660; letter-spacing: -0.02em; }
+  .lede { margin: 0 0 26px; font-size: 14.5px; color: var(--muted); line-height: 1.6; max-width: 72ch; }
+
+  .track { border-radius: var(--radius); padding: 22px 24px; margin-bottom: 16px; }
+  .track.user { background: var(--surface); border: 1px solid var(--border); }
+  .track.admin { background: var(--ink); border: 1px solid var(--ink); }
+  .th { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; flex-wrap: wrap; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700;
+         letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border-radius: 20px; }
+  .track.user .tag { background: var(--bg-2); color: var(--muted); }
+  .track.admin .tag { background: rgba(255,255,255,0.16); color: #FFFFFF; }
+  .track.user h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
+  .track.admin h2 { margin: 0; font-size: 18px; font-weight: 650; color: #FFFFFF; letter-spacing: -0.01em; }
+  .tsub { margin: 0 0 17px; font-size: 13px; line-height: 1.55; max-width: 76ch; }
+  .track.user .tsub { color: var(--muted); }
+  .track.admin .tsub { color: rgba(255,255,255,0.72); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 11px; }
+  .card { display: flex; flex-direction: column; gap: 6px; padding: 15px 16px; border-radius: 12px; min-height: 132px; }
+  .track.user .card { background: var(--surface); border: 1px solid var(--border); }
+  .track.user .card:hover { border-color: var(--accent-line); background: var(--accent-tint); }
+  .track.admin .card { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.16); }
+  .track.admin .card:hover { background: rgba(255,255,255,0.13); }
+  .n { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px;
+       padding: 0 7px; border-radius: 7px; font-size: 11px; font-weight: 700; }
+  .track.user .n { background: var(--bg-2); color: var(--muted); }
+  .track.admin .n { background: rgba(255,255,255,0.16); color: #FFFFFF; }
+  .t { font-size: 14px; font-weight: 640; letter-spacing: -0.005em; }
+  .track.admin .t { color: #FFFFFF; }
+  .d { margin: 0; font-size: 12.1px; line-height: 1.55; }
+  .track.user .d { color: var(--muted); }
+  .track.admin .d { color: rgba(255,255,255,0.68); }
+
+  .note { margin-top: 26px; padding: 17px 19px; background: var(--surface-2);
+          border: 1px solid var(--border-strong); border-radius: var(--radius); }
+  .note p { margin: 0 0 9px; font-size: 12.6px; color: var(--muted); line-height: 1.65; }
+  .note p:last-child { margin-bottom: 0; }
+  .note strong { color: var(--ink); font-weight: 620; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <svg width="38" height="38" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color: var(--accent)">
+      <circle cx="100" cy="100" r="94" stroke="currentColor" stroke-width="6"></circle>
+      <circle cx="100" cy="100" r="60" stroke="currentColor" stroke-width="5" opacity="0.45"></circle>
+      <path d="M100 14 L116 86 L100 100 L84 86 Z" fill="currentColor" opacity="0.75"></path>
+      <path d="M100 186 L116 114 L100 100 L84 114 Z" fill="currentColor" opacity="0.3"></path>
+    </svg>
+    <div>
+      <div style="font-size: 16px; font-weight: 660">Compass</div>
+      <div style="font-size: 12px; color: var(--muted)">Agentic Workspace</div>
+    </div>
+  </div>
+
+  <h1>Service line agents — UI mockups</h1>
+  <p class="lede">Two kinds of people use this, and they never share a screen. Start with the practitioner
+    track — that is the everyday job. The admin track is a separate place, one per service line.</p>
+
+  <!-- ============ PRACTITIONER ============ -->
+  <section class="track user">
+    <div class="th">
+      <span class="tag">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.4"></circle><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" stroke-linecap="round"></path></svg>
+        Practitioner
+      </span>
+      <h2>Getting a client's return done</h2>
+    </div>
+    <p class="tsub">Seven steps, start to finish. No versions, no approval states, no settings — a
+      practitioner never sees any of that.</p>
+
+    <div class="grid">
+      <a class="card" href="Switcher.html"><span class="n">1</span><span class="t">Pick a service line</span>
+        <p class="d">Tax, Talent, Finance, Risk — and Assurance locked on independence.</p></a>
+      <a class="card" href="Main.html"><span class="n">2</span><span class="t">Your engagements</span>
+        <p class="d">The three clients you are on, and what Tax can do for you.</p></a>
+      <a class="card" href="Engagement.html"><span class="n">3</span><span class="t">Open a new engagement</span>
+        <p class="d">Independence check, residency, retention and who can see it.</p></a>
+      <a class="card" href="EngagementHome.html"><span class="n">4</span><span class="t">Inside the engagement</span>
+        <p class="d">Two skills enabled here, pinned, carrying this client's state.</p></a>
+      <a class="card" href="Intake.html"><span class="n">5</span><span class="t">Documents in, agent running</span>
+        <p class="d">Classify, extract, derive, validate — and who does which.</p></a>
+      <a class="card" href="Review.html"><span class="n">6</span><span class="t">Review and sign off</span>
+        <p class="d">Every value with its source. Sign-off blocked while anything is open.</p></a>
+      <a class="card" href="Done.html"><span class="n">7</span><span class="t">Done</span>
+        <p class="d">What was produced, who signed it, and the run you can reproduce.</p></a>
+    </div>
+  </section>
+
+  <!-- ============ ADMIN ============ -->
+  <section class="track admin">
+    <div class="th">
+      <span class="tag">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path></svg>
+        Admin
+      </span>
+      <h2>Running a service line</h2>
+    </div>
+    <p class="tsub">A separate place with a black banner on every screen, so it can never be mistaken for the
+      practitioner view. Each service line has its own admin and its own owner — compare Tax with Talent.</p>
+
+    <div class="grid">
+      <a class="card" href="AdminTax.html"><span class="n">A1</span><span class="t">Tax — settings and skills</span>
+        <p class="d">Four questions that govern every Tax engagement, and the skill list.</p></a>
+      <a class="card" href="Manifest.html"><span class="n">A2</span><span class="t">Author a skill</span>
+        <p class="d">A form, not an editor. Three locks the author cannot switch off.</p></a>
+      <a class="card" href="Approve.html"><span class="n">A3</span><span class="t">Approve it</span>
+        <p class="d">Nothing runs against a client until the owner has read it.</p></a>
+      <a class="card" href="AdminTalent.html"><span class="n">·</span><span class="t">Talent — a different owner</span>
+        <p class="d">Same four questions. Four different answers, plus a rule Tax has no equivalent of.</p></a>
+    </div>
+  </section>
+
+  <!-- ============ OTHER SERVICE LINES ============ -->
+  <section class="track user">
+    <div class="th">
+      <span class="tag">Practitioner</span>
+      <h2>The same frame, four more service lines</h2>
+    </div>
+    <p class="tsub">What changes is the skill list, the banner and the review rule — each one a line in a
+      manifest, not a code path.</p>
+
+    <div class="grid">
+      <a class="card" href="Talent.html"><span class="n">·</span><span class="t">Talent</span>
+        <p class="d">Personal data, DPDP and GDPR, group level only, 24-month retention.</p></a>
+      <a class="card" href="Finance.html"><span class="n">·</span><span class="t">Finance</span>
+        <p class="d">Four eyes on anything that moves a number; a closed period is read-only.</p></a>
+      <a class="card" href="Risk.html"><span class="n">·</span><span class="t">Risk Consulting</span>
+        <p class="d">Every sample carries its seed; the reviewer is never the preparer.</p></a>
+      <a class="card" href="NewLine.html"><span class="n">·</span><span class="t">Sustainability — day one</span>
+        <p class="d">Nothing in it yet, and a practitioner cannot fix that. Ask the owner.</p></a>
+      <a class="card" href="Variations.html"><span class="n">·</span><span class="t">What actually varies</span>
+        <p class="d">The five side by side — and the one row that does not vary at all.</p></a>
+    </div>
+  </section>
+
+  <div class="note">
+    <p><strong>These are mockups.</strong> Static HTML, no backend, nothing wired to Compass. The data is
+      invented except the Form 26 box numbers, which come from the published form.</p>
+    <p><strong>Form 26 is superseded.</strong> Rule 37 was omitted by Notification 178/2005; the live
+      obligation for non-salary TDS is the quarterly Form 26Q. The screens say so where it matters.</p>
+  </div>
+
+</div>
+</body>
+</html>

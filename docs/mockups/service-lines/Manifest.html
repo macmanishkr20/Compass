@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Add a skill</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif; }
+a { color: #B8860B; text-decoration: none; }
+a:hover { color: #A0740A; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: middle; padding: 8px 11px; }
+th { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: #515154; font-weight: 680; border-bottom: 1px solid rgba(0,0,0,0.13); }
+td { font-size: 12px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+.fieldlabel { display: block; font-size: 11.5px; font-weight: 620; color: #1D1D1F; margin-bottom: 5px; }
+.hint { margin: 5px 0 0; font-size: 11.2px; color: #515154; line-height: 1.5; }
+.inp { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid rgba(0,0,0,0.13); border-radius: 9px; background: #FFFFFF; font-size: 12.6px; font-family: inherit; color: #1D1D1F; min-height: 38px; }
+.sect { background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 16px 18px; }
+.secth { margin: 0 0 13px; font-size: 13.5px; font-weight: 650; }
+.lockrow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(0,0,0,0.08); }
+</style>
+</head>
+<body>
+<div style="min-height: 980px; background: #F5F5F7; color: #1D1D1F; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-sizing: border-box">
+  <div style="background: #1D1D1F; border-radius: 14px; padding: 11px 17px; display: flex; align-items: center; gap: 11px; flex-wrap: wrap">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="1.9" aria-hidden="true" style="flex: none"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path><circle cx="12" cy="11" r="2"></circle><path d="M12 13v3" stroke-linecap="round"></path></svg>
+    <span style="font-size: 12.8px; font-weight: 660; color: #FFFFFF">Admin &mdash; Tax service line</span>
+    <span style="width: 1px; height: 14px; background: rgba(255,255,255,0.25)"></span>
+    <span style="font-size: 11.8px; color: rgba(255,255,255,0.75)">An SME writes the skill. No code, and no other service line is touched.</span>
+    <span style="flex: 1"></span>
+    <a href="AdminTax.html" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; background: rgba(255,255,255,0.14); font-size: 11.6px; font-weight: 600; color: #FFFFFF; min-height: 32px; box-sizing: border-box">Admin home</a>
+  </div>
+
+
+  <!-- Topbar -->
+  <header style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 44px; box-sizing: border-box">
+    <a href="Main.html" aria-label="Back to the Tax service line" style="display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; color: #515154; flex: none">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </a>
+    <span style="flex: 1 1 60px; min-width: 0; font-size: 12.5px; color: #515154; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Service Lines &middot; Tax &middot; Skills &middot; <strong style="color: #1D1D1F; font-weight: 620">New skill</strong></span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #515154; padding: 4px 9px; border-radius: 7px; background: #ECECEF">Draft &middot; saved 1m ago</span>
+    <span style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #ECECEF; font-size: 11px; font-weight: 640; flex: none">PR</span>
+  </header>
+
+  <!-- Title row -->
+  <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 15px 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap">
+    <div style="flex: 999 1 400px; min-width: 0">
+      <h1 style="margin: 0 0 3px; font-size: 19px; font-weight: 660; letter-spacing: -0.015em">Add a skill to Tax</h1>
+      <p style="margin: 0; font-size: 12.4px; color: #515154; line-height: 1.5">A name, a briefing, an output contract and a few switches. Compass writes the manifest &mdash; you never open an editor.</p>
+    </div>
+    <a href="Main.html" style="flex: none; padding: 9px 15px; border: 1px solid rgba(0,0,0,0.13); border-radius: 9px; background: #FFFFFF; font-size: 12.4px; font-weight: 600; color: #1D1D1F; min-height: 40px; box-sizing: border-box; display: inline-flex; align-items: center">Cancel</a>
+    <a href="Main.html" style="flex: none; padding: 9px 17px; border-radius: 9px; background: #B8860B; font-size: 12.4px; font-weight: 640; color: #FFFFFF; min-height: 40px; box-sizing: border-box; display: inline-flex; align-items: center">Submit for review</a>
+  </div>
+
+  <!-- Body -->
+  <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start">
+
+    <!-- ===== The form ===== -->
+    <div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+
+      <section class="sect">
+        <h2 class="secth">1 &middot; What it is called</h2>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <div style="flex: 999 1 280px; min-width: 0">
+            <label class="fieldlabel" for="sk-name">Skill name</label>
+            <input class="inp" id="sk-name" type="text" value="Form 26 Prefill" />
+          </div>
+          <div style="flex: 1 1 200px; min-width: 0">
+            <label class="fieldlabel" for="sk-id">Identifier</label>
+            <input class="inp" id="sk-id" type="text" value="form26_prefill" readonly style="font-family: ui-monospace, Menlo, monospace; font-size: 11.8px; background: #FBFBFD; color: #515154" />
+            <p class="hint">Made from the name. Never changes once published.</p>
+          </div>
+        </div>
+        <div style="margin-top: 12px">
+          <label class="fieldlabel" for="sk-desc">One line, for the card</label>
+          <input class="inp" id="sk-desc" type="text" value="Fills the annual TDS return from challans, ledgers and Form 16A." />
+        </div>
+      </section>
+
+      <section class="sect">
+        <h2 class="secth">2 &middot; How to brief it</h2>
+        <label class="fieldlabel" for="sk-prompt">Instructions to the agent</label>
+        <textarea class="inp" id="sk-prompt" rows="5" style="resize: vertical; line-height: 1.6; min-height: 104px">You are preparing a TDS annual return for review by a tax professional. Read the challans, the contractor ledger and any Form 16A provided. For each annexure row, record the deductee, the amount paid, the date and the tax deducted. Where a deductee has no PAN, say so and do not infer one.</textarea>
+        <p class="hint">Write it as you would brief a junior on their first week. This is reviewed the way advice is reviewed &mdash; a change here goes back through the service-line owner.</p>
+      </section>
+
+      <section class="sect">
+        <h2 class="secth">3 &middot; What it produces</h2>
+        <div style="display: inline-flex; background: #ECECEF; border: 1px solid rgba(0,0,0,0.08); border-radius: 9px; padding: 2px; gap: 2px; margin-bottom: 14px; flex-wrap: wrap">
+          <span style="padding: 6px 13px; border-radius: 7px; font-size: 12px; background: #FFFFFF; font-weight: 640; box-shadow: 0 1px 2px rgba(0,0,0,0.05)">A published form</span>
+          <span style="padding: 6px 13px; border-radius: 7px; font-size: 12px; color: #515154">A structured note</span>
+          <span style="padding: 6px 13px; border-radius: 7px; font-size: 12px; color: #515154">A document</span>
+        </div>
+
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px">
+          <div style="flex: 999 1 300px; min-width: 0">
+            <label class="fieldlabel" for="sk-form">Form</label>
+            <select class="inp" id="sk-form">
+              <option>Form 26 — Annual TDS return, other than salaries</option>
+              <option>Form 26Q — Quarterly TDS, other than salaries</option>
+              <option>Form 24Q — Quarterly TDS, salaries</option>
+              <option>Form 27Q — Quarterly TDS, non-residents</option>
+            </select>
+          </div>
+          <span style="flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 10.8px; font-weight: 600; padding: 7px 10px; border-radius: 7px; background: rgba(255,149,0,0.16); color: #8A4B00; min-height: 38px; box-sizing: border-box">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" aria-hidden="true"><path d="M12 9v4" stroke-linecap="round"></path><circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none"></circle><path d="M10.3 3.9L2.6 17.4A2 2 0 004.3 20.4h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke-linejoin="round"></path></svg>
+            Superseded &mdash; historical filings only
+          </span>
+        </div>
+
+        <div style="border: 1px solid rgba(0,0,0,0.08); border-radius: 11px; overflow: hidden">
+          <div style="overflow-x: auto">
+            <table>
+              <thead>
+                <tr><th style="width: 54px">Box</th><th>Field</th><th style="width: 92px">Type</th><th style="width: 72px">Required</th><th>Rule</th></tr>
+              </thead>
+              <tbody>
+                <tr><td style="color: #515154">1(a)</td><td>Deductor name</td><td style="color: #515154">text</td><td>Yes</td><td style="color: #515154">&mdash;</td></tr>
+                <tr><td style="color: #515154">1(c)</td><td>TAN</td><td style="color: #515154">tan</td><td>Yes</td><td style="color: #515154; font-family: ui-monospace, Menlo, monospace; font-size: 11px">^[A-Z]{4}[0-9]{5}[A-Z]$</td></tr>
+                <tr><td style="color: #515154">097</td><td>TDS</td><td style="color: #515154">money</td><td>Yes</td><td style="color: #515154">&mdash;</td></tr>
+                <tr style="background: #FBFBFD"><td style="color: #515154">102</td><td>Total tax deposited</td><td style="color: #515154">money</td><td>Yes</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3" stroke-linecap="round"></path></svg>097+098+099+100+101</span></td></tr>
+                <tr><td style="color: #515154">109</td><td>Deductee PAN</td><td style="color: #515154">pan</td><td>No</td><td style="color: #515154">s.206AA at 20% if absent</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; padding: 11px; background: #FBFBFD; border-top: 1px solid rgba(0,0,0,0.08)">
+            <button type="button" style="padding: 7px 12px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; background: #FFFFFF; font-size: 11.6px; font-weight: 600; font-family: inherit; color: #1D1D1F; cursor: pointer; min-height: 34px">Add a field</button>
+            <button type="button" style="padding: 7px 12px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; background: #FFFFFF; font-size: 11.6px; font-weight: 600; font-family: inherit; color: #1D1D1F; cursor: pointer; min-height: 34px">Import boxes from the published PDF</button>
+            <span style="display: inline-flex; align-items: center; font-size: 11.2px; color: #515154">214 more fields from the form definition</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="sect">
+        <h2 class="secth">4 &middot; What it may read, and what it may never do</h2>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px">
+          <label style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid rgba(184,134,11,0.26); background: rgba(184,134,11,0.10); border-radius: 8px; font-size: 11.8px; min-height: 36px; box-sizing: border-box"><input type="checkbox" checked /> Challans</label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid rgba(184,134,11,0.26); background: rgba(184,134,11,0.10); border-radius: 8px; font-size: 11.8px; min-height: 36px; box-sizing: border-box"><input type="checkbox" checked /> Ledger extracts</label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid rgba(184,134,11,0.26); background: rgba(184,134,11,0.10); border-radius: 8px; font-size: 11.8px; min-height: 36px; box-sizing: border-box"><input type="checkbox" checked /> Form 16A</label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; font-size: 11.8px; min-height: 36px; box-sizing: border-box"><input type="checkbox" /> Prior returns</label>
+          <label style="display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; font-size: 11.8px; min-height: 36px; box-sizing: border-box"><input type="checkbox" /> Form 26AS</label>
+        </div>
+
+        <div class="lockrow" style="margin-top: 10px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#86868B" stroke-width="1.9" aria-hidden="true" style="flex: none; margin-top: 1px"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3" stroke-linecap="round"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 12.2px; font-weight: 600; color: #86868B">Web, shell and filesystem are blocked</div>
+            <p class="hint">Set by the Tax service line, not by this skill. A skill cannot grant itself a tool the service line withholds &mdash; ask the service-line owner.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sect">
+        <h2 class="secth">5 &middot; Evidence and sign-off</h2>
+
+        <div class="lockrow" style="border-top: 0; padding-top: 0">
+          <input type="checkbox" checked disabled id="ev-source" style="margin-top: 3px" />
+          <div style="flex: 1; min-width: 0">
+            <label for="ev-source" style="font-size: 12.2px; font-weight: 600; display: block">Every value must cite a source document</label>
+            <p class="hint">A field with no source is reported as <em>not found</em>. It is never guessed.</p>
+          </div>
+          <span style="flex: none; font-size: 10px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF; color: #515154">Locked</span>
+        </div>
+
+        <div class="lockrow">
+          <input type="checkbox" checked disabled id="ev-computed" style="margin-top: 3px" />
+          <div style="flex: 1; min-width: 0">
+            <label for="ev-computed" style="font-size: 12.2px; font-weight: 600; display: block">Computed fields are calculated, never written by the model</label>
+            <p class="hint">Box 102 is arithmetic. The engine does it, and the agent cannot overwrite the result.</p>
+          </div>
+          <span style="flex: none; font-size: 10px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF; color: #515154">Locked</span>
+        </div>
+
+        <div class="lockrow">
+          <input type="checkbox" checked disabled id="ev-signoff" style="margin-top: 3px" />
+          <div style="flex: 1; min-width: 0">
+            <label for="ev-signoff" style="font-size: 12.2px; font-weight: 600; display: block">A person signs off before anything is emitted</label>
+            <p class="hint">Blocked while any field is unresolved. The reviewer's name goes on the audit record.</p>
+          </div>
+          <span style="flex: none; font-size: 10px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF; color: #515154">Locked</span>
+        </div>
+
+        <div class="lockrow">
+          <div style="flex: 1; min-width: 200px">
+            <label class="fieldlabel" for="sk-reviewer">Who reviews a run</label>
+            <select class="inp" id="sk-reviewer">
+              <option>Tax service-line owner</option>
+              <option>Engagement partner</option>
+              <option>Engagement manager or above</option>
+            </select>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ===== Live manifest ===== -->
+    <aside style="flex: 1 1 400px; min-width: 350px; display: flex; flex-direction: column; gap: 10px; position: sticky; top: 10px">
+
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid rgba(0,0,0,0.08); flex-wrap: wrap">
+          <h2 style="margin: 0; font-size: 13px; font-weight: 650">What gets saved</h2>
+          <span style="flex: 1"></span>
+          <span style="font-size: 11px; font-weight: 620; padding: 3px 9px; border-radius: 7px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.13); font-family: ui-monospace, Menlo, monospace">skill.yaml</span>
+          <span style="font-size: 11px; color: #515154; font-family: ui-monospace, Menlo, monospace">form.yaml</span>
+          <span style="font-size: 11px; color: #515154; font-family: ui-monospace, Menlo, monospace">prompt.md</span>
+        </div>
+        <pre style="margin: 0; padding: 13px 15px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.9px; line-height: 1.65; color: #1D1D1F; background: #FBFBFD; overflow-x: auto">id: form26_prefill
+name: Form 26 Prefill
+service_line: tax
+version: 1.3.0
+
+prompt: prompts/form26_prefill.md
+
+output:
+  kind: form
+  form: forms/form-26.yaml
+  status: superseded
+  superseded_by: form-26q
+
+sources: [challan, ledger_extract, form_16a]
+
+tools:
+  allow: [doc_read, doc_classify, extract_field]
+  <span style="color: #515154"># web, shell and filesystem are denied by</span>
+  <span style="color: #515154"># catalog/tax/manifest.yaml, not here</span>
+
+evidence:
+  require_source: true
+  computed_fields: engine
+
+review:
+  signoff: required
+  reviewer: service_line_owner</pre>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 14px 15px">
+        <h2 style="margin: 0 0 11px; font-size: 13px; font-weight: 650">Checks</h2>
+        <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+          <li style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.7px; line-height: 1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1C7A33" stroke-width="2.6" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span><code style="font-family: ui-monospace, Menlo, monospace">form26_prefill</code> is unused in Tax</span>
+          </li>
+          <li style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.7px; line-height: 1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1C7A33" stroke-width="2.6" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span>Every field has a type and 219 have a box number</span>
+          </li>
+          <li style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.7px; line-height: 1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1C7A33" stroke-width="2.6" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span>No tool outside the Tax allowlist</span>
+          </li>
+          <li style="display: flex; align-items: flex-start; gap: 8px; font-size: 11.7px; line-height: 1.5; color: #8A4B00">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 9v4" stroke-linecap="round"></path><circle cx="12" cy="16.6" r="1" fill="currentColor" stroke="none"></circle><path d="M10.3 3.9L2.6 17.4A2 2 0 004.3 20.4h15.4a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" stroke-linejoin="round"></path></svg>
+            <span>Form 26 is superseded. Allowed, but runs will carry the banner.</span>
+          </li>
+        </ul>
+      </div>
+
+      <div style="background: #FBFBFD; border: 1px solid rgba(0,0,0,0.13); border-radius: 14px; padding: 14px 15px">
+        <h2 style="margin: 0 0 10px; font-size: 13px; font-weight: 650">In plain terms</h2>
+        <p style="margin: 0 0 9px; font-size: 11.7px; line-height: 1.6; color: #1D1D1F"><strong style="font-weight: 650">It can</strong> read challans, ledgers and Form 16A for this engagement, and propose a value for any field with the document and page it came from.</p>
+        <p style="margin: 0; font-size: 11.7px; line-height: 1.6; color: #1D1D1F"><strong style="font-weight: 650">It cannot</strong> do the arithmetic in box 102, fill a field it has no source for, reach the web or a shell, see another service line's engagements, or emit anything before a named person signs it off.</p>
+      </div>
+    </aside>
+  </div>
+
+  <nav style="background: #1D1D1F; border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap" aria-label="Walkthrough">
+    <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase; color: rgba(255,255,255,0.65)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path></svg>Admin &middot; Step 2 of 3</span>
+    <span style="font-size: 12.4px; font-weight: 620; color: #FFFFFF">Author a skill</span>
+    <span style="display: flex; gap: 4px; flex: none" aria-hidden="true">
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #FFFFFF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #FFFFFF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.25)"></span>
+    </span>
+    <span style="flex: 1"></span>
+    <a href="AdminTax.html" style="padding: 8px 13px; border: 1px solid rgba(255,255,255,0.22); border-radius: 9px; font-size: 12.2px; font-weight: 600; color: #FFFFFF; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center">Back</a>
+    <a href="Approve.html" style="padding: 8px 15px; border-radius: 9px; background: #FFFFFF; font-size: 12.2px; font-weight: 640; color: #1D1D1F; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px">Next &mdash; Approve it
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg></a>
+  </nav>
+</div>
+</body>
+</html>

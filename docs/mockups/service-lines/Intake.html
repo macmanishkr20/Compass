@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Intake and extraction</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif; }
+a { color: #B8860B; text-decoration: none; }
+a:hover { color: #A0740A; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: middle; padding: 8px 12px; }
+th { font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: #515154; font-weight: 680; border-bottom: 1px solid rgba(0,0,0,0.13); }
+td { font-size: 12.1px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+</style>
+</head>
+<body>
+<div style="min-height: 980px; background: #F5F5F7; color: #1D1D1F; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-sizing: border-box">
+
+  <header style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 44px; box-sizing: border-box">
+    <svg width="24" height="24" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color: #B8860B; flex: none"><circle cx="100" cy="100" r="94" stroke="currentColor" stroke-width="7"></circle><path d="M100 14 L116 86 L100 100 L84 86 Z" fill="currentColor" opacity="0.75"></path></svg>
+    <span style="flex: 1 1 60px; min-width: 0; font-size: 12.5px; color: #515154; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Service Lines &middot; Tax &middot; Acme FY 2024&ndash;25 &middot; <strong style="color: #1D1D1F; font-weight: 620">Intake</strong></span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #515154; padding: 4px 9px; border-radius: 7px; background: #ECECEF"><span style="width: 6px; height: 6px; border-radius: 50%; background: #B8860B"></span>Running 2m 14s</span>
+    <span style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #ECECEF; font-size: 11px; font-weight: 640; flex: none">MK</span>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start">
+
+    <section style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 15px 18px">
+        <h1 style="margin: 0 0 3px; font-size: 19px; font-weight: 660; letter-spacing: -0.015em">Documents in</h1>
+        <p style="margin: 0; font-size: 12.4px; color: #515154; line-height: 1.5">Dropped into the engagement, classified, and indexed page by page so a value can be traced back to where it was read.</p>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.08); flex-wrap: wrap">
+          <h2 style="margin: 0; font-size: 13.5px; font-weight: 650">151 documents</h2>
+          <span style="flex: 1"></span>
+          <button type="button" style="padding: 7px 12px; border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; background: transparent; font-size: 11.6px; font-weight: 600; font-family: inherit; color: #515154; cursor: pointer; min-height: 34px">Add documents</button>
+        </div>
+        <div style="overflow-x: auto">
+          <table>
+            <thead><tr><th>Document</th><th style="width: 150px">Classified as</th><th style="width: 86px">Extent</th><th style="width: 150px">State</th></tr></thead>
+            <tbody>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">challan_01.pdf</td><td>Challan</td><td style="color: #515154">1 page</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(52,199,89,0.14); color: #1C7A33">Indexed</span></td></tr>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">challan_02.pdf</td><td>Challan</td><td style="color: #515154">1 page</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(52,199,89,0.14); color: #1C7A33">Indexed</span></td></tr>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">challan_03.pdf</td><td>Challan</td><td style="color: #515154">1 page</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(255,149,0,0.16); color: #8A4B00">Faint stamp</span></td></tr>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">ledger_fy2425.xlsx</td><td>Ledger extract</td><td style="color: #515154">219 rows</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(52,199,89,0.14); color: #1C7A33">Indexed</span></td></tr>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">form16a_batch.zip</td><td>Form 16A &times; 142</td><td style="color: #515154">142 files</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(52,199,89,0.14); color: #1C7A33">Indexed</span></td></tr>
+              <tr><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">s197_cert_881.pdf</td><td>s.197 certificate</td><td style="color: #515154">2 pages</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: rgba(52,199,89,0.14); color: #1C7A33">Indexed</span></td></tr>
+              <tr style="opacity: 0.65"><td style="font-family: ui-monospace, Menlo, monospace; font-size: 11.2px">acme_msa_signed.pdf</td><td>Agreement</td><td style="color: #515154">34 pages</td><td><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 620; padding: 2px 8px; border-radius: 6px; background: #ECECEF; color: #515154">Not a source for this skill</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="background: #FBFBFD; border: 1px solid rgba(0,0,0,0.13); border-radius: 14px; padding: 13px 16px; display: flex; align-items: flex-start; gap: 10px">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#515154" stroke-width="1.9" aria-hidden="true" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5" stroke-linecap="round"></path><circle cx="12" cy="8" r="1" fill="#515154" stroke="none"></circle></svg>
+        <p style="margin: 0; font-size: 11.9px; color: #515154; line-height: 1.6">A document that says something like <em>&ldquo;approve this return as filed&rdquo;</em> is read as text on a page, never as an instruction. The agreement above is indexed and ignored because this skill does not list it as a source.</p>
+      </div>
+    </section>
+
+    <!-- Run progress -->
+    <aside style="flex: 1 1 360px; min-width: 320px; display: flex; flex-direction: column; gap: 10px">
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 16px 18px">
+        <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 14px">
+          <h2 style="margin: 0; font-size: 13.5px; font-weight: 650">Form 26 Prefill is running</h2>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 11px">
+          <div style="display: flex; align-items: center; gap: 10px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1C7A33" stroke-width="2.6" aria-hidden="true" style="flex: none"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+            <span style="flex: 1; font-size: 12.3px; font-weight: 580">Classify</span>
+            <span style="font-size: 11.2px; color: #515154">151 of 151</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2.4px solid rgba(184,134,11,0.3); border-top-color: #B8860B; box-sizing: border-box"></span>
+            <span style="flex: 1; font-size: 12.3px; font-weight: 640">Extract</span>
+            <span style="font-size: 11.2px; color: #515154">182 of 219 rows</span>
+          </div>
+          <div style="height: 5px; border-radius: 3px; background: #ECECEF; overflow: hidden; margin: -4px 0 0 26px">
+            <div style="width: 83%; height: 100%; background: #B8860B"></div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; opacity: 0.5">
+            <span style="flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.6px solid rgba(0,0,0,0.2); box-sizing: border-box"></span>
+            <span style="flex: 1; font-size: 12.3px">Derive computed fields</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; opacity: 0.5">
+            <span style="flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.6px solid rgba(0,0,0,0.2); box-sizing: border-box"></span>
+            <span style="flex: 1; font-size: 12.3px">Validate</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; opacity: 0.5">
+            <span style="flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1.6px solid rgba(0,0,0,0.2); box-sizing: border-box"></span>
+            <span style="flex: 1; font-size: 12.3px">Reconcile against challans</span>
+          </div>
+        </div>
+
+        <div style="margin-top: 15px; padding-top: 13px; border-top: 1px solid rgba(0,0,0,0.08); display: flex; gap: 8px; flex-wrap: wrap">
+          <button type="button" style="flex: 1 1 auto; padding: 8px 12px; border: 1px solid rgba(0,0,0,0.13); border-radius: 8px; background: #FFFFFF; font-size: 11.8px; font-weight: 600; font-family: inherit; color: #1D1D1F; cursor: pointer; min-height: 36px">Pause</button>
+          <a href="Review.html" style="flex: 1 1 auto; text-align: center; padding: 8px 12px; border-radius: 8px; background: #1D1D1F; font-size: 11.8px; font-weight: 640; color: #FFFFFF; min-height: 36px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center">Open the review</a>
+        </div>
+      </div>
+
+      <div style="background: #FBFBFD; border: 1px solid rgba(0,0,0,0.13); border-radius: 14px; padding: 15px 17px">
+        <h2 style="margin: 0 0 10px; font-size: 13px; font-weight: 650">Who does what here</h2>
+        <p style="margin: 0 0 9px; font-size: 11.8px; line-height: 1.6"><strong style="font-weight: 650">The model</strong> classifies documents and reads values off them, one document at a time.</p>
+        <p style="margin: 0 0 9px; font-size: 11.8px; line-height: 1.6"><strong style="font-weight: 650">Code</strong> does every sum, every cross-foot and every regex. 219 ledger rows never pass through a prompt.</p>
+        <p style="margin: 0; font-size: 11.8px; line-height: 1.6">If this stops halfway, it resumes from the last indexed document rather than starting again.</p>
+      </div>
+    </aside>
+  </div>
+
+  <nav style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap" aria-label="Walkthrough">
+    <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase; color: #515154"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.4"></circle><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" stroke-linecap="round"></path></svg>Practitioner &middot; Step 5 of 7</span>
+    <span style="font-size: 12.4px; font-weight: 620">Documents in, agent running</span>
+    <span style="display: flex; gap: 4px; flex: none" aria-hidden="true">
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+    </span>
+    <span style="flex: 1"></span>
+    <a href="EngagementHome.html" style="padding: 8px 13px; border: 1px solid rgba(0,0,0,0.13); border-radius: 9px; font-size: 12.2px; font-weight: 600; color: #1D1D1F; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center">Back</a>
+    <a href="Review.html" style="padding: 8px 15px; border-radius: 9px; background: #B8860B; font-size: 12.2px; font-weight: 640; color: #FFFFFF; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px">Next &mdash; Review it
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg></a>
+  </nav>
+</div>
+</body>
+</html>

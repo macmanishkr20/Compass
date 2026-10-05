@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — New engagement</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif; }
+a { color: #B8860B; text-decoration: none; }
+a:hover { color: #A0740A; }
+.sect { background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 16px 18px; }
+.secth { margin: 0 0 13px; font-size: 13.5px; font-weight: 650; }
+.fieldlabel { display: block; font-size: 11.5px; font-weight: 620; margin-bottom: 5px; }
+.inp { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid rgba(0,0,0,0.13); border-radius: 9px; background: #FFFFFF; font-size: 12.6px; font-family: inherit; color: #1D1D1F; min-height: 38px; }
+.hint { margin: 5px 0 0; font-size: 11.2px; color: #515154; line-height: 1.55; }
+.lockrow { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid rgba(0,0,0,0.08); }
+</style>
+</head>
+<body>
+<div style="min-height: 980px; background: #F5F5F7; color: #1D1D1F; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-sizing: border-box">
+
+  <header style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-height: 44px; box-sizing: border-box">
+    <svg width="24" height="24" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color: #B8860B; flex: none"><circle cx="100" cy="100" r="94" stroke="currentColor" stroke-width="7"></circle><path d="M100 14 L116 86 L100 100 L84 86 Z" fill="currentColor" opacity="0.75"></path></svg>
+    <span style="flex: 1 1 60px; min-width: 0; font-size: 12.5px; color: #515154; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">Service Lines &middot; Tax &middot; <strong style="color: #1D1D1F; font-weight: 620">New engagement</strong></span>
+    <span style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #ECECEF; font-size: 11px; font-weight: 640; flex: none">MK</span>
+  </header>
+
+  <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 15px 18px">
+    <h1 style="margin: 0 0 3px; font-size: 19px; font-weight: 660; letter-spacing: -0.015em">Open an engagement</h1>
+    <p style="margin: 0; font-size: 12.4px; color: #515154; line-height: 1.5">An engagement is the boundary. Every document, run and record below lives inside it, and nothing crosses to another one.</p>
+  </div>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start">
+
+    <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+
+      <section class="sect">
+        <h2 class="secth">The client and the period</h2>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <div style="flex: 999 1 300px; min-width: 0">
+            <label class="fieldlabel" for="eng-client">Client</label>
+            <input class="inp" id="eng-client" type="text" value="Acme Manufacturing Pvt Ltd" />
+          </div>
+          <div style="flex: 1 1 170px; min-width: 0">
+            <label class="fieldlabel" for="eng-code">Engagement code</label>
+            <input class="inp" id="eng-code" type="text" value="IN-TAX-24-0881" style="font-family: ui-monospace, Menlo, monospace; font-size: 11.8px" />
+          </div>
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px">
+          <div style="flex: 1 1 180px; min-width: 0">
+            <label class="fieldlabel" for="eng-fy">Financial year</label>
+            <select class="inp" id="eng-fy"><option>2024&ndash;25</option><option>2023&ndash;24</option><option>2022&ndash;23</option></select>
+            <p class="hint">Not the assessment year. Compass labels both on every output.</p>
+          </div>
+          <div style="flex: 999 1 280px; min-width: 0">
+            <label class="fieldlabel" for="eng-skill">Skills enabled for this engagement</label>
+            <select class="inp" id="eng-skill"><option>Form 26 Prefill 1.3.0 — pinned</option><option>TDS Reconciliation 2.0.4 — pinned</option></select>
+            <p class="hint">Pinned at today's approved version. A later approval will not change this engagement.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- The independence check: the entitlement rule, run before anything opens -->
+      <section class="sect">
+        <h2 class="secth">Independence</h2>
+        <div style="display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border-radius: 11px; background: rgba(52,199,89,0.10); border: 1px solid rgba(52,199,89,0.32)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1C7A33" stroke-width="2.4" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 12.5px; font-weight: 640; margin-bottom: 2px">Clear &mdash; Acme is not an audit client of the firm</div>
+            <p style="margin: 0; font-size: 11.9px; color: #515154; line-height: 1.55">Checked against the client register at 09:42. Had it come back restricted, this form would not submit and the Tax service line would not appear for this client at all.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sect">
+        <h2 class="secth">How this engagement's data is handled</h2>
+
+        <div class="lockrow" style="border-top: 0; padding-top: 0">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#515154" stroke-width="1.9" aria-hidden="true" style="flex: none; margin-top: 2px"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3" stroke-linecap="round"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 12.2px; font-weight: 600">Client-confidential &middot; resident in India (South)</div>
+            <p class="hint">Set by the Tax service line. Documents, extractions and outputs never leave the region.</p>
+          </div>
+          <span style="flex: none; font-size: 10px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF; color: #515154">Locked</span>
+        </div>
+
+        <div class="lockrow">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#515154" stroke-width="1.9" aria-hidden="true" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2" stroke-linecap="round"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 12.2px; font-weight: 600">Retained 8 years</div>
+            <p class="hint">Statutory retention for tax working papers &mdash; it overrides the three-month default on Compass's audit rows.</p>
+          </div>
+          <span style="flex: none; font-size: 10px; font-weight: 620; padding: 2px 7px; border-radius: 6px; background: #ECECEF; color: #515154">Statutory</span>
+        </div>
+
+        <div class="lockrow">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#515154" stroke-width="1.9" aria-hidden="true" style="flex: none; margin-top: 2px"><circle cx="9" cy="8" r="3"></circle><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" stroke-linecap="round"></path><path d="M16 5.5a3 3 0 010 5.6M18 20c0-2.6-1-4.4-2.5-5.4" stroke-linecap="round"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 12.2px; font-weight: 600; margin-bottom: 6px">Who can open it</div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap">
+              <span style="font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #ECECEF">Manish K. &middot; manager</span>
+              <span style="font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #ECECEF">Priya R. &middot; senior</span>
+              <span style="font-size: 11px; padding: 4px 10px; border-radius: 20px; background: #ECECEF">Anand V. &middot; partner</span>
+              <button type="button" style="font-size: 11px; padding: 4px 10px; border-radius: 20px; border: 1px dashed rgba(0,0,0,0.2); background: transparent; font-family: inherit; color: #515154; cursor: pointer; min-height: 26px">Add someone</button>
+            </div>
+            <p class="hint">Nobody outside this list, in any service line, can list or open this engagement.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside style="flex: 1 1 340px; min-width: 300px; display: flex; flex-direction: column; gap: 10px">
+      <div style="background: #FBFBFD; border: 1px solid rgba(0,0,0,0.13); border-radius: 14px; padding: 15px 17px">
+        <h2 style="margin: 0 0 10px; font-size: 13px; font-weight: 650">Why an engagement, not a folder</h2>
+        <p style="margin: 0 0 9px; font-size: 11.8px; line-height: 1.6">Compass's existing ownership rule separates users &mdash; it was never a tenancy boundary, and its own source says so.</p>
+        <p style="margin: 0; font-size: 11.8px; line-height: 1.6">Client tax data needs the stronger thing. The engagement is where residency, retention, the access list and the independence verdict all attach, so there is one object to point at when somebody asks who could see what.</p>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 15px 17px">
+        <h2 style="margin: 0 0 11px; font-size: 13px; font-weight: 650">What opens next</h2>
+        <p style="margin: 0 0 13px; font-size: 11.8px; color: #515154; line-height: 1.6">An empty intake tray for Acme FY 2024&ndash;25, with Form 26 Prefill pinned at 1.3.0 and nothing else enabled.</p>
+        <a href="Intake.html" style="display: inline-flex; align-items: center; gap: 7px; width: 100%; box-sizing: border-box; justify-content: center; padding: 10px 15px; border-radius: 9px; background: #1D1D1F; font-size: 12.6px; font-weight: 640; color: #FFFFFF; min-height: 42px">Create engagement</a>
+      </div>
+    </aside>
+  </div>
+
+  <nav style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap" aria-label="Walkthrough">
+    <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase; color: #515154"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.4"></circle><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" stroke-linecap="round"></path></svg>Practitioner &middot; Step 3 of 7</span>
+    <span style="font-size: 12.4px; font-weight: 620">Open a new engagement</span>
+    <span style="display: flex; gap: 4px; flex: none" aria-hidden="true">
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+    </span>
+    <span style="flex: 1"></span>
+    <a href="Main.html" style="padding: 8px 13px; border: 1px solid rgba(0,0,0,0.13); border-radius: 9px; font-size: 12.2px; font-weight: 600; color: #1D1D1F; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center">Back</a>
+    <a href="EngagementHome.html" style="padding: 8px 15px; border-radius: 9px; background: #B8860B; font-size: 12.2px; font-weight: 640; color: #FFFFFF; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px">Next &mdash; Inside it
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg></a>
+  </nav>
+</div>
+</body>
+</html>

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compass — Service line picker</title>
+<style>
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif; }
+a { color: #B8860B; text-decoration: none; }
+a:hover { color: #A0740A; }
+</style>
+</head>
+<body>
+<div style="min-height: 980px; background: #F5F5F7; color: #1D1D1F; display: flex; flex-direction: column; gap: 10px; padding: 10px; box-sizing: border-box">
+<div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px">
+
+  <!-- Sidebar with the picker open -->
+  <aside style="flex: 0 1 290px; min-width: 250px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 2px 4px">
+      <svg width="30" height="30" viewBox="0 0 200 200" fill="none" aria-hidden="true" style="color: #B8860B">
+        <circle cx="100" cy="100" r="94" stroke="currentColor" stroke-width="6"></circle>
+        <circle cx="100" cy="100" r="60" stroke="currentColor" stroke-width="5" opacity="0.45"></circle>
+        <path d="M100 14 L116 86 L100 100 L84 86 Z" fill="currentColor" opacity="0.75"></path>
+        <path d="M100 186 L116 114 L100 100 L84 114 Z" fill="currentColor" opacity="0.3"></path>
+      </svg>
+      <div style="display: flex; flex-direction: column; line-height: 1.25">
+        <span style="font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em">Compass</span>
+        <span style="font-size: 11px; color: #515154">Agentic Workspace</span>
+      </div>
+    </div>
+
+    <!-- The picker, open -->
+    <div style="position: relative">
+      <a href="Main.html" style="display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid rgba(184,134,11,0.26); background: rgba(184,134,11,0.10); border-radius: 11px; color: #1D1D1F">
+        <span style="display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); color: #B8860B; flex: none">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v16M7 20h10" stroke-linecap="round"></path><path d="M5 8h14M5 8l-2.5 5h5zM19 8l2.5 5h-5z" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </span>
+        <span style="display: flex; flex-direction: column; line-height: 1.3; min-width: 0; flex: 1">
+          <span style="font-size: 13.5px; font-weight: 640">Tax</span>
+          <span style="font-size: 10.5px; color: #515154">India &middot; Direct Tax</span>
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#515154" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"></path></svg>
+      </a>
+
+      <div style="position: absolute; left: 0; right: -14px; top: 58px; z-index: 5; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.13); border-radius: 13px; box-shadow: 0 12px 40px rgba(0,0,0,0.10); padding: 7px; display: flex; flex-direction: column; gap: 1px">
+
+        <div style="padding: 7px 9px 5px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #515154; font-weight: 680">Your service lines</div>
+
+        <a href="Main.html" style="display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 9px; background: rgba(184,134,11,0.10); color: #1D1D1F">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); color: #B8860B; flex: none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 4v16M7 20h10" stroke-linecap="round"></path><path d="M5 8h14M5 8l-2.5 5h5zM19 8l2.5 5h-5z" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3">
+            <span style="font-size: 13px; font-weight: 620">Tax</span>
+            <span style="font-size: 10.5px; color: #515154">4 skills &middot; 3 engagements</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true" style="color: #B8860B; flex: none"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </a>
+
+        <a href="Talent.html" style="display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 9px; color: #1D1D1F">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #ECECEF; color: #515154; flex: none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="9" cy="8" r="3.2"></circle><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" stroke-linecap="round"></path><path d="M16 5.5a3 3 0 010 5.6M18 20c0-2.6-1-4.4-2.5-5.4" stroke-linecap="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3">
+            <span style="font-size: 13px; font-weight: 580">Talent</span>
+            <span style="font-size: 10.5px; color: #515154">3 skills &middot; 12 engagements</span>
+          </span>
+        </a>
+
+        <a href="Finance.html" style="display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 9px; color: #1D1D1F">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #ECECEF; color: #515154; flex: none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19V9M10 19V4M16 19v-7M22 19H2" stroke-linecap="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3">
+            <span style="font-size: 13px; font-weight: 580">Finance</span>
+            <span style="font-size: 10.5px; color: #515154">4 skills &middot; 3 engagements</span>
+          </span>
+        </a>
+
+        <a href="Risk.html" style="display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 9px; color: #1D1D1F">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #ECECEF; color: #515154; flex: none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l8 3.5v5c0 5-3.4 8.9-8 10.5-4.6-1.6-8-5.5-8-10.5v-5z" stroke-linejoin="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3">
+            <span style="font-size: 13px; font-weight: 580">Risk Consulting</span>
+            <span style="font-size: 10.5px; color: #515154">3 skills &middot; 3 engagements</span>
+          </span>
+        </a>
+        <a href="NewLine.html" style="display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: 9px; color: #1D1D1F">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #ECECEF; color: #515154; flex: none">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 20c5-2 8-6 8-11V5l-8 3-8-3v4c0 5 3 9 8 11z" stroke-linejoin="round"></path><path d="M12 20V9" stroke-linecap="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3">
+            <span style="font-size: 13px; font-weight: 580">Sustainability</span>
+            <span style="font-size: 10.5px; color: #8A4B00">0 skills &middot; not configured yet</span>
+          </span>
+        </a>
+
+        <div style="height: 1px; background: rgba(0,0,0,0.08); margin: 6px 4px"></div>
+
+        <!-- The entitlement rule, visible rather than implied -->
+        <div style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 9px; border-radius: 9px">
+          <span style="display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: #F5F5F7; color: #86868B; flex: none">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3" stroke-linecap="round"></path></svg>
+          </span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35">
+            <span style="font-size: 13px; font-weight: 580; color: #86868B">Assurance</span>
+            <span style="font-size: 10.5px; color: #515154">Independence &mdash; this client is an audit client. Access is withheld, not hidden.</span>
+          </span>
+        </div>
+
+        <div style="height: 1px; background: rgba(0,0,0,0.08); margin: 6px 4px"></div>
+
+        <a href="AdminTax.html" style="display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 9px; font-size: 12.5px; color: #515154; text-align: left; width: 100%; box-sizing: border-box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" style="margin-left: 6px"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" stroke-linecap="round"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+          Manage service lines (admin)
+        </a>
+        <a href="Variations.html" style="display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 9px; font-size: 12.5px; color: #515154">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true" style="margin-left: 6px"><path d="M4 6h16M4 12h16M4 18h16" stroke-linecap="round"></path></svg>
+          Compare all five
+        </a>
+      </div>
+    </div>
+
+    <div style="height: 300px"></div>
+  </aside>
+
+  <!-- Main (dimmed behind the popover) -->
+  <div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 10px; opacity: 0.45">
+    <header style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 7px 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 44px; box-sizing: border-box">
+      <div style="display: inline-flex; flex-wrap: wrap; background: #ECECEF; border: 1px solid rgba(0,0,0,0.08); border-radius: 9px; padding: 2px; gap: 2px">
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Home</span>
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Code</span>
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Design</span>
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Pipelines</span>
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Estimate</span>
+        <span style="padding: 5px 9px; border-radius: 7px; font-size: 12px; color: #515154">Missions</span>
+        <span style="padding: 5px 10px; border-radius: 7px; font-size: 12px; background: #FFFFFF; color: #1D1D1F; font-weight: 640">Service Lines</span>
+      </div>
+      <span style="flex: 1 1 60px; font-size: 12.5px; color: #515154; padding-left: 4px">Service Lines &middot; Tax</span>
+    </header>
+    <div style="flex: 1; background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px"></div>
+  </div>
+</div>
+
+  <nav style="background: #FFFFFF; border: 1px solid rgba(0,0,0,0.08); border-radius: 14px; padding: 10px 16px; display: flex; align-items: center; gap: 13px; flex-wrap: wrap" aria-label="Walkthrough">
+    <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 680; letter-spacing: 0.07em; text-transform: uppercase; color: #515154"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="8" r="3.4"></circle><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" stroke-linecap="round"></path></svg>Practitioner &middot; Step 1 of 7</span>
+    <span style="font-size: 12.4px; font-weight: 620">Pick a service line</span>
+    <span style="display: flex; gap: 4px; flex: none" aria-hidden="true">
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #B8860B"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+      <span style="width: 15px; height: 4px; border-radius: 2px; background: #ECECEF"></span>
+    </span>
+    <span style="flex: 1"></span>
+    <span style="font-size: 11.5px; color: #515154">Start here</span>
+    <a href="Main.html" style="padding: 8px 15px; border-radius: 9px; background: #B8860B; font-size: 12.2px; font-weight: 640; color: #FFFFFF; min-height: 38px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px">Next &mdash; Your engagements
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"></path></svg></a>
+  </nav>
+</div>
+</body>
+</html>
