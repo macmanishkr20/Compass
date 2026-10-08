@@ -740,6 +740,28 @@ class PipelineSettings(BaseModel):
     require_manual_first_run: bool = True
 
 
+class ServiceLineSettings(BaseModel):
+    """Service lines — one agent practice per part of the firm.
+
+    Off by default, and for the same reason Estimate is: what this module
+    mounts is not a general capability but a set of opinions about somebody's
+    practice — which skills Tax offers, where its data may live, who signs its
+    work off. A deployment opts in once it has read the catalog and agrees it
+    describes *their* firm. `COMPASS_SERVICELINES=1` turns it on; off, nothing
+    is imported, no routes are mounted and no section appears.
+
+    `strict_catalog` decides what a broken manifest means. Off, which is the
+    default, a manifest that fails validation is logged and skipped and the
+    rest of the catalog still loads — a typo in Talent must not take Tax down
+    with it. On, the server refuses to start instead, which is what a
+    deployment pipeline wants: it turns a silently-missing service line into a
+    failed deploy rather than a support ticket three weeks later.
+    """
+
+    enabled: bool = False
+    strict_catalog: bool = False
+
+
 class PermissionRule(BaseModel):
     """One allow/ask/deny rule, e.g. {"tool": "bash", "pattern": "git *", "action": "allow"}."""
 
@@ -764,6 +786,7 @@ class Settings(BaseModel):
     tools: ToolSettings = Field(default_factory=ToolSettings)
     pipelines: PipelineSettings = Field(default_factory=PipelineSettings)
     estimate: EstimateSettings = Field(default_factory=EstimateSettings)
+    servicelines: ServiceLineSettings = Field(default_factory=ServiceLineSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     missions: MissionSettings = Field(default_factory=MissionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
@@ -1106,6 +1129,12 @@ def get_settings() -> Settings:
         env = os.environ.get(f"COMPASS_ESTIMATE_{name.upper()}", "").strip().lower()
         if env:
             setattr(estimate, name, env in ("1", "true", "yes", "on"))
+
+    servicelines = settings.servicelines
+    if (flag := os.environ.get("COMPASS_SERVICELINES", "").strip().lower()):
+        servicelines.enabled = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_SERVICELINES_STRICT", "").strip().lower()):
+        servicelines.strict_catalog = flag in ("1", "true", "yes", "on")
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

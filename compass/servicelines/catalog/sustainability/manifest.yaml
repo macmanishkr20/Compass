@@ -1,0 +1,26 @@
+# A service line on its first day.
+#
+# It exists — somebody added the folder — and it is deliberately NOT usable.
+# None of the four governance questions is answered, so `unconfigured` is True
+# and no engagement may open against it. It loads cleanly: being unfinished is
+# a state a service line is allowed to be in, and is not the same as being
+# malformed.
+#
+# This is the Sustainability screen in the mockups, and it is in the catalog
+# so the unconfigured path is exercised by something real rather than only by
+# a test fixture.
+
+id: sustainability
+name: Sustainability
+description: >-
+  ESG and climate reporting. Newly created; nothing is configured and no
+  skills have been authored yet.
+lead_prompt: prompts/lead.md
+owner: sustainability-service-line-owner
+
+# Every answer left blank on purpose. The admin screen reads
+# governance.problems() to list exactly these four.
+governance: {}
+
+tools: []
+skills: []
