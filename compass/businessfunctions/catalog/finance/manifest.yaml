@@ -1,0 +1,74 @@
+# Finance — one of the firm's own functions, not a practice that serves
+# clients. The people here close the books; the entities below are the firm's
+# own, and a period is something that gets signed and then cannot move.
+
+id: finance
+name: Finance
+subtitle: Controllership & Reporting
+blurb: >-
+  Close, reconciliation and tax. Pick something below to work on it — the
+  assistant on the right follows you in and can act on whatever is on screen.
+owner: finance-function-owner
+
+starters:
+  - Which entities have unmatched credits?
+  - What is at risk if nothing moves this week?
+
+# The ceiling for every feature below. A feature may ask for fewer of these
+# and never for more.
+tools:
+  - read_rows
+  - explain_row
+
+features:
+  - id: form26
+    name: Form 26
+    short: Reconciliation · tax credits
+    blurb: >-
+      Reconciles Form 26 credits against the ledger and raises the mismatches
+      with their challans.
+    handler: form26
+    # Meaningless without both: a credit statement belongs to one entity in
+    # one period, and showing it without them would be showing a total of
+    # unrelated things.
+    scope: [entity, period]
+
+    actions:
+      - id: accept
+        label: Accept the lower credit
+        confirm: >-
+          Closes the line at the Form 26 value. The difference against the
+          ledger is written off.
+        reversible: true
+      - id: query
+        label: Raise a query
+        confirm: >-
+          Raises one query with the deductor. The reconciliation stays open
+          until they revise.
+        reversible: true
+        outward: true
+      - id: undo
+        label: Undo
+        confirm: Puts the line back in the queue, undecided.
+        reversible: true
+
+    rules:
+      - id: prepared_by_you
+        headline: You prepared this.
+        detail: >-
+          A second reviewer has to sign it off — you can decide the
+          mismatches, but not close the period.
+        tone: notice
+      - id: period_closed
+        headline: Read-only.
+        detail: This period was signed off. Nothing here can be changed.
+        tone: limit
+
+    starters:
+      - Why was line 0044 flagged?
+      - Accept the lower credit on all three
+      - Who are these from?
+
+    tools:
+      - read_rows
+      - explain_row

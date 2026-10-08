@@ -740,6 +740,28 @@ class PipelineSettings(BaseModel):
     require_manual_first_run: bool = True
 
 
+class BusinessFunctionSettings(BaseModel):
+    """Business functions — Finance, Talent, and the features inside them.
+
+    Off by default, for the reason Estimate is: what this mounts is not a
+    general capability but a set of claims about how one firm runs itself —
+    which features Finance offers, who may approve leave, when a period is
+    closed. A deployment opts in once somebody has read the catalog and agrees
+    it describes them. `COMPASS_BUSINESS_FUNCTIONS=1` turns it on; off,
+    nothing is imported, no routes are mounted and no section appears.
+
+    `strict_catalog` decides what a broken manifest means. Off, which is the
+    default, a manifest that fails validation is logged and skipped and the
+    rest still loads — a typo in Talent must not take Finance down with it.
+    On, the server refuses to start, which is what a deployment pipeline
+    wants: a silently-missing function becomes a failed deploy rather than a
+    support ticket three weeks later.
+    """
+
+    enabled: bool = False
+    strict_catalog: bool = False
+
+
 class PermissionRule(BaseModel):
     """One allow/ask/deny rule, e.g. {"tool": "bash", "pattern": "git *", "action": "allow"}."""
 
@@ -764,6 +786,9 @@ class Settings(BaseModel):
     tools: ToolSettings = Field(default_factory=ToolSettings)
     pipelines: PipelineSettings = Field(default_factory=PipelineSettings)
     estimate: EstimateSettings = Field(default_factory=EstimateSettings)
+    business_functions: BusinessFunctionSettings = Field(
+        default_factory=BusinessFunctionSettings
+    )
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     missions: MissionSettings = Field(default_factory=MissionSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
@@ -1106,6 +1131,12 @@ def get_settings() -> Settings:
         env = os.environ.get(f"COMPASS_ESTIMATE_{name.upper()}", "").strip().lower()
         if env:
             setattr(estimate, name, env in ("1", "true", "yes", "on"))
+
+    bf = settings.business_functions
+    if (flag := os.environ.get("COMPASS_BUSINESS_FUNCTIONS", "").strip().lower()):
+        bf.enabled = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_BUSINESS_FUNCTIONS_STRICT", "").strip().lower()):
+        bf.strict_catalog = flag in ("1", "true", "yes", "on")
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

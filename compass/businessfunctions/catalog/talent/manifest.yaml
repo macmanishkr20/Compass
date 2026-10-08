@@ -1,0 +1,66 @@
+# Talent — the firm's own people function. Leave, policy and approvals.
+#
+# The same four manifest keys as Finance and entirely different answers,
+# which is the argument for manifests: nothing in the code knows that leave
+# is scoped to a reporting line and a reconciliation is scoped to a period.
+
+id: talent
+name: Talent
+subtitle: People & Workplace
+blurb: >-
+  Leave, policy and approvals. Pick something below to work on it — the
+  assistant on the right follows you in and can act on whatever is on screen.
+owner: talent-function-owner
+
+starters:
+  - What is waiting on me?
+  - What lapses if I do nothing?
+
+tools:
+  - read_rows
+  - explain_row
+
+features:
+  - id: lms
+    name: Leave Management System
+    short: Balances · applications · approvals
+    blurb: >-
+      Balances, applications and approvals, read against the policy that
+      currently applies to you.
+    handler: lms
+    # No entity and no period. Leave is scoped to the people who report to
+    # you and to your own record — neither of which is chosen from a menu.
+    scope: [team, self]
+
+    actions:
+      - id: approve
+        label: Approve
+        confirm: >-
+          Notifies the applicant and books the days. Compass cannot take this
+          back.
+        reversible: false
+        outward: true
+      - id: decline
+        label: Decline
+        confirm: >-
+          Returns the request to the applicant. A reason is required before
+          it sends.
+        reversible: false
+        outward: true
+
+    rules:
+      - id: team_only
+        headline: You see your team, not the firm.
+        detail: >-
+          Balances and requests outside your reporting line are not visible
+          here, and cannot be asked for.
+        tone: limit
+
+    starters:
+      - Approve Arjun's request
+      - What lapses if I do nothing?
+      - How many are past the 72-hour expectation?
+
+    tools:
+      - read_rows
+      - explain_row
