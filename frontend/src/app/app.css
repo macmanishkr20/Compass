@@ -4292,6 +4292,34 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
 .topbar > * { min-width: 0; }
 .hc-switch { flex: 0 1 auto; min-width: 0; }
 
+/* Seven tabs, not six, and the ladder below was measured for six.
+   
+   The strip with every label showing is 732px wide; the row it sits on also
+   carries the mark, two icon buttons, the crumb and the controls, which comes
+   to more than `main` is wide until about 1300px — so the controls wrap to a
+   second line while the first rung is still 500px away. Measured: with six
+   tabs that already happened below ~1150, so this is an existing band that the
+   seventh widened rather than a new fault.
+   
+   Two rungs above the ones that were here, keeping the order already set —
+   the thing that repeats itself goes before the thing that does not.
+   
+   The crumb first. It names the section, which the raised tab beside it is
+   already saying; it is the only thing on the row that is said twice. */
+@container main (max-width: 1300px) {
+  .topbar-title { display: none; }
+}
+
+/* Then the labels, at the width where they genuinely stop fitting rather than
+   at six tabs' width. Below this the strip is icons and the selected tab's own
+   word — every section still present, in the same order, one click away. A
+   single row of icons reads better than two rows of words. */
+@container main (max-width: 1140px) {
+  .hc-tab-label { display: none; }
+  .hc-switch button[aria-selected="true"] .hc-tab-label { display: inline; }
+  .hc-switch button { padding-left: 9px !important; padding-right: 9px !important; }
+}
+
 /* Tab labels are the first thing to go: six words are most of the row's
    width, and the icons alone are still six distinct shapes in a fixed order.
    The selected tab keeps its label, because "which one am I in" is the one
