@@ -9,12 +9,6 @@ python-dotenv>=1.0        # auto-loads .env so credentials work without `source`
 # MCP (Model Context Protocol) client + sample server
 mcp>=1.2
 
-# Service-line manifests, and the frontmatter of an installed skill. Both read
-# it through a guarded import and degrade rather than fail, but it arrived
-# only transitively before this line, so a deployment could lose its whole
-# service-line catalog to a dependency it never knew it had.
-PyYAML>=6.0
-
 # Attachment ingestion (Home/Chat + Agent Console file uploads)
 pypdf>=4.0                # PDF text extraction
 pypdfium2>=4.0            # PDF page rendering, so charts and scans are seen
