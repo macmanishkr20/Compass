@@ -26,6 +26,7 @@ import { ArtifactPanel } from './artifact-panel/artifact-panel';
 import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Design } from './design/design';
+import { BusinessFunctions } from './business-functions/business-functions';
 import { Pipelines } from './pipelines/pipelines';
 import { Estimate } from './estimate/estimate';
 import { Missions } from './missions/missions';
@@ -140,6 +141,7 @@ const CONV_PAGE = 4;
     Lightbox,
     Confirm,
     NoticeStack,
+    BusinessFunctions,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -180,6 +182,7 @@ export class App {
     pipelines: 'Compass Pipelines',
     estimate: 'Compass Estimate',
     missions: 'Compass Missions',
+    'business-functions': 'Compass Business Functions',
   };
 
   readonly sectionTitle = computed(() => App.TITLES[this.section()]);
@@ -270,6 +273,7 @@ export class App {
       pipelines: () => this.enterPipelines(),
       estimate: () => this.enterEstimate(),
       missions: () => this.enterMissions(),
+      'business-functions': () => this.enterBusinessFunctions(),
     })[section]?.();
   }
 
@@ -321,7 +325,8 @@ export class App {
     () => this.section() === 'design'
       || this.section() === 'pipelines'
       || this.section() === 'estimate'
-      || this.section() === 'missions',
+      || this.section() === 'missions'
+      || this.section() === 'business-functions',
   );
 
   /** Sections that act on the Code console's open workspace. Separate from
@@ -385,6 +390,23 @@ export class App {
     this.browserOpen.set(false);
     this.browserExpanded.set(false);
   }
+
+  /** Business Functions. Mounted only when the server says it exists, and the
+   *  component loads its own catalogue the first time it is shown — the shell
+   *  knows the section is there and nothing else about it. */
+  enterBusinessFunctions(): void {
+    if (!this.health()?.business_functions) return;
+    this.section.set('business-functions');
+    this.businessFunctionsSeen.set(true);
+    this.bgOpen.set(false);
+    this.bgExpanded.set(false);
+    this.browserOpen.set(false);
+    this.browserExpanded.set(false);
+  }
+
+  /** Created on first entry and kept mounted after, the treatment Design gets:
+   *  a function and a half-written question survive a trip to Home and back. */
+  readonly businessFunctionsSeen = signal(false);
 
   // -- Work IQ (Home-only): toggle grounding the chat in Azure AI Search.
   readonly workIqOn = signal(false); // default off → plain chat

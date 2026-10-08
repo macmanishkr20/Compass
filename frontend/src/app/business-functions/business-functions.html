@@ -1,0 +1,332 @@
+<div class="bf">
+
+  <!-- ══════════ switcher + features ══════════ -->
+  <aside class="bf-side panel">
+    <div class="bf-sw">
+      <button class="bf-swbtn" type="button" (click)="switcherOpen.set(!switcherOpen())"
+        [attr.aria-expanded]="switcherOpen()" aria-haspopup="menu">
+        <span class="bf-swt">
+          <b>{{ current()?.name || 'Business functions' }}</b>
+          <small>{{ current()?.subtitle || 'Pick one' }}</small>
+        </span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" aria-hidden="true"
+          [style.transform]="switcherOpen() ? 'rotate(180deg)' : null"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+
+      @if (switcherOpen()) {
+        <div class="bf-swmenu panel" role="menu">
+          <div class="bf-lbl">Business functions</div>
+          @for (f of functions(); track f.id) {
+            <button class="bf-swopt" type="button" role="menuitem"
+              [class.on]="f.id === current()?.id" (click)="openFunction(f.id)">
+              <span class="bf-swoptt">
+                <b>{{ f.name }}</b>
+                <small>{{ f.subtitle }} · {{ f.features }} feature{{ f.features === 1 ? '' : 's' }}</small>
+              </span>
+              @if (f.id === current()?.id) {
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2.6" aria-hidden="true"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              }
+            </button>
+          }
+          <p class="bf-note">More functions are added by their owner, in admin.</p>
+        </div>
+      }
+    </div>
+
+    <nav class="bf-nav" aria-label="This function">
+      <button class="bf-navitem" type="button" [class.on]="atOverview()" (click)="toOverview()">
+        <span class="bf-navt"><b>Overview</b><small>What needs you</small></span>
+        @if ((current()?.queue?.length ?? 0) > 0) {
+          <span class="bf-badge">{{ current()?.queue?.length }}</span>
+        }
+      </button>
+
+      <div class="bf-lbl bf-navlbl">Features</div>
+      @for (f of current()?.features ?? []; track f.id) {
+        <button class="bf-navitem" type="button" [class.on]="featureId() === f.id"
+          (click)="openFeature(f.id)">
+          <span class="bf-navt"><b>{{ f.name }}</b><small>{{ f.short }}</small></span>
+        </button>
+      }
+      @if (current()?.empty) {
+        <p class="bf-note">Nothing in this function yet. Its owner adds features in admin.</p>
+      }
+    </nav>
+  </aside>
+
+  <!-- ══════════ stage ══════════ -->
+  <main class="bf-stage panel">
+    @if (error(); as err) {
+      <div class="bf-err" role="alert">{{ err }}</div>
+    }
+
+    <!-- ── overview: a queue, not a dashboard ── -->
+    @if (atOverview()) {
+      @if (current(); as fn) {
+        <div class="bf-ov">
+          <header class="bf-ovh">
+            <h1>{{ fn.name }}</h1>
+            <p>{{ fn.blurb }}</p>
+          </header>
+
+          <div class="bf-sec"><span class="bf-lbl">Needs you</span><span class="bf-rule"></span>
+            <span class="bf-ct">{{ fn.queue.length ? fn.queue.length + ' item' + (fn.queue.length === 1 ? '' : 's') : 'clear' }}</span>
+          </div>
+
+          @for (q of fn.queue; track q.feature + q.key) {
+            <button class="bf-q" type="button" (click)="openFeature(q.feature)">
+              <span class="bf-qn">{{ q.count }}</span>
+              <span class="bf-qt">
+                <b>{{ q.what }}</b>
+                <small>{{ q.feature_name }}</small>
+              </span>
+              <span class="bf-qgo">Open
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+            </button>
+          } @empty {
+            <p class="bf-clear">Nothing is waiting on you in {{ fn.name }}.</p>
+          }
+
+          <div class="bf-sec bf-sec2"><span class="bf-lbl">Features</span><span class="bf-rule"></span>
+            <span class="bf-ct">{{ fn.features.length }}</span>
+          </div>
+          <div class="bf-grid">
+            @for (f of fn.features; track f.id) {
+              <button class="bf-card" type="button" (click)="openFeature(f.id)">
+                <b>{{ f.name }}</b>
+                <p>{{ f.blurb }}</p>
+                <span class="bf-cardfoot">{{ f.short }}</span>
+              </button>
+            }
+            <div class="bf-add">More features land here as the {{ fn.name }} owner adds them.
+              The assistant picks them up automatically.</div>
+          </div>
+        </div>
+      }
+    }
+
+    <!-- ── workbench ── -->
+    @if (feature(); as v) {
+      <div class="bf-work">
+        <header class="bf-wbar">
+          <div class="bf-wname">
+            <h2>{{ v.name }}</h2>
+            @if (v.short) { <span class="bf-wsub">{{ v.short }}</span> }
+          </div>
+          <div class="bf-wctl">
+            @if (featureById(v.id)?.scope?.includes('entity')) {
+              <label class="bf-sel">
+                <span>Entity</span>
+                <select [ngModel]="entity()" (ngModelChange)="setScope('entity', $event)">
+                  <option value="">Choose…</option>
+                  @for (e of entities; track e) { <option [value]="e">{{ e }}</option> }
+                </select>
+              </label>
+            }
+            @if (featureById(v.id)?.scope?.includes('period')) {
+              <label class="bf-sel">
+                <span>Period</span>
+                <select [ngModel]="period()" (ngModelChange)="setScope('period', $event)">
+                  <option value="">Choose…</option>
+                  @for (p of periods; track p) { <option [value]="p">{{ p }}</option> }
+                </select>
+              </label>
+            }
+          </div>
+        </header>
+
+        @if (v.needs_scope?.length) {
+          <div class="bf-wait">
+            Choose {{ v.needs_scope!.join(' and ') }} to see this.
+            <span>A credit statement belongs to one entity in one period; a total of
+              unrelated things would not mean anything.</span>
+          </div>
+        } @else {
+          <!-- a rule speaks only when it applies -->
+          @for (r of v.rules ?? []; track r.id) {
+            <div class="bf-ruleline" [class.limit]="r.tone === 'limit'">
+              <b>{{ r.headline }}</b> <span>{{ r.detail }}</span>
+            </div>
+          }
+
+          <div class="bf-figs">
+            @for (f of v.figures ?? []; track f.key) {
+              <div class="bf-fig" [class]="toneOf(f)">
+                <span class="bf-figk">{{ f.caption }}</span>
+                <span class="bf-figv">{{ f.value }}</span>
+              </div>
+            }
+          </div>
+
+          <div class="bf-tabs" role="tablist">
+            @for (t of v.tabs ?? []; track t.key) {
+              <button class="bf-tab" type="button" role="tab" [class.on]="t.key === v.tab"
+                [attr.aria-selected]="t.key === v.tab" (click)="pickTab(t.key)">
+                {{ t.label }}@if (t.count !== null) { <i>{{ t.count }}</i> }
+              </button>
+            }
+          </div>
+
+          <div class="bf-tblwrap">
+            @if ((v.rows ?? []).length) {
+              <table class="bf-tbl">
+                <thead>
+                  <tr>
+                    @for (c of columns(); track c.key) {
+                      <th [class.num]="c.numeric">{{ c.label }}</th>
+                    }
+                    <th class="bf-actcol"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of v.rows ?? []; track rowId(row)) {
+                    <tr class="bf-row" [class.aimed]="isAimed(row)"
+                      [class.open]="expanded() === rowId(row)">
+                      @for (c of columns(); track c.key) {
+                        <td [class.num]="c.numeric">{{ cell(row, c.key) }}</td>
+                      }
+                      <td class="bf-actcol">
+                        <button class="bf-more" type="button"
+                          [attr.aria-label]="expanded() === rowId(row) ? 'Hide detail' : 'Show detail'"
+                          (click)="toggleRow(rowId(row))">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2.2" aria-hidden="true"
+                            [style.transform]="expanded() === rowId(row) ? 'rotate(180deg)' : null"><path d="M6 9l6 6 6-6" stroke-linecap="round"/></svg>
+                        </button>
+                      </td>
+                    </tr>
+                    @if (expanded() === rowId(row)) {
+                      <tr class="bf-detail">
+                        <td [attr.colspan]="columns().length + 1">
+                          <div class="bf-dwrap">
+                            <dl class="bf-kv">
+                              @for (d of details(row); track d.k) {
+                                <div><dt>{{ d.k }}</dt><dd>{{ d.v }}</dd></div>
+                              }
+                            </dl>
+                            <div class="bf-acts">
+                              @for (a of actionsFor(row); track a.id) {
+                                <button class="bf-btn" type="button"
+                                  [class.danger]="!a.reversible" [title]="a.confirm"
+                                  (click)="rowAct(a, row)">{{ a.label }}</button>
+                              } @empty {
+                                <span class="bf-none">Nothing to decide on this one.</span>
+                              }
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <p class="bf-clear">Nothing in this view.</p>
+            }
+          </div>
+        }
+      </div>
+    }
+  </main>
+
+  <!-- ══════════ assistant rail ══════════ -->
+  @if (railOpen()) {
+    <aside class="bf-rail panel" aria-label="Assistant">
+      @if (rail(); as r) {
+        <header class="bf-rh">
+          <span class="bf-rht"><b>{{ r.title }}</b><small>{{ r.subtitle }}</small></span>
+          <button class="bf-x" type="button" aria-label="Hide the assistant"
+            (click)="railOpen.set(false)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
+          </button>
+        </header>
+
+        <div class="bf-rbody">
+          @if (!turns().length) {
+            <p class="bf-rhint">
+              @if (r.can_act) {
+                I can explain what is on screen, and operate it — I will show you which
+                rows I would touch before anything changes.
+              } @else {
+                I answer across this function. Open a feature and I will follow you in.
+              }
+            </p>
+            @for (s of r.starters; track s) {
+              <button class="bf-starter" type="button" (click)="send(s)">{{ s }}</button>
+            }
+          }
+
+          @for (t of turns(); track $index) {
+            @if (t.who === 'you') {
+              <p class="bf-you">{{ t.text }}</p>
+            } @else if (t.plan; as plan) {
+              <div class="bf-plan" [class.settled]="!!t.settled">
+                <b>{{ plan.headline }}</b>
+                <p>{{ plan.detail }}</p>
+                <ul class="bf-targets">
+                  @for (x of plan.targets; track x.id) { <li>{{ x.label }}</li> }
+                </ul>
+                @if (!plan.reversible) {
+                  <p class="bf-warn">This cannot be undone from here.</p>
+                }
+                @if (t.settled) {
+                  <p class="bf-settled">{{ t.settled }}</p>
+                } @else {
+                  <div class="bf-planacts">
+                    <button class="bf-btn primary" type="button" (click)="confirmPlan(t)">
+                      {{ plan.targets.length > 1 ? 'Do all ' + plan.targets.length : 'Do it' }}
+                    </button>
+                    <button class="bf-btn" type="button" (click)="cancelPlan(t)">Cancel</button>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="bf-said">
+                <p>{{ t.text }}</p>
+                @if (t.options?.length) {
+                  <div class="bf-opts">
+                    @for (o of t.options ?? []; track o.id) {
+                      <button class="bf-opt" type="button" (click)="pick(o)">{{ o.label }}</button>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          }
+
+          @if (thinking()) { <p class="bf-thinking">Reading what is on screen…</p> }
+        </div>
+
+        <footer class="bf-rfoot">
+          <div class="bf-comp">
+            <input class="bf-ta" type="text" [ngModel]="draft()"
+              (ngModelChange)="draft.set($event)" (keydown.enter)="send()"
+              [attr.aria-label]="'Ask ' + r.title"
+              [placeholder]="r.can_act ? 'Ask about this, or tell it what to do…' : 'Ask ' + r.title + '…'" />
+            <button class="bf-send" type="button" aria-label="Send" (click)="send()"
+              [disabled]="!draft().trim() || thinking()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2.2" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <span class="bf-scope" [title]="'What the assistant can read from here'">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2.4" aria-hidden="true"><path d="M5 12l5 5L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            {{ r.scope_label }}
+          </span>
+        </footer>
+      }
+    </aside>
+  } @else {
+    <button class="bf-railopen" type="button" aria-label="Show the assistant"
+      (click)="railOpen.set(true)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.8" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4L3 21l1.1-4.6A8.4 8.4 0 1 1 21 11.5z" stroke-linejoin="round"/></svg>
+    </button>
+  }
+</div>

@@ -1,7 +1,9 @@
 import { Injectable, signal } from '@angular/core';
 
-/** The five sections a prompt can be running in. */
-export type ModuleKey = 'home' | 'code' | 'design' | 'pipelines' | 'estimate' | 'missions';
+/** The sections a prompt can be running in. */
+export type ModuleKey =
+  | 'home' | 'code' | 'design' | 'pipelines' | 'estimate' | 'missions'
+  | 'business-functions';
 
 export interface TurnToast {
   section: ModuleKey;
@@ -17,6 +19,7 @@ const LABEL: Record<ModuleKey, string> = {
   pipelines: 'Pipelines',
   estimate: 'Estimate',
   missions: 'Missions',
+  'business-functions': 'Business Functions',
 };
 
 const SOUND_KEY = 'compass.notifySound';

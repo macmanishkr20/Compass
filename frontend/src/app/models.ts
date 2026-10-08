@@ -30,6 +30,10 @@ export interface HealthInfo {
   /** Whether the Missions module is mounted — long-running builds that plan,
    *  work a feature at a time and review themselves. Same contract again. */
   missions?: boolean;
+  /** Whether the Business Functions module is mounted. Same contract as the
+   *  three above: the nav asks rather than assuming, so a build with it off
+   *  shows no entry into routes that were never mounted. */
+  business_functions?: boolean;
   workspace: string;
 }
 

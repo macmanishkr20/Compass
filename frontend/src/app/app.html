@@ -676,6 +676,20 @@
             <span class="hc-tab-label">Missions</span>
           </button>
         }
+        <!-- Business Functions, on the same terms as the three above: the
+             server says whether the module exists, so a build without it
+             shows the sections it has always shown. -->
+        @if (health()?.business_functions) {
+          <button type="button" role="tab" [attr.aria-selected]="section() === 'business-functions'"
+            (click)="enterBusinessFunctions()"
+            [style.background]="section() === 'business-functions' ? 'var(--surface)' : 'transparent'"
+            [style.color]="section() === 'business-functions' ? 'var(--ink)' : 'var(--muted)'"
+            [style.font-weight]="section() === 'business-functions' ? 600 : 400"
+            style="border:0;cursor:pointer;font-family:var(--sans);font-size:0.82rem;padding:5px 13px;border-radius:7px;display:inline-flex;align-items:center;gap:6px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="7" height="16" rx="1.6"/><rect x="14" y="4" width="7" height="9" rx="1.6"/><path d="M14 17h7" stroke-linecap="round"/></svg>
+            <span class="hc-tab-label">Business Functions</span>
+          </button>
+        }
       </div>
       <div class="topbar-title">
         <!-- Each section's own name; see App.TITLES. This used to name the
@@ -857,6 +871,13 @@
     @if (designSeen()) {
       <app-design [style.display]="section() === 'design' ? null : 'none'"
         (customize)="openCustomizeAt($event)" />
+    }
+
+    <!-- Business Functions stays mounted once visited, the treatment Design
+         gets: an open feature and a half-written question survive a section
+         switch rather than being rebuilt from scratch. -->
+    @if (businessFunctionsSeen()) {
+      <app-business-functions [style.display]="section() === 'business-functions' ? null : 'none'" />
     }
 
     <!-- Created only when the section is entered, so a build with Pipelines
