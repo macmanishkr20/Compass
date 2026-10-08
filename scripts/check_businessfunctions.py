@@ -19,10 +19,14 @@ output: 520000 − 380000 is 140000, and the comment above each check says so.
 
 from __future__ import annotations
 
+import contextlib
+import copy
+import dataclasses
 import logging
 import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,11 +35,31 @@ sys.path.insert(0, str(ROOT))
 # Refusals log a warning each, which is correct behaviour and noise here.
 logging.disable(logging.WARNING)
 
-from compass.businessfunctions import features, registry  # noqa: E402
+from compass.businessfunctions import assistant, features, registry  # noqa: E402
 from compass.businessfunctions.features.base import Scope  # noqa: E402
+from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
+from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.manifest import WITHHELD_TOOLS  # noqa: E402
 
 FAILURES: list[str] = []
+
+
+@contextlib.contextmanager
+def fixtures():
+    """Run a check against untouched rows, whatever ran before it.
+
+    The handlers still carry fixtures, and approving leave is deliberately
+    irreversible — there is no undo to put it back with. So the rows are
+    deep-copied in and restored out, which makes every check below
+    order-independent. When the store lands this becomes a transaction that
+    rolls back, and the checks do not change.
+    """
+    before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE))
+    try:
+        yield
+    finally:
+        form26_mod._FIXTURE[:] = before[0]
+        lms_mod._FIXTURE[:] = before[1]
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -246,6 +270,185 @@ def check_nothing_is_mounted_while_the_flag_is_off() -> None:
        registry.feature_of("finance", "nope") == (registry.get("finance"), None, None))
 
 
+def check_a_proposal_changes_nothing_until_confirmed() -> None:
+    """The gap between deciding and acting is the feature.
+
+    A single call that both resolved the sentence and performed it would be
+    this same design with the safety taken out.
+    """
+    _, feat, h = registry.feature_of("finance", "form26")
+    s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+    before = {f.key: f.value for f in h.figures(s)}["mismatches"]
+
+    r = assistant.interpret("finance", feat, h, s,
+                            "Accept the lower credit on all three", "mk")
+    ok("a sentence becomes a proposal", isinstance(r, assistant.Proposal),
+       type(r).__name__)
+    ok("the proposal names the rows it would touch",
+       [t.id for t in r.targets] == ["0044", "0051", "0058"],
+       str([t.id for t in r.targets]))
+    ok("its wording is the manifest's, not generated",
+       r.detail == feat.actions[0].confirm)
+    ok("nothing moved while it waited",
+       {f.key: f.value for f in h.figures(s)}["mismatches"] == before)
+
+    out = assistant.confirm(r.id, "mk", h)
+    ok("confirming carries it out", out.ok, out.said)
+    ok("the figures moved with it",
+       {f.key: f.value for f in h.figures(s)}["mismatches"] == "0")
+
+
+def check_a_proposal_belongs_to_one_person() -> None:
+    """Holding the id is not the same as being allowed to use it.
+
+    The non-owner's attempt must also leave the plan intact — consuming it
+    would let anybody cancel somebody else's work by guessing an id.
+    """
+    _, feat, h = registry.feature_of("finance", "form26")
+    s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+    r = assistant.interpret("finance", feat, h, s, "accept all", "mk")
+
+    ok("somebody else cannot confirm it", not assistant.confirm(r.id, "pr", h).ok)
+    ok("somebody else cannot cancel it", not assistant.cancel(r.id, "pr").ok)
+    ok("their attempt did not consume it",
+       assistant.pending(r.id, "mk") is not None)
+    ok("the owner can still confirm it", assistant.confirm(r.id, "mk", h).ok)
+
+
+def check_a_proposal_is_single_use_and_expires() -> None:
+    _, feat, h = registry.feature_of("finance", "form26")
+    s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+
+    r = assistant.interpret("finance", feat, h, s, "accept all", "mk")
+    assistant.confirm(r.id, "mk", h)
+    ok("confirming twice does nothing the second time",
+       not assistant.confirm(r.id, "mk", h).ok)
+
+    # Back to undecided, so the next two steps have rows to act on. The
+    # wrapper restores at the end of the check; this is mid-check.
+    h.act(s, "undo", ["0044", "0051", "0058"])
+
+    r2 = assistant.interpret("finance", feat, h, s, "accept all", "mk")
+    ok("cancelling says plainly that nothing changed",
+       assistant.cancel(r2.id, "mk").said == "Cancelled — nothing changed.")
+    ok("a cancelled plan cannot then be confirmed",
+       not assistant.confirm(r2.id, "mk", h).ok)
+
+    # Expiry is checked by ageing the record rather than by waiting ten
+    # minutes: the clock is the thing under test, not asyncio.
+    r3 = assistant.interpret("finance", feat, h, s, "accept all", "mk")
+    stale = dataclasses.replace(
+        r3, made_at=time.time() - assistant.TTL_SECONDS - 1)
+    assistant._pending[r3.id] = stale
+    ok("a plan left too long expires", stale.expired)
+    ok("an expired plan cannot be confirmed",
+       not assistant.confirm(r3.id, "mk", h).ok)
+    ok("expired plans are swept", assistant.open_count() == 0,
+       str(assistant.open_count()))
+
+
+def check_an_ambiguous_sentence_is_not_guessed() -> None:
+    """An assistant that picks the likeliest row is wrong exactly when it hurts."""
+    _, feat, h = registry.feature_of("finance", "form26")
+    s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+
+    vague = assistant.interpret("finance", feat, h, s, "accept it", "mk")
+    ok("'accept it' with three candidates asks which",
+       isinstance(vague, assistant.Clarify), type(vague).__name__)
+    ok("the clarification offers the candidates",
+       isinstance(vague, assistant.Clarify) and len(vague.options) == 3)
+
+    miscount = assistant.interpret("finance", feat, h, s, "accept all five", "mk")
+    ok("a stated count that disagrees with the screen asks rather than acts",
+       isinstance(miscount, assistant.Clarify)
+       and "3 here" in miscount.text, getattr(miscount, "text", ""))
+
+    named = assistant.interpret("finance", feat, h, s, "accept line 0044", "mk")
+    ok("an explicit line number is unambiguous",
+       isinstance(named, assistant.Proposal)
+       and [t.id for t in named.targets] == ["0044"])
+    assistant.cancel(named.id, "mk")
+
+
+def check_an_outward_action_is_never_bulk_proposed() -> None:
+    """The person should never be shown a button that cannot work.
+
+    The handler refuses a bulk approval anyway; refusing at proposal time
+    means nobody reads a plan covering four people and then finds out.
+    """
+    _, feat, h = registry.feature_of("talent", "lms")
+    s = Scope(user="mk")
+    r = assistant.interpret("talent", feat, h, s, "approve all of them", "mk")
+    ok("approving everybody is not proposed", isinstance(r, assistant.Clarify),
+       type(r).__name__)
+    ok("it says why, and offers the names",
+       isinstance(r, assistant.Clarify) and "one at a time" in r.text
+       and len(r.options) == 3)
+
+    one = assistant.interpret("talent", feat, h, s, "approve Arjun's request", "mk")
+    ok("naming one person is proposed", isinstance(one, assistant.Proposal))
+    ok("it is marked outward and irreversible",
+       isinstance(one, assistant.Proposal) and one.outward and not one.reversible)
+    out = assistant.confirm(one.id, "mk", h)
+    ok("confirming it names who was told", out.ok and "Arjun" in out.said, out.said)
+
+
+def check_a_question_is_answered_from_facts() -> None:
+    """The model phrases; it does not choose rows and it does not do sums.
+
+    An Answer carries what was read off the feature, so a phrasing layer
+    cannot introduce a figure that was never in the data.
+    """
+    _, feat, h = registry.feature_of("finance", "form26")
+    s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+    a = assistant.interpret("finance", feat, h, s, "why was line 0044 flagged?", "mk")
+    ok("a question is an answer, not a proposal", isinstance(a, assistant.Answer),
+       type(a).__name__)
+    ok("it carries the figures it would be phrased from",
+       isinstance(a, assistant.Answer) and a.facts.get("figures"))
+    ok("and the rows", isinstance(a, assistant.Answer) and a.facts.get("rows"))
+    ok("asking changed nothing",
+       {f.key: f.value for f in h.figures(s)}["mismatches"] == "3")
+
+
+def check_the_rail_says_what_it_can_read() -> None:
+    """The scope chip is the visible half of the scoping rule."""
+    fin = registry.get("finance")
+    _, feat, _h = registry.feature_of("finance", "form26")
+
+    over = assistant.view(fin, None, Scope(user="mk"))
+    ok("at the overview the rail scopes to the function",
+       over.scope_label == "Finance" and not over.can_act, over.scope_label)
+    ok("and offers the function's starters",
+       over.starters == fin.starters)
+
+    inside = assistant.view(fin, feat,
+                            Scope(user="mk", entity="Contoso India", period="Q2 FY25"))
+    ok("inside a feature it scopes to the feature",
+       inside.scope_label == "Form 26" and inside.can_act)
+    ok("and names the entity and period chosen",
+       inside.subtitle == "Contoso India · Q2 FY25", inside.subtitle)
+
+
+def check_every_starter_the_manifest_offers_actually_works() -> None:
+    """A suggestion that does nothing when clicked is worse than no suggestion."""
+    unresolved = []
+    for fn in registry.all_functions():
+        for feature in fn.features:
+            _, fm, h = registry.feature_of(fn.id, feature.id)
+            s = Scope(user="mk", entity="Contoso India", period="Q2 FY25")
+            for starter in fm.starters:
+                r = assistant.interpret(fn.id, fm, h, s, starter, "mk")
+                if isinstance(r, assistant.Proposal):
+                    assistant.cancel(r.id, "mk")
+                elif not isinstance(r, (assistant.Answer, assistant.Clarify)):
+                    unresolved.append(f"{fn.id}/{feature.id}: {starter}")
+    ok("every feature starter resolves to something", not unresolved,
+       str(unresolved))
+    ok("no plans were left open", assistant.open_count() == 0,
+       str(assistant.open_count()))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -255,9 +458,27 @@ def main() -> int:
     check_prompt_bound_text_is_treated_as_data()
     check_mistakes_that_would_pass_silently_do_not()
     check_the_shipped_catalog_is_clean()
-    check_form26_arithmetic()
-    check_a_rule_speaks_only_when_it_applies()
-    check_an_outward_action_is_taken_one_at_a_time()
+    with fixtures():
+        check_form26_arithmetic()
+    with fixtures():
+        check_a_rule_speaks_only_when_it_applies()
+    with fixtures():
+        check_an_outward_action_is_taken_one_at_a_time()
+    with fixtures():
+        check_a_proposal_changes_nothing_until_confirmed()
+    with fixtures():
+        check_a_proposal_belongs_to_one_person()
+    with fixtures():
+        check_a_proposal_is_single_use_and_expires()
+    with fixtures():
+        check_an_ambiguous_sentence_is_not_guessed()
+    with fixtures():
+        check_an_outward_action_is_never_bulk_proposed()
+    with fixtures():
+        check_a_question_is_answered_from_facts()
+    check_the_rail_says_what_it_can_read()
+    with fixtures():
+        check_every_starter_the_manifest_offers_actually_works()
     check_nothing_is_mounted_while_the_flag_is_off()
 
     print()
@@ -266,8 +487,8 @@ def main() -> int:
         for failure in FAILURES:
             print(f"   {failure}")
         return 1
-    print("a manifest cannot claim a power it was not granted, the figures are "
-          "subtraction, and a rule speaks only when it applies")
+    print("a manifest cannot claim a power it was not granted, a plan changes "
+          "nothing until its owner confirms it, and the model only phrases")
     return 0
 
 
