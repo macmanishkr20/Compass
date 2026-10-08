@@ -83,6 +83,10 @@ async def healthz() -> dict:
         # assuming, so a build without it shows no entry into routes that
         # were never mounted.
         "missions": settings.missions.enabled,
+        # And business functions, on the same contract: the nav asks whether
+        # the section exists rather than assuming it, so a build without it
+        # shows no entry into routes that were never mounted.
+        "business_functions": settings.business_functions.enabled,
         # Whether shell commands run inside an OS-enforced boundary, and if
         # not, why. Reported rather than logged because "your agent is running
         # with the server's privileges" is a thing an operator should be able

@@ -1,0 +1,318 @@
+"""The REST surface for business functions.
+
+Mounted only when the module is enabled, which is why the import in
+`api/server.py` sits inside the conditional: a module that is switched off
+should not appear in the route table, and the table is compared against a
+recorded snapshot, so leakage is caught rather than merely unlikely.
+
+THE SCOPE COMES FROM THE REQUEST, NEVER FROM THE BODY. `entity` and `period`
+are query parameters a person picked from two selectors, and `user` is taken
+from `require_user` and nothing else. A feature scoped to "the people who
+report to you" therefore has no field anybody could widen — not the client,
+not a sentence, not a model asked to fill in a filter. That is the whole
+reason the scope object is assembled here rather than accepted.
+
+TWO WAYS TO ACT, AND THE DIFFERENCE MATTERS.
+
+  /act    the row buttons. A person clicked a specific row, so the click IS
+          the confirmation and there is nothing a plan would add.
+  /ask    the rail. The person wrote a sentence and something had to work out
+          which rows it meant, so what comes back is a proposal and the rows
+          are not touched until /plans/{id}/confirm.
+
+Inferred targets get a confirmation step; pointed-at targets already had one.
+
+Every route is behind `require_user`, like the other 136.
+"""
+
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from compass.businessfunctions import assistant, registry
+from compass.businessfunctions.features.base import Scope
+from compass.common.auth import require_user
+
+logger = logging.getLogger("compass.businessfunctions")
+
+router = APIRouter(prefix="/v1/business-functions", tags=["business-functions"])
+
+
+def _scope(user: str, entity: str, period: str) -> Scope:
+    """What the person has narrowed to. `user` is never one of the inputs."""
+    return Scope(user=user, entity=entity, period=period)
+
+
+def _resolve(function_id: str, feature_id: str):
+    """The function, its feature and the handler, or a 404 naming which is missing."""
+    fn, feature, handler = registry.feature_of(function_id, feature_id)
+    if fn is None:
+        raise HTTPException(404, f"No business function called {function_id!r}.")
+    if feature is None:
+        raise HTTPException(404, f"{fn.name} has no feature called {feature_id!r}.")
+    if handler is None:
+        # The registry refuses to load a manifest whose handler is missing, so
+        # reaching here means the register changed under a running server.
+        raise HTTPException(503, f"{feature.name} is not available right now.")
+    return fn, feature, handler
+
+
+def _feature_card(fn_id: str, feature) -> dict:
+    """A feature as the switcher and the launcher grid read it."""
+    return {
+        "id": feature.id,
+        "name": feature.name,
+        "short": feature.short,
+        "blurb": feature.blurb,
+        "scope": feature.scope,
+        "actions": [
+            {"id": a.id, "label": a.label, "confirm": a.confirm,
+             "reversible": a.reversible, "outward": a.outward}
+            for a in feature.actions
+        ],
+    }
+
+
+def _rail(fn, feature, scope: Scope) -> dict:
+    view = assistant.view(fn, feature, scope)
+    return {
+        "title": view.title,
+        "subtitle": view.subtitle,
+        "scope_label": view.scope_label,
+        "starters": view.starters,
+        "can_act": view.can_act,
+    }
+
+
+@router.get("")
+async def list_functions(user: str = Depends(require_user)) -> dict:
+    """Every business function, for the switcher.
+
+    Deliberately thin: the switcher shows a name, a subtitle and a count, and
+    loading each function's figures to render a menu would be work nobody
+    asked for.
+    """
+    return {
+        "functions": [
+            {
+                "id": fn.id,
+                "name": fn.name,
+                "subtitle": fn.subtitle,
+                "features": len(fn.features),
+                "empty": fn.empty,
+            }
+            for fn in registry.all_functions()
+        ]
+    }
+
+
+@router.get("/{function_id}")
+async def get_function(
+    function_id: str,
+    entity: str = Query("", description="Legal entity, where a feature is scoped by one"),
+    period: str = Query("", description="Reporting period, same"),
+    user: str = Depends(require_user),
+) -> dict:
+    """One function's overview: what it is, what it holds, and what needs you.
+
+    The queue is computed from each feature's own figures rather than stored,
+    so it cannot say three mismatches while the table shows none. A feature
+    that cannot answer is skipped rather than failing the page — an overview
+    that will not render because one feature is unhappy is worse than an
+    overview missing a line.
+    """
+    fn = registry.get(function_id)
+    if fn is None:
+        raise HTTPException(404, f"No business function called {function_id!r}.")
+
+    scope = _scope(user, entity, period)
+    queue: list[dict] = []
+    for feature in fn.features:
+        handler = registry.feature_of(fn.id, feature.id)[2]
+        if handler is None:
+            continue
+        try:
+            needs = [f for f in handler.figures(scope) if f.tone == "warn"]
+        except Exception:  # noqa: BLE001 — one unhappy feature is not the page
+            logger.warning("overview: %s/%s could not report",
+                           fn.id, feature.id, exc_info=True)
+            continue
+        for figure in needs:
+            queue.append({
+                "feature": feature.id,
+                "feature_name": feature.name,
+                "count": figure.value,
+                "what": figure.caption,
+                "key": figure.key,
+            })
+
+    return {
+        "id": fn.id,
+        "name": fn.name,
+        "subtitle": fn.subtitle,
+        "blurb": fn.blurb,
+        "empty": fn.empty,
+        "features": [_feature_card(fn.id, f) for f in fn.features],
+        "queue": queue,
+        "rail": _rail(fn, None, scope),
+    }
+
+
+@router.get("/{function_id}/features/{feature_id}")
+async def get_feature(
+    function_id: str,
+    feature_id: str,
+    entity: str = Query(""),
+    period: str = Query(""),
+    tab: str = Query("", description="Which view; the first when not given"),
+    user: str = Depends(require_user),
+) -> dict:
+    """The workbench: the figures, the tabs, the rows and the rules in force.
+
+    `rules` is only the ones that apply right now. The manifest holds more,
+    and sending all of them would put the UI in the position of deciding which
+    are true — which is the handler's job and depends on data the UI does not
+    have.
+    """
+    fn, feature, handler = _resolve(function_id, feature_id)
+    scope = _scope(user, entity, period)
+
+    if missing := scope.missing(feature.scope):
+        # Not an error. The person has not chosen an entity yet, and the UI
+        # needs to know which selector to wait on.
+        return {
+            "id": feature.id,
+            "name": feature.name,
+            "needs_scope": missing,
+            "rail": _rail(fn, feature, scope),
+        }
+
+    tabs = handler.tabs(scope)
+    chosen = tab or (tabs[0].key if tabs else "")
+    applies = set(handler.rules(scope))
+
+    return {
+        "id": feature.id,
+        "name": feature.name,
+        "short": feature.short,
+        "scope": {"entity": scope.entity, "period": scope.period},
+        "figures": [
+            {"key": f.key, "value": f.value, "caption": f.caption, "tone": f.tone}
+            for f in handler.figures(scope)
+        ],
+        "tabs": [{"key": t.key, "label": t.label, "count": t.count} for t in tabs],
+        "tab": chosen,
+        "rows": handler.rows(scope, chosen),
+        "rules": [
+            {"id": r.id, "headline": r.headline, "detail": r.detail, "tone": r.tone}
+            for r in feature.rules if r.id in applies
+        ],
+        "actions": _feature_card(fn.id, feature)["actions"],
+        "rail": _rail(fn, feature, scope),
+    }
+
+
+class ActBody(BaseModel):
+    action: str
+    targets: list[str] = Field(default_factory=list)
+    entity: str = ""
+    period: str = ""
+
+
+@router.post("/{function_id}/features/{feature_id}/act")
+async def act(
+    function_id: str,
+    feature_id: str,
+    body: ActBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """Do one thing to rows the person pointed at.
+
+    No plan, because there is nothing to confirm that the click did not
+    already say: these targets came from a button on a specific row, not from
+    a sentence somebody had to interpret. The handler still re-checks state,
+    refuses a closed period and refuses a bulk outward action.
+    """
+    _fn, _feature, handler = _resolve(function_id, feature_id)
+    outcome = handler.act(_scope(user, body.entity, body.period),
+                          body.action, body.targets)
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+
+
+class AskBody(BaseModel):
+    text: str
+    entity: str = ""
+    period: str = ""
+
+
+@router.post("/{function_id}/features/{feature_id}/ask")
+async def ask(
+    function_id: str,
+    feature_id: str,
+    body: AskBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """Read a sentence against what is on screen. Changes nothing, ever.
+
+    Three shapes come back and the rail renders each differently: a `plan` to
+    be confirmed or cancelled, an `answer` carrying the facts a model will
+    phrase, or a `clarify` when the sentence named an action but not clearly
+    enough which rows — asked rather than guessed, because an assistant that
+    picks the likeliest row is wrong exactly when it hurts.
+    """
+    fn, feature, handler = _resolve(function_id, feature_id)
+    scope = _scope(user, body.entity, body.period)
+    result = assistant.interpret(fn.id, feature, handler, scope, body.text, user)
+
+    if isinstance(result, assistant.Proposal):
+        return {
+            "kind": "plan",
+            "plan": {
+                "id": result.id,
+                "action": result.action,
+                "headline": result.headline,
+                "detail": result.detail,
+                "targets": [{"id": t.id, "label": t.label} for t in result.targets],
+                "outward": result.outward,
+                "reversible": result.reversible,
+            },
+        }
+    if isinstance(result, assistant.Clarify):
+        return {
+            "kind": "clarify",
+            "text": result.text,
+            "options": [{"id": t.id, "label": t.label} for t in result.options],
+        }
+    return {"kind": "answer", "text": result.text, "facts": result.facts}
+
+
+class PlanBody(BaseModel):
+    """The plan's own coordinates, so the right handler performs it.
+
+    Carried rather than looked up from the proposal because the handler is
+    resolved through the registry the same way every other route resolves it,
+    and a second lookup path is a second thing to keep correct.
+    """
+
+    function_id: str
+    feature_id: str
+
+
+@router.post("/plans/{plan_id}/confirm")
+async def confirm_plan(
+    plan_id: str, body: PlanBody, user: str = Depends(require_user)
+) -> dict:
+    """Carry out a plan, once, for the person who made it."""
+    _fn, _feature, handler = _resolve(body.function_id, body.feature_id)
+    outcome = assistant.confirm(plan_id, user, handler)
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+
+
+@router.post("/plans/{plan_id}/cancel")
+async def cancel_plan(plan_id: str, user: str = Depends(require_user)) -> dict:
+    """Drop a plan, and say plainly that nothing happened."""
+    outcome = assistant.cancel(plan_id, user)
+    return {"ok": outcome.ok, "said": outcome.said}

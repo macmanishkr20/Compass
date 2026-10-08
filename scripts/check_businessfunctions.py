@@ -40,6 +40,11 @@ from compass.businessfunctions.features.base import Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.manifest import WITHHELD_TOOLS  # noqa: E402
+from compass.common.config import get_settings  # noqa: E402
+
+#: Read before anything here turns the module on, so the "off by default"
+#: check stays true however the route checks below rearrange the world.
+SHIPPED_DEFAULT = get_settings().business_functions.enabled
 
 FAILURES: list[str] = []
 
@@ -261,10 +266,7 @@ def check_an_outward_action_is_taken_one_at_a_time() -> None:
 
 
 def check_nothing_is_mounted_while_the_flag_is_off() -> None:
-    from compass.common.config import get_settings
-
-    ok("business functions are off by default",
-       not get_settings().business_functions.enabled)
+    ok("business functions are off by default", not SHIPPED_DEFAULT)
     ok("a bad id is None rather than an error", registry.get("no-such-function") is None)
     ok("a bad feature id is three Nones",
        registry.feature_of("finance", "nope") == (registry.get("finance"), None, None))
@@ -449,6 +451,185 @@ def check_every_starter_the_manifest_offers_actually_works() -> None:
        str(assistant.open_count()))
 
 
+def _client():
+    """A test client with the module switched on.
+
+    The flag is set on the settings object rather than in the environment
+    because server.py reads it at import time, and this has to be true before
+    that import happens.
+    """
+    get_settings().business_functions.enabled = True
+    from fastapi.testclient import TestClient
+
+    from compass.api.server import app
+
+    return TestClient(app)
+
+
+def check_the_routes_are_mounted_only_when_switched_on() -> None:
+    """The escape hatch, measured rather than asserted."""
+    import importlib
+
+    import compass.api.server as server
+
+    get_settings().business_functions.enabled = False
+    off = {r.path for r in importlib.reload(server).app.routes}
+    ok("switched off, no business-function route exists",
+       not [p for p in off if "business" in p], str([p for p in off if "business" in p]))
+
+    get_settings().business_functions.enabled = True
+    on = {r.path for r in importlib.reload(server).app.routes}
+    ok("switched on, the surface appears",
+       len([p for p in on if "business-functions" in p]) == 7,
+       str(sorted(p for p in on if "business-functions" in p)))
+    ok("switching it on adds nothing else",
+       (on - off) == {p for p in on if "business-functions" in p})
+
+
+def check_every_route_is_behind_require_user() -> None:
+    """All 136 others are. A new surface is not where that lapses."""
+    from compass.common.auth import require_user
+
+    import compass.api.server as server
+
+    naked = []
+    for route in server.app.routes:
+        if "business-functions" not in getattr(route, "path", ""):
+            continue
+        deps = [d.call for d in getattr(route, "dependant", None).dependencies] \
+            if getattr(route, "dependant", None) else []
+        if require_user not in deps:
+            naked.append(route.path)
+    ok("every business-function route requires a signed-in user",
+       not naked, str(sorted(set(naked))))
+
+
+def check_the_surface_answers() -> None:
+    """One pass through the screens the mockup actually has."""
+    c = _client()
+
+    r = c.get("/v1/business-functions")
+    ok("the switcher lists the functions", r.status_code == 200
+       and {f["id"] for f in r.json()["functions"]} == {"finance", "talent"},
+       f"{r.status_code} {r.text[:120]}")
+
+    r = c.get("/v1/business-functions/finance",
+              params={"entity": "Contoso India", "period": "Q2 FY25"})
+    body = r.json()
+    ok("the overview carries the function and its features",
+       r.status_code == 200 and body["name"] == "Finance"
+       and len(body["features"]) == 1, f"{r.status_code}")
+    ok("the overview's queue is built from live figures",
+       any(q["feature"] == "form26" for q in body["queue"]), str(body["queue"]))
+    ok("the rail scopes to the function at the overview",
+       body["rail"]["scope_label"] == "Finance" and not body["rail"]["can_act"])
+
+    r = c.get("/v1/business-functions/nope")
+    ok("an unknown function is a 404 that names it",
+       r.status_code == 404 and "nope" in r.text, str(r.status_code))
+    r = c.get("/v1/business-functions/finance/features/nope")
+    ok("an unknown feature is a 404 that names the function too",
+       r.status_code == 404 and "Finance" in r.text, r.text[:90])
+
+
+def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
+    """Not an error — the UI has to know which selector to light up."""
+    c = _client()
+    r = c.get("/v1/business-functions/finance/features/form26")
+    body = r.json()
+    ok("without an entity and period it asks for them",
+       r.status_code == 200 and body.get("needs_scope") == ["entity", "period"],
+       str(body)[:140])
+    ok("and sends no rows while it waits", "rows" not in body)
+
+    r = c.get("/v1/business-functions/finance/features/form26",
+              params={"entity": "Contoso India", "period": "Q2 FY25"})
+    body = r.json()
+    ok("with both, the workbench answers",
+       r.status_code == 200 and len(body["rows"]) == 3, str(body)[:140])
+    ok("the figures come with it",
+       {f["key"]: f["value"] for f in body["figures"]}["at_risk"] == "₹4.8L")
+    # A closed period is closed for everybody, so this holds whoever is
+    # signed in. `prepared_by_you` is true only for the preparer and is
+    # exercised directly against the handler elsewhere.
+    r = c.get("/v1/business-functions/finance/features/form26",
+              params={"entity": "Contoso India", "period": "Q4 FY24"})
+    ok("only the rules in force are sent",
+       [x["id"] for x in r.json()["rules"]] == ["period_closed"],
+       str([x["id"] for x in r.json()["rules"]]))
+    ok("a rule carries the sentence the manifest wrote, not a generated one",
+       r.json()["rules"][0]["headline"] == "Read-only.",
+       r.json()["rules"][0]["headline"])
+
+
+def check_the_rail_round_trip_over_http() -> None:
+    """Ask, read the plan, confirm — the whole point, through the API."""
+    c = _client()
+    scope = {"entity": "Contoso India", "period": "Q2 FY25"}
+
+    r = c.post("/v1/business-functions/finance/features/form26/ask",
+               json={"text": "Accept the lower credit on all three", **scope})
+    body = r.json()
+    ok("a sentence comes back as a plan", body.get("kind") == "plan", str(body)[:140])
+    plan = body["plan"]
+    ok("the plan names its three rows",
+       [t["id"] for t in plan["targets"]] == ["0044", "0051", "0058"])
+    ok("and carries the manifest's wording", plan["detail"].startswith("Closes the line"))
+
+    r = c.get("/v1/business-functions/finance/features/form26", params=scope)
+    ok("asking changed nothing",
+       {f["key"]: f["value"] for f in r.json()["figures"]}["mismatches"] == "3")
+
+    r = c.post(f"/v1/business-functions/plans/{plan['id']}/confirm",
+               json={"function_id": "finance", "feature_id": "form26"})
+    ok("confirming carries it out", r.json()["ok"], r.text[:120])
+    r = c.get("/v1/business-functions/finance/features/form26", params=scope)
+    ok("and the workbench has moved",
+       {f["key"]: f["value"] for f in r.json()["figures"]}["mismatches"] == "0")
+
+    r = c.post(f"/v1/business-functions/plans/{plan['id']}/confirm",
+               json={"function_id": "finance", "feature_id": "form26"})
+    ok("confirming twice does nothing the second time", not r.json()["ok"])
+
+
+def check_asking_vaguely_is_a_question_not_an_act() -> None:
+    c = _client()
+    scope = {"entity": "Contoso India", "period": "Q2 FY25"}
+    r = c.post("/v1/business-functions/finance/features/form26/ask",
+               json={"text": "accept it", **scope})
+    ok("a vague instruction comes back as a clarification",
+       r.json().get("kind") == "clarify", str(r.json())[:120])
+    r = c.post("/v1/business-functions/finance/features/form26/ask",
+               json={"text": "why was 0044 flagged?", **scope})
+    body = r.json()
+    ok("a question comes back as facts to phrase",
+       body.get("kind") == "answer" and body["facts"].get("rows"), str(body)[:120])
+
+
+def check_a_row_button_needs_no_plan() -> None:
+    """A click on a specific row already said which row."""
+    c = _client()
+    r = c.post("/v1/business-functions/finance/features/form26/act",
+               json={"action": "accept", "targets": ["0044"],
+                     "entity": "Contoso India", "period": "Q2 FY25"})
+    ok("acting on a pointed-at row works", r.json()["ok"], r.text[:120])
+    ok("and says what happened", "accepted" in r.json()["said"], r.json()["said"])
+
+    r = c.post("/v1/business-functions/finance/features/form26/act",
+               json={"action": "accept", "targets": ["0044"],
+                     "entity": "Contoso India", "period": "Q4 FY24"})
+    ok("a closed period refuses even a direct click", not r.json()["ok"],
+       r.json()["said"])
+
+
+def check_the_health_endpoint_advertises_the_section() -> None:
+    """The nav asks rather than assuming, as it does for the other three."""
+    c = _client()
+    body = c.get("/healthz").json()
+    ok("health reports the section exists", body.get("business_functions") is True,
+       str(body.get("business_functions")))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -480,6 +661,22 @@ def main() -> int:
     with fixtures():
         check_every_starter_the_manifest_offers_actually_works()
     check_nothing_is_mounted_while_the_flag_is_off()
+
+    # The route checks come last: they switch the module on, and reloading the
+    # app module is the sort of thing that should not be upstream of anything.
+    check_the_routes_are_mounted_only_when_switched_on()
+    check_every_route_is_behind_require_user()
+    with fixtures():
+        check_the_surface_answers()
+    with fixtures():
+        check_a_feature_says_what_scope_it_is_waiting_on()
+    with fixtures():
+        check_the_rail_round_trip_over_http()
+    with fixtures():
+        check_asking_vaguely_is_a_question_not_an_act()
+    with fixtures():
+        check_a_row_button_needs_no_plan()
+    check_the_health_endpoint_advertises_the_section()
 
     print()
     if FAILURES:

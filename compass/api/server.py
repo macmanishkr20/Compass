@@ -177,3 +177,14 @@ if get_settings().missions.enabled:
     app.include_router(missions_router)
     logger.info("Missions enabled")
 
+# Business functions — Finance, Talent, and the features inside them. Same
+# contract as the three above: opted into, imported inside the conditional,
+# and absent from the route table entirely when off. This one carries other
+# people's records — a leave balance, a credit line somebody will act on — so
+# a deployment that has not read the catalog should not be serving it.
+if get_settings().business_functions.enabled:
+    from compass.businessfunctions.routes import router as business_functions_router
+
+    app.include_router(business_functions_router)
+    logger.info("Business functions enabled")
+
