@@ -33,6 +33,7 @@ the arithmetic can be checked against something somebody wrote down.
 from __future__ import annotations
 
 import datetime as dt
+import time
 import uuid
 from typing import Any
 
@@ -322,7 +323,8 @@ def _whole_rupees(raw: str) -> int | None:
 
 def _review_of(item_id: str) -> dict[str, Any]:
     """The decision on this item, or the absence of one."""
-    return _REVIEWED.get(item_id, {"state": "awaiting", "by": "", "note": ""})
+    return _REVIEWED.get(item_id,
+                         {"state": "awaiting", "by": "", "note": "", "at": 0.0})
 
 
 def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
@@ -352,10 +354,15 @@ def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
     # try again — which is the point of recording it rather than firing it.
     undelivered = [n for n in notices.for_item(item["id"])
                    if n.state in ("held", "failed")]
-    # Not offered when there is nowhere to send it. Retrying would refuse
-    # every time, and the fix is in the directory rather than on this screen.
-    retry = (["resend_notice"]
-             if undelivered and _EMAIL.get(item["employee_id"]) else [])
+    # Only when a retry could actually work: something undelivered, an
+    # address to send it to, and a mail server to send it with. Without any
+    # of those, retrying would refuse every time and the fix is somewhere
+    # else — the directory, or the deployment's configuration. The row's own
+    # "not emailed — ..." text already says which, and a button that
+    # restates it and then fails adds nothing.
+    retry = (["resend_notice"] if undelivered
+             and _EMAIL.get(item["employee_id"])
+             and notices.configured() else [])
 
     if state == "queried":
         return retry
@@ -401,6 +408,10 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
             "status": _STATE_WORDS[state],
             "reviewed_by": review["by"],
             "reason": review["note"] or "—",
+            # When the decision was taken, so another screen can say how
+            # long something has been sitting. A decision on somebody's
+            # record without a time against it is half a record.
+            "asked_at": review.get("at", 0.0),
             # The declarer's side of the conversation, kept beside the
             # reviewer's rather than replacing it.
             "answered": ANSWERS.get(answer.get("response", ""), "—"),
@@ -458,6 +469,16 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
     for row in people.values():
         counted = [i for i in row["items"] if i["kind"] in COUNTS_TOWARDS_LIMIT]
         total = sum(i["value"] for i in counted)
+        # The date the running total first went past the limit — a fact, and
+        # not a number of days: several of these are dated later in the
+        # financial year than today, and "over for -54 days" is the kind of
+        # arithmetic that makes a reader stop believing the rest.
+        crossed, running = "", 0
+        for item in sorted(counted, key=lambda i: i["given"]):
+            running += item["value"]
+            if running > ANNUAL_LIMIT:
+                crossed = item["given"]
+                break
         unack = [i for i in row["items"] if not i["acknowledged"]]
         disclosed = [i for i in row["items"] if i["channel"] == "disclosed"]
         over = total > ANNUAL_LIMIT
@@ -472,6 +493,7 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             "excess": max(0, total - ANNUAL_LIMIT),
             "headroom": max(0, ANNUAL_LIMIT - total),
             "over_limit": over,
+            "crossed_on": crossed or "—",
             "unacknowledged": len(unack),
             "disclosed": len(disclosed),
             "referred": row["employee_id"] in _REFERRED,
@@ -492,6 +514,46 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
         })
     # Worst first: the people a reviewer has to deal with are at the top.
     return sorted(out, key=lambda r: (-r["total"], r["recipient"]))
+
+
+# ── what another screen may read ──────────────────────────────────────────
+#
+# A dashboard over this data must not do the arithmetic again. If it did,
+# the dashboard and the workbench could disagree about who is over the
+# limit, and for a compliance system two numbers for one fact is the worst
+# outcome available — worse than one wrong number, because nobody can tell
+# which to believe.
+#
+# So these are the same rows the workbench shows, exported under names that
+# say they are a read. Nothing here is a second calculation.
+
+def totals(scope: Scope) -> list[dict[str, Any]]:
+    """One row per person, exactly as the workbench shows them."""
+    return _totals(scope)
+
+
+def declarations(scope: Scope) -> list[dict[str, Any]]:
+    """One row per self-disclosed item, exactly as the workbench shows them."""
+    return _disclosed_rows(scope)
+
+
+def items(scope: Scope) -> list[dict[str, Any]]:
+    """Every recorded item, superseded ones included — this is the register."""
+    return list(_items_for(scope))
+
+
+def superseded() -> dict[str, str]:
+    """Records the firm concluded were wrong, and what replaced each."""
+    return dict(_SUPERSEDED)
+
+
+def is_reviewer(user: str) -> bool:
+    """Whether this person holds the compliance role."""
+    return _is_reviewer(user)
+
+
+def limit() -> int:
+    return ANNUAL_LIMIT
 
 
 class RewardLens(Feature):
@@ -717,6 +779,16 @@ class RewardLens(Feature):
         # Asking the same function the row was built from means a refusal
         # here and a missing button there can never disagree.
         if action not in row["can"]:
+            # The row knows why, so the refusal says what the row says. For
+            # a re-send that is the notice's own state — "no address on
+            # file", "no mail server configured" — which is the sentence
+            # somebody needs, rather than the state of the review.
+            if action == "resend_notice":
+                return Outcome(
+                    ok=False,
+                    said=f"Nothing can be sent again for {row['what']}: "
+                         f"{row['notified']}.",
+                )
             return Outcome(
                 ok=False,
                 said=f"{row['what']} is {_STATE_WORDS[row['state']]}"
@@ -738,36 +810,12 @@ class RewardLens(Feature):
             )
 
         if action == "resend_notice":
-            # Every refusal BEFORE anything is requeued. Putting the retry
-            # first left a refused retry having already flipped the notice
-            # to pending — a refusal that changed something, which is the
-            # one thing a refusal must not do.
-            waiting = [n for n in notices.for_item(row["id"])
-                       if n.state in ("held", "failed")]
-            if not waiting:
-                return Outcome(
-                    ok=False,
-                    said=f"There is nothing waiting to go to "
-                         f"{row['declared_by']}.",
-                )
-            # The address first: it is the more specific problem, and the
-            # more actionable. Telling somebody to configure SMTP when the
-            # real gap is that nobody knows where to write sends them to
-            # fix the wrong thing.
-            if not _EMAIL.get(row["employee_id"]):
-                return Outcome(
-                    ok=False,
-                    said=f"Compass has no email address for "
-                         f"{row['declared_by']}, so there is nowhere to send "
-                         f"it. SCS can add one.",
-                )
-            if not notices.configured():
-                return Outcome(
-                    ok=False,
-                    said="There is still no mail server configured, so it "
-                         "would be held again. Set COMPASS_SMTP_HOST, "
-                         "COMPASS_SMTP_USER and COMPASS_SMTP_PASSWORD first.",
-                )
+            # No refusals of its own: `_allowed` already established that
+            # something is waiting, that there is an address, and that there
+            # is a mail server. Repeating those here would be three branches
+            # nothing can reach — and unreachable code with reassuring
+            # comments on it is worse than none, because it reads like a
+            # guarantee somebody is relying on.
             notices.retry(row["id"])
             return Outcome(
                 ok=True,
@@ -786,7 +834,7 @@ class RewardLens(Feature):
         if state == "queried":
             _ANSWERS.pop(row["id"], None)
         _REVIEWED[row["id"]] = {"state": state, "by": scope.user,
-                                "note": note.strip()}
+                                "note": note.strip(), "at": time.time()}
 
         if state == "queried":
             # Recorded after the query, so a mail server being down cannot
@@ -1031,7 +1079,7 @@ class RewardLens(Feature):
             return Outcome(ok=False, said=f"{row['what']} has not been answered.")
 
         _REVIEWED[row["id"]] = {"state": "accepted", "by": scope.user,
-                                "note": note.strip()}
+                                "note": note.strip(), "at": time.time()}
 
         if answer["response"] == "stands":
             return Outcome(
@@ -1068,7 +1116,7 @@ class RewardLens(Feature):
         # concluded, so leaving it "awaiting" would put it straight back on
         # the queue the decision just cleared.
         _REVIEWED[replacement["id"]] = {
-            "state": "accepted", "by": scope.user,
+            "state": "accepted", "by": scope.user, "at": time.time(),
             "note": note.strip() or f"Corrected from {rupees(row['value'])} "
                                     f"on {row['id']}.",
         }
@@ -1183,7 +1231,8 @@ class RewardLens(Feature):
             return Outcome(ok=True, said=would)
 
         _ANSWERS[row["id"]] = {"response": response, "value": corrected,
-                               "note": note, "by": scope.user}
+                               "note": note, "by": scope.user,
+                               "at": time.time()}
         return Outcome(
             ok=True,
             said=f"Answered: {ANSWERS[response]}. It goes back to the "

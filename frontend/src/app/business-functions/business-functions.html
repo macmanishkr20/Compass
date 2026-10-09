@@ -301,11 +301,18 @@
         <div class="bf-rbody">
           @if (!turns().length) {
             <p class="bf-rhint">
+              <!-- Three cases, not two. "Cannot act" used to mean "is at
+                   the overview", until a feature arrived that reports and
+                   decides nothing — and the rail told somebody already
+                   inside one to open a feature. -->
               @if (r.can_act) {
                 I can explain what is on screen, and operate it — I will show you which
                 rows I would touch before anything changes.
-              } @else {
+              } @else if (atOverview()) {
                 I answer across this function. Open a feature and I will follow you in.
+              } @else {
+                I can explain what is on screen. Nothing here is mine to change —
+                this one reports, and the decisions are made where they are recorded.
               }
             </p>
             @for (s of r.starters; track s) {

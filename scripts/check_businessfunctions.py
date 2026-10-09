@@ -826,15 +826,19 @@ def check_every_feature_can_be_named() -> None:
     for fn in registry.all_functions():
         for feat in fn.features:
             h = features.get(feat.handler)
-            s = Scope(user="checker",
+            s = Scope(user="compliance",
                       entity="Acme Manufacturing" if "entity" in feat.scope else None,
                       period="FY 2026-27" if "period" in feat.scope else None)
             tabs = h.tabs(s)
             rows = h.rows(s, tabs[0].key) if tabs else []
-            named = [assistant._label_for(feat.id, r) for r in rows]
+            # Every tab, not only the first: one feature here has three
+            # shapes of row and the rail can land on any of them.
+            named = [assistant._label_for(feat.id, r)
+                     for tab in h.tabs(s) for r in h.rows(s, tab.key)]
             ok(f"{fn.id}/{feat.id}: every row has an id and words to say it by",
-               rows and all(i and l for i, l in named),
-               f"{len(rows)} rows, {sum(1 for i, l in named if not (i and l))} unnamed")
+               named and all(i and l for i, l in named),
+               f"{len(named)} rows, "
+               f"{sum(1 for i, l in named if not (i and l))} unnamed")
 
 
 def check_a_selector_is_never_offered_the_wrong_values() -> None:
@@ -890,7 +894,10 @@ def check_every_row_can_be_pointed_at() -> None:
     for fn in registry.all_functions():
         for feat in fn.features:
             h = features.get(feat.handler)
-            s = Scope(user="checker",
+            # As somebody who can see everything: a feature that shows a
+            # restricted view nothing at all would otherwise pass this by
+            # having no rows to name.
+            s = Scope(user="compliance",
                       entity="Contoso India" if "entity" in feat.scope else None,
                       period=(feat.choices.get("period") or [None])[0]
                       if "period" in feat.scope else None)
@@ -1601,8 +1608,9 @@ def check_nobody_is_told_who_has_no_address() -> None:
     ok("and the row names who was not reached",
        "no email address on file for Priya Nair" in row["notified"],
        row["notified"])
-    ok("asking for one anyway is refused", not h.act(c, "resend_notice",
-                                                     [item["id"]]).ok)
+    ok("asking for one anyway is refused, and repeats that reason",
+       not (o := h.act(c, "resend_notice", [item["id"]])).ok
+       and "no email address on file" in o.said, o.said)
 
 
 def check_a_held_notice_can_be_tried_again() -> None:
@@ -1614,14 +1622,17 @@ def check_a_held_notice_can_be_tried_again() -> None:
 
     h.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
     row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
-    ok("a held notice offers a retry and nothing else",
-       row["can"] == ["resend_notice"], str(row["can"]))
-    ok("retrying with no mail server still refuses, and says what to set",
+    ok("with no mail server, no retry is offered — the fix is elsewhere",
+       "resend_notice" not in row["can"], str(row["can"]))
+    ok("and asking for one anyway says exactly what is missing",
        not (o := h.act(c, "resend_notice", [item["id"]])).ok
        and "COMPASS_SMTP_HOST" in o.said, o.said)
 
     with _Mailbox() as box:
-        ok("once there is one, it goes", h.act(c, "resend_notice", [item["id"]]).ok)
+        row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+        ok("once there is a mail server, the retry appears",
+           row["can"] == ["resend_notice"], str(row["can"]))
+        ok("and it goes", h.act(c, "resend_notice", [item["id"]]).ok)
         notices.flush()
     ok("and it is the same question, not a new one",
        len(box.sent) == 1 and "Was this the whole basket?" in box.sent[0]["body"])
@@ -1643,14 +1654,178 @@ def check_a_mail_server_that_refuses_does_not_undo_the_decision() -> None:
                                        "Was this the whole basket?").ok)
         ok("delivery fails", notices.flush() == (0, 1))
 
+        # Read while the mail server is still there, which is the state a
+        # reviewer would be looking at: it exists and it refused the message.
+        row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+        ok("the row says the email failed",
+           "failed" in row["notified"], row["notified"])
+        ok("and a retry is offered, because one could work",
+           "resend_notice" in row["can"], str(row["can"]))
+        ok("and it queues it again", h.act(c, "resend_notice", [item["id"]]).ok)
+
     row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
-    ok("the item is still queried", row["state"] == "queried")
-    ok("the row says the email failed", "failed" in row["notified"], row["notified"])
-    ok("and it can be tried again", "resend_notice" in row["can"])
+    ok("the item is still queried throughout", row["state"] == "queried")
     ok("the declarer can still answer it",
        "answer_query" in next(
            r["can"] for r in h.rows(Scope(user="enduser", period="FY 2026-27"),
                                     "disclosed") if r["id"] == item["id"]))
+
+
+def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
+    """Two screens, one set of facts.
+
+    If the dashboard summed the items itself, it could say four people are
+    over while the workbench shows three, and two numbers for one fact is
+    worse than one wrong number: nobody can tell which to believe, so both
+    stop being usable. It reads the workbench's own rows, and this is that
+    claim, checked against a screen that has been changed under it.
+    """
+    _, _f, board = registry.feature_of("scs", "oversight")
+    _, _f2, bench = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    def agree(why: str) -> None:
+        over = [r for r in bench.rows(c, "all") if r["over_limit"]]
+        figures = {f.key: f.value for f in board.figures(c)}
+        ok(f"{why}: the same people are over",
+           figures["people_over"] == str(len(over)),
+           f"{figures['people_over']} vs {len(over)}")
+        ok(f"{why}: the exposure is the sum of their excesses",
+           figures["exposure"] == rl_mod.rupees(sum(r["excess"] for r in over)),
+           figures["exposure"])
+        on_board = {r["employee_id"] for r in board.rows(c, "attention")}
+        ok(f"{why}: and everyone it lists is over on the workbench",
+           on_board <= {r["employee_id"] for r in over}, str(on_board))
+
+    agree("to begin with")
+
+    # Move the workbench under it, three different ways.
+    bench.submit(Scope(user="admin", period="FY 2026-27"), "disclose", {
+        "what": "Vendor hamper", "kind": "gift", "value": "4000",
+        "given": "2026-12-02", "source": "Acme"})
+    agree("after a declaration takes somebody over")
+
+    bench.act(c, "refer_to_finance", ["E-1007"])
+    agree("after a referral")
+
+    item = next(r for r in bench.rows(c, "disclosed")
+                if r["employee_id"] == "E-1066")
+    bench.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
+    bench.submit(Scope(user="enduser", period="FY 2026-27"), "answer_query",
+                 {"response": "withdrawn", "note": "Declared it twice."},
+                 item["id"])
+    bench.act(c, "accept_answer", [item["id"]])
+    agree("after a record is superseded")
+
+
+def check_the_dashboard_answers_a_different_question() -> None:
+    """Otherwise it is the same screen twice.
+
+    The workbench asks who is over the limit. This asks whether anybody is
+    dealing with it, and whether the thing we built is being used — which
+    is the half the workbench cannot show.
+    """
+    _, feat, board = registry.feature_of("scs", "oversight")
+    _, _f, bench = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    mine = {f.key for f in board.figures(c)}
+    theirs = {f.key for f in bench.figures(c)}
+    ok("it shares no figure with the workbench", not (mine & theirs),
+       str(sorted(mine & theirs)))
+    ok("it puts a rupee figure on the exposure, which the workbench never does",
+       "exposure" in mine)
+
+    over = [r for r in bench.rows(c, "all") if r["over_limit"]]
+    ok("undecided starts as everybody over", 
+       {f.key: f.value for f in board.figures(c)}["undecided"] == str(len(over)))
+    bench.act(c, "refer_to_finance", ["E-1007"])
+    ok("and referring somebody takes them off it",
+       {f.key: f.value for f in board.figures(c)}["undecided"] == str(len(over) - 1))
+    ok("though they are still over on the workbench",
+       len([r for r in bench.rows(c, "all") if r["over_limit"]]) == len(over))
+
+
+def check_the_dashboard_sees_the_process_stopping() -> None:
+    """The reason it exists apart: a stalled process is not a breach."""
+    notices.clear()
+    _, _f, board = registry.feature_of("scs", "oversight")
+    _, _f2, bench = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    figures = lambda: {f.key: f.value for f in board.figures(c)}
+    ok("nothing is unanswered to begin with", figures()["unanswered"] == "0")
+    ok("and nobody has been missed", figures()["unreached"] == "0")
+
+    item = next(r for r in bench.rows(c, "disclosed")
+                if r["employee_id"] == "E-1019")   # no address on file
+    bench.act(c, "query_disclosure", [item["id"]], "Whose dinner was this?")
+
+    ok("asking somebody shows up as unanswered", figures()["unanswered"] == "1")
+    ok("and as never reached, because the email did not go",
+       figures()["unreached"] == "1")
+    ok("which is said out loud",
+       "somebody_never_heard" in board.rules(c), str(board.rules(c)))
+
+    stuck = board.rows(c, "stuck")
+    never = [r for r in stuck if "never told" in r["problem"]]
+    ok("the process list names them and the reason", 
+       len(never) == 1 and never[0]["who"] == "Priya Nair"
+       and "no email address" in never[0]["problem"], str(never))
+    ok("and does not also count it as unanswered — nobody was asked",
+       not [r for r in stuck if r["who"] == "Priya Nair"
+            and "no answer" in r["problem"]])
+
+    # Answering it clears both.
+    with _Mailbox():
+        bench.act(c, "resend_notice", [item["id"]]) if rl_mod._EMAIL.get("E-1019") else None
+    bench.submit(Scope(user="mk", period="FY 2026-27"), "answer_query",
+                 {"response": "stands", "note": "It was mine."}, item["id"]) \
+        if rl_mod._employee("mk") == item["employee_id"] else None
+
+
+def check_leadership_can_look_and_not_touch() -> None:
+    _, feat, board = registry.feature_of("scs", "oversight")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    ok("the dashboard declares no actions", not feat.actions, str(feat.actions))
+    ok("so the rail says it cannot operate here",
+       not assistant.view(registry.get("scs"), feat, c).can_act)
+    ok("and acting is refused with the reason, not a shrug",
+       not (o := board.act(c, "refer_to_finance", ["E-1007"])).ok
+       and "decisions belong" in o.said, o.said)
+    ok("no sentence turns into a plan here",
+       not isinstance(
+           assistant.interpret("scs", feat, board, c,
+                               "refer John to Finance", "compliance"),
+           assistant.Proposal))
+
+    unresolved = [st for st in feat.starters
+                  if not isinstance(
+                      assistant.interpret("scs", feat, board, c, st, "compliance"),
+                      (assistant.Answer, assistant.Clarify))]
+    ok("every starter it offers resolves to an answer", not unresolved, str(unresolved))
+
+
+def check_a_firm_wide_view_is_for_the_role() -> None:
+    """It names people and their totals, so it is not for everybody."""
+    _, _f, board = registry.feature_of("scs", "oversight")
+    plain = Scope(user="enduser", period="FY 2026-27")
+    allowed = Scope(user="compliance", period="FY 2026-27")
+
+    ok("somebody without the role sees no figures", not board.figures(plain))
+    ok("no tabs", not board.tabs(plain))
+    ok("and no rows, on any tab",
+       not any(board.rows(plain, tab)
+               for tab in ("attention", "stuck", "sources")))
+    ok("they are told why rather than shown an empty screen",
+       board.rules(plain) == ["oversight_is_a_role"], str(board.rules(plain)))
+    ok("and nobody else's total leaks through the rail",
+       not assistant.interpret("scs", registry.feature_of("scs", "oversight")[1],
+                               board, plain, "what are we exposed to?",
+                               "enduser").facts.get("rows"))
+
+    ok("the compliance role sees it", board.figures(allowed) and board.tabs(allowed))
 
 
 def main() -> int:
@@ -1700,6 +1875,16 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    with fixtures():
+        check_the_dashboard_cannot_disagree_with_the_workbench()
+    with fixtures():
+        check_the_dashboard_answers_a_different_question()
+    with fixtures():
+        check_the_dashboard_sees_the_process_stopping()
+    with fixtures():
+        check_leadership_can_look_and_not_touch()
+    with fixtures():
+        check_a_firm_wide_view_is_for_the_role()
     check_a_form_and_its_code_agree()
     with fixtures():
         check_a_declaration_is_about_yourself()

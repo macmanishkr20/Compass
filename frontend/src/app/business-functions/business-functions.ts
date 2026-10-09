@@ -625,6 +625,35 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
+    // The dashboard. Three tabs, three shapes: people nobody has decided,
+    // the places the process stopped, and where the value comes from.
+    if (this.featureId() === 'oversight') {
+      const tab = this.feature()?.tab;
+      if (tab === 'stuck') {
+        return [
+          { key: 'who', label: 'Who' },
+          { key: 'what', label: 'What' },
+          { key: 'problem', label: 'What stopped' },
+          { key: 'waiting', label: 'Waiting' },
+        ];
+      }
+      if (tab === 'sources') {
+        return [
+          { key: 'source', label: 'Where from' },
+          { key: 'people', label: 'People', numeric: true },
+          { key: 'items', label: 'Items', numeric: true },
+          { key: 'value', label: 'Value', numeric: true },
+          { key: 'to_people_over', label: 'To people over', numeric: true },
+        ];
+      }
+      return [
+        { key: 'recipient', label: 'Person' },
+        { key: 'total', label: 'Total', numeric: true },
+        { key: 'excess', label: 'Over by', numeric: true },
+        { key: 'crossed_on', label: 'Over since' },
+        { key: 'status', label: 'Status' },
+      ];
+    }
     return [];
   }
 
@@ -659,6 +688,13 @@ export class BusinessFunctions {
     // A declared item's own amount. Never '—' at zero: the server refuses a
     // declaration of nothing, so a zero here would be a bug worth seeing.
     if (key === 'value') return BusinessFunctions.rupees(Number(value));
+    if (key === 'to_people_over') {
+      return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
+    }
+    // Days, and "today" rather than "0d" — a thing that arrived this
+    // morning has not been waiting, and saying 0 invites reading it as
+    // nothing at all.
+    if (key === 'waiting') return Number(value) ? `${value}d` : 'today';
     if (key === 'waiting_days') return `${value}d`;
     return String(value);
   }

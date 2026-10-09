@@ -9,7 +9,8 @@ subtitle: Supply Chain Services
 blurb: >-
   Procurement and distribution. RewardLens is the one place a gift, award or
   voucher given to an employee is recorded, so the firm can answer who
-  received what and how much it came to.
+  received what and how much it came to; Gift oversight is the same facts
+  read from above, for the people accountable for them.
 owner: scs-function-owner
 
 starters:
@@ -21,6 +22,65 @@ tools:
   - explain_row
 
 features:
+  - id: oversight
+    name: Gift oversight
+    short: Exposure · process health
+    blurb: >-
+      What the firm is exposed to, how much of it nobody has decided, and
+      where the process has stopped. Built from the same rows RewardLens
+      shows, so the two cannot disagree.
+    handler: gift_oversight
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      Exposure is a figure for one year. Picking the year is what makes it
+      a number rather than a pile.
+
+    # No actions, deliberately. This screen reports; the decisions belong
+    # to the people whose names go against them, on RewardLens. A feature
+    # with no actions also tells the assistant it cannot operate here, so
+    # the rail answers questions and never proposes anything.
+
+    rules:
+      - id: oversight_is_a_role
+        headline: This one is for compliance.
+        detail: >-
+          It names people and what they received across the whole firm, so
+          it is shown to the compliance role. That the screen exists is not
+          the secret; what is on it is.
+        tone: limit
+      - id: somebody_never_heard
+        headline: A question never reached the person it was about.
+        detail: >-
+          The record says it was asked and the email did not go. Nobody is
+          waiting on them, because they do not know they were asked — which
+          is the quietest way for this to fail.
+        tone: limit
+      - id: the_process_has_stalled
+        headline: Something has been waiting too long.
+        detail: >-
+          Not a breach — a process that stopped. Whoever was supposed to
+          answer or acknowledge has not, and no amount of chasing the
+          totals will fix that.
+        tone: limit
+      - id: nothing_outstanding
+        headline: Nothing is waiting on anybody.
+        detail: >-
+          Every breach has been decided and every question answered. Worth
+          saying out loud: a dashboard that only speaks when things are
+          wrong is one people learn to ignore.
+        tone: notice
+
+    starters:
+      - What are we exposed to?
+      - What has nobody decided?
+      - Where has the process stopped?
+
+    tools:
+      - read_rows
+      - explain_row
+
   - id: rewardlens
     name: RewardLens
     short: Gifts · awards · thresholds

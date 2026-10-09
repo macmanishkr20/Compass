@@ -187,7 +187,12 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
         return row["line"], (f"line {row['line']} · {row['deductor']} · "
                              f"−₹{diff / 100000:.1f}L")
     if feature_id == "lms":
-        return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
+        # The queue lists requests; the balances tab lists leave types. Told
+        # apart by what the row carries, because a feature with two kinds of
+        # row is the ordinary case here rather than the exception.
+        if "dates" in row:
+            return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
+        return row["kind"], f"{row['kind']} · {row['left']} of {row['of']} days"
     if feature_id == "rewardlens":
         # Two shapes, because one of its tabs lists declared items rather
         # than people. Told apart by what the row carries and not by which
@@ -198,6 +203,16 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
                                         f"{rupees(row['limit'])}")
         return row["id"], (f"{row['declared_by']} · {row['what']} · "
                            f"{rupees(row['value'])}")
+    if feature_id == "oversight":
+        # Three shapes on one feature, told apart by what the row carries
+        # rather than by which tab asked, so this cannot drift out of step
+        # with the tabs.
+        if "source" in row:
+            return row["source"], f"{row['source']} · {rupees(row['value'])}"
+        if "problem" in row:
+            return row["id"], f"{row['who']} · {row['problem']}"
+        return row["employee_id"], (f"{row['recipient']} · "
+                                    f"{rupees(row['excess'])} over")
     # A feature whose rows the rail cannot name is a feature the rail cannot
     # operate: `_pick` would match nothing and every sentence would come back
     # as a clarification with blank options. Say so rather than degrade —
