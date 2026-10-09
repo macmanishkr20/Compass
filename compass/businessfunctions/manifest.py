@@ -247,6 +247,11 @@ class Form(BaseModel):
     #: the same reason an action's is: a generated description of something
     #: permanent is the thing that should not be generated.
     confirm: str
+    #: True when the form is about a row that already exists — answering a
+    #: question somebody asked about one, rather than recording something
+    #: new. It is opened from the row and submitted with its id, and the
+    #: handler is told which row it is about.
+    on_row: bool = False
     fields: list[FormField] = Field(default_factory=list)
 
     def problems(self) -> list[str]:

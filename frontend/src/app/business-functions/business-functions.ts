@@ -5,6 +5,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { NoticeService } from '../notice.service';
@@ -23,13 +24,6 @@ import {
   Plan,
   PlanTarget,
 } from './bf-api';
-
-/** The actions that decide a declared item rather than a person's year.
- *  Named here so the table can tell the two sets apart; which of them a
- *  given row may take is still the server's answer, not this list's. */
-const REVIEW_ACTIONS = new Set([
-  'accept_disclosure', 'query_disclosure', 'record_breach',
-]);
 
 /** One line in the rail: what was said, by whom, and what it was about. */
 interface RailTurn {
@@ -70,7 +64,7 @@ interface RailTurn {
 @Component({
   selector: 'app-business-functions',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './business-functions.html',
   styleUrl: './business-functions.css',
@@ -109,6 +103,8 @@ export class BusinessFunctions {
   // -- a form, when one is open. Three signals rather than one object so a
   //    keystroke repaints the field and not the whole panel.
   readonly openForm = signal<FormSpec | null>(null);
+  /** The row an open form is about, for a form opened from one. */
+  readonly formAbout = signal('');
   readonly entered = signal<Record<string, string>>({});
   /** What the server said this entry would do. Cleared by every edit, because
    *  a preview of what you typed a moment ago is worse than none. */
@@ -322,14 +318,13 @@ export class BusinessFunctions {
       // A declared item is reviewed; a person's year is referred, chased or
       // excepted. Two kinds of row, so two sets of buttons, and neither is
       // ever offered against the other.
-      if (this.feature()?.tab === 'disclosed') {
-        // The server decides, because only it knows who holds the reviewer
-        // role and whose declaration this is. Asking the row rather than
-        // guessing from the state is what stops somebody being offered a
-        // button and then told they could not have used it.
-        return row['can_review'] === true
-          ? all.filter((a) => REVIEW_ACTIONS.has(a.id))
-          : [];
+      // A row that says what may be done to it is believed. The server
+      // knows who holds the reviewer role, whose declaration this is and
+      // what state it is in; none of that is knowable here, and guessing
+      // at it is what offers somebody a button and then refuses it.
+      if (Array.isArray(row['can'])) {
+        const can = row['can'] as string[];
+        return all.filter((a) => can.includes(a.id));
       }
       // Only what this row can actually take. A referral that would be
       // refused is a button that should not have been drawn.
@@ -351,8 +346,10 @@ export class BusinessFunctions {
   // a declaration is the person's own statement about what they were given,
   // and one phrased for them is not their statement.
 
-  startForm(form: FormSpec): void {
+  startForm(form: FormSpec, row: Record<string, unknown> | null = null): void {
     this.openForm.set(form);
+    this.formAbout.set(row ? this.rowId(row) : '');
+    this.dropReason();
     this.previewed.set(null);
     // Date fields start on today, which is right far more often than blank
     // and is the only default worth guessing.
@@ -362,8 +359,28 @@ export class BusinessFunctions {
     this.entered.set(start);
   }
 
+  /** The form opened from this row, if it is the one that is open. */
+  formOn(row: Record<string, unknown>): FormSpec | null {
+    const form = this.openForm();
+    return form?.on_row && this.formAbout() === this.rowId(row) ? form : null;
+  }
+
+  /** The row forms this row may open — one per action it is allowed. */
+  formsFor(row: Record<string, unknown>): FormSpec[] {
+    const can = (row['can'] as string[] | undefined) ?? [];
+    return (this.feature()?.forms ?? []).filter(
+      (f) => f.on_row && can.includes(f.id),
+    );
+  }
+
+  /** The forms that stand alone, shown in the header. */
+  headerForms(): FormSpec[] {
+    return (this.feature()?.forms ?? []).filter((f) => !f.on_row);
+  }
+
   closeForm(): void {
     this.openForm.set(null);
+    this.formAbout.set('');
     this.entered.set({});
     this.previewed.set(null);
   }
@@ -391,7 +408,7 @@ export class BusinessFunctions {
     try {
       this.previewed.set(
         await this.api.previewForm(fn.id, this.featureId(), form.id, {
-          values: this.entered(), ...this.scope(),
+          values: this.entered(), about: this.formAbout(), ...this.scope(),
         }),
       );
     } catch (err) {
@@ -408,7 +425,7 @@ export class BusinessFunctions {
     this.saving.set(true);
     try {
       const out = await this.api.submitForm(fn.id, this.featureId(), form.id, {
-        values: this.entered(), ...this.scope(),
+        values: this.entered(), about: this.formAbout(), ...this.scope(),
       });
       if (out.ok) {
         this.notice.ok(out.said);
@@ -650,7 +667,7 @@ export class BusinessFunctions {
     const shown = new Set(this.columns().map((c) => c.key));
     const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days',
                       'employee_id', 'over_limit', 'referred', 'exception',
-                      'disclosed', 'items', 'state', 'can_review']);
+                      'disclosed', 'items', 'state', 'can']);
     return Object.entries(row)
       .filter(([k]) => !skip.has(k))
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: this.cell(row, k) }));

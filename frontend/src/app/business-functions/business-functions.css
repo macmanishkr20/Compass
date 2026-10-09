@@ -463,6 +463,12 @@
 .bf-declare:hover { border-color: var(--accent); }
 .bf-declare.on { border-color: var(--accent); background: var(--accent-tint); }
 
+/* In the stage it sits under the header; inside a row's detail it sits in
+   the cell, so the margin comes off and the surface changes — the same
+   panel, told apart by where it is. */
+.bf-detail .bf-form { margin: 11px 0 0; background: var(--surface); }
+.bf-btn.on { border-color: var(--accent); background: var(--accent-tint); }
+
 .bf-form {
   margin: 13px 22px 0;
   padding: 14px 16px 16px;

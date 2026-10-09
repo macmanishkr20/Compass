@@ -181,15 +181,35 @@ _TEXT_MAX = 120
 #: made, whether they need to ask the person something, or whether what they
 #: were given was not permitted — and in every one of those the item still
 #: counts towards the limit.
-REVIEW_STATES = ("awaiting", "accepted", "queried", "breach")
+REVIEW_STATES = ("awaiting", "accepted", "queried", "answered", "breach",
+                 "superseded")
 
 #: What each state says on the row.
 _STATE_WORDS = {
     "awaiting": "awaiting review",
     "accepted": "accepted",
     "queried": "queried with the declarer",
+    "answered": "answered — needs deciding",
     "breach": "not permitted",
+    "superseded": "superseded",
 }
+
+#: WHY A BREACH STILL COUNTS AND A CORRECTION DOES NOT.
+#:
+#: These look similar and are opposites, and the difference is the lever
+#: somebody would reach for first.
+#:
+#:   a BREACH says you should not have been given it. You were given it, so
+#:   it counts, and no reviewer can decide otherwise.
+#:
+#:   a CORRECTION says the RECORD was wrong — the figure was the whole
+#:   dinner, or the thing was declared twice. What was counted was never
+#:   right, so the superseded record stops counting and the corrected one
+#:   takes its place.
+#:
+#: So the only way an item stops counting is for somebody to conclude the
+#: record was mistaken, and the person who received it cannot conclude that
+#: alone: they propose it and a reviewer decides. Both records stay.
 
 #: Who may review somebody else's disclosure. A stand-in for the role the
 #: directory will carry, in the same spirit as `_USER_IS`. It is a short list
@@ -202,6 +222,23 @@ _REVIEWERS = frozenset({"admin", "compliance"})
 #: about the record — the item is what was declared, and this is what somebody
 #: did about it afterwards.
 _REVIEWED: dict[str, dict[str, Any]] = {}
+
+#: What a declarer said when asked: item id -> {response, value, note}.
+#: A proposal, not a change — nothing here moves a figure until a reviewer
+#: accepts it.
+_ANSWERS: dict[str, dict[str, Any]] = {}
+
+#: Records the firm has concluded were wrong: item id -> the id of the record
+#: that replaces it, or "" when there is nothing to replace it with. A
+#: superseded item stays on every list and in no total.
+_SUPERSEDED: dict[str, str] = {}
+
+#: How a declarer may answer being asked about something.
+ANSWERS = {
+    "stands": "it is right as declared",
+    "corrected": "the value was wrong",
+    "withdrawn": "I should not have declared it",
+}
 
 
 #: Who has been sent to Finance, and who has an accepted exception against
@@ -268,18 +305,35 @@ def _review_of(item_id: str) -> dict[str, Any]:
     return _REVIEWED.get(item_id, {"state": "awaiting", "by": "", "note": ""})
 
 
-def _may_review(scope: Scope, item: dict[str, Any], state: str) -> bool:
-    """Whether this person can decide THIS declaration.
+def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
+    """What THIS person may do to THIS declaration, right now.
 
-    On the row, because the surface cannot work it out: it does not know who
-    holds the role and it does not know whose declaration this is. Drawing a
-    button that the server will refuse is worse than drawing none — the
-    person has already decided to do it by the time they are told they
-    cannot.
+    A list rather than a flag, because what is open depends on the state as
+    well as the person: a queried item is the declarer's to answer and not
+    the reviewer's to accept, and an answered one is the other way round.
+
+    On the row because the surface cannot work any of it out — it does not
+    know who holds the reviewer role, whose declaration this is, or what the
+    rules are. Drawing a button the server will refuse is worse than drawing
+    none: by the time the person is told, they have already decided to do it.
     """
-    return (state == "awaiting"
-            and _is_reviewer(scope.user)
-            and _employee(scope.user) != item["employee_id"])
+    if scope.period in _CLOSED or item["id"] in _SUPERSEDED:
+        return []
+
+    mine = _employee(scope.user) == item["employee_id"]
+    # The declarer answers, and only when they have been asked.
+    if mine:
+        return ["answer_query"] if state == "queried" else []
+
+    if not _is_reviewer(scope.user):
+        return []
+    if state == "awaiting":
+        return ["accept_disclosure", "query_disclosure", "record_breach"]
+    if state == "answered":
+        # Accepting an answer is its own decision: it may apply a correction,
+        # which "accept as declared" would be the wrong words for.
+        return ["accept_answer", "query_disclosure", "record_breach"]
+    return []
 
 
 def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
@@ -294,6 +348,10 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
         if item["channel"] != "disclosed":
             continue
         review = _review_of(item["id"])
+        answer = _ANSWERS.get(item["id"], {})
+        state = ("superseded" if item["id"] in _SUPERSEDED
+                 else "answered" if answer and review["state"] == "queried"
+                 else review["state"])
         out.append({
             "id": item["id"],
             "employee_id": item["employee_id"],
@@ -307,18 +365,34 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
             # will assume is that a queried item stops counting.
             "counts": ("yes" if item["kind"] in COUNTS_TOWARDS_LIMIT
                        else "later phase"),
-            "state": review["state"],
-            "status": _STATE_WORDS[review["state"]],
+            "state": state,
+            "status": _STATE_WORDS[state],
             "reviewed_by": review["by"],
             "reason": review["note"] or "—",
-            "can_review": _may_review(scope, item, review["state"]),
+            # The declarer's side of the conversation, kept beside the
+            # reviewer's rather than replacing it.
+            "answered": ANSWERS.get(answer.get("response", ""), "—"),
+            "answer_note": answer.get("note", "") or "—",
+            "replaced_by": _SUPERSEDED.get(item["id"]) or
+                           ("withdrawn" if item["id"] in _SUPERSEDED else "—"),
+            "corrects": item.get("corrects", "") or "—",
+            "can": _allowed(scope, item, state),
         })
-    # Unreviewed first: the queue is the point of the tab.
-    return sorted(out, key=lambda r: (r["state"] != "awaiting", r["given"]))
+    # What somebody has to deal with, first: unanswered queries and answers
+    # waiting on a decision come before anything already settled.
+    order = {"answered": 0, "awaiting": 1, "queried": 2}
+    return sorted(out, key=lambda r: (order.get(r["state"], 3), r["given"]))
 
 
 def _awaiting(scope: Scope) -> list[dict[str, Any]]:
-    return [r for r in _disclosed_rows(scope) if r["state"] == "awaiting"]
+    """What is on a reviewer's desk: never looked at, or answered and waiting."""
+    return [r for r in _disclosed_rows(scope)
+            if r["state"] in ("awaiting", "answered")]
+
+
+def _unanswered(scope: Scope) -> list[dict[str, Any]]:
+    """What is on a DECLARER's desk: asked about, and not yet answered."""
+    return [r for r in _disclosed_rows(scope) if r["state"] == "queried"]
 
 
 def _totals(scope: Scope) -> list[dict[str, Any]]:
@@ -330,6 +404,12 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
     """
     people: dict[str, dict[str, Any]] = {}
     for item in _items_for(scope):
+        # A superseded record is one the firm has concluded was wrong. It
+        # stays on the declarations tab, where the trail is; it is not in
+        # anybody's total, because the thing it recorded did not happen the
+        # way it said.
+        if item["id"] in _SUPERSEDED:
+            continue
         row = people.setdefault(item["employee_id"], {
             "employee_id": item["employee_id"],
             "recipient": item["recipient"],
@@ -445,7 +525,8 @@ class RewardLens(Feature):
     #: The actions that decide a declared ITEM rather than a person's year.
     #: Separate because their targets are item ids, and mixing the two would
     #: mean one list of targets that is sometimes people and sometimes not.
-    REVIEW_ACTIONS = ("accept_disclosure", "query_disclosure", "record_breach")
+    REVIEW_ACTIONS = ("accept_disclosure", "query_disclosure", "record_breach",
+                      "accept_answer")
 
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
@@ -588,11 +669,15 @@ class RewardLens(Feature):
                      "thing; deciding it is somebody else's.",
             )
 
-        if row["state"] != "awaiting":
+        # What is open depends on the state, and the row already says so.
+        # Asking the same function the row was built from means a refusal
+        # here and a missing button there can never disagree.
+        if action not in row["can"]:
             return Outcome(
                 ok=False,
-                said=f"{row['what']} was already {_STATE_WORDS[row['state']]}"
-                     f"{' by ' + row['reviewed_by'] if row['reviewed_by'] else ''}.",
+                said=f"{row['what']} is {_STATE_WORDS[row['state']]}"
+                     f"{' by ' + row['reviewed_by'] if row['reviewed_by'] else ''}"
+                     f" — that is not something you can do to it now.",
             )
 
         wants_reason = action in ("query_disclosure", "record_breach")
@@ -608,9 +693,16 @@ class RewardLens(Feature):
                 said=f"Keep the reason under {_TEXT_MAX} characters.",
             )
 
+        if action == "accept_answer":
+            return self._settle(scope, row, note)
+
         state = {"accept_disclosure": "accepted",
                  "query_disclosure": "queried",
                  "record_breach": "breach"}[action]
+        # Asking again clears the previous answer: the question has changed,
+        # so the reply to the old one is no longer a reply to anything.
+        if state == "queried":
+            _ANSWERS.pop(row["id"], None)
         _REVIEWED[row["id"]] = {"state": state, "by": scope.user,
                                 "note": note.strip()}
 
@@ -642,9 +734,15 @@ class RewardLens(Feature):
 
     FORM = "disclose"
     FIELDS = frozenset({"what", "kind", "value", "given", "source"})
+    ANSWER_FORM = "answer_query"
+    ANSWER_FIELDS = frozenset({"response", "value", "note"})
 
     def accepts(self, form_id: str) -> set[str]:
-        return set(self.FIELDS) if form_id == self.FORM else set()
+        if form_id == self.FORM:
+            return set(self.FIELDS)
+        if form_id == self.ANSWER_FORM:
+            return set(self.ANSWER_FIELDS)
+        return set()
 
     def _read(self, scope: Scope, form_id: str,
               values: dict[str, str]) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -786,16 +884,194 @@ class RewardLens(Feature):
         return (f"That puts you at {rupees(after)} of {rupees(ANNUAL_LIMIT)}, "
                 f"{rupees(ANNUAL_LIMIT - after)} still inside the limit.")
 
-    def preview(self, scope: Scope, form_id: str,
-                values: dict[str, str]) -> Outcome:
+    def _settle(self, scope: Scope, row: dict[str, Any], note: str) -> Outcome:
+        """Accept what the declarer said, and apply it if it changes anything.
+
+        The one place a recorded figure stops counting, and it takes two
+        people to get here: the person who received it proposed that the
+        record was wrong, and somebody else agreed. Neither the original nor
+        the correction is ever deleted — superseding is a thing that happens
+        TO a record, which is why both are still on the tab afterwards.
+        """
+        answer = _ANSWERS.get(row["id"])
+        if not answer:
+            return Outcome(ok=False, said=f"{row['what']} has not been answered.")
+
+        _REVIEWED[row["id"]] = {"state": "accepted", "by": scope.user,
+                                "note": note.strip()}
+
+        if answer["response"] == "stands":
+            return Outcome(
+                ok=True,
+                said=f"{row['what']} accepted at {rupees(row['value'])}, as "
+                     f"declared. {row['declared_by']}'s total is unchanged.",
+                touched=[row["id"]],
+            )
+
+        original = next(i for i in _items_for(scope) if i["id"] == row["id"])
+        before = next(r["total"] for r in _totals(scope)
+                      if r["employee_id"] == row["employee_id"])
+
+        if answer["response"] == "withdrawn":
+            _SUPERSEDED[row["id"]] = ""
+            after = next((r["total"] for r in _totals(scope)
+                          if r["employee_id"] == row["employee_id"]), 0)
+            return Outcome(
+                ok=True,
+                said=f"{row['what']} withdrawn and superseded. It stays on "
+                     f"the record and out of the total: "
+                     f"{row['declared_by']} goes from {rupees(before)} to "
+                     f"{rupees(after)}.",
+                touched=[row["id"]],
+            )
+
+        replacement = dict(original)
+        replacement["id"] = f"C-{uuid.uuid4().hex[:6].upper()}"
+        replacement["value"] = answer["value"]
+        replacement["corrects"] = row["id"]
+        _ITEMS.append(replacement)
+        _SUPERSEDED[row["id"]] = replacement["id"]
+        # The correction arrives already reviewed: it is what this decision
+        # concluded, so leaving it "awaiting" would put it straight back on
+        # the queue the decision just cleared.
+        _REVIEWED[replacement["id"]] = {
+            "state": "accepted", "by": scope.user,
+            "note": note.strip() or f"Corrected from {rupees(row['value'])} "
+                                    f"on {row['id']}.",
+        }
+        after = next(r["total"] for r in _totals(scope)
+                     if r["employee_id"] == row["employee_id"])
+        return Outcome(
+            ok=True,
+            said=f"{row['what']} corrected to {rupees(answer['value'])} from "
+                 f"{rupees(row['value'])}. The original stays on the record, "
+                 f"superseded. {row['declared_by']} goes from "
+                 f"{rupees(before)} to {rupees(after)}.",
+            touched=[row["id"], replacement["id"]],
+        )
+
+    # ── answering a query ───────────────────────────────────────────────────
+    #
+    # The other half of the conversation a review starts. A reviewer asks;
+    # this is where the person who declared it replies, and it is a form
+    # rather than an action because one of the three answers carries a
+    # number with it.
+    #
+    # Nothing here changes a figure. The declarer PROPOSES — it stands, the
+    # value was wrong, or it should not have been declared — and a reviewer
+    # decides. A person who could correct their own record down to nothing
+    # is a person for whom the limit is advisory.
+
+    def _answer(self, scope: Scope, values: dict[str, str], about: str,
+                commit: bool) -> Outcome:
+        if scope.period in _CLOSED:
+            return Outcome(
+                ok=False,
+                said=f"{scope.period} has been signed off — nothing in it "
+                     f"can change.",
+            )
+
+        row = next((r for r in _disclosed_rows(scope) if r["id"] == about), None)
+        if row is None:
+            return Outcome(ok=False, said="No declaration by that id is in this view.")
+        if _employee(scope.user) != row["employee_id"]:
+            return Outcome(
+                ok=False,
+                said=f"This was asked of {row['declared_by']}, so it is "
+                     f"theirs to answer.",
+            )
+        if row["state"] != "queried":
+            return Outcome(
+                ok=False,
+                said=f"Nobody has asked you about {row['what']}. There is "
+                     f"nothing to answer.",
+            )
+
+        response = values.get("response", "").strip().lower()
+        if response not in ANSWERS:
+            return Outcome(
+                ok=False,
+                said=f"Say which it is: {', '.join(ANSWERS)}.",
+            )
+        note = values.get("note", "").strip()
+        if not note:
+            return Outcome(
+                ok=False,
+                said="Say something to the person who asked. An answer with "
+                     "no words in it does not settle anything.",
+            )
+        if len(note) > _TEXT_MAX:
+            return Outcome(ok=False, said=f"Keep it under {_TEXT_MAX} characters.")
+
+        corrected: int | None = None
+        if response == "corrected":
+            corrected = _whole_rupees(values.get("value", ""))
+            if corrected is None:
+                return Outcome(
+                    ok=False,
+                    said="Give the corrected value in whole rupees.",
+                )
+            if corrected <= 0:
+                return Outcome(
+                    ok=False,
+                    said="A corrected value of nothing is a withdrawal. Say "
+                         "that instead, so the record reads as what happened.",
+                )
+            if corrected > _MOST_PER_ITEM:
+                return Outcome(ok=False, said=f"{rupees(corrected)} is past "
+                                              f"what this form takes.")
+            if corrected == row["value"]:
+                return Outcome(
+                    ok=False,
+                    said=f"That is what is already recorded. If it is right, "
+                         f"say so instead of correcting it to itself.",
+                )
+        elif values.get("value", "").strip():
+            return Outcome(
+                ok=False,
+                said="A value only belongs with a correction. Clear it, or "
+                     "say the value was wrong.",
+            )
+
+        would = {
+            "stands": f"Tells the reviewer it is right as declared. "
+                      f"{rupees(row['value'])} stays on your total either way "
+                      f"while they decide.",
+            "corrected": f"Proposes {rupees(corrected or 0)} in place of "
+                         f"{rupees(row['value'])}. Nothing moves until a "
+                         f"reviewer accepts it — and if they do, the original "
+                         f"stays on the record, superseded.",
+            "withdrawn": f"Proposes that this should not have been declared. "
+                         f"{rupees(row['value'])} keeps counting until a "
+                         f"reviewer accepts that, and the record stays either "
+                         f"way.",
+        }[response]
+        if not commit:
+            return Outcome(ok=True, said=would)
+
+        _ANSWERS[row["id"]] = {"response": response, "value": corrected,
+                               "note": note, "by": scope.user}
+        return Outcome(
+            ok=True,
+            said=f"Answered: {ANSWERS[response]}. It goes back to the "
+                 f"reviewer, and your total is unchanged until they decide.",
+            touched=[row["id"]],
+        )
+
+    def preview(self, scope: Scope, form_id: str, values: dict[str, str],
+                about: str = "") -> Outcome:
+        if form_id == self.ANSWER_FORM:
+            return self._answer(scope, values, about, commit=False)
         item, refused = self._read(scope, form_id, values)
         if refused is not None:
             return refused
         assert item is not None
         return Outcome(ok=True, said=self._effect(scope, item))
 
-    def submit(self, scope: Scope, form_id: str,
-               values: dict[str, str]) -> Outcome:
+    def submit(self, scope: Scope, form_id: str, values: dict[str, str],
+               about: str = "") -> Outcome:
+        if form_id == self.ANSWER_FORM:
+            return self._answer(scope, values, about, commit=True)
         # Validated again from scratch rather than trusting what the preview
         # saw: the preview was a different request, and the year may have been
         # signed off between the two.

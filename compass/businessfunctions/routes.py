@@ -79,6 +79,7 @@ def _feature_card(fn_id: str, feature) -> dict:
         "forms": [
             {"id": f.id, "label": f.label, "blurb": f.blurb,
              "submit_label": f.submit_label, "confirm": f.confirm,
+             "on_row": f.on_row,
              "fields": [
                  {"id": x.id, "label": x.label, "kind": x.kind, "help": x.help,
                   "required": x.required, "options": x.options}
@@ -274,6 +275,8 @@ class FormBody(BaseModel):
     """
 
     values: dict[str, str] = Field(default_factory=dict)
+    #: The row this form is about, for a form opened from one.
+    about: str = Field(default="", max_length=128)
     entity: str = ""
     period: str = ""
 
@@ -322,7 +325,7 @@ async def preview_form(
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
     outcome = handler.preview(_scope(user, body.entity, body.period),
-                              form_id, values)
+                              form_id, values, body.about)
     return {"ok": outcome.ok, "said": outcome.said}
 
 
@@ -343,7 +346,7 @@ async def submit_form(
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
     outcome = handler.submit(_scope(user, body.entity, body.period),
-                             form_id, values)
+                             form_id, values, body.about)
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 

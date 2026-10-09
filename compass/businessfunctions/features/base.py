@@ -153,13 +153,17 @@ class Feature(ABC):
         """
         return set()
 
-    def preview(self, scope: Scope, form_id: str,
-                values: dict[str, str]) -> Outcome:
-        """Say what recording this would do. Changes nothing."""
+    def preview(self, scope: Scope, form_id: str, values: dict[str, str],
+                about: str = "") -> Outcome:
+        """Say what recording this would do. Changes nothing.
+
+        `about` is the row the form is about, for a form whose manifest says
+        it is opened from one. Empty for a form that records something new.
+        """
         return Outcome(ok=False, said=f"{self.key} has no form called {form_id!r}.")
 
-    def submit(self, scope: Scope, form_id: str,
-               values: dict[str, str]) -> Outcome:
+    def submit(self, scope: Scope, form_id: str, values: dict[str, str],
+               about: str = "") -> Outcome:
         """Record it. Validates again rather than trusting the preview."""
         return Outcome(ok=False, said=f"{self.key} has no form called {form_id!r}.")
 

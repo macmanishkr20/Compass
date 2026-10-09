@@ -142,7 +142,7 @@
                 </select>
               </label>
             }
-            @for (f of v.forms ?? []; track f.id) {
+            @for (f of headerForms(); track f.id) {
               <button class="bf-declare" type="button" (click)="startForm(f)"
                 [class.on]="openForm()?.id === f.id">{{ f.label }}</button>
             }
@@ -153,63 +153,9 @@
              rather than in a dialog: what you are adding to is the thing you
              should still be able to see. -->
         @if (openForm(); as form) {
-          <section class="bf-form">
-            <header>
-              <h3>{{ form.label }}</h3>
-              <button class="bf-x" type="button" (click)="closeForm()"
-                aria-label="Close">×</button>
-            </header>
-            <p class="bf-fblurb">{{ form.blurb }}</p>
-
-            <div class="bf-fields">
-              @for (field of form.fields; track field.id) {
-                <label class="bf-field" [class.wide]="field.kind === 'text'">
-                  <span class="bf-flabel">{{ field.label }}</span>
-                  @switch (field.kind) {
-                    @case ('choice') {
-                      <select [ngModel]="entered()[field.id] ?? ''"
-                        (ngModelChange)="setField(field.id, $event)">
-                        <option value="">Choose…</option>
-                        @for (o of field.options; track o) {
-                          <option [value]="o">{{ o }}</option>
-                        }
-                      </select>
-                    }
-                    @case ('date') {
-                      <input type="date" [ngModel]="entered()[field.id] ?? ''"
-                        (ngModelChange)="setField(field.id, $event)">
-                    }
-                    @case ('money') {
-                      <input type="text" inputmode="numeric" placeholder="₹"
-                        [ngModel]="entered()[field.id] ?? ''"
-                        (ngModelChange)="setField(field.id, $event)">
-                    }
-                    @default {
-                      <input type="text" [ngModel]="entered()[field.id] ?? ''"
-                        (ngModelChange)="setField(field.id, $event)">
-                    }
-                  }
-                  @if (field.help) { <span class="bf-fhelp">{{ field.help }}</span> }
-                </label>
-              }
-            </div>
-
-            @if (previewed(); as p) {
-              <p class="bf-effect" [class.bad]="!p.ok">{{ p.said }}</p>
-            }
-
-            <p class="bf-fconfirm">{{ form.confirm }}</p>
-            <div class="bf-facts">
-              <button class="bf-btn" type="button"
-                [disabled]="!formReady() || saving()"
-                (click)="checkForm()">What would this do?</button>
-              <button class="bf-btn danger" type="button"
-                [disabled]="!formReady() || saving()"
-                (click)="submitForm()">{{ form.submit_label }}</button>
-              <button class="bf-btn quiet" type="button" (click)="closeForm()">
-                Cancel</button>
-            </div>
-          </section>
+          @if (!form.on_row) {
+            <ng-container *ngTemplateOutlet="formPanel; context: {$implicit: form}" />
+          }
         }
 
         @if (v.needs_scope?.length) {
@@ -285,10 +231,22 @@
                                 <button class="bf-btn" type="button"
                                   [class.danger]="!a.reversible" [title]="a.confirm"
                                   (click)="rowAct(a, row)">{{ a.label }}</button>
-                              } @empty {
+                              }
+                              <!-- A form opened from the row: answering what
+                                   somebody asked about it. -->
+                              @for (f of formsFor(row); track f.id) {
+                                <button class="bf-btn" type="button"
+                                  [class.on]="formOn(row)?.id === f.id"
+                                  (click)="startForm(f, row)">{{ f.label }}</button>
+                              }
+                              @if (!actionsFor(row).length && !formsFor(row).length) {
                                 <span class="bf-none">Nothing to decide on this one.</span>
                               }
                             </div>
+                            @if (formOn(row); as form) {
+                              <ng-container
+                                *ngTemplateOutlet="formPanel; context: {$implicit: form}" />
+                            }
                             <!-- A decision that goes on an audit trail says
                                  why. Asked here, where the decision is made,
                                  and written by the person making it. -->
@@ -418,3 +376,66 @@
     </aside>
   }
 </div>
+
+<!-- One form, drawn the same whether it records something new or
+     answers a question about a row. The fields come from the manifest,
+     so a feature adds a form without adding any markup here. -->
+<ng-template #formPanel let-form>
+          <section class="bf-form">
+            <header>
+              <h3>{{ form.label }}</h3>
+              <button class="bf-x" type="button" (click)="closeForm()"
+                aria-label="Close">×</button>
+            </header>
+            <p class="bf-fblurb">{{ form.blurb }}</p>
+
+            <div class="bf-fields">
+              @for (field of form.fields; track field.id) {
+                <label class="bf-field" [class.wide]="field.kind === 'text'">
+                  <span class="bf-flabel">{{ field.label }}</span>
+                  @switch (field.kind) {
+                    @case ('choice') {
+                      <select [ngModel]="entered()[field.id] ?? ''"
+                        (ngModelChange)="setField(field.id, $event)">
+                        <option value="">Choose…</option>
+                        @for (o of field.options; track o) {
+                          <option [value]="o">{{ o }}</option>
+                        }
+                      </select>
+                    }
+                    @case ('date') {
+                      <input type="date" [ngModel]="entered()[field.id] ?? ''"
+                        (ngModelChange)="setField(field.id, $event)">
+                    }
+                    @case ('money') {
+                      <input type="text" inputmode="numeric" placeholder="₹"
+                        [ngModel]="entered()[field.id] ?? ''"
+                        (ngModelChange)="setField(field.id, $event)">
+                    }
+                    @default {
+                      <input type="text" [ngModel]="entered()[field.id] ?? ''"
+                        (ngModelChange)="setField(field.id, $event)">
+                    }
+                  }
+                  @if (field.help) { <span class="bf-fhelp">{{ field.help }}</span> }
+                </label>
+              }
+            </div>
+
+            @if (previewed(); as p) {
+              <p class="bf-effect" [class.bad]="!p.ok">{{ p.said }}</p>
+            }
+
+            <p class="bf-fconfirm">{{ form.confirm }}</p>
+            <div class="bf-facts">
+              <button class="bf-btn" type="button"
+                [disabled]="!formReady() || saving()"
+                (click)="checkForm()">What would this do?</button>
+              <button class="bf-btn danger" type="button"
+                [disabled]="!formReady() || saving()"
+                (click)="submitForm()">{{ form.submit_label }}</button>
+              <button class="bf-btn quiet" type="button" (click)="closeForm()">
+                Cancel</button>
+            </div>
+          </section>
+</ng-template>

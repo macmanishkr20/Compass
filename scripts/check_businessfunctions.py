@@ -72,7 +72,8 @@ def fixtures():
     """
     before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
               copy.deepcopy(rl_mod._ITEMS), set(rl_mod._REFERRED),
-              set(rl_mod._EXCEPTED), copy.deepcopy(rl_mod._REVIEWED))
+              set(rl_mod._EXCEPTED), copy.deepcopy(rl_mod._REVIEWED),
+              copy.deepcopy(rl_mod._ANSWERS), dict(rl_mod._SUPERSEDED))
     try:
         yield
     finally:
@@ -82,6 +83,8 @@ def fixtures():
         rl_mod._REFERRED.clear(); rl_mod._REFERRED.update(before[3])
         rl_mod._EXCEPTED.clear(); rl_mod._EXCEPTED.update(before[4])
         rl_mod._REVIEWED.clear(); rl_mod._REVIEWED.update(before[5])
+        rl_mod._ANSWERS.clear(); rl_mod._ANSWERS.update(before[6])
+        rl_mod._SUPERSEDED.clear(); rl_mod._SUPERSEDED.update(before[7])
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -1146,14 +1149,15 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
        and "compliance role" in o.said, o.said)
     ok("but they are still shown the declarations",
        h.rows(plain, "disclosed"))
-    ok("and are offered no button they could not have used",
-       not any(r["can_review"] for r in h.rows(plain, "disclosed")))
+    review = set(rl_mod.RewardLens.REVIEW_ACTIONS)
+    ok("and are offered no reviewing button they could not have used",
+       not any(set(r["can"]) & review for r in h.rows(plain, "disclosed")))
     ok("a reviewer is offered the ones that are not their own",
-       all(r["can_review"] for r in h.rows(other, "disclosed")
+       all(set(r["can"]) & review for r in h.rows(other, "disclosed")
            if r["state"] == "awaiting" and r["employee_id"] != "E-1052"))
     ok("and not their own",
-       not next(r for r in h.rows(admin, "disclosed")
-                if r["employee_id"] == "E-1052")["can_review"])
+       not (set(next(r for r in h.rows(admin, "disclosed")
+                     if r["employee_id"] == "E-1052")["can"]) & review))
     ok("and told why the buttons are not theirs",
        "review_is_a_role" in h.rules(plain), str(h.rules(plain)))
     ok("a reviewer who is not the declarer can decide it",
@@ -1252,7 +1256,8 @@ def check_who_you_are_survives_an_alias() -> None:
         ok("and still holds the reviewer role",
            "review_is_a_role" not in h.rules(aliased))
         ok("so the declarations are decidable",
-           all(r["can_review"] for r in h.rows(aliased, "disclosed")))
+           all("accept_disclosure" in r["can"]
+               for r in h.rows(aliased, "disclosed")))
         ok("and their own row is still refused",
            not h.act(aliased, "refer_to_finance", ["E-1052"]).ok)
 
@@ -1264,6 +1269,202 @@ def check_who_you_are_survives_an_alias() -> None:
            and "which employee record" in o.said, o.said)
     finally:
         settings.auth.identity_aliases = kept
+
+
+def _queried(h, reviewer, item_id, question="Was this the whole basket?"):
+    """Put an item into the state where it can be answered."""
+    return h.act(reviewer, "query_disclosure", [item_id], question)
+
+
+def check_a_correction_is_a_new_record_not_an_edit() -> None:
+    """The record does not change. A second one supersedes it.
+
+    "It cannot be edited or withdrawn afterwards, because the point of the
+    record is that it did not change after the fact" is what the form
+    promises when somebody declares. A correction keeps that promise: the
+    original stays, marked superseded, and a new record carries the right
+    figure.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    e = Scope(user="enduser", period="FY 2026-27")     # Vikram Rao, E-1066
+    total = lambda: next((r["total"] for r in h.rows(c, "all")
+                          if r["employee_id"] == "E-1066"), 0)
+
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+    ok("it starts at what was declared", total() == item["value"] == 2500, str(total()))
+
+    ok("a reviewer asks about it", _queried(h, c, item["id"]).ok)
+    ok("and the total does not move because they asked", total() == 2500)
+
+    ok("the declarer proposes the right figure",
+       h.submit(e, "answer_query", {
+           "response": "corrected", "value": "1500",
+           "note": "That was the whole basket; mine was 1,500."}, item["id"]).ok)
+    ok("and the total STILL does not move, because they said so",
+       total() == 2500, str(total()))
+
+    out = h.act(c, "accept_answer", [item["id"]])
+    ok("a reviewer accepting it is what moves the figure",
+       out.ok and total() == 1500, f"{out.said} -> {total()}")
+    ok("and the sentence says both numbers",
+       "₹1,500" in out.said and "₹2,500" in out.said, out.said)
+
+    rows = {r["id"]: r for r in h.rows(c, "disclosed")}
+    ok("the original is still there", item["id"] in rows)
+    ok("marked superseded", rows[item["id"]]["state"] == "superseded")
+    ok("naming what replaced it",
+       rows[item["id"]]["replaced_by"].startswith("C-"),
+       rows[item["id"]]["replaced_by"])
+    replacement = rows[rows[item["id"]]["replaced_by"]]
+    ok("the replacement carries the corrected figure", replacement["value"] == 1500)
+    ok("and points back at what it corrects",
+       replacement["corrects"] == item["id"], replacement["corrects"])
+    ok("only the replacement is in the breakdown",
+       next(r["breakdown"] for r in h.rows(c, "all")
+            if r["employee_id"] == "E-1066").count("Vendor hamper") == 1)
+    ok("nothing was deleted",
+       len([i for i in rl_mod._ITEMS if i["employee_id"] == "E-1066"]) == 2)
+
+
+def check_only_a_mistaken_record_stops_counting() -> None:
+    """A breach and a correction look alike and are opposites.
+
+    A breach says you should not have been given it — you were, so it
+    counts. A correction says the RECORD was wrong, so what it counted was
+    never right. That difference is the lever somebody would reach for
+    first, so it is the one worth checking hardest.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    e = Scope(user="enduser", period="FY 2026-27")
+    total = lambda: next((r["total"] for r in h.rows(c, "all")
+                          if r["employee_id"] == "E-1066"), 0)
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    ok("a breach leaves it counting",
+       h.act(c, "record_breach", [item["id"]], "Vendor is in a live tender.").ok
+       and total() == 2500, str(total()))
+
+    # And the declarer cannot reach for the other lever on their own.
+    ok("the declarer cannot answer an item nobody asked about",
+       not h.submit(e, "answer_query",
+                    {"response": "withdrawn", "note": "I would rather not."},
+                    item["id"]).ok)
+    ok("it is still counting", total() == 2500)
+
+
+def check_nobody_corrects_their_own_record_alone() -> None:
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    e = Scope(user="enduser", period="FY 2026-27")
+    a = Scope(user="admin", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+    _queried(h, c, item["id"])
+
+    ok("somebody else cannot answer for them",
+       not (o := h.submit(a, "answer_query",
+                          {"response": "stands", "note": "Fine."}, item["id"])).ok
+       and "theirs to answer" in o.said, o.said)
+    h.submit(e, "answer_query",
+             {"response": "withdrawn", "note": "Declared it twice."}, item["id"])
+    ok("and the declarer cannot accept their own answer",
+       not h.act(e, "accept_answer", [item["id"]]).ok)
+    ok("the row offers them no way to",
+       not any(x in next(r["can"] for r in h.rows(e, "disclosed")
+                         if r["id"] == item["id"])
+               for x in ("accept_answer", "record_breach")))
+
+    total = next((r["total"] for r in h.rows(c, "all")
+                  if r["employee_id"] == "E-1066"), 0)
+    ok("so it keeps counting while it waits", total == 2500, str(total))
+    out = h.act(c, "accept_answer", [item["id"]])
+    ok("until somebody else agrees", out.ok and "₹0" in out.said, out.said)
+    ok("and then it is out of the total",
+       next((r["total"] for r in h.rows(c, "all")
+             if r["employee_id"] == "E-1066"), 0) == 0)
+
+
+def check_an_answer_has_to_make_sense() -> None:
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    e = Scope(user="enduser", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+    _queried(h, c, item["id"])
+
+    def refused(**values) -> str:
+        base = {"response": "corrected", "value": "1500", "note": "because"}
+        out = h.preview(e, "answer_query", dict(base, **values), item["id"])
+        return "" if out.ok else out.said
+
+    ok("an answer nobody recognises is refused", refused(response="maybe"))
+    ok("an answer with no words is refused", refused(note="   "))
+    ok("a correction with no figure is refused", refused(value=""))
+    ok("a correction to the same figure is refused", refused(value="2500"))
+    ok("a correction to nothing says to withdraw it instead",
+       "withdrawal" in refused(value="0"))
+    ok("a figure with no correction is refused",
+       refused(response="stands", value="900"))
+    ok("a signed-off year takes no answers",
+       not h.preview(Scope(user="enduser", period="FY 2024-25"),
+                     "answer_query",
+                     {"response": "stands", "note": "x"}, item["id"]).ok)
+    ok("previewing it changed nothing",
+       next(r["state"] for r in h.rows(c, "disclosed")
+            if r["id"] == item["id"]) == "queried")
+
+
+def check_asking_again_drops_the_old_answer() -> None:
+    """A reply to a question nobody is asking any more is not a reply."""
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    e = Scope(user="enduser", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    _queried(h, c, item["id"])
+    ok("asking again while it is unanswered is refused",
+       not h.act(c, "query_disclosure", [item["id"]], "again?").ok)
+
+    h.submit(e, "answer_query", {"response": "corrected", "value": "1500",
+                                 "note": "It was 1,500."}, item["id"])
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("an answered item is back on the reviewer's desk", row["state"] == "answered")
+    ok("and shows what they said",
+       row["answered"] == "the value was wrong" and "1,500" in row["answer_note"],
+       f"{row['answered']} / {row['answer_note']}")
+
+    ok("asking again is allowed once it is answered",
+       h.act(c, "query_disclosure", [item["id"]], "Send the invoice.").ok)
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("and the old answer is gone with the old question",
+       row["state"] == "queried" and row["answered"] == "—", str(row["answered"]))
+    ok("so accepting an answer nobody gave is refused",
+       not h.act(c, "accept_answer", [item["id"]]).ok)
+
+
+def check_the_row_and_the_handler_cannot_disagree() -> None:
+    """Every button a row offers works, and everything else is refused.
+
+    The row's `can` list is what the table draws and what `act` checks, on
+    purpose: two lists would be two chances to disagree, and the symptom
+    would be a button that exists and does not work.
+    """
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    everyone = [Scope(user=u, period="FY 2026-27")
+                for u in ("compliance", "admin", "enduser", "stranger")]
+    review_actions = set(rl_mod.RewardLens.REVIEW_ACTIONS)
+
+    for scope in everyone:
+        for row in h.rows(scope, "disclosed"):
+            offered = set(row["can"]) & review_actions
+            for action in review_actions - offered:
+                out = h.act(scope, action, [row["id"]], "a reason")
+                ok(f"{scope.user}: {action} is refused on a row that does not offer it",
+                   not out.ok, f"{row['id']} {row['state']}: {out.said}")
+            for action in offered:
+                ok(f"{scope.user}: {action} works on a row that offers it",
+                   h.act(scope, action, [row["id"]], "a reason").ok)
+                break  # one is enough; the first changes the state
 
 
 def main() -> int:
@@ -1332,6 +1533,18 @@ def main() -> int:
         check_the_model_does_not_write_the_justification()
     with fixtures():
         check_who_you_are_survives_an_alias()
+    with fixtures():
+        check_a_correction_is_a_new_record_not_an_edit()
+    with fixtures():
+        check_only_a_mistaken_record_stops_counting()
+    with fixtures():
+        check_nobody_corrects_their_own_record_alone()
+    with fixtures():
+        check_an_answer_has_to_make_sense()
+    with fixtures():
+        check_asking_again_drops_the_old_answer()
+    with fixtures():
+        check_the_row_and_the_handler_cannot_disagree()
     with fixtures():
         check_every_row_can_be_pointed_at()
     with fixtures():

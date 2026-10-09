@@ -119,6 +119,9 @@ export interface FormSpec {
   blurb: string;
   submit_label: string;
   confirm: string;
+  /** Opened from a row rather than from the header, and submitted with its
+   *  id — answering a question about something, not recording something new. */
+  on_row: boolean;
   fields: FormField[];
 }
 
@@ -219,7 +222,10 @@ export class BusinessFunctionsApi {
     fnId: string,
     featureId: string,
     formId: string,
-    body: { values: Record<string, string>; entity?: string; period?: string },
+    body: {
+      values: Record<string, string>; about?: string;
+      entity?: string; period?: string;
+    },
   ): Promise<ActResult> {
     return firstValueFrom(
       this.http.post<ActResult>(
@@ -233,7 +239,10 @@ export class BusinessFunctionsApi {
     fnId: string,
     featureId: string,
     formId: string,
-    body: { values: Record<string, string>; entity?: string; period?: string },
+    body: {
+      values: Record<string, string>; about?: string;
+      entity?: string; period?: string;
+    },
   ): Promise<ActResult> {
     return firstValueFrom(
       this.http.post<ActResult>(

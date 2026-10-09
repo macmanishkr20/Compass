@@ -81,6 +81,14 @@ features:
         reversible: true
         outward: true
         note_label: What do you need to ask them?
+      - id: accept_answer
+        label: Accept the answer
+        confirm: >-
+          Settles what you asked. If they said the value was wrong, the
+          corrected figure replaces it and the original stays on the record,
+          superseded — this is the only way a recorded item stops counting,
+          and it takes both of you.
+        reversible: false
       - id: record_breach
         label: Not permitted
         confirm: >-
@@ -91,6 +99,39 @@ features:
         note_label: Why was this not permitted?
 
     forms:
+      - id: answer_query
+        label: Answer
+        on_row: true
+        blurb: >-
+          Somebody has asked you about this. Say whether it is right as
+          declared, what the value should have been, or that you should not
+          have declared it. Nothing moves until they accept your answer.
+        submit_label: Send the answer
+        confirm: >-
+          Goes back to the person who asked, with your name on it. Your
+          total does not change while they decide, and both what you
+          declared and what you say now stay on the record.
+        fields:
+          - id: response
+            label: Which is it
+            kind: choice
+            options: [stands, corrected, withdrawn]
+            help: >-
+              stands — it is right as declared. corrected — the value was
+              wrong. withdrawn — you should not have declared it, because it
+              was a duplicate or you did not receive it.
+          - id: value
+            label: What it should have been
+            kind: money
+            required: false
+            help: Only with a correction. Leave it empty otherwise.
+          - id: note
+            label: What you want to tell them
+            kind: text
+            help: >-
+              The reason, in your words. It goes on the record beside what
+              you declared.
+
       - id: disclose
         label: Declare something you were given
         blurb: >-
