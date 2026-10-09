@@ -339,6 +339,40 @@ export class BusinessFunctions {
     return all;
   }
 
+  // ── taking it away ──────────────────────────────────────────────────────
+
+  readonly exporting = signal(false);
+
+  /** Download this screen as a workbook.
+   *
+   *  The server builds it from the same rows this screen is showing, so
+   *  there is nothing to assemble here — which is the point: a spreadsheet
+   *  put together in the browser could disagree with the screen it came
+   *  from, and the spreadsheet is the thing that gets emailed on. */
+  async download(): Promise<void> {
+    const fn = this.current();
+    if (!fn || this.exporting()) return;
+    this.exporting.set(true);
+    try {
+      const { blob, filename } = await this.api.workbook(
+        fn.id, this.featureId(), this.scope(),
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      // Freed on the next turn of the loop; revoking immediately races the
+      // click in some browsers and the download arrives empty.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      this.notice.ok(`Saved ${filename}`);
+    } catch (err) {
+      this.notice.error(`Could not export that: ${err}`);
+    } finally {
+      this.exporting.set(false);
+    }
+  }
+
   // ── forms ───────────────────────────────────────────────────────────────
   //
   // A form makes a row rather than deciding one, so it is not an action and

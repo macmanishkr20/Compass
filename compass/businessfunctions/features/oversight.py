@@ -180,6 +180,9 @@ class Oversight(Feature):
     key = "gift_oversight"
     #: The attention tab lists people; the other two say their own.
     row_key = "employee_id"
+    #: It shows RewardLens's own rows, so it inherits what RewardLens calls
+    #: machinery, and adds the composite key its process list is built on.
+    private = rewardlens.RewardLens.private | frozenset({"id"})
 
     def _shut_out(self, scope: Scope) -> bool:
         """Whether this person may not see the firm-wide view."""

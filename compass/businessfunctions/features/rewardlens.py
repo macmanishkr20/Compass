@@ -560,6 +560,10 @@ class RewardLens(Feature):
     key = "rewardlens"
     #: A row is a person, not a purchase — the whole point of the screen.
     row_key = "employee_id"
+    #: `status` already says all of these in words, `state` is its key form,
+    #: `can` is this feature's own rules and `asked_at` is a float.
+    private = frozenset({"over_limit", "referred", "exception", "state",
+                         "can", "asked_at"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)

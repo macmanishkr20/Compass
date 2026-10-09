@@ -146,6 +146,11 @@
               <button class="bf-declare" type="button" (click)="startForm(f)"
                 [class.on]="openForm()?.id === f.id">{{ f.label }}</button>
             }
+            @if (!v.needs_scope?.length) {
+              <button class="bf-declare" type="button" [disabled]="exporting()"
+                title="Everything on this screen, as a workbook"
+                (click)="download()">{{ exporting() ? 'Exporting…' : 'Export' }}</button>
+            }
           </div>
         </header>
 

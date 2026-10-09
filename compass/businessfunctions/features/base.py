@@ -110,6 +110,14 @@ class Feature(ABC):
     #: empty id.
     row_key: ClassVar[str] = "id"
 
+    #: Row keys that are machinery rather than information — the list of
+    #: actions a row allows, a raw timestamp, a boolean that restates a
+    #: status in a less readable way. A surface may use them; anything that
+    #: leaves Compass should not carry them, because a spreadsheet column
+    #: called "can" containing action ids is this codebase leaking into
+    #: somebody's board pack.
+    private: ClassVar[frozenset[str]] = frozenset()
+
     @abstractmethod
     def figures(self, scope: Scope) -> list[Figure]:
         ...

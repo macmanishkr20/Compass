@@ -31,10 +31,10 @@ import asyncio
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from compass.businessfunctions import assistant, notices, registry
+from compass.businessfunctions import assistant, export, notices, registry
 from compass.businessfunctions.features.base import Scope
 from compass.common.auth import require_user
 
@@ -236,6 +236,50 @@ async def get_feature(
         "forms": _feature_card(fn.id, feature)["forms"],
         "rail": _rail(fn, feature, scope),
     }
+
+
+@router.get("/{function_id}/features/{feature_id}/export.xlsx")
+async def export_feature(
+    function_id: str,
+    feature_id: str,
+    entity: str = Query(""),
+    period: str = Query(""),
+    user: str = Depends(require_user),
+) -> Response:
+    """This screen, as a workbook.
+
+    Deliberately the same resolution, the same scope and the same handler
+    the screen uses, so there is no second path to the data: a feature that
+    shows somebody nothing returns them an empty workbook, because this
+    calls the methods that decided that. An export endpoint with its own
+    query is how "the UI hides it and the API does not" happens.
+
+    Building a workbook is CPU work, so it runs in a thread rather than
+    holding the loop while a few hundred rows are formatted.
+    """
+    fn, feature, handler = _resolve(function_id, feature_id)
+    scope = _scope(user, entity, period)
+    if missing := scope.missing(feature.scope):
+        # The screen would be asking for a selector; a spreadsheet of
+        # nothing-in-particular is worse than being told to choose.
+        raise HTTPException(
+            422, f"Choose {' and '.join(missing)} before exporting {feature.name}.")
+    try:
+        data = await asyncio.to_thread(
+            export.to_excel, fn, feature, handler, scope, asked_by=user)
+    except ImportError as exc:  # openpyxl absent — say so, do not 500
+        raise HTTPException(
+            status_code=501,
+            detail="openpyxl is not installed on the server host "
+                   "(pip install openpyxl)",
+        ) from exc
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument."
+                   "spreadsheetml.sheet",
+        headers={"Content-Disposition":
+                 f'attachment; filename="{export.filename(fn, feature, scope)}"'},
+    )
 
 
 async def _deliver() -> None:

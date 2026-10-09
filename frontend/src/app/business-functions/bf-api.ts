@@ -251,6 +251,29 @@ export class BusinessFunctionsApi {
     );
   }
 
+  /** This screen as a workbook.
+   *
+   *  Fetched rather than linked: a plain anchor would navigate the page to
+   *  a JSON error body the one time the server refuses, and the person
+   *  would lose the screen they were looking at. */
+  async workbook(
+    fnId: string,
+    featureId: string,
+    scope: { entity?: string; period?: string } = {},
+  ): Promise<{ blob: Blob; filename: string }> {
+    const response = await firstValueFrom(
+      this.http.get(`${ROOT}/${fnId}/features/${featureId}/export.xlsx`, {
+        params: clean(scope), responseType: 'blob', observe: 'response',
+      }),
+    );
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    return {
+      blob: response.body as Blob,
+      filename: match?.[1] ?? `${featureId}.xlsx`,
+    };
+  }
+
   /** The rail. Changes nothing — what comes back is a plan, an answer or a question. */
   ask(
     fnId: string,

@@ -518,6 +518,7 @@ def check_the_routes_are_mounted_only_when_switched_on() -> None:
            feature,
            f"{feature}/act",
            f"{feature}/ask",
+           f"{feature}/export.xlsx",
            f"{feature}/forms/{{form_id}}",
            f"{feature}/forms/{{form_id}}/preview",
            f"{root}/plans/{{plan_id}}/confirm",
@@ -1828,6 +1829,150 @@ def check_a_firm_wide_view_is_for_the_role() -> None:
     ok("the compliance role sees it", board.figures(allowed) and board.tabs(allowed))
 
 
+def _workbook(fn_id: str, feature_id: str, scope: Scope):
+    """Build an export and read it back as openpyxl does."""
+    import io
+
+    from openpyxl import load_workbook
+
+    from compass.businessfunctions import export as exporter
+
+    fn, feature, handler = registry.feature_of(fn_id, feature_id)
+    data = exporter.to_excel(fn, feature, handler, scope, asked_by=scope.user)
+    return load_workbook(io.BytesIO(data))
+
+
+def check_the_export_is_the_screen() -> None:
+    """Same rows, same figures, same order — because it is the same calls.
+
+    A spreadsheet built from its own query is how one comes to say four
+    people are over the limit while the screen says three, and the
+    spreadsheet is the copy that gets emailed to a board and quoted back.
+    """
+    _, feat, h = registry.feature_of("scs", "oversight")
+    c = Scope(user="compliance", period="FY 2026-27")
+    wb = _workbook("scs", "oversight", c)
+
+    tabs = h.tabs(c)
+    ok("there is a summary and one sheet per tab",
+       len(wb.sheetnames) == len(tabs) + 1, str(wb.sheetnames))
+    ok("in the order the screen shows them",
+       wb.sheetnames[1:] == [t.label for t in tabs], str(wb.sheetnames))
+
+    for tab in tabs:
+        rows = h.rows(c, tab.key)
+        sheet = wb[tab.label]
+        ok(f"{tab.label}: the same number of rows",
+           sheet.max_row - 1 == len(rows), f"{sheet.max_row - 1} vs {len(rows)}")
+        if not rows:
+            continue
+        heads = [cell.value for cell in sheet[1]]
+        first = [cell.value for cell in sheet[2]]
+        pairs = dict(zip(heads, first))
+        for key, value in rows[0].items():
+            if key in h.private:
+                continue
+            head = key.replace("_", " ").capitalize()
+            ok(f"{tab.label}: {key} is carried", head in pairs, str(heads))
+
+    figures = {f.caption.capitalize(): f.value for f in h.figures(c)}
+    summary = [[c.value for c in row] for row in wb["Summary"].iter_rows()]
+    said = {r[0]: r[1] for r in summary if r and r[0]}
+    for caption, value in figures.items():
+        ok(f"the summary carries '{caption}'",
+           str(said.get(caption)) == value or said.get(caption) == value,
+           f"{said.get(caption)!r} vs {value!r}")
+
+
+def check_the_export_says_when_it_was_true() -> None:
+    """It outlives the screen. Nothing else in the file admits that."""
+    c = Scope(user="compliance", period="FY 2026-27")
+    wb = _workbook("scs", "oversight", c)
+    said = {r[0]: r[1] for r in
+            ([cell.value for cell in row] for row in wb["Summary"].iter_rows())
+            if r and r[0]}
+
+    ok("it names the period", said.get("Period") == "FY 2026-27", str(said.get("Period")))
+    ok("and who asked for it", said.get("Generated for") == "compliance")
+    ok("and when", bool(said.get("Generated")), str(said.get("Generated")))
+    ok("and says the figures move",
+       "snapshot" in str(said.get("Note", "")).lower(), str(said.get("Note")))
+
+    from compass.businessfunctions import export as exporter
+    fn, feat, _h = registry.feature_of("scs", "oversight")
+    name = exporter.filename(fn, feat, c)
+    ok("the filename carries the period, so two are not the same file",
+       "fy-2026-27" in name and name.endswith(".xlsx"), name)
+
+
+def check_the_export_cannot_see_what_the_screen_hides() -> None:
+    """There is no second path to the data.
+
+    The usual shape of this bug is an export endpoint with its own query,
+    which quietly skips the rule the screen applies. This one calls the
+    same handler, so a person who is shown nothing gets a workbook with
+    nothing in it — and that is a property of the design rather than a
+    check somebody remembered to add.
+    """
+    plain = Scope(user="enduser", period="FY 2026-27")
+    wb = _workbook("scs", "oversight", plain)
+
+    ok("somebody without the role gets only a summary",
+       wb.sheetnames == ["Summary"], str(wb.sheetnames))
+    text = "\n".join(str(cell.value) for row in wb["Summary"].iter_rows()
+                      for cell in row if cell.value)
+    for who in ("John Mathew", "Priya Nair", "Manish K.", "Aisha Khan"):
+        ok(f"and no sign of {who}", who not in text)
+    ok("no figure of anybody's leaks into it", "₹8,000" not in text)
+    ok("but it does say why it is empty",
+       "for compliance" in text.lower(), text[:120])
+
+
+def check_a_workbook_is_worth_opening() -> None:
+    """Figures that are text cannot be summed, and a sheet of text is a
+    printout pretending to be a spreadsheet."""
+    import datetime as dt
+
+    c = Scope(user="compliance", period="FY 2026-27")
+    wb = _workbook("scs", "oversight", c)
+    sheet = wb["Nobody has decided"]
+    heads = [cell.value for cell in sheet[1]]
+    row = {heads[i]: cell for i, cell in enumerate(sheet[2])}
+
+    ok("money is a number, not a string",
+       isinstance(row["Total"].value, int), repr(row["Total"].value))
+    ok("and it is formatted as rupees",
+       "₹" in row["Total"].number_format, row["Total"].number_format)
+    ok("a date is a date",
+       isinstance(row["Crossed on"].value, (dt.date, dt.datetime)),
+       repr(row["Crossed on"].value))
+    ok("the header row is frozen", sheet.freeze_panes == "A2")
+    ok("and the columns can be filtered", bool(sheet.auto_filter.ref))
+
+    ok("no machinery column reached the sheet",
+       not ({"Can", "State", "Asked at", "Over limit", "Referred", "Exception"}
+            & set(heads)), str(heads))
+
+
+def check_any_feature_can_be_exported() -> None:
+    """Nothing in the exporter knows what a business function contains."""
+    for fn in registry.all_functions():
+        for feat in fn.features:
+            h = features.get(feat.handler)
+            scope = Scope(
+                user="compliance",
+                entity=(feat.choices.get("entity") or [""])[0]
+                if "entity" in feat.scope else "",
+                period=(feat.choices.get("period") or [""])[0]
+                if "period" in feat.scope else "",
+            )
+            wb = _workbook(fn.id, feat.id, scope)
+            ok(f"{fn.id}/{feat.id} exports",
+               wb.sheetnames[0] == "Summary"
+               and len(wb.sheetnames) == len(h.tabs(scope)) + 1,
+               str(wb.sheetnames))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -1875,6 +2020,16 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    with fixtures():
+        check_the_export_is_the_screen()
+    with fixtures():
+        check_the_export_says_when_it_was_true()
+    with fixtures():
+        check_the_export_cannot_see_what_the_screen_hides()
+    with fixtures():
+        check_a_workbook_is_worth_opening()
+    with fixtures():
+        check_any_feature_can_be_exported()
     with fixtures():
         check_the_dashboard_cannot_disagree_with_the_workbench()
     with fixtures():
