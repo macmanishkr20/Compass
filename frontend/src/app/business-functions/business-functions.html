@@ -289,6 +289,28 @@
                                 <span class="bf-none">Nothing to decide on this one.</span>
                               }
                             </div>
+                            <!-- A decision that goes on an audit trail says
+                                 why. Asked here, where the decision is made,
+                                 and written by the person making it. -->
+                            @for (a of actionsFor(row); track a.id) {
+                              @if (isAsking(a, row)) {
+                                <div class="bf-why">
+                                  <label>
+                                    <span>{{ a.note_label }}</span>
+                                    <textarea rows="2" [ngModel]="reason()"
+                                      (ngModelChange)="reason.set($event)"></textarea>
+                                  </label>
+                                  <div class="bf-acts">
+                                    <button class="bf-btn" type="button"
+                                      [class.danger]="!a.reversible"
+                                      [disabled]="!reason().trim()"
+                                      (click)="rowAct(a, row, reason())">{{ a.label }}</button>
+                                    <button class="bf-btn quiet" type="button"
+                                      (click)="dropReason()">Cancel</button>
+                                  </div>
+                                </div>
+                              }
+                            }
                           </div>
                         </td>
                       </tr>

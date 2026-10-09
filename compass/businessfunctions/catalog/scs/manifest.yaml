@@ -65,6 +65,31 @@ features:
           remove the breach.
         reversible: false
 
+      - id: accept_disclosure
+        label: Accept as declared
+        confirm: >-
+          Records that you reviewed this declaration and it stands as made.
+          Your name goes against the decision. It does not change the item,
+          its value, or the total it counts towards.
+        reversible: false
+      - id: query_disclosure
+        label: Query it
+        confirm: >-
+          Asks the person who declared it about this item, with the reason
+          you give. The record does not change while you wait, and it keeps
+          counting towards their limit.
+        reversible: true
+        outward: true
+        note_label: What do you need to ask them?
+      - id: record_breach
+        label: Not permitted
+        confirm: >-
+          Records that what was given was not permitted, with your reason
+          against it. It stays on the audit trail and still counts towards
+          the total — a breach does not un-receive a gift.
+        reversible: false
+        note_label: Why was this not permitted?
+
     forms:
       - id: disclose
         label: Declare something you were given
@@ -126,6 +151,13 @@ features:
           process. It counts towards their limit from the moment it is
           recorded, not from when it is reviewed.
         tone: notice
+      - id: review_is_a_role
+        headline: You can see these, not decide them.
+        detail: >-
+          Reviewing a declaration is a compliance role. The declarations are
+          shown because knowing what the firm received is not restricted;
+          deciding them is.
+        tone: notice
       - id: period_closed
         headline: Read-only.
         detail: This year has been signed off. Nothing in it can change.
@@ -135,6 +167,7 @@ features:
       - Who is over the limit?
       - Why is John over?
       - What has nobody acknowledged?
+      - What is waiting to be reviewed?
       - Refer John to Finance
 
     tools:

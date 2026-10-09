@@ -189,10 +189,15 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
     if feature_id == "lms":
         return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
     if feature_id == "rewardlens":
-        # The row is a person, so the id is the person and the label leads
-        # with the name — that is the only part of it anybody says out loud.
-        return row["employee_id"], (f"{row['recipient']} · {rupees(row['total'])}"
-                                    f" of {rupees(row['limit'])}")
+        # Two shapes, because one of its tabs lists declared items rather
+        # than people. Told apart by what the row carries and not by which
+        # tab asked, so this cannot drift out of step with the tabs.
+        if "total" in row:
+            return row["employee_id"], (f"{row['recipient']} · "
+                                        f"{rupees(row['total'])} of "
+                                        f"{rupees(row['limit'])}")
+        return row["id"], (f"{row['declared_by']} · {row['what']} · "
+                           f"{rupees(row['value'])}")
     # A feature whose rows the rail cannot name is a feature the rail cannot
     # operate: `_pick` would match nothing and every sentence would come back
     # as a clarification with blank options. Say so rather than degrade —
@@ -201,14 +206,20 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
 
 
 def _candidates(feature: FeatureManifest, handler: Feature,
-                scope: Scope) -> list[dict[str, Any]]:
+                scope: Scope, tab: str = "") -> list[dict[str, Any]]:
     """The rows an action could sensibly apply to right now.
 
-    The first tab is the one that holds what needs deciding, which is also
-    what the person is looking at when they ask.
+    The tab the person is looking at, because "that one" means a row they
+    can see. This used to be the first tab on the reasoning that it holds
+    what needs deciding — true until a feature gave one of its tabs a
+    different kind of row altogether, and then a sentence typed while
+    looking at declared items resolved against a list of people.
     """
     tabs = handler.tabs(scope)
-    return handler.rows(scope, tabs[0].key) if tabs else []
+    if not tabs:
+        return []
+    chosen = tab if any(t.key == tab for t in tabs) else tabs[0].key
+    return handler.rows(scope, chosen)
 
 
 def _pick(text: str, feature: FeatureManifest, rows: list[dict[str, Any]]
@@ -243,7 +254,8 @@ def _pick(text: str, feature: FeatureManifest, rows: list[dict[str, Any]]
 
 
 def interpret(fn_id: str, feature: FeatureManifest, handler: Feature,
-              scope: Scope, text: str, user: str) -> Proposal | Answer | Clarify:
+              scope: Scope, text: str, user: str,
+              tab: str = "") -> Proposal | Answer | Clarify:
     """Read a sentence against what is on screen. Changes nothing."""
     text = (text or "").strip()
     if not text:
@@ -251,7 +263,7 @@ def interpret(fn_id: str, feature: FeatureManifest, handler: Feature,
 
     action = _match_action(text, feature.actions)
     if action is None:
-        rows = _candidates(feature, handler, scope)
+        rows = _candidates(feature, handler, scope, tab)
         return Answer(
             text="",
             facts={
@@ -261,7 +273,19 @@ def interpret(fn_id: str, feature: FeatureManifest, handler: Feature,
             },
         )
 
-    rows = _candidates(feature, handler, scope)
+    # An action that needs a reason is never proposed. The reason is the
+    # substance of the decision — "not permitted because the vendor is in a
+    # live tender" — and a model that phrased it would be writing somebody
+    # else's justification onto a compliance record. Asking for it in the
+    # rail would not fix that: what makes it theirs is that they wrote it
+    # where the decision is made.
+    if action.note_label:
+        return Clarify(
+            f"{action.label} needs a reason in your own words, so it is done "
+            f"from the table rather than from here."
+        )
+
+    rows = _candidates(feature, handler, scope, tab)
     if not rows:
         return Answer(f"There is nothing here to {action.label.lower()}.")
 

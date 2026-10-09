@@ -123,6 +123,15 @@ class Action(BaseModel):
     #: sends a query to a deductor. These are confirmed one at a time and are
     #: never included in a bulk proposal the person did not name.
     outward: bool = False
+    #: When set, the person must give a reason and this is what to ask them.
+    #: "Why is this not permitted?" A decision that goes on an audit trail
+    #: without a reason is a decision nobody can review later.
+    #:
+    #: It also keeps the action away from the assistant: an action needing a
+    #: reason is never proposed from a sentence, because a justification a
+    #: model phrased is not the reviewer's justification, and a compliance
+    #: record is the last place for a plausible one.
+    note_label: str = ""
 
     def problems(self) -> list[str]:
         found: list[str] = []
@@ -132,6 +141,9 @@ class Action(BaseModel):
                                   (self.confirm, TEXT_MAX, "confirm text")):
             if why := _unusable(text, limit=limit, what=what):
                 found.append(f"action {self.id!r}: {why}")
+        if self.note_label and (why := _unusable(self.note_label, limit=NAME_MAX,
+                                                 what="note prompt")):
+            found.append(f"action {self.id!r}: {why}")
         return found
 
 

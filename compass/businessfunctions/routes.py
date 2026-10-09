@@ -72,7 +72,8 @@ def _feature_card(fn_id: str, feature) -> dict:
         "scope_why": feature.scope_why,
         "actions": [
             {"id": a.id, "label": a.label, "confirm": a.confirm,
-             "reversible": a.reversible, "outward": a.outward}
+             "reversible": a.reversible, "outward": a.outward,
+             "note_label": a.note_label}
             for a in feature.actions
         ],
         "forms": [
@@ -239,6 +240,10 @@ class ActBody(BaseModel):
     targets: list[str] = Field(default_factory=list)
     entity: str = ""
     period: str = ""
+    #: The reason, for an action whose manifest asks for one. Capped here so
+    #: an essay is refused before the handler sees it; the handler applies
+    #: its own, tighter limit and refuses an empty one.
+    note: str = Field(default="", max_length=4096)
 
 
 @router.post("/{function_id}/features/{feature_id}/act")
@@ -257,7 +262,7 @@ async def act(
     """
     _fn, _feature, handler = _resolve(function_id, feature_id)
     outcome = handler.act(_scope(user, body.entity, body.period),
-                          body.action, body.targets)
+                          body.action, body.targets, body.note)
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 
@@ -346,6 +351,9 @@ class AskBody(BaseModel):
     text: str
     entity: str = ""
     period: str = ""
+    #: Which view is open. "That one" means a row the person can see, and
+    #: which rows those are depends on the tab.
+    tab: str = ""
 
 
 @router.post("/{function_id}/features/{feature_id}/ask")
@@ -365,7 +373,8 @@ async def ask(
     """
     fn, feature, handler = _resolve(function_id, feature_id)
     scope = _scope(user, body.entity, body.period)
-    result = assistant.interpret(fn.id, feature, handler, scope, body.text, user)
+    result = assistant.interpret(fn.id, feature, handler, scope, body.text,
+                                 user, body.tab)
 
     if isinstance(result, assistant.Proposal):
         return {

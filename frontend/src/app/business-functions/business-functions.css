@@ -525,6 +525,31 @@
 .bf-facts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
 .bf-btn.quiet { border-color: transparent; color: var(--muted); }
 
+.bf-why { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.bf-why label { display: flex; flex-direction: column; gap: 4px; }
+.bf-why span {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bf-why textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  outline: none;
+  resize: vertical;
+}
+.bf-why textarea:focus { border-color: var(--accent); }
+
 /* ── rail ── */
 .bf-rail { flex: 0 0 316px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 

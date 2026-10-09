@@ -36,6 +36,8 @@ import datetime as dt
 import uuid
 from typing import Any
 
+from compass.common.config import get_settings
+
 from compass.businessfunctions.features.base import (
     Feature,
     Figure,
@@ -61,6 +63,37 @@ _KINDS = frozenset({"gift", "award", "voucher", "hospitality"})
 
 #: Periods already signed off. Nothing in them moves, for anybody.
 _CLOSED = {"FY 2024-25"}
+
+def _names_for(user: str) -> set[str]:
+    """Every login that resolves to this identity, and the identity itself.
+
+    `require_user` hands back the CANONICAL identity, and a deployment may
+    alias a login onto something else entirely — `admin` becomes somebody's
+    address. The stand-ins below are keyed by login name, because that is
+    what a person reading this file recognises, so the aliases are followed
+    back before either is consulted.
+
+    This was not theoretical. Keyed on the login alone, the role and the
+    conflict rule both silently matched nobody on a deployment that aliases
+    its accounts — the screen looked right and every rule that should have
+    fired stayed quiet. The directory this stands in for will answer for the
+    identity directly and none of this will be needed.
+    """
+    aliases = get_settings().auth.identity_aliases
+    return {user} | {login for login, ident in aliases.items() if ident == user}
+
+
+def _employee(user: str) -> str:
+    """The employee record this person is, or "" when Compass cannot say."""
+    for name in _names_for(user):
+        if found := _USER_IS.get(name):
+            return found
+    return ""
+
+
+def _is_reviewer(user: str) -> bool:
+    return bool(_names_for(user) & _REVIEWERS)
+
 
 #: Which employee the signed-in user is. A stand-in for the directory lookup
 #: that arrives with the store — it exists now so the conflict-of-interest
@@ -142,6 +175,35 @@ _MOST_PER_ITEM = 10_00_000
 _TEXT_MAX = 120
 
 
+#: What a review can conclude. Deliberately not "approved" and "rejected":
+#: a disclosure is a statement that something happened, and refusing it does
+#: not un-happen. What a reviewer decides is whether the record stands as
+#: made, whether they need to ask the person something, or whether what they
+#: were given was not permitted — and in every one of those the item still
+#: counts towards the limit.
+REVIEW_STATES = ("awaiting", "accepted", "queried", "breach")
+
+#: What each state says on the row.
+_STATE_WORDS = {
+    "awaiting": "awaiting review",
+    "accepted": "accepted",
+    "queried": "queried with the declarer",
+    "breach": "not permitted",
+}
+
+#: Who may review somebody else's disclosure. A stand-in for the role the
+#: directory will carry, in the same spirit as `_USER_IS`. It is a short list
+#: on purpose: a compliance system where any employee can clear another
+#: employee's disclosure has a review step in name only.
+_REVIEWERS = frozenset({"admin", "compliance"})
+
+#: Decisions taken on disclosed items: item id -> who, when, what and why.
+#: Beside the items rather than inside them because a decision is a record
+#: about the record — the item is what was declared, and this is what somebody
+#: did about it afterwards.
+_REVIEWED: dict[str, dict[str, Any]] = {}
+
+
 #: Who has been sent to Finance, and who has an accepted exception against
 #: them. Separate from the items because they are decisions about a person's
 #: year, not facts about one purchase.
@@ -199,6 +261,64 @@ def _whole_rupees(raw: str) -> int | None:
     if not cleaned.isdigit():
         return None
     return int(cleaned)
+
+
+def _review_of(item_id: str) -> dict[str, Any]:
+    """The decision on this item, or the absence of one."""
+    return _REVIEWED.get(item_id, {"state": "awaiting", "by": "", "note": ""})
+
+
+def _may_review(scope: Scope, item: dict[str, Any], state: str) -> bool:
+    """Whether this person can decide THIS declaration.
+
+    On the row, because the surface cannot work it out: it does not know who
+    holds the role and it does not know whose declaration this is. Drawing a
+    button that the server will refuse is worse than drawing none — the
+    person has already decided to do it by the time they are told they
+    cannot.
+    """
+    return (state == "awaiting"
+            and _is_reviewer(scope.user)
+            and _employee(scope.user) != item["employee_id"])
+
+
+def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
+    """One row per DECLARED ITEM, not per person.
+
+    Every other tab here lists people, because a limit is a thing a person
+    has. A review is a thing an item has, so this tab lists items — the same
+    reason Talent's balances tab lists leave types rather than requests.
+    """
+    out: list[dict[str, Any]] = []
+    for item in _items_for(scope):
+        if item["channel"] != "disclosed":
+            continue
+        review = _review_of(item["id"])
+        out.append({
+            "id": item["id"],
+            "employee_id": item["employee_id"],
+            "declared_by": item["recipient"],
+            "what": item["what"],
+            "kind": item["kind"],
+            "value": item["value"],
+            "given": item["given"],
+            "source": item["source"],
+            # Said on every row, in every state, because the one thing people
+            # will assume is that a queried item stops counting.
+            "counts": ("yes" if item["kind"] in COUNTS_TOWARDS_LIMIT
+                       else "later phase"),
+            "state": review["state"],
+            "status": _STATE_WORDS[review["state"]],
+            "reviewed_by": review["by"],
+            "reason": review["note"] or "—",
+            "can_review": _may_review(scope, item, review["state"]),
+        })
+    # Unreviewed first: the queue is the point of the tab.
+    return sorted(out, key=lambda r: (r["state"] != "awaiting", r["given"]))
+
+
+def _awaiting(scope: Scope) -> list[dict[str, Any]]:
+    return [r for r in _disclosed_rows(scope) if r["state"] == "awaiting"]
 
 
 def _totals(scope: Scope) -> list[dict[str, Any]]:
@@ -276,6 +396,9 @@ class RewardLens(Feature):
             Figure("unacknowledged", str(unack),
                    "not yet acknowledged" if unack else "all acknowledged",
                    "warn" if unack else "good"),
+            Figure("to_review", str(len(waiting := _awaiting(scope))),
+                   "declarations to review" if waiting else "every declaration reviewed",
+                   "warn" if waiting else "good"),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -286,8 +409,11 @@ class RewardLens(Feature):
             Tab("all", "Everyone", len(rows)),
             Tab("unacknowledged", "Awaiting acknowledgement",
                 len([r for r in rows if r["unacknowledged"]])),
-            Tab("disclosed", "Self-disclosed",
-                len([r for r in rows if r["disclosed"]])),
+            # Items, not people — so it carries its own key. The count is
+            # what is still waiting, because a tab badge showing everything
+            # ever declared is a badge nobody looks at twice.
+            Tab("disclosed", "Self-disclosed", len(_awaiting(scope)),
+                key_field="id"),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
@@ -297,7 +423,7 @@ class RewardLens(Feature):
         if tab == "unacknowledged":
             return [r for r in rows if r["unacknowledged"]]
         if tab == "disclosed":
-            return [r for r in rows if r["disclosed"]]
+            return _disclosed_rows(scope)
         return rows
 
     def rules(self, scope: Scope) -> list[str]:
@@ -307,19 +433,30 @@ class RewardLens(Feature):
         said: list[str] = []
         if any(r["over_limit"] for r in rows):
             said.append("over_limit")
-        mine = _USER_IS.get(scope.user)
+        mine = _employee(scope.user)
         if mine and any(r["employee_id"] == mine for r in rows):
             said.append("you_are_a_recipient")
-        if any(r["disclosed"] for r in rows):
+        if _awaiting(scope):
             said.append("disclosures_waiting")
+            if not _is_reviewer(scope.user):
+                said.append("review_is_a_role")
         return said
 
-    def act(self, scope: Scope, action: str, targets: list[str]) -> Outcome:
+    #: The actions that decide a declared ITEM rather than a person's year.
+    #: Separate because their targets are item ids, and mixing the two would
+    #: mean one list of targets that is sometimes people and sometimes not.
+    REVIEW_ACTIONS = ("accept_disclosure", "query_disclosure", "record_breach")
+
+    def act(self, scope: Scope, action: str, targets: list[str],
+            note: str = "") -> Outcome:
         if scope.period in _CLOSED:
             return Outcome(
                 ok=False,
                 said=f"{scope.period} has been signed off — nothing in it can change.",
             )
+
+        if action in self.REVIEW_ACTIONS:
+            return self._review(scope, action, targets, note)
 
         rows = {r["employee_id"]: r for r in _totals(scope)}
         chosen = [rows[t] for t in targets if t in rows]
@@ -329,7 +466,7 @@ class RewardLens(Feature):
         # The rule the whole feature exists for. Checked before anything else,
         # because a reviewer acting on their own year is not a smaller problem
         # when the action happens to be a reasonable one.
-        mine = _USER_IS.get(scope.user)
+        mine = _employee(scope.user)
         if mine and any(r["employee_id"] == mine for r in chosen):
             return Outcome(
                 ok=False,
@@ -410,6 +547,87 @@ class RewardLens(Feature):
 
         return Outcome(ok=False, said=f"RewardLens has no action called {action!r}.")
 
+    # ── reviewing what was declared ─────────────────────────────────────────
+    #
+    # What a reviewer decides is whether the record stands, whether they need
+    # to ask the declarer something, or whether what was given was not
+    # permitted. What they cannot decide is whether it counts: the total is
+    # the sum of what was received, and a figure that moved because somebody
+    # disagreed with an item would be a figure worth arguing with. So none of
+    # these touch the item, its value or the total — they record a decision
+    # beside it, with a name against it.
+
+    def _review(self, scope: Scope, action: str, targets: list[str],
+                note: str) -> Outcome:
+        if not _is_reviewer(scope.user):
+            return Outcome(
+                ok=False,
+                said="Reviewing a declaration is a compliance role. Yours is "
+                     "not one, so you can see these and not decide them.",
+            )
+
+        rows = {r["id"]: r for r in _disclosed_rows(scope)}
+        chosen = [rows[t] for t in targets if t in rows]
+        if not chosen:
+            return Outcome(ok=False, said="No declaration by that id is in this view.")
+        if len(chosen) > 1:
+            return Outcome(
+                ok=False,
+                said="Each declaration is decided on its own. Name the one "
+                     "you mean.",
+            )
+        row = chosen[0]
+
+        # The conflict rule, at the level a review happens. The person-level
+        # one above would not catch this: reviewing your own declaration is
+        # not an action on your row, it is an action on your item.
+        if _employee(scope.user) == row["employee_id"]:
+            return Outcome(
+                ok=False,
+                said="That is your own declaration. Declaring it was the right "
+                     "thing; deciding it is somebody else's.",
+            )
+
+        if row["state"] != "awaiting":
+            return Outcome(
+                ok=False,
+                said=f"{row['what']} was already {_STATE_WORDS[row['state']]}"
+                     f"{' by ' + row['reviewed_by'] if row['reviewed_by'] else ''}.",
+            )
+
+        wants_reason = action in ("query_disclosure", "record_breach")
+        if wants_reason and not note.strip():
+            return Outcome(
+                ok=False,
+                said="Say why. A decision on somebody's record with no reason "
+                     "against it is one nobody can review later.",
+            )
+        if len(note) > _TEXT_MAX:
+            return Outcome(
+                ok=False,
+                said=f"Keep the reason under {_TEXT_MAX} characters.",
+            )
+
+        state = {"accept_disclosure": "accepted",
+                 "query_disclosure": "queried",
+                 "record_breach": "breach"}[action]
+        _REVIEWED[row["id"]] = {"state": state, "by": scope.user,
+                                "note": note.strip()}
+
+        still = (f"It still counts towards {row['declared_by']}'s total."
+                 if row["counts"] == "yes" else
+                 f"It is recorded against {row['declared_by']} and is not "
+                 f"counted yet.")
+        said = {
+            "accepted": f"{row['what']} accepted as declared. {still}",
+            "queried": f"Asked {row['declared_by']} about {row['what']}. "
+                       f"{still} Nothing about the record changes while you "
+                       f"wait for an answer.",
+            "breach": f"{row['what']} recorded as not permitted, with your "
+                      f"reason against it. {still}",
+        }[state]
+        return Outcome(ok=True, said=said, touched=[row["id"]])
+
     # ── self-disclosure ─────────────────────────────────────────────────────
     #
     # The one path where a person writes into this feature rather than
@@ -446,7 +664,7 @@ class RewardLens(Feature):
                      f"since belongs to the current year.",
             )
 
-        mine = _USER_IS.get(scope.user)
+        mine = _employee(scope.user)
         if not mine:
             return None, Outcome(
                 ok=False,

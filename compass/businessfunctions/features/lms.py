@@ -104,7 +104,8 @@ class Lms(Feature):
     def rules(self, scope: Scope) -> list[str]:
         return ["team_only"]
 
-    def act(self, scope: Scope, action: str, targets: list[str]) -> Outcome:
+    def act(self, scope: Scope, action: str, targets: list[str],
+            note: str = "") -> Outcome:
         rows = {r["id"]: r for r in _queue_for(scope)}
         chosen = [rows[t] for t in targets if t in rows]
         if not chosen:

@@ -126,8 +126,14 @@ class Feature(ABC):
         """Ids of the manifest rules that are true right now. None by default."""
         return []
 
-    def act(self, scope: Scope, action: str, targets: list[str]) -> Outcome:
-        """Perform one action. Refusing is a normal outcome, not an error."""
+    def act(self, scope: Scope, action: str, targets: list[str],
+            note: str = "") -> Outcome:
+        """Perform one action. Refusing is a normal outcome, not an error.
+
+        `note` is the reason the person gave, for actions whose manifest asks
+        for one. It is theirs — nothing here writes it, suggests it or fills
+        it in, because its only value is that a person wrote it.
+        """
         return Outcome(ok=False, said=f"{self.key} cannot {action} yet.")
 
     # ── creating a row, rather than deciding one ────────────────────────────

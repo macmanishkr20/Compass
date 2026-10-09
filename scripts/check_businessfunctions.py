@@ -72,7 +72,7 @@ def fixtures():
     """
     before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
               copy.deepcopy(rl_mod._ITEMS), set(rl_mod._REFERRED),
-              set(rl_mod._EXCEPTED))
+              set(rl_mod._EXCEPTED), copy.deepcopy(rl_mod._REVIEWED))
     try:
         yield
     finally:
@@ -81,6 +81,7 @@ def fixtures():
         rl_mod._ITEMS[:] = before[2]
         rl_mod._REFERRED.clear(); rl_mod._REFERRED.update(before[3])
         rl_mod._EXCEPTED.clear(); rl_mod._EXCEPTED.update(before[4])
+        rl_mod._REVIEWED.clear(); rl_mod._REVIEWED.update(before[5])
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -1069,6 +1070,202 @@ def check_what_was_declared_is_what_was_recorded() -> None:
        any(r["employee_id"] == "E-1066" for r in h.rows(s, "disclosed")))
 
 
+def check_reviewing_never_changes_what_was_received() -> None:
+    """The invariant the whole workflow stands on.
+
+    A review decides whether the record stands, whether to ask the declarer
+    something, or whether what they were given was not permitted. It does
+    not decide whether it counts. A total that moved because a reviewer
+    disagreed would be a total worth arguing with, and would give everybody
+    a reason to contest rather than declare.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    def totals() -> dict[str, int]:
+        return {r["employee_id"]: r["total"] for r in h.rows(c, "all")}
+
+    before = totals()
+    waiting = h.rows(c, "disclosed")
+    ok("there are declarations waiting to review", len(waiting) >= 2, str(len(waiting)))
+
+    ok("accepting one leaves every total alone",
+       h.act(c, "accept_disclosure", [waiting[0]["id"]]).ok and totals() == before)
+    ok("querying one leaves every total alone",
+       h.act(c, "query_disclosure", [waiting[1]["id"]],
+             "The value looks like the whole dinner.").ok and totals() == before)
+
+    # And the one somebody would most expect to remove it. A fresh
+    # declaration, so the breach is tested on something nobody has decided.
+    ok("a new declaration arrives",
+       h.submit(Scope(user="enduser", period="FY 2026-27"), "disclose", {
+           "what": "Cricket tickets", "kind": "voucher", "value": "1500",
+           "given": "2026-09-30", "source": "Vendor · Northwind"}).ok)
+    with_it = totals()
+    fresh = next(r for r in h.rows(c, "disclosed") if r["what"] == "Cricket tickets")
+    ok("it counts the moment it is recorded, before anybody reviews it",
+       with_it["E-1066"] == before["E-1066"] + 1500,
+       f"{before['E-1066']} -> {with_it['E-1066']}")
+
+    ok("recording a breach is allowed with a reason",
+       h.act(c, "record_breach", [fresh["id"]], "Vendor is in a live tender.").ok)
+    ok("and it STILL counts — a breach does not un-receive a gift",
+       totals() == with_it, f"{with_it['E-1066']} -> {totals()['E-1066']}")
+    ok("the item is still on the person's breakdown",
+       any("Cricket tickets" in r["breakdown"] for r in h.rows(c, "all")))
+
+    reviewed = {r["id"]: r for r in h.rows(c, "disclosed")}
+    ok("every row says whether it counts, in every state",
+       all(r["counts"] in ("yes", "later phase") for r in reviewed.values()))
+
+
+def check_a_declaration_is_decided_by_somebody_else() -> None:
+    """Two separations, and they are different.
+
+    The person-level rule stops a reviewer acting on their own YEAR. This
+    one stops them deciding their own DECLARATION, which is not an action on
+    their row and so slips past the first one entirely.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    admin = Scope(user="admin", period="FY 2026-27")       # a reviewer
+    other = Scope(user="compliance", period="FY 2026-27")  # another reviewer
+    plain = Scope(user="enduser", period="FY 2026-27")     # not a reviewer
+
+    ok("a reviewer declares like anybody else",
+       h.submit(admin, "disclose", {
+           "what": "Vendor hamper", "kind": "gift", "value": "3000",
+           "given": "2026-12-02", "source": "Acme"}).ok)
+    mine = next(r for r in h.rows(admin, "disclosed")
+                if r["employee_id"] == "E-1052")
+
+    ok("and cannot then decide their own",
+       not (o := h.act(admin, "accept_disclosure", [mine["id"]])).ok
+       and "your own declaration" in o.said, o.said)
+    ok("somebody without the role cannot decide anybody's",
+       not (o := h.act(plain, "accept_disclosure", [mine["id"]])).ok
+       and "compliance role" in o.said, o.said)
+    ok("but they are still shown the declarations",
+       h.rows(plain, "disclosed"))
+    ok("and are offered no button they could not have used",
+       not any(r["can_review"] for r in h.rows(plain, "disclosed")))
+    ok("a reviewer is offered the ones that are not their own",
+       all(r["can_review"] for r in h.rows(other, "disclosed")
+           if r["state"] == "awaiting" and r["employee_id"] != "E-1052"))
+    ok("and not their own",
+       not next(r for r in h.rows(admin, "disclosed")
+                if r["employee_id"] == "E-1052")["can_review"])
+    ok("and told why the buttons are not theirs",
+       "review_is_a_role" in h.rules(plain), str(h.rules(plain)))
+    ok("a reviewer who is not the declarer can decide it",
+       h.act(other, "accept_disclosure", [mine["id"]]).ok)
+
+
+def check_a_decision_carries_a_reason_and_a_name() -> None:
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    by_id = {a.id: a for a in feat.actions}
+
+    ok("accepting as declared needs no reason", not by_id["accept_disclosure"].note_label)
+    ok("querying asks for one", by_id["query_disclosure"].note_label)
+    ok("a breach asks for one", by_id["record_breach"].note_label)
+
+    item = h.rows(c, "disclosed")[0]["id"]
+    ok("a breach with no reason is refused",
+       not (o := h.act(c, "record_breach", [item])).ok and "Say why" in o.said, o.said)
+    ok("a reason longer than the cap is refused",
+       not h.act(c, "record_breach", [item], "x" * 5000).ok)
+    ok("with a reason it is recorded",
+       h.act(c, "record_breach", [item], "Vendor is in a live tender.").ok)
+
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item)
+    ok("the row carries who decided it", row["reviewed_by"] == "compliance")
+    ok("and the reason they gave, as they wrote it",
+       row["reason"] == "Vendor is in a live tender.", row["reason"])
+    ok("deciding it twice is refused, saying who already did",
+       not (o := h.act(c, "accept_disclosure", [item])).ok
+       and "compliance" in o.said, o.said)
+    ok("two at once is refused", not h.act(
+        c, "accept_disclosure", [r["id"] for r in h.rows(c, "disclosed")]).ok)
+    ok("a signed-off year decides nothing",
+       not h.act(Scope(user="compliance", period="FY 2024-25"),
+                 "accept_disclosure", [item]).ok)
+
+
+def check_the_model_does_not_write_the_justification() -> None:
+    """An action needing a reason is never proposed from a sentence.
+
+    Not a limitation worked around — the point. "Not permitted because the
+    vendor is in a live tender" IS the decision, and a plausible sentence a
+    model produced is the last thing that should sit on a compliance record
+    under somebody else's name.
+    """
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+
+    for sentence in ("Mark it not permitted", "record_breach", "Query it"):
+        r = assistant.interpret("scs", feat, h, c, sentence, "compliance", "disclosed")
+        ok(f"{sentence!r} is not turned into a plan",
+           isinstance(r, assistant.Clarify) and "your own words" in r.text,
+           f"{type(r).__name__}: {getattr(r, 'text', '')[:60]}")
+
+    # Accepting as declared carries no reason, so the rail may still do it.
+    r = assistant.interpret("scs", feat, h, c, "Accept Priya's declaration",
+                            "compliance", "disclosed")
+    ok("accepting, which needs no reason, is still proposable",
+       isinstance(r, assistant.Proposal), type(r).__name__)
+    ok("and it resolves against the tab that is open, not the first one",
+       isinstance(r, assistant.Proposal)
+       and all(t.id.startswith(("G-", "D-")) for t in r.targets),
+       str(isinstance(r, assistant.Proposal) and [t.id for t in r.targets]))
+    ok("confirming it decides that declaration",
+       assistant.confirm(r.id, "compliance", h).ok)
+
+    # The same sentence on the people tab means a person, and still does.
+    person = assistant.interpret("scs", feat, h, c, "Refer John to Finance",
+                                 "compliance", "over")
+    ok("a sentence on the people tab still resolves to a person",
+       isinstance(person, assistant.Proposal)
+       and [t.id for t in person.targets] == ["E-1007"],
+       str(isinstance(person, assistant.Proposal) and [t.id for t in person.targets]))
+
+
+def check_who_you_are_survives_an_alias() -> None:
+    """A deployment that renames its logins must not silently lose the rules.
+
+    `require_user` returns the CANONICAL identity, and a deployment may
+    alias a login onto something else — `admin` onto an address. Keyed on
+    the login alone, the reviewer role and the conflict-of-interest rule
+    both matched nobody: every screen rendered, every figure was right, and
+    the two rules that exist to stop somebody deciding their own record
+    quietly never fired. Nothing but signing in as a real aliased account
+    showed it.
+    """
+    settings = get_settings()
+    kept = dict(settings.auth.identity_aliases)
+    try:
+        settings.auth.identity_aliases = {"admin": "someone@example.test"}
+        _, _f, h = registry.feature_of("scs", "rewardlens")
+        aliased = Scope(user="someone@example.test", period="FY 2026-27")
+
+        ok("an aliased login is still the employee it maps to",
+           "you_are_a_recipient" in h.rules(aliased), str(h.rules(aliased)))
+        ok("and still holds the reviewer role",
+           "review_is_a_role" not in h.rules(aliased))
+        ok("so the declarations are decidable",
+           all(r["can_review"] for r in h.rows(aliased, "disclosed")))
+        ok("and their own row is still refused",
+           not h.act(aliased, "refer_to_finance", ["E-1052"]).ok)
+
+        ok("somebody the aliases do not name is still nobody",
+           not (o := h.preview(Scope(user="stranger@example.test",
+                                     period="FY 2026-27"), "disclose", {
+               "what": "x", "kind": "gift", "value": "100",
+               "given": "2026-12-02", "source": "y"})).ok
+           and "which employee record" in o.said, o.said)
+    finally:
+        settings.auth.identity_aliases = kept
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -1125,6 +1322,16 @@ def main() -> int:
         check_a_declaration_cannot_be_nonsense()
     with fixtures():
         check_what_was_declared_is_what_was_recorded()
+    with fixtures():
+        check_reviewing_never_changes_what_was_received()
+    with fixtures():
+        check_a_declaration_is_decided_by_somebody_else()
+    with fixtures():
+        check_a_decision_carries_a_reason_and_a_name()
+    with fixtures():
+        check_the_model_does_not_write_the_justification()
+    with fixtures():
+        check_who_you_are_survives_an_alias()
     with fixtures():
         check_every_row_can_be_pointed_at()
     with fixtures():

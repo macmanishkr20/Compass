@@ -24,6 +24,13 @@ import {
   PlanTarget,
 } from './bf-api';
 
+/** The actions that decide a declared item rather than a person's year.
+ *  Named here so the table can tell the two sets apart; which of them a
+ *  given row may take is still the server's answer, not this list's. */
+const REVIEW_ACTIONS = new Set([
+  'accept_disclosure', 'query_disclosure', 'record_breach',
+]);
+
 /** One line in the rail: what was said, by whom, and what it was about. */
 interface RailTurn {
   who: 'you' | 'assistant';
@@ -251,15 +258,45 @@ export class BusinessFunctions {
     return this.aimed().has(this.rowId(row));
   }
 
-  /** A row button: act now, because the click said which row. */
-  async rowAct(action: ActionSpec, row: Record<string, unknown>): Promise<void> {
+  // -- an action that asks for a reason. Which row it is about and what has
+  //    been typed so far; both cleared the moment it is done or dropped.
+  readonly asking = signal<{ action: ActionSpec; row: string } | null>(null);
+  readonly reason = signal('');
+
+  /** Begin an action that needs a reason, rather than performing it. */
+  askReason(action: ActionSpec, row: Record<string, unknown>): void {
+    this.asking.set({ action, row: this.rowId(row) });
+    this.reason.set('');
+  }
+
+  dropReason(): void {
+    this.asking.set(null);
+    this.reason.set('');
+  }
+
+  isAsking(action: ActionSpec, row: Record<string, unknown>): boolean {
+    const open = this.asking();
+    return !!open && open.action.id === action.id && open.row === this.rowId(row);
+  }
+
+  /** A row button: act now, because the click said which row.
+   *
+   *  Unless the action wants a reason, in which case the click opens a box
+   *  and nothing happens until the person has written one. */
+  async rowAct(action: ActionSpec, row: Record<string, unknown>,
+               note = ''): Promise<void> {
     const fn = this.current();
     if (!fn) return;
+    if (action.note_label && !note.trim()) {
+      this.askReason(action, row);
+      return;
+    }
     const id = this.rowId(row);
     try {
       const out = await this.api.act(fn.id, this.featureId(), {
-        action: action.id, targets: [id], ...this.scope(),
+        action: action.id, targets: [id], note, ...this.scope(),
       });
+      this.dropReason();
       if (out.ok) this.notice.ok(out.said);
       else this.notice.error(out.said);
       await this.refresh();
@@ -282,6 +319,18 @@ export class BusinessFunctions {
       return status === 'open' ? all.filter((a) => a.id !== 'undo') : [];
     }
     if (this.featureId() === 'rewardlens') {
+      // A declared item is reviewed; a person's year is referred, chased or
+      // excepted. Two kinds of row, so two sets of buttons, and neither is
+      // ever offered against the other.
+      if (this.feature()?.tab === 'disclosed') {
+        // The server decides, because only it knows who holds the reviewer
+        // role and whose declaration this is. Asking the row rather than
+        // guessing from the state is what stops somebody being offered a
+        // button and then told they could not have used it.
+        return row['can_review'] === true
+          ? all.filter((a) => REVIEW_ACTIONS.has(a.id))
+          : [];
+      }
       // Only what this row can actually take. A referral that would be
       // refused is a button that should not have been drawn.
       const over = row['over_limit'] === true;
@@ -422,7 +471,9 @@ export class BusinessFunctions {
     this.thinking.set(true);
     try {
       const result = await this.api.ask(fn.id, this.featureId(), {
-        text: question, ...this.scope(),
+        // The tab too: "that one" means a row they can see, and which rows
+        // those are depends on which view is open.
+        text: question, tab: this.feature()?.tab ?? '', ...this.scope(),
       });
       this.render(result);
     } catch (err) {
@@ -532,7 +583,19 @@ export class BusinessFunctions {
     }
     // RewardLens lists people, not purchases. A list of purchases is what the
     // firm already had; the total against the limit is the thing it did not.
+    // Except on the declarations tab: a review is a thing an ITEM has, so
+    // that one lists items.
     if (this.featureId() === 'rewardlens') {
+      if (this.feature()?.tab === 'disclosed') {
+        return [
+          { key: 'declared_by', label: 'Declared by' },
+          { key: 'what', label: 'What' },
+          { key: 'value', label: 'Value', numeric: true },
+          { key: 'given', label: 'Received' },
+          { key: 'counts', label: 'Counts' },
+          { key: 'status', label: 'Review' },
+        ];
+      }
       return [
         { key: 'recipient', label: 'Person' },
         { key: 'items_counted', label: 'Items', numeric: true },
@@ -573,6 +636,9 @@ export class BusinessFunctions {
     if (key === 'total' || key === 'excess' || key === 'headroom' || key === 'limit') {
       return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
     }
+    // A declared item's own amount. Never '—' at zero: the server refuses a
+    // declaration of nothing, so a zero here would be a bug worth seeing.
+    if (key === 'value') return BusinessFunctions.rupees(Number(value));
     if (key === 'waiting_days') return `${value}d`;
     return String(value);
   }
@@ -584,7 +650,7 @@ export class BusinessFunctions {
     const shown = new Set(this.columns().map((c) => c.key));
     const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days',
                       'employee_id', 'over_limit', 'referred', 'exception',
-                      'disclosed', 'items']);
+                      'disclosed', 'items', 'state', 'can_review']);
     return Object.entries(row)
       .filter(([k]) => !skip.has(k))
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: this.cell(row, k) }));

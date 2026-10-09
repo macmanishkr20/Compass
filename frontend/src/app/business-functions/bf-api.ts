@@ -33,6 +33,10 @@ export interface ActionSpec {
   reversible: boolean;
   /** Reaches past Compass — notifies somebody, books days. Taken one at a time. */
   outward: boolean;
+  /** When set, what to ask the person before doing it. An action with a
+   *  reason prompt is never offered by the assistant: the reason is the
+   *  substance of the decision and has to be the reviewer's own. */
+  note_label: string;
 }
 
 export interface FeatureCard {
@@ -200,7 +204,10 @@ export class BusinessFunctionsApi {
   act(
     fnId: string,
     featureId: string,
-    body: { action: string; targets: string[]; entity?: string; period?: string },
+    body: {
+      action: string; targets: string[]; note?: string;
+      entity?: string; period?: string;
+    },
   ): Promise<ActResult> {
     return firstValueFrom(
       this.http.post<ActResult>(`${ROOT}/${fnId}/features/${featureId}/act`, body),
@@ -239,7 +246,7 @@ export class BusinessFunctionsApi {
   ask(
     fnId: string,
     featureId: string,
-    body: { text: string; entity?: string; period?: string },
+    body: { text: string; tab?: string; entity?: string; period?: string },
   ): Promise<AskResult> {
     return firstValueFrom(
       this.http.post<AskResult>(`${ROOT}/${fnId}/features/${featureId}/ask`, body),

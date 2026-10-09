@@ -128,7 +128,8 @@ class Form26(Feature):
             return ["prepared_by_you"]
         return []
 
-    def act(self, scope: Scope, action: str, targets: list[str]) -> Outcome:
+    def act(self, scope: Scope, action: str, targets: list[str],
+            note: str = "") -> Outcome:
         if scope.period in _CLOSED:
             return Outcome(
                 ok=False,
