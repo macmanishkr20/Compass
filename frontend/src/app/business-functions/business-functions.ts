@@ -11,11 +11,13 @@ import { NoticeService } from '../notice.service';
 import { BusinessFunctionsLayout } from './bf-layout.service';
 import {
   ActionSpec,
+  ActResult,
   AskResult,
   BusinessFunctionsApi,
   FeatureCard,
   FeatureView,
   Figure,
+  FormSpec,
   FunctionCard,
   FunctionDetail,
   Plan,
@@ -96,6 +98,15 @@ export class BusinessFunctions {
 
   /** Which rows a waiting plan would touch, so the table can mark them. */
   readonly aimed = signal<Set<string>>(new Set());
+
+  // -- a form, when one is open. Three signals rather than one object so a
+  //    keystroke repaints the field and not the whole panel.
+  readonly openForm = signal<FormSpec | null>(null);
+  readonly entered = signal<Record<string, string>>({});
+  /** What the server said this entry would do. Cleared by every edit, because
+   *  a preview of what you typed a moment ago is worse than none. */
+  readonly previewed = signal<ActResult | null>(null);
+  readonly saving = signal(false);
 
   readonly rail = computed(() => this.feature()?.rail ?? this.current()?.rail ?? null);
   readonly atOverview = computed(() => this.feature() === null);
@@ -282,6 +293,91 @@ export class BusinessFunctions {
         || (a.id === 'chase_acknowledgement' && unack));
     }
     return all;
+  }
+
+  // ── forms ───────────────────────────────────────────────────────────────
+  //
+  // A form makes a row rather than deciding one, so it is not an action and
+  // does not go through the rail. The assistant is deliberately not involved:
+  // a declaration is the person's own statement about what they were given,
+  // and one phrased for them is not their statement.
+
+  startForm(form: FormSpec): void {
+    this.openForm.set(form);
+    this.previewed.set(null);
+    // Date fields start on today, which is right far more often than blank
+    // and is the only default worth guessing.
+    const today = new Date().toISOString().slice(0, 10);
+    const start: Record<string, string> = {};
+    for (const field of form.fields) start[field.id] = field.kind === 'date' ? today : '';
+    this.entered.set(start);
+  }
+
+  closeForm(): void {
+    this.openForm.set(null);
+    this.entered.set({});
+    this.previewed.set(null);
+  }
+
+  setField(id: string, value: string): void {
+    this.entered.update((v) => ({ ...v, [id]: value }));
+    // What they were told no longer describes what is in the boxes.
+    this.previewed.set(null);
+  }
+
+  /** Every required field has something in it. Not validation — the server
+   *  decides what the values mean; this only stops an obviously empty send. */
+  readonly formReady = computed(() => {
+    const form = this.openForm();
+    if (!form) return false;
+    const values = this.entered();
+    return form.fields.every((f) => !f.required || (values[f.id] ?? '').trim());
+  });
+
+  async checkForm(): Promise<void> {
+    const fn = this.current();
+    const form = this.openForm();
+    if (!fn || !form) return;
+    this.saving.set(true);
+    try {
+      this.previewed.set(
+        await this.api.previewForm(fn.id, this.featureId(), form.id, {
+          values: this.entered(), ...this.scope(),
+        }),
+      );
+    } catch (err) {
+      this.notice.error(`Could not check that: ${err}`);
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async submitForm(): Promise<void> {
+    const fn = this.current();
+    const form = this.openForm();
+    if (!fn || !form) return;
+    this.saving.set(true);
+    try {
+      const out = await this.api.submitForm(fn.id, this.featureId(), form.id, {
+        values: this.entered(), ...this.scope(),
+      });
+      if (out.ok) {
+        this.notice.ok(out.said);
+        // Said in the rail too: what a declaration did to a total is the
+        // thing worth still having on screen after the panel closes.
+        this.say(out.said);
+        this.closeForm();
+        await this.refresh();
+      } else {
+        // A refusal is an answer, not an error — it stays in the panel beside
+        // the boxes it is about, so the person can fix what it names.
+        this.previewed.set(out);
+      }
+    } catch (err) {
+      this.notice.error(`That did not go through: ${err}`);
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   // ── the rail ────────────────────────────────────────────────────────────

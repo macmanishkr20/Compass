@@ -16,6 +16,8 @@ holds the data and the judgement:
     rows()      the table under the selected tab
     rules()     which of the manifest's rules apply *right now*
     act()       perform one action against named rows, and say what happened
+    preview()   say what a filled-in form would do, without doing it
+    submit()    record it
 
 `rules()` is the interesting one. The manifest writes "Read-only. FY24 was
 signed on 12 April"; only the handler knows the period is closed and who
@@ -127,6 +129,33 @@ class Feature(ABC):
     def act(self, scope: Scope, action: str, targets: list[str]) -> Outcome:
         """Perform one action. Refusing is a normal outcome, not an error."""
         return Outcome(ok=False, said=f"{self.key} cannot {action} yet.")
+
+    # ── creating a row, rather than deciding one ────────────────────────────
+    #
+    # `act` operates on rows that already exist, so everything it needs in
+    # order to refuse is in front of it. A form arrives with values that came
+    # from a person and from nothing else, which is a different problem: there
+    # is no row to check, the handler validates every value itself, and the
+    # person sees what their entry would do before it is recorded.
+
+    def accepts(self, form_id: str) -> set[str]:
+        """Field ids this handler understands for that form.
+
+        Declared so the catalog can refuse a manifest that disagrees with the
+        code. A field somebody fills in that the handler ignores is worse than
+        a missing field: the person believes they declared it.
+        """
+        return set()
+
+    def preview(self, scope: Scope, form_id: str,
+                values: dict[str, str]) -> Outcome:
+        """Say what recording this would do. Changes nothing."""
+        return Outcome(ok=False, said=f"{self.key} has no form called {form_id!r}.")
+
+    def submit(self, scope: Scope, form_id: str,
+               values: dict[str, str]) -> Outcome:
+        """Record it. Validates again rather than trusting the preview."""
+        return Outcome(ok=False, said=f"{self.key} has no form called {form_id!r}.")
 
 
 #: handler key -> instance. Flat and module-level: handlers are stateless

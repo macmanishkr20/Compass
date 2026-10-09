@@ -111,7 +111,8 @@ def _load_one(folder: Path) -> FunctionManifest | None:
     # handler is a startup warning rather than a 500 the first time somebody
     # opens the feature.
     for feature in fn.features:
-        if features.get(feature.handler) is None:
+        handler = features.get(feature.handler)
+        if handler is None:
             logger.warning(
                 "skipping %s: feature %r names handler %r, which nothing "
                 "registered (known: %s)",
@@ -119,6 +120,22 @@ def _load_one(folder: Path) -> FunctionManifest | None:
                 ", ".join(features.keys()) or "none",
             )
             return None
+
+        # A form and the code behind it must agree on the fields, exactly.
+        # A declared field the handler ignores is the dangerous half: somebody
+        # types it, the form accepts it, and it is dropped — so this refuses
+        # the whole function rather than loading a form that lies.
+        for form in feature.forms:
+            declared = {item.id for item in form.fields}
+            understood = handler.accepts(form.id)
+            if declared != understood:
+                logger.warning(
+                    "skipping %s: form %r of feature %r asks for %s but %r "
+                    "understands %s",
+                    path, form.id, feature.id, sorted(declared),
+                    feature.handler, sorted(understood),
+                )
+                return None
 
     return fn
 

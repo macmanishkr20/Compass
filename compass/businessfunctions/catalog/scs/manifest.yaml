@@ -65,6 +65,46 @@ features:
           remove the breach.
         reversible: false
 
+    forms:
+      - id: disclose
+        label: Declare something you were given
+        blurb: >-
+          Anything you received that did not come through Procurement — a
+          hamper from a vendor, a gift at a client site. It is recorded
+          against your name and counts towards your annual limit from the
+          moment you record it, not from when somebody reviews it.
+        submit_label: Record it
+        confirm: >-
+          Records this against your own name. It cannot be edited or
+          withdrawn afterwards, because the point of the record is that it
+          did not change after the fact.
+        fields:
+          - id: what
+            label: What it was
+            kind: text
+            help: A hamper, a watch, tickets. Enough for somebody to recognise it.
+          - id: kind
+            label: Type
+            kind: choice
+            options: [gift, award, voucher, hospitality]
+            help: >-
+              Gifts, awards and vouchers count towards the limit. Hospitality
+              is recorded now and added to the total in a later phase.
+          - id: value
+            label: What it was worth
+            kind: money
+            help: >-
+              Whole rupees. Your best estimate is fine — an estimate on the
+              record is worth more than an exact figure that is not.
+          - id: given
+            label: When you received it
+            kind: date
+            help: It counts towards the year it was received in.
+          - id: source
+            label: Who gave it to you
+            kind: text
+            help: The vendor, client or team. Not the person who handed it over.
+
     rules:
       - id: over_limit
         headline: Someone is over the annual limit.

@@ -43,6 +43,8 @@ from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E40
 from compass.businessfunctions.manifest import (  # noqa: E402
     WITHHELD_TOOLS,
     FeatureManifest,
+    Form,
+    FormField,
 )
 from compass.common.config import (  # noqa: E402
     BusinessFunctionSettings,
@@ -494,8 +496,22 @@ def check_the_routes_are_mounted_only_when_switched_on() -> None:
 
     get_settings().business_functions.enabled = True
     on = {r.path for r in importlib.reload(server).app.routes}
-    ok("switched on, the surface appears",
-       len([p for p in on if "business-functions" in p]) == 7,
+    # The whole surface, spelled out. A count would have let a route be
+    # swapped for another without anybody noticing.
+    root = "/v1/business-functions"
+    feature = f"{root}/{{function_id}}/features/{{feature_id}}"
+    ok("switched on, the surface appears — and is exactly this",
+       {p for p in on if "business-functions" in p} == {
+           root,
+           f"{root}/{{function_id}}",
+           feature,
+           f"{feature}/act",
+           f"{feature}/ask",
+           f"{feature}/forms/{{form_id}}",
+           f"{feature}/forms/{{form_id}}/preview",
+           f"{root}/plans/{{plan_id}}/confirm",
+           f"{root}/plans/{{plan_id}}/cancel",
+       },
        str(sorted(p for p in on if "business-functions" in p)))
     ok("switching it on adds nothing else",
        (on - off) == {p for p in on if "business-functions" in p})
@@ -891,6 +907,168 @@ def check_every_row_can_be_pointed_at() -> None:
        not h.act(s, "refer_to_finance", [""]).ok)
 
 
+def check_a_form_and_its_code_agree() -> None:
+    """A declared field the handler ignores is worse than a missing one.
+
+    The person believes they declared it. So the catalog refuses to load a
+    function whose form asks for anything the handler does not understand,
+    and this is that refusal, exercised rather than assumed.
+    """
+    for fn in registry.all_functions():
+        for feat in fn.features:
+            h = features.get(feat.handler)
+            for form in feat.forms:
+                declared = {x.id for x in form.fields}
+                ok(f"{fn.id}/{feat.id}/{form.id}: the code understands every field",
+                   declared == h.accepts(form.id),
+                   f"form {sorted(declared)} vs code {sorted(h.accepts(form.id))}")
+
+    bad = FeatureManifest(
+        id="x", name="X", short="x", blurb="x", handler="rewardlens",
+        scope=["period"], choices={"period": ["FY 2026-27"]},
+        scope_why="because the limit is annual and a year is the unit",
+        forms=[Form(id="disclose", label="Declare", blurb="b",
+                    submit_label="Record it", confirm="c",
+                    fields=[FormField(id="what", label="What"),
+                            FormField(id="nickname", label="Nickname")])],
+    )
+    handler = features.get("rewardlens")
+    ok("a form asking for a field nobody coded is a field the code would drop",
+       {x.id for x in bad.forms[0].fields} != handler.accepts("disclose"))
+
+    ok("a choice with nothing to choose is refused",
+       any("nothing to choose" in why for why in Form(
+           id="f", label="L", blurb="b", submit_label="S", confirm="c",
+           fields=[FormField(id="k", label="K", kind="choice")]).problems()))
+    ok("a form with no fields is refused",
+       any("no fields" in why for why in Form(
+           id="f", label="L", blurb="b", submit_label="S",
+           confirm="c").problems()))
+
+
+def check_a_declaration_is_about_yourself() -> None:
+    """Who it is recorded against comes from the session and nowhere else.
+
+    There is no field for whose record to write to, and no handler argument
+    for it either: the only name in play is `scope.user`, which the route
+    takes from the signed-in person.
+    """
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    form = feat.forms[0]
+    ok("the form has no field naming somebody else",
+       not ({x.id for x in form.fields} & {"employee", "employee_id", "recipient",
+                                           "on_behalf_of", "person"}),
+       str(sorted(x.id for x in form.fields)))
+
+    entry = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
+             "given": "2026-12-02", "source": "Acme Logistics"}
+
+    # admin is Aisha Khan at 12,000; enduser is Vikram Rao at 2,500. The same
+    # values recorded by two people land on two different years.
+    before = {r["employee_id"]: r["total"] for r in
+              h.rows(Scope(user="compliance", period="FY 2026-27"), "all")}
+    h.submit(Scope(user="admin", period="FY 2026-27"), "disclose", entry)
+    after = {r["employee_id"]: r["total"] for r in
+             h.rows(Scope(user="compliance", period="FY 2026-27"), "all")}
+    ok("it lands on the declarer's own record",
+       after["E-1052"] == before["E-1052"] + 4000, f"{before.get('E-1052')} -> {after.get('E-1052')}")
+    ok("and on nobody else's",
+       all(after[k] == v for k, v in before.items() if k != "E-1052"))
+
+    ok("somebody Compass cannot place is told so, not given an id",
+       not (o := h.preview(Scope(user="stranger", period="FY 2026-27"),
+                           "disclose", entry)).ok
+       and "which employee record" in o.said, o.said)
+
+
+def check_the_preview_is_the_number_nobody_could_see() -> None:
+    """The point of previewing: ₹4,000 is not the figure that matters.
+
+    Aisha Khan is at ₹12,000 of ₹15,000. A ₹4,000 hamper is unremarkable on
+    its own and is the one that takes her over, and she cannot know that
+    from the hamper.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    admin = Scope(user="admin", period="FY 2026-27")
+    entry = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
+             "given": "2026-12-02", "source": "Acme Logistics"}
+
+    said = h.preview(admin, "disclose", entry).said
+    ok("the preview gives the resulting total, not the entry",
+       "₹16,000" in said and "₹15,000" in said, said)
+    ok("and says that this is the one that crosses",
+       "takes you over" in said, said)
+    ok("previewing changed nothing",
+       [r["total"] for r in h.rows(admin, "all") if r["employee_id"] == "E-1052"] == [12000])
+
+    quiet = h.preview(Scope(user="enduser", period="FY 2026-27"), "disclose", entry)
+    ok("somebody with room is told the room, not warned",
+       quiet.ok and "inside the limit" in quiet.said, quiet.said)
+
+    later = h.preview(admin, "disclose", dict(entry, kind="hospitality"))
+    ok("a later-phase kind is recorded and says it is not counted",
+       later.ok and "not counted" in later.said and "₹12,000" in later.said,
+       later.said)
+
+
+def check_a_declaration_cannot_be_nonsense() -> None:
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="admin", period="FY 2026-27")
+    base = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
+            "given": "2026-12-02", "source": "Acme Logistics"}
+
+    def refused(**over) -> str:
+        out = h.preview(s, "disclose", dict(base, **over))
+        return "" if out.ok else out.said
+
+    ok("a value that is not a number is refused", refused(value="eight thousand"))
+    ok("a value of nothing is refused", refused(value="0"))
+    ok("a negative value is refused", refused(value="-500"))
+    ok("an absurd value is refused rather than recorded", refused(value="99999999"))
+    ok("a date outside the year is refused, and the year is named",
+       "FY 2026-27" in refused(given="2025-06-01"))
+    ok("a date in the wrong format is refused", refused(given="02/12/2026"))
+    ok("a kind nobody recognises is refused", refused(kind="bribe"))
+    ok("no description is refused", refused(what="  "))
+    ok("no giver is refused", refused(source=""))
+    ok("a comma and a rupee sign are accepted, not refused",
+       h.preview(s, "disclose", dict(base, value="₹4,000")).ok)
+
+    ok("a signed-off year takes no declarations",
+       not h.preview(Scope(user="admin", period="FY 2024-25"),
+                     "disclose", base).ok)
+
+    # Submitting twice is the ordinary double-click, and the second one is a
+    # refusal rather than a second gift.
+    ok("the first one records", h.submit(s, "disclose", base).ok)
+    ok("the same one again is refused, saying what it found",
+       not (o := h.submit(s, "disclose", base)).ok and "already recorded" in o.said,
+       o.said)
+
+
+def check_what_was_declared_is_what_was_recorded() -> None:
+    """A declaration is a statement, so it is kept as made and not improved."""
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="enduser", period="FY 2026-27")
+    entry = {"what": "Cricket tickets", "kind": "voucher", "value": "1,500",
+             "given": "2026-09-30", "source": "Vendor · Northwind"}
+    ok("it records", h.submit(s, "disclose", entry).ok)
+
+    item = next(i for i in rl_mod._ITEMS if i["what"] == "Cricket tickets")
+    ok("the words are the person's own", item["source"] == "Vendor · Northwind")
+    ok("the value is whole rupees", item["value"] == 1500)
+    ok("it is marked as disclosed, not procured", item["channel"] == "disclosed")
+    ok("declaring it is acknowledging it", item["acknowledged"] is True)
+    ok("it is against the declarer", item["employee_id"] == "E-1066")
+    ok("it has an id of its own", item["id"].startswith("D-"))
+
+    row = next(r for r in h.rows(s, "all") if r["employee_id"] == "E-1066")
+    ok("it counts towards the total from the moment it is recorded",
+       row["total"] == 4000, str(row["total"]))
+    ok("and it shows on the self-disclosed tab",
+       any(r["employee_id"] == "E-1066" for r in h.rows(s, "disclosed")))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -938,6 +1116,15 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    check_a_form_and_its_code_agree()
+    with fixtures():
+        check_a_declaration_is_about_yourself()
+    with fixtures():
+        check_the_preview_is_the_number_nobody_could_see()
+    with fixtures():
+        check_a_declaration_cannot_be_nonsense()
+    with fixtures():
+        check_what_was_declared_is_what_was_recorded()
     with fixtures():
         check_every_row_can_be_pointed_at()
     with fixtures():

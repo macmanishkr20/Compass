@@ -52,10 +52,6 @@ _MARKUP = re.compile(r"<[^>]*>")
 #: people who report to you. These are the dimensions a handler may be given,
 #: and a manifest naming one that does not exist is a manifest that would ask
 #: for a filter nobody can apply.
-#: A ceiling on how many values one scope selector may offer. Past this it is
-#: a search box, not a dropdown, and this is a manifest rather than a store.
-MAX_CHOICES = 40
-
 SCOPES = frozenset({
     "entity",   # a legal entity — Contoso India, Northwind Services
     "period",   # a reporting period — Q2 FY25
@@ -76,8 +72,20 @@ WITHHELD_TOOLS = frozenset({
     "agent",
 })
 
+#: A ceiling on how many values one scope selector may offer. Past this it is
+#: a search box, not a dropdown, and this is a manifest rather than a store.
+MAX_CHOICES = 40
+
 MAX_FEATURES = 16
 MAX_STARTERS = 6
+#: A form somebody fills in by hand. Both small on purpose: a long form is
+#: abandoned, and this is a declaration, not an application.
+MAX_FORMS = 4
+MAX_FIELDS = 10
+
+#: What a field can be. The kind decides how it is drawn and how the value
+#: arrives — never what it means, which is the handler's.
+FIELD_KINDS = frozenset({"text", "money", "date", "choice"})
 
 
 def _unusable(text: str, *, limit: int, what: str) -> str:
@@ -160,6 +168,98 @@ class Rule(BaseModel):
         return found
 
 
+class FormField(BaseModel):
+    """One thing a person types or picks."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    #: The words beside the box. "When you received it", not "date".
+    label: str
+    kind: Literal["text", "money", "date", "choice"] = "text"
+    #: The quiet line under it. Where an example belongs.
+    help: str = ""
+    required: bool = True
+    #: For `choice` only, and refused on anything else.
+    options: list[str] = Field(default_factory=list)
+
+    def problems(self) -> list[str]:
+        found: list[str] = []
+        if not _ID_OK.match(self.id) or len(self.id) > ID_MAX:
+            found.append(f"field id {self.id!r} is not a usable identifier")
+        if why := _unusable(self.label, limit=NAME_MAX, what="field label"):
+            found.append(f"field {self.id!r}: {why}")
+        if self.help and (why := _unusable(self.help, limit=TEXT_MAX, what="help")):
+            found.append(f"field {self.id!r}: {why}")
+        if self.kind == "choice":
+            if not self.options:
+                found.append(f"field {self.id!r} is a choice with nothing to choose")
+            if len(self.options) > MAX_CHOICES:
+                found.append(f"field {self.id!r} offers more than {MAX_CHOICES} options")
+            if len(set(self.options)) != len(self.options):
+                found.append(f"field {self.id!r} repeats an option")
+            for option in self.options:
+                if why := _unusable(option, limit=NAME_MAX, what="option"):
+                    found.append(f"field {self.id!r}: {why}")
+        elif self.options:
+            found.append(f"field {self.id!r} is a {self.kind} but lists options")
+        return found
+
+
+class Form(BaseModel):
+    """Something a person records that did not exist before.
+
+    An `Action` decides about a row that is already there. A form MAKES one,
+    which is a different kind of dangerous: an action can be refused by
+    checking the row it names, and a form has nothing to check until the
+    values arrive. So it is deliberately a separate thing rather than an
+    action with no targets — the two-step is preview-then-record, the preview
+    says what the new row would do to the totals, and the handler validates
+    every value because none of them came from Compass.
+
+    The assistant does not fill one in. A declaration is the person's own
+    statement about what they were given, and a sentence that was phrased for
+    them is not their statement.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    #: What the button that opens it says.
+    label: str
+    #: The paragraph at the top of the form.
+    blurb: str
+    #: What the button that commits it says. "Record it", not "Submit".
+    submit_label: str
+    #: What recording it means, read before anybody commits. Written here for
+    #: the same reason an action's is: a generated description of something
+    #: permanent is the thing that should not be generated.
+    confirm: str
+    fields: list[FormField] = Field(default_factory=list)
+
+    def problems(self) -> list[str]:
+        found: list[str] = []
+        if not _ID_OK.match(self.id) or len(self.id) > ID_MAX:
+            found.append(f"form id {self.id!r} is not a usable identifier")
+        for text, limit, what in ((self.label, NAME_MAX, "form label"),
+                                  (self.submit_label, NAME_MAX, "submit label"),
+                                  (self.blurb, TEXT_MAX, "form blurb"),
+                                  (self.confirm, TEXT_MAX, "form confirm")):
+            if why := _unusable(text, limit=limit, what=what):
+                found.append(f"form {self.id!r}: {why}")
+        if not self.fields:
+            found.append(f"form {self.id!r} has no fields")
+        if len(self.fields) > MAX_FIELDS:
+            found.append(f"form {self.id!r} asks for more than {MAX_FIELDS} things")
+        seen: set[str] = set()
+        for item in self.fields:
+            if item.id in seen:
+                found.append(f"form {self.id!r}: two fields share the id {item.id!r}")
+            seen.add(item.id)
+            found += [f"form {self.id!r}: {why}" for why in item.problems()]
+        return found
+
+
 class FeatureManifest(BaseModel):
     """One application inside a business function."""
 
@@ -189,6 +289,9 @@ class FeatureManifest(BaseModel):
     #: is empty in this feature's own terms.
     scope_why: str = ""
     actions: list[Action] = Field(default_factory=list)
+    #: Things a person records that did not exist before. Separate from
+    #: actions because a form creates a row rather than deciding one.
+    forms: list[Form] = Field(default_factory=list)
     rules: list[Rule] = Field(default_factory=list)
     #: What the assistant offers when this feature is open. Suggestions, not
     #: capabilities — anything offered here must map to an action or be a
@@ -259,6 +362,15 @@ class FeatureManifest(BaseModel):
                 found.append(f"two actions share the id {action.id!r}")
             seen.add(action.id)
             found += action.problems()
+
+        if len(self.forms) > MAX_FORMS:
+            found.append(f"offers more than {MAX_FORMS} forms")
+        seen = set()
+        for form in self.forms:
+            if form.id in seen:
+                found.append(f"two forms share the id {form.id!r}")
+            seen.add(form.id)
+            found += form.problems()
 
         seen = set()
         for rule in self.rules:

@@ -281,7 +281,10 @@
   padding: 15px 22px;
   border-bottom: 1px solid var(--border);
 }
-.bf-wname { flex: 1; min-width: 0; }
+/* A basis rather than `flex: 1`, so when the controls no longer fit they
+   drop to their own row instead of squeezing the title until it wraps
+   mid-phrase. Adding the declare button is what made that visible. */
+.bf-wname { flex: 1 1 230px; min-width: 0; }
 .bf-wname h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -.015em; }
 .bf-wsub { font-size: 11.5px; color: var(--muted); }
 .bf-wctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -441,6 +444,86 @@
 .bf-btn.primary:hover { background: var(--accent-strong); }
 .bf-btn.danger { border-color: rgba(255, 59, 48, .32); color: var(--danger); }
 .bf-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── a form: recording something that did not exist before ── */
+
+.bf-declare {
+  padding: 5px 12px;
+  min-height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 11.8px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.bf-declare:hover { border-color: var(--accent); }
+.bf-declare.on { border-color: var(--accent); background: var(--accent-tint); }
+
+.bf-form {
+  margin: 13px 22px 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  background: var(--accent-tint);
+}
+.bf-form > header { display: flex; align-items: center; gap: 9px; }
+.bf-form h3 { flex: 1; margin: 0; font-size: 13.5px; font-weight: 650; }
+.bf-fblurb { margin: 6px 0 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
+
+.bf-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 11px;
+  margin-top: 13px;
+}
+.bf-field { flex: 1 1 164px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.bf-field.wide { flex-basis: 260px; }
+.bf-flabel {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bf-field input,
+.bf-field select {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  outline: none;
+}
+.bf-field input:focus,
+.bf-field select:focus { border-color: var(--accent); }
+.bf-fhelp { font-size: 10.8px; line-height: 1.45; color: var(--muted); }
+
+/* What it would do. The number nobody could see before, so it is the
+   loudest thing in the panel. */
+.bf-effect {
+  margin: 13px 0 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 12.4px;
+  line-height: 1.55;
+  font-weight: 560;
+}
+.bf-effect.bad { border-color: rgba(255, 59, 48, .26); background: var(--danger-tint); }
+
+.bf-fconfirm { margin: 11px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.bf-facts { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
+.bf-btn.quiet { border-color: transparent; color: var(--muted); }
 
 /* ── rail ── */
 .bf-rail { flex: 0 0 316px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }

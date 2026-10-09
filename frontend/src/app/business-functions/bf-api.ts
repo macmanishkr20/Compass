@@ -41,6 +41,7 @@ export interface FeatureCard {
   short: string;
   blurb: string;
   scope: string[];
+  forms: FormSpec[];
   /** What each scope dimension may be set to. The manifest's, not the UI's:
    *  a quarter means something to a reconciliation and nothing to an annual
    *  limit, so the values travel with the feature that is scoped by them. */
@@ -99,6 +100,24 @@ export interface RuleSpec {
   tone: string;
 }
 
+export interface FormField {
+  id: string;
+  label: string;
+  kind: 'text' | 'money' | 'date' | 'choice';
+  help: string;
+  required: boolean;
+  options: string[];
+}
+
+export interface FormSpec {
+  id: string;
+  label: string;
+  blurb: string;
+  submit_label: string;
+  confirm: string;
+  fields: FormField[];
+}
+
 export interface FeatureView {
   id: string;
   name: string;
@@ -115,6 +134,8 @@ export interface FeatureView {
   rows?: Record<string, unknown>[];
   rules?: RuleSpec[];
   actions?: ActionSpec[];
+  /** Things a person records that did not exist before. */
+  forms?: FormSpec[];
   rail: RailView;
 }
 
@@ -183,6 +204,34 @@ export class BusinessFunctionsApi {
   ): Promise<ActResult> {
     return firstValueFrom(
       this.http.post<ActResult>(`${ROOT}/${fnId}/features/${featureId}/act`, body),
+    );
+  }
+
+  /** What a filled-in form would do. Changes nothing. */
+  previewForm(
+    fnId: string,
+    featureId: string,
+    formId: string,
+    body: { values: Record<string, string>; entity?: string; period?: string },
+  ): Promise<ActResult> {
+    return firstValueFrom(
+      this.http.post<ActResult>(
+        `${ROOT}/${fnId}/features/${featureId}/forms/${formId}/preview`, body,
+      ),
+    );
+  }
+
+  /** Record it. Against whoever is signed in — the body never says who. */
+  submitForm(
+    fnId: string,
+    featureId: string,
+    formId: string,
+    body: { values: Record<string, string>; entity?: string; period?: string },
+  ): Promise<ActResult> {
+    return firstValueFrom(
+      this.http.post<ActResult>(
+        `${ROOT}/${fnId}/features/${featureId}/forms/${formId}`, body,
+      ),
     );
   }
 

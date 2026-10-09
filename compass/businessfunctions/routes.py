@@ -75,6 +75,16 @@ def _feature_card(fn_id: str, feature) -> dict:
              "reversible": a.reversible, "outward": a.outward}
             for a in feature.actions
         ],
+        "forms": [
+            {"id": f.id, "label": f.label, "blurb": f.blurb,
+             "submit_label": f.submit_label, "confirm": f.confirm,
+             "fields": [
+                 {"id": x.id, "label": x.label, "kind": x.kind, "help": x.help,
+                  "required": x.required, "options": x.options}
+                 for x in f.fields
+             ]}
+            for f in feature.forms
+        ],
     }
 
 
@@ -219,6 +229,7 @@ async def get_feature(
             for r in feature.rules if r.id in applies
         ],
         "actions": _feature_card(fn.id, feature)["actions"],
+        "forms": _feature_card(fn.id, feature)["forms"],
         "rail": _rail(fn, feature, scope),
     }
 
@@ -247,6 +258,87 @@ async def act(
     _fn, _feature, handler = _resolve(function_id, feature_id)
     outcome = handler.act(_scope(user, body.entity, body.period),
                           body.action, body.targets)
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+
+
+class FormBody(BaseModel):
+    """What somebody typed. Strings, because that is what a form sends.
+
+    The handler parses and judges them; nothing here assumes a value is a
+    number or a date just because the manifest called the field one.
+    """
+
+    values: dict[str, str] = Field(default_factory=dict)
+    entity: str = ""
+    period: str = ""
+
+
+#: A ceiling on one value, well past anything a field asks for. The handler
+#: enforces its own, tighter limits; this one exists so a megabyte of text
+#: is refused before any of that runs.
+_VALUE_MAX = 4096
+
+
+def _form_values(feature, form_id: str, body: FormBody) -> dict[str, str]:
+    """The submitted values, checked against the shape the manifest declared.
+
+    The route enforces the SHAPE — these fields and no others — and the
+    handler enforces the MEANING. Splitting it that way means an unknown key
+    is refused at the edge, before anything that might treat it as data.
+    """
+    form = next((f for f in feature.forms if f.id == form_id), None)
+    if form is None:
+        raise HTTPException(404, f"{feature.name} has no form called {form_id!r}.")
+
+    declared = {x.id for x in form.fields}
+    if unknown := sorted(set(body.values) - declared):
+        raise HTTPException(
+            422, f"{form.label} does not ask for {', '.join(unknown)}.")
+    for key, value in body.values.items():
+        if len(value) > _VALUE_MAX:
+            raise HTTPException(422, f"{key} is too long.")
+    return {k: body.values.get(k, "") for k in declared}
+
+
+@router.post("/{function_id}/features/{feature_id}/forms/{form_id}/preview")
+async def preview_form(
+    function_id: str,
+    feature_id: str,
+    form_id: str,
+    body: FormBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """Say what recording this would do. Changes nothing.
+
+    The half of the form that earns its place: a person declaring a ₹4,000
+    hamper cannot otherwise know it is the one that takes them past the
+    annual limit, which is the same blindness the whole feature is about.
+    """
+    _fn, feature, handler = _resolve(function_id, feature_id)
+    values = _form_values(feature, form_id, body)
+    outcome = handler.preview(_scope(user, body.entity, body.period),
+                              form_id, values)
+    return {"ok": outcome.ok, "said": outcome.said}
+
+
+@router.post("/{function_id}/features/{feature_id}/forms/{form_id}")
+async def submit_form(
+    function_id: str,
+    feature_id: str,
+    form_id: str,
+    body: FormBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """Record it, against the person who is signed in and nobody else.
+
+    `user` comes from the session, never from the body. A form that let the
+    caller name whose record to write to would be a form for putting a gift
+    on somebody else's year.
+    """
+    _fn, feature, handler = _resolve(function_id, feature_id)
+    values = _form_values(feature, form_id, body)
+    outcome = handler.submit(_scope(user, body.entity, body.period),
+                             form_id, values)
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 

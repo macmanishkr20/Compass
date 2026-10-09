@@ -32,6 +32,8 @@ the arithmetic can be checked against something somebody wrote down.
 
 from __future__ import annotations
 
+import datetime as dt
+import uuid
 from typing import Any
 
 from compass.businessfunctions.features.base import (
@@ -52,13 +54,28 @@ ANNUAL_LIMIT = 15_000
 #: recorded by the business but not yet aggregated here; see PHASE above.
 COUNTS_TOWARDS_LIMIT = frozenset({"gift", "award", "voucher"})
 
+#: What a person may declare. Wider than what counts: hospitality is recorded
+#: in this phase and aggregated in a later one, and a form that refused to
+#: accept it would be a form that taught people not to mention it.
+_KINDS = frozenset({"gift", "award", "voucher", "hospitality"})
+
 #: Periods already signed off. Nothing in them moves, for anybody.
 _CLOSED = {"FY 2024-25"}
 
 #: Which employee the signed-in user is. A stand-in for the directory lookup
 #: that arrives with the store — it exists now so the conflict-of-interest
-#: rule is exercised rather than assumed.
-_USER_IS = {"mk": "E-1041"}
+#: rule is exercised rather than assumed, and so a person can declare
+#: something against their own record.
+#:
+#: A user who is not here has no employee record, and the honest answer to
+#: "declare what I was given" is then that Compass does not know who to
+#: record it against. Inventing an id for them would put a gift on a
+#: person-shaped hole in a compliance system.
+_USER_IS = {
+    "mk": "E-1041",        # Manish K. — already over, so the conflict rule bites
+    "admin": "E-1052",     # Aisha Khan — ₹12,000, so one declaration crosses it
+    "enduser": "E-1066",   # Vikram Rao — well inside, the quiet path
+}
 
 _ITEMS: list[dict[str, Any]] = [
     # The worked example from the requirement: three gifts, three teams,
@@ -116,6 +133,15 @@ _ITEMS: list[dict[str, Any]] = [
      "source": "Service line · Advisory", "channel": "procured", "acknowledged": True},
 ]
 
+#: The most anybody can declare in one go. Not a policy limit — a typo
+#: guard. Six zeros where five were meant is the mistake this catches, and a
+#: real gift that large needs a conversation, not a form.
+_MOST_PER_ITEM = 10_00_000
+
+#: How long a description may be. Long enough to say what it was.
+_TEXT_MAX = 120
+
+
 #: Who has been sent to Finance, and who has an accepted exception against
 #: them. Separate from the items because they are decisions about a person's
 #: year, not facts about one purchase.
@@ -145,6 +171,34 @@ def rupees(amount: int) -> str:
             parts.insert(0, head)
         s = ",".join(parts + [tail])
     return f"{'-' if amount < 0 else ''}₹{s}"
+
+
+def _year_window(period: str) -> tuple[dt.date, dt.date] | None:
+    """The first and last day of an Indian financial year, or None.
+
+    "FY 2026-27" runs 1 April 2026 to 31 March 2027. Spelt out because the
+    limit is annual: a date outside the year belongs to a different total,
+    and quietly accepting it would put the item in the wrong year rather
+    than refusing it.
+    """
+    try:
+        start = int(period.split()[1].split("-")[0])
+    except (IndexError, ValueError):
+        return None
+    return dt.date(start, 4, 1), dt.date(start + 1, 3, 31)
+
+
+def _whole_rupees(raw: str) -> int | None:
+    """A value a person typed, as whole rupees, or None if it is not one.
+
+    Accepts "8000", "8,000", "₹8,000" and " 8000 ", because those are all the
+    same thing to the person typing and a form that refuses a comma is a form
+    people route around.
+    """
+    cleaned = raw.strip().replace(",", "").replace("₹", "").strip()
+    if not cleaned.isdigit():
+        return None
+    return int(cleaned)
 
 
 def _totals(scope: Scope) -> list[dict[str, Any]]:
@@ -355,6 +409,192 @@ class RewardLens(Feature):
             )
 
         return Outcome(ok=False, said=f"RewardLens has no action called {action!r}.")
+
+    # ── self-disclosure ─────────────────────────────────────────────────────
+    #
+    # The one path where a person writes into this feature rather than
+    # reading it. It exists because the gap the whole screen is about is not
+    # only that three teams never compared notes — it is that a vendor hamper
+    # handed over at a client site never entered any system at all.
+    #
+    # It records against the person who is signed in, and against nobody
+    # else. There is no "declare on behalf of": a declaration is a statement
+    # about what you were given, and one made by somebody else is a different
+    # kind of record with different rules.
+
+    FORM = "disclose"
+    FIELDS = frozenset({"what", "kind", "value", "given", "source"})
+
+    def accepts(self, form_id: str) -> set[str]:
+        return set(self.FIELDS) if form_id == self.FORM else set()
+
+    def _read(self, scope: Scope, form_id: str,
+              values: dict[str, str]) -> tuple[dict[str, Any] | None, Outcome | None]:
+        """The item these values describe, or why they do not describe one.
+
+        One place, used by both preview and submit, so the preview cannot
+        accept something the submit would refuse — the two disagreeing is how
+        a person ends up seeing "you would be at ₹16,000" and then an error.
+        """
+        if form_id != self.FORM:
+            return None, Outcome(ok=False,
+                                 said=f"RewardLens has no form called {form_id!r}.")
+        if scope.period in _CLOSED:
+            return None, Outcome(
+                ok=False,
+                said=f"{scope.period} has been signed off. Anything received "
+                     f"since belongs to the current year.",
+            )
+
+        mine = _USER_IS.get(scope.user)
+        if not mine:
+            return None, Outcome(
+                ok=False,
+                said="Compass does not know which employee record is yours, so "
+                     "it cannot record this against anybody. SCS can link your "
+                     "account.",
+            )
+
+        what = values.get("what", "").strip()
+        source = values.get("source", "").strip()
+        kind = values.get("kind", "").strip().lower()
+        if not what:
+            return None, Outcome(ok=False, said="Say what it was.")
+        if not source:
+            return None, Outcome(
+                ok=False,
+                said="Say who gave it to you. Who it came from is the half "
+                     "that matters once the total is over the limit.",
+            )
+        for text, field in ((what, "description"), (source, "giver")):
+            if len(text) > _TEXT_MAX:
+                return None, Outcome(
+                    ok=False,
+                    said=f"That {field} is longer than {_TEXT_MAX} characters.",
+                )
+        if kind not in _KINDS:
+            return None, Outcome(
+                ok=False,
+                said=f"{kind or 'That'} is not something this records. "
+                     f"Pick one of: {', '.join(sorted(_KINDS))}.",
+            )
+
+        value = _whole_rupees(values.get("value", ""))
+        if value is None:
+            return None, Outcome(
+                ok=False,
+                said="Give the value in whole rupees — 8000, or 8,000.",
+            )
+        if value <= 0:
+            return None, Outcome(
+                ok=False,
+                said="A value of nothing is not a declaration. If you do not "
+                     "know what it was worth, give your best estimate.",
+            )
+        if value > _MOST_PER_ITEM:
+            return None, Outcome(
+                ok=False,
+                said=f"{rupees(value)} is past what this form takes. If that "
+                     f"is right, SCS records it with you rather than you "
+                     f"typing it.",
+            )
+
+        window = _year_window(scope.period)
+        try:
+            given = dt.date.fromisoformat(values.get("given", "").strip())
+        except ValueError:
+            return None, Outcome(ok=False, said="Give the date as YYYY-MM-DD.")
+        if window and not (window[0] <= given <= window[1]):
+            return None, Outcome(
+                ok=False,
+                said=f"{given.isoformat()} is outside {scope.period}, which "
+                     f"runs {window[0].isoformat()} to {window[1].isoformat()}. "
+                     f"It counts towards that year's total, not this one.",
+            )
+
+        # Already declared. Not a hard guarantee — two identical gifts on one
+        # day are possible — so it refuses and says what it found rather than
+        # discarding the second silently.
+        twin = next((i for i in _items_for(scope)
+                     if i["employee_id"] == mine and i["value"] == value
+                     and i["given"] == given.isoformat()
+                     and i["what"].strip().lower() == what.lower()), None)
+        if twin is not None:
+            return None, Outcome(
+                ok=False,
+                said=f"{what} for {rupees(value)} on {given.isoformat()} is "
+                     f"already recorded against you. If this is a second one, "
+                     f"say so in the description.",
+            )
+
+        row = next((r for r in _totals(scope) if r["employee_id"] == mine), None)
+        return {
+            "employee_id": mine,
+            "recipient": row["recipient"] if row else scope.user,
+            "kind": kind,
+            "what": what,
+            "value": value,
+            "given": given.isoformat(),
+            "source": source,
+            "channel": "disclosed",
+            # Declaring it is acknowledging it. Asking somebody to confirm
+            # receipt of the thing they just told you about would be theatre.
+            "acknowledged": True,
+        }, None
+
+    def _effect(self, scope: Scope, item: dict[str, Any]) -> str:
+        """What this item does to the declarer's year, as a sentence.
+
+        The number nobody could see before. It is computed from the items,
+        not from a stored total, and the counted/not-counted split is said
+        out loud rather than left for somebody to discover.
+        """
+        row = next((r for r in _totals(scope)
+                    if r["employee_id"] == item["employee_id"]), None)
+        before = row["total"] if row else 0
+        if item["kind"] not in COUNTS_TOWARDS_LIMIT:
+            return (f"Recorded, and not counted towards your limit — "
+                    f"{item['kind']} is not aggregated yet. You stay at "
+                    f"{rupees(before)} of {rupees(ANNUAL_LIMIT)}.")
+        after = before + item["value"]
+        if after > ANNUAL_LIMIT:
+            crossing = (" This is the one that takes you over."
+                        if before <= ANNUAL_LIMIT else "")
+            return (f"That puts you at {rupees(after)} of "
+                    f"{rupees(ANNUAL_LIMIT)} — {rupees(after - ANNUAL_LIMIT)} "
+                    f"over.{crossing} Compliance sees it and Finance decides "
+                    f"the tax treatment. Declaring it is not the problem; not "
+                    f"declaring it would have been.")
+        return (f"That puts you at {rupees(after)} of {rupees(ANNUAL_LIMIT)}, "
+                f"{rupees(ANNUAL_LIMIT - after)} still inside the limit.")
+
+    def preview(self, scope: Scope, form_id: str,
+                values: dict[str, str]) -> Outcome:
+        item, refused = self._read(scope, form_id, values)
+        if refused is not None:
+            return refused
+        assert item is not None
+        return Outcome(ok=True, said=self._effect(scope, item))
+
+    def submit(self, scope: Scope, form_id: str,
+               values: dict[str, str]) -> Outcome:
+        # Validated again from scratch rather than trusting what the preview
+        # saw: the preview was a different request, and the year may have been
+        # signed off between the two.
+        item, refused = self._read(scope, form_id, values)
+        if refused is not None:
+            return refused
+        assert item is not None
+
+        effect = self._effect(scope, item)
+        item["id"] = f"D-{uuid.uuid4().hex[:6].upper()}"
+        _ITEMS.append(item)
+        return Outcome(
+            ok=True,
+            said=f"Declared: {item['what']}, {rupees(item['value'])}, from "
+                 f"{item['source']}. {effect}",
+            touched=[item["employee_id"]],
+        )
 
 
 register(RewardLens())
