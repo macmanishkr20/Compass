@@ -721,7 +721,11 @@
   display: block;
 }
 .show-side { display: none; }
-.controls { display: flex; align-items: center; gap: 8px; }
+/* `margin-left: auto` rather than relying on .topbar-title to grow into the
+   gap: the crumb is now hidden on narrower columns, and without it the
+   controls slid left and sat against the tab strip. The right edge is the
+   controls' own business. */
+.controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* mode / effort segmented selectors */
 .seg {

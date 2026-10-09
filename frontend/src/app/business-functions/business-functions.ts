@@ -8,6 +8,7 @@ import {
 import { FormsModule } from '@angular/forms';
 
 import { NoticeService } from '../notice.service';
+import { BusinessFunctionsLayout } from './bf-layout.service';
 import {
   ActionSpec,
   AskResult,
@@ -68,6 +69,8 @@ interface RailTurn {
 export class BusinessFunctions {
   private readonly api = inject(BusinessFunctionsApi);
   private readonly notice = inject(NoticeService);
+  /** Public: the template reads it, and the shell's top bar writes it. */
+  readonly layout = inject(BusinessFunctionsLayout);
 
   // -- what exists
   readonly functions = signal<FunctionCard[]>([]);
@@ -90,7 +93,6 @@ export class BusinessFunctions {
   readonly turns = signal<RailTurn[]>([]);
   readonly draft = signal('');
   readonly thinking = signal(false);
-  readonly railOpen = signal(true);
 
   /** Which rows a waiting plan would touch, so the table can mark them. */
   readonly aimed = signal<Set<string>>(new Set());

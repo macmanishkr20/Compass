@@ -27,6 +27,7 @@ import { ArtifactService } from './artifact.service';
 import { HomeChat } from './home-chat/home-chat';
 import { Design } from './design/design';
 import { BusinessFunctions } from './business-functions/business-functions';
+import { BusinessFunctionsLayout } from './business-functions/bf-layout.service';
 import { Pipelines } from './pipelines/pipelines';
 import { Estimate } from './estimate/estimate';
 import { Missions } from './missions/missions';
@@ -407,6 +408,12 @@ export class App {
   /** Created on first entry and kept mounted after, the treatment Design gets:
    *  a function and a half-written question survive a trip to Home and back. */
   readonly businessFunctionsSeen = signal(false);
+
+  /** Business Functions' own two panels, collapsed from the top bar the way
+   *  Code's working copy is. The section is chromeless, so these buttons are
+   *  the only chrome it gets — and the assistant is the one most worth
+   *  folding away, since the stage is what the person came for. */
+  readonly bfLayout = inject(BusinessFunctionsLayout);
 
   // -- Work IQ (Home-only): toggle grounding the chat in Azure AI Search.
   readonly workIqOn = signal(false); // default off → plain chat

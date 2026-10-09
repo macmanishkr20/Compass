@@ -598,6 +598,16 @@
           <app-compass-mark [size]="24" [active]="false" />
         </span>
       }
+      <!-- Business Functions is chromeless, so the shell's own sidebar toggle
+           is hidden — but the section has a sidebar of its own, and it gets
+           the same control in the same place. -->
+      @if (section() === 'business-functions') {
+        <button class="icon-btn ghost side-toggle" [class.on]="bfLayout.sideOpen()"
+          [attr.aria-label]="bfLayout.sideOpen() ? 'Collapse the function list' : 'Show the function list'"
+          title="Function list" (click)="bfLayout.toggleSide()">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16" stroke-linecap="round"/></svg>
+        </button>
+      }
       @if (!chromeless()) {
         <button class="icon-btn ghost side-toggle" [attr.aria-label]="sidebarOpen() ? 'Collapse sidebar' : 'Expand sidebar'" (click)="toggleSidebar()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16" stroke-linecap="round"/></svg>
@@ -719,6 +729,13 @@
           <button class="icon-btn ghost" [class.on]="railOpen()" aria-label="Working copy"
             title="Working copy" (click)="toggleRail()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16"/></svg>
+          </button>
+        }
+        @if (section() === 'business-functions') {
+          <button class="icon-btn ghost" [class.on]="bfLayout.railOpen()"
+            [attr.aria-label]="bfLayout.railOpen() ? 'Hide the assistant' : 'Show the assistant'"
+            title="Assistant" (click)="bfLayout.toggleRail()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4L3 21l1.1-4.6A8.4 8.4 0 1 1 21 11.5z" stroke-linejoin="round"/></svg>
           </button>
         }
         @if (section() === 'missions') {

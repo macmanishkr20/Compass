@@ -1,6 +1,7 @@
 <div class="bf">
 
   <!-- ══════════ switcher + features ══════════ -->
+  @if (layout.sideOpen()) {
   <aside class="bf-side panel">
     <div class="bf-sw">
       <button class="bf-swbtn" type="button" (click)="switcherOpen.set(!switcherOpen())"
@@ -55,6 +56,7 @@
       }
     </nav>
   </aside>
+  }
 
   <!-- ══════════ stage ══════════ -->
   <main class="bf-stage panel">
@@ -234,13 +236,13 @@
   </main>
 
   <!-- ══════════ assistant rail ══════════ -->
-  @if (railOpen()) {
+  @if (layout.railOpen()) {
     <aside class="bf-rail panel" aria-label="Assistant">
       @if (rail(); as r) {
         <header class="bf-rh">
           <span class="bf-rht"><b>{{ r.title }}</b><small>{{ r.subtitle }}</small></span>
           <button class="bf-x" type="button" aria-label="Hide the assistant"
-            (click)="railOpen.set(false)">
+            (click)="layout.railOpen.set(false)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>
           </button>
@@ -322,11 +324,5 @@
         </footer>
       }
     </aside>
-  } @else {
-    <button class="bf-railopen" type="button" aria-label="Show the assistant"
-      (click)="railOpen.set(true)">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="1.8" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4L3 21l1.1-4.6A8.4 8.4 0 1 1 21 11.5z" stroke-linejoin="round"/></svg>
-    </button>
   }
 </div>

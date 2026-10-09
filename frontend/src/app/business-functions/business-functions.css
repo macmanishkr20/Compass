@@ -20,9 +20,21 @@
   min-height: 0;
   padding: 10px;
   box-sizing: border-box;
-  background: var(--bg);
+  /* No background. The shell already paints one, with the compass mark
+     behind it, and a flat fill here covered it up — the three cards should
+     sit on Compass's own ground like every other panel in the app. */
   color: var(--ink);
   font-family: var(--sans);
+}
+
+/* `.panel` is split across two files: styles.css gives the surface, the
+   border and the shadow globally, but the corner radius is in app.css, which
+   is the shell component's own stylesheet and so never reaches in here. The
+   three columns were coming out as square cards. This is the missing half. */
+.bf-side,
+.bf-stage,
+.bf-rail {
+  border-radius: var(--radius);
 }
 
 /* ── switcher + features ── */
@@ -561,19 +573,6 @@
   color: var(--muted);
 }
 
-.bf-railopen {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  display: flex; align-items: center; justify-content: center;
-  width: 42px; height: 42px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface);
-  box-shadow: var(--shadow-md);
-  color: var(--accent);
-  cursor: pointer;
-}
 
 /* The rail is the first thing to go when there is no room for three columns;
  * the stage is what the person came for. */
