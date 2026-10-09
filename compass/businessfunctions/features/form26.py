@@ -82,6 +82,8 @@ def _rupees(amount: int) -> str:
 
 class Form26(Feature):
     key = "form26"
+    #: A row is one credit line of the statement.
+    row_key = "line"
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows_for(scope)

@@ -100,13 +100,16 @@ export class BusinessFunctions {
   readonly rail = computed(() => this.feature()?.rail ?? this.current()?.rail ?? null);
   readonly atOverview = computed(() => this.feature() === null);
 
-  /** The entities and periods a feature can be scoped to.
+  /** What a scope dimension may be set to, for the feature that is open.
    *
-   *  Hard-coded here and nowhere else in the app, which is honest about what
-   *  it is: the store does not exist yet, so there is no endpoint to ask. When
-   *  there is, this becomes a call and the template does not change. */
-  readonly entities = ['Contoso India', 'Northwind Services', 'Fabrikam Logistics'];
-  readonly periods = ['Q2 FY25', 'Q1 FY25', 'Q4 FY24'];
+   *  Asked of the feature rather than held here. The first version of this
+   *  carried one list of quarters for the whole section, which read fine
+   *  until a feature arrived whose limit is annual and was offered "Q2 FY25"
+   *  to total a year against. The values are a claim about the firm, so they
+   *  live with the rest of the manifest's words. */
+  choicesFor(id: string, dimension: string): string[] {
+    return this.featureById(id)?.choices?.[dimension] ?? [];
+  }
 
   constructor() {
     // The component is created the first time the section is entered and kept
@@ -222,8 +225,15 @@ export class BusinessFunctions {
   }
 
   /** The id a row is known by, which differs per feature. */
+  /** What identifies this row — the value an action is aimed at.
+   *
+   *  The feature says which field it is. This used to try `line`, then `id`,
+   *  then `kind`, and a feature whose rows carried none of them got `''` for
+   *  every row: one expander opened all of them and an action was sent at
+   *  nothing. Guessing failed silently, so it does not guess. */
   rowId(row: Record<string, unknown>): string {
-    return String(row['line'] ?? row['id'] ?? row['kind'] ?? '');
+    const key = this.feature()?.row_key;
+    return key ? String(row[key] ?? '') : '';
   }
 
   isAimed(row: Record<string, unknown>): boolean {
@@ -259,6 +269,17 @@ export class BusinessFunctions {
     }
     if (this.featureId() === 'lms') {
       return status === 'open' ? all.filter((a) => a.id !== 'undo') : [];
+    }
+    if (this.featureId() === 'rewardlens') {
+      // Only what this row can actually take. A referral that would be
+      // refused is a button that should not have been drawn.
+      const over = row['over_limit'] === true;
+      const referred = row['referred'] === true;
+      const unack = Number(row['unacknowledged'] ?? 0) > 0;
+      return all.filter((a) =>
+        (a.id === 'refer_to_finance' && over && !referred)
+        || (a.id === 'record_exception' && over)
+        || (a.id === 'chase_acknowledgement' && unack));
     }
     return all;
   }
@@ -413,7 +434,35 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
+    // RewardLens lists people, not purchases. A list of purchases is what the
+    // firm already had; the total against the limit is the thing it did not.
+    if (this.featureId() === 'rewardlens') {
+      return [
+        { key: 'recipient', label: 'Person' },
+        { key: 'items_counted', label: 'Items', numeric: true },
+        { key: 'total', label: 'Total', numeric: true },
+        { key: 'excess', label: 'Over by', numeric: true },
+        { key: 'unacknowledged', label: 'Unack.', numeric: true },
+        { key: 'status', label: 'Status' },
+      ];
+    }
     return [];
+  }
+
+  /** Indian digit grouping — ₹20,000, ₹1,50,000. Mirrors the server's own
+   *  formatter, which is what the assistant's sentences are written with. */
+  static rupees(amount: number): string {
+    const digits = String(Math.abs(Math.round(amount)));
+    if (digits.length <= 3) return `₹${digits}`;
+    const tail = digits.slice(-3);
+    let head = digits.slice(0, -3);
+    const parts: string[] = [];
+    while (head.length > 2) {
+      parts.unshift(head.slice(-2));
+      head = head.slice(0, -2);
+    }
+    if (head) parts.unshift(head);
+    return `₹${[...parts, tail].join(',')}`;
   }
 
   cell(row: Record<string, unknown>, key: string): string {
@@ -421,6 +470,12 @@ export class BusinessFunctions {
     if (value === undefined || value === null || value === '') return '—';
     if (key === 'credit' || key === 'ledger' || key === 'difference') {
       return `₹${(Number(value) / 100000).toFixed(1)}L`;
+    }
+    // Gifts are counted in thousands, so they read in thousands. Lakh
+    // notation is the right shorthand for a credit statement and the wrong
+    // one for eight thousand rupees.
+    if (key === 'total' || key === 'excess' || key === 'headroom' || key === 'limit') {
+      return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
     }
     if (key === 'waiting_days') return `${value}d`;
     return String(value);
@@ -431,7 +486,9 @@ export class BusinessFunctions {
    *  frontend change. */
   details(row: Record<string, unknown>): { k: string; v: string }[] {
     const shown = new Set(this.columns().map((c) => c.key));
-    const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days']);
+    const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days',
+                      'employee_id', 'over_limit', 'referred', 'exception',
+                      'disclosed', 'items']);
     return Object.entries(row)
       .filter(([k]) => !skip.has(k))
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: this.cell(row, k) }));

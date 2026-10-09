@@ -68,6 +68,8 @@ def _feature_card(fn_id: str, feature) -> dict:
         "short": feature.short,
         "blurb": feature.blurb,
         "scope": feature.scope,
+        "choices": feature.choices,
+        "scope_why": feature.scope_why,
         "actions": [
             {"id": a.id, "label": a.label, "confirm": a.confirm,
              "reversible": a.reversible, "outward": a.outward}
@@ -187,6 +189,7 @@ async def get_feature(
             "id": feature.id,
             "name": feature.name,
             "needs_scope": missing,
+            "scope_why": feature.scope_why,
             "rail": _rail(fn, feature, scope),
         }
 
@@ -203,6 +206,11 @@ async def get_feature(
             {"key": f.key, "value": f.value, "caption": f.caption, "tone": f.tone}
             for f in handler.figures(scope)
         ],
+        # Which field identifies a row on the tab being shown, so the UI does
+        # not have to guess. A tab may hold a different kind of thing from the
+        # rest of the feature and then it says so.
+        "row_key": next((t.key_field for t in tabs
+                         if t.key == chosen and t.key_field), handler.row_key),
         "tabs": [{"key": t.key, "label": t.label, "count": t.count} for t in tabs],
         "tab": chosen,
         "rows": handler.rows(scope, chosen),

@@ -52,6 +52,10 @@ _MARKUP = re.compile(r"<[^>]*>")
 #: people who report to you. These are the dimensions a handler may be given,
 #: and a manifest naming one that does not exist is a manifest that would ask
 #: for a filter nobody can apply.
+#: A ceiling on how many values one scope selector may offer. Past this it is
+#: a search box, not a dropdown, and this is a manifest rather than a store.
+MAX_CHOICES = 40
+
 SCOPES = frozenset({
     "entity",   # a legal entity — Contoso India, Northwind Services
     "period",   # a reporting period — Q2 FY25
@@ -173,6 +177,17 @@ class FeatureManifest(BaseModel):
     handler: str
     #: Which dimensions narrow it before it shows anything.
     scope: list[str] = Field(default_factory=list)
+    #: What each scope dimension may be set to — {"period": ["FY 2026-27", …]}.
+    #: Here rather than in the frontend because the values are a claim about
+    #: the firm, not about the screen: Form 26 is reconciled per quarter and a
+    #: gift limit is annual, and a UI holding one list for both would offer
+    #: RewardLens a quarter it cannot total. Empty means the deployment has
+    #: not said, and the selector then has nothing to offer — which is
+    #: visible, where a wrong default would not be.
+    choices: dict[str, list[str]] = Field(default_factory=dict)
+    #: The sentence shown while a scope is still unchosen. Says why the screen
+    #: is empty in this feature's own terms.
+    scope_why: str = ""
     actions: list[Action] = Field(default_factory=list)
     rules: list[Rule] = Field(default_factory=list)
     #: What the assistant offers when this feature is open. Suggestions, not
@@ -199,6 +214,26 @@ class FeatureManifest(BaseModel):
                 f"is scoped by {', '.join(unknown)}, which is not a scope "
                 f"Compass can apply"
             )
+
+        # Choices for a dimension this feature is not scoped by would never be
+        # shown, and are far more likely to be a typo in the dimension's name
+        # than a deliberate spare list.
+        if stray := sorted(set(self.choices) - set(self.scope)):
+            found.append(
+                f"offers choices for {', '.join(stray)}, which it is not "
+                f"scoped by"
+            )
+        for dim, values in self.choices.items():
+            if len(values) > MAX_CHOICES:
+                found.append(f"offers more than {MAX_CHOICES} {dim} choices")
+            if len(set(values)) != len(values):
+                found.append(f"repeats a {dim} choice")
+            for value in values:
+                if why := _unusable(value, limit=NAME_MAX, what=f"{dim} choice"):
+                    found.append(why)
+        if self.scope_why:
+            if why := _unusable(self.scope_why, limit=TEXT_MAX, what="scope_why"):
+                found.append(why)
 
         # The two-layer rule: a feature narrows its function's grant, never
         # widens it. Stated as two failures because they are different

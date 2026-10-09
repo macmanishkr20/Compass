@@ -1,0 +1,102 @@
+# Supply Chain Services.
+#
+# The function that buys and distributes things on the firm's behalf — and so
+# the function that has to be able to say who received what.
+
+id: scs
+name: SCS
+subtitle: Supply Chain Services
+blurb: >-
+  Procurement and distribution. RewardLens is the one place a gift, award or
+  voucher given to an employee is recorded, so the firm can answer who
+  received what and how much it came to.
+owner: scs-function-owner
+
+starters:
+  - Who is over the gift limit this year?
+  - What has nobody acknowledged yet?
+
+tools:
+  - read_rows
+  - explain_row
+
+features:
+  - id: rewardlens
+    name: RewardLens
+    short: Gifts · awards · thresholds
+    blurb: >-
+      Every gift, award and voucher given to an employee, totalled per person
+      against the annual limit. The spend was always known; who received it
+      was not.
+    handler: rewardlens
+    # A limit is annual, so a period is the one thing this is meaningless
+    # without. Entity is deliberately absent: one country, one currency, in
+    # this phase — the moment that changes the totals stop being comparable
+    # and the scope has to say so rather than quietly summing two currencies.
+    scope: [period]
+    # Financial years, not quarters: the limit this screen exists to watch is
+    # an annual one, and a quarterly total could not be compared against it.
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      The limit is annual, so a year is the one thing a total needs. Pick the
+      year and every gift, award and voucher inside it is added up per person.
+
+    actions:
+      - id: refer_to_finance
+        label: Refer to Finance
+        confirm: >-
+          Sends this person's cumulative total and the items behind it to
+          Finance to decide the tax treatment. Compass cannot take it back.
+        reversible: false
+        outward: true
+      - id: chase_acknowledgement
+        label: Chase acknowledgement
+        confirm: >-
+          Asks the recipient to confirm they received the items that are
+          still unacknowledged. Can be sent again later.
+        reversible: true
+        outward: true
+      - id: record_exception
+        label: Record an exception
+        confirm: >-
+          Records that this breach is accepted, with your name against it and
+          the reason you give. It stays on the audit trail and does not
+          remove the breach.
+        reversible: false
+
+    rules:
+      - id: over_limit
+        headline: Someone is over the annual limit.
+        detail: >-
+          Finance decides the tax treatment, not this screen. What this screen
+          does is make sure the total is known and the referral is recorded.
+        tone: limit
+      - id: you_are_a_recipient
+        headline: You are in this list.
+        detail: >-
+          You received items in this period, so your own row is shown but you
+          cannot act on it. Another reviewer has to — a person clearing their
+          own breach is the thing an audit trail exists to catch.
+        tone: limit
+      - id: disclosures_waiting
+        headline: Self-disclosed items are waiting.
+        detail: >-
+          Someone declared something they were given outside the standard
+          process. It counts towards their limit from the moment it is
+          recorded, not from when it is reviewed.
+        tone: notice
+      - id: period_closed
+        headline: Read-only.
+        detail: This year has been signed off. Nothing in it can change.
+        tone: limit
+
+    starters:
+      - Who is over the limit?
+      - Why is John over?
+      - What has nobody acknowledged?
+      - Refer John to Finance
+
+    tools:
+      - read_rows
+      - explain_row

@@ -39,12 +39,21 @@ from compass.businessfunctions import assistant, features, registry  # noqa: E40
 from compass.businessfunctions.features.base import Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
-from compass.businessfunctions.manifest import WITHHELD_TOOLS  # noqa: E402
-from compass.common.config import get_settings  # noqa: E402
+from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E402
+from compass.businessfunctions.manifest import (  # noqa: E402
+    WITHHELD_TOOLS,
+    FeatureManifest,
+)
+from compass.common.config import (  # noqa: E402
+    BusinessFunctionSettings,
+    get_settings,
+)
 
-#: Read before anything here turns the module on, so the "off by default"
-#: check stays true however the route checks below rearrange the world.
-SHIPPED_DEFAULT = get_settings().business_functions.enabled
+#: The default as SHIPPED, read off the model rather than off this machine.
+#: `get_settings()` would answer with whatever the developer's own .env says —
+#: and once you have turned the flag on locally that reads "on", which is a
+#: fact about your laptop and not about what anybody else gets.
+SHIPPED_DEFAULT = BusinessFunctionSettings.model_fields["enabled"].default
 
 FAILURES: list[str] = []
 
@@ -59,12 +68,17 @@ def fixtures():
     order-independent. When the store lands this becomes a transaction that
     rolls back, and the checks do not change.
     """
-    before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE))
+    before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
+              copy.deepcopy(rl_mod._ITEMS), set(rl_mod._REFERRED),
+              set(rl_mod._EXCEPTED))
     try:
         yield
     finally:
         form26_mod._FIXTURE[:] = before[0]
         lms_mod._FIXTURE[:] = before[1]
+        rl_mod._ITEMS[:] = before[2]
+        rl_mod._REFERRED.clear(); rl_mod._REFERRED.update(before[3])
+        rl_mod._EXCEPTED.clear(); rl_mod._EXCEPTED.update(before[4])
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -176,7 +190,7 @@ def check_mistakes_that_would_pass_silently_do_not() -> None:
 
 def check_the_shipped_catalog_is_clean() -> None:
     ids = sorted(fn.id for fn in registry.all_functions())
-    ok("the shipped catalog loads", ids == ["finance", "talent"], str(ids))
+    ok("the shipped catalog loads", ids == ["finance", "scs", "talent"], str(ids))
 
     fin, tal = registry.get("finance"), registry.get("talent")
     ok("finance holds form26", fin is not None and fin.feature("form26") is not None)
@@ -266,7 +280,8 @@ def check_an_outward_action_is_taken_one_at_a_time() -> None:
 
 
 def check_nothing_is_mounted_while_the_flag_is_off() -> None:
-    ok("business functions are off by default", not SHIPPED_DEFAULT)
+    ok("business functions are off by default, however this machine is set up",
+       not SHIPPED_DEFAULT)
     ok("a bad id is None rather than an error", registry.get("no-such-function") is None)
     ok("a bad feature id is three Nones",
        registry.feature_of("finance", "nope") == (registry.get("finance"), None, None))
@@ -510,7 +525,7 @@ def check_the_surface_answers() -> None:
 
     r = c.get("/v1/business-functions")
     ok("the switcher lists the functions", r.status_code == 200
-       and {f["id"] for f in r.json()["functions"]} == {"finance", "talent"},
+       and {f["id"] for f in r.json()["functions"]} == {"finance", "scs", "talent"},
        f"{r.status_code} {r.text[:120]}")
 
     r = c.get("/v1/business-functions/finance",
@@ -630,6 +645,252 @@ def check_the_health_endpoint_advertises_the_section() -> None:
        str(body.get("business_functions")))
 
 
+def check_rewardlens_totals_a_person_not_a_purchase() -> None:
+    """The arithmetic, against the worked example in the requirement.
+
+        John:   8,000 + 5,000 + 7,000 = 20,000   over a 15,000 limit by 5,000
+        Priya:  5,000 + 4,000 + 7,000 = 16,000   over by 1,000
+
+    Both are written down in the document this was built from, which is why
+    they are the fixture: the numbers can be checked against something a
+    person wrote rather than against a recorded run.
+    """
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="compliance", period="FY 2026-27")
+    by_name = {r["recipient"]: r for r in h.rows(s, "all")}
+
+    john = by_name.get("John Mathew")
+    ok("John's three gifts come to 20,000", john and john["total"] == 20000,
+       str(john and john["total"]))
+    ok("which is 5,000 over the limit", john and john["excess"] == 5000,
+       str(john and john["excess"]))
+    ok("and he is flagged over", john and john["over_limit"])
+
+    priya = by_name.get("Priya Nair")
+    ok("Priya's three come to 16,000", priya and priya["total"] == 16000,
+       str(priya and priya["total"]))
+    ok("over by 1,000", priya and priya["excess"] == 1000)
+
+    vikram = by_name.get("Vikram Rao")
+    ok("somebody inside the limit has headroom, not an excess",
+       vikram and vikram["excess"] == 0 and vikram["headroom"] == 12500,
+       str(vikram and (vikram["excess"], vikram["headroom"])))
+
+    # A limit that silently omits a category is worse than one that says what
+    # it covers. Hospitality is recorded against John and left out of his total.
+    ok("hospitality is recorded but not counted",
+       john and "hospitality" in john["not_counted"] and john["total"] == 20000,
+       str(john and john["not_counted"]))
+
+    ok("the row is a person, not a purchase",
+       all("recipient" in r and "items_counted" in r for r in h.rows(s, "all")))
+
+
+def check_rewardlens_figures_follow_the_rows() -> None:
+    _, _feat, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="compliance", period="FY 2026-27")
+    fig = {f.key: f for f in h.figures(s)}
+    rows = h.rows(s, "all")
+    over = [r for r in rows if r["over_limit"]]
+
+    ok("the recipient count is the number of people", fig["recipients"].value == str(len(rows)))
+    ok("the over-limit figure matches the rows and reads as bad",
+       fig["over"].value == str(len(over)) and fig["over"].tone == "bad",
+       f"{fig['over'].value}/{len(over)} {fig['over'].tone}")
+    ok("the recorded total is the sum of the per-person totals",
+       fig["recorded"].value == rl_mod.rupees(sum(r["total"] for r in rows)),
+       fig["recorded"].value)
+    ok("the over tab holds exactly the over-limit people",
+       len(h.rows(s, "over")) == len(over))
+
+
+def check_nobody_clears_their_own_breach() -> None:
+    """The one rule a system like this exists to enforce.
+
+    Their row is still shown — hiding it would be worse, and the total has to
+    be right — but every action against it is refused, in code rather than by
+    convention.
+    """
+    _, feat, h = registry.feature_of("scs", "rewardlens")
+    mine = Scope(user="mk", period="FY 2026-27")
+    others = Scope(user="compliance", period="FY 2026-27")
+
+    ok("a reviewer who is also a recipient is told so",
+       "you_are_a_recipient" in h.rules(mine), str(h.rules(mine)))
+    ok("a reviewer who is not, is not told",
+       "you_are_a_recipient" not in h.rules(others))
+    ok("their own row is still in the list",
+       any(r["employee_id"] == "E-1041" for r in h.rows(mine, "all")))
+
+    ok("they cannot refer themselves",
+       not h.act(mine, "refer_to_finance", ["E-1041"]).ok)
+    ok("they cannot except themselves",
+       not h.act(mine, "record_exception", ["E-1041"]).ok)
+    ok("they can still act on somebody else",
+       h.act(mine, "refer_to_finance", ["E-1007"]).ok)
+    ok("and somebody else can act on them",
+       h.act(others, "refer_to_finance", ["E-1041"]).ok)
+
+
+def check_a_referral_is_one_person_at_a_time() -> None:
+    _, _feat, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="compliance", period="FY 2026-27")
+
+    ok("two at once is refused",
+       not h.act(s, "refer_to_finance", ["E-1007", "E-1019"]).ok)
+    ok("somebody inside the limit is refused, and told the headroom",
+       not (o := h.act(s, "refer_to_finance", ["E-1066"])).ok and "inside the limit" in o.said,
+       o.said)
+    first = h.act(s, "refer_to_finance", ["E-1007"])
+    ok("one over the limit succeeds, naming the figures",
+       first.ok and "₹20,000" in first.said and "₹5,000" in first.said, first.said)
+    ok("referring the same person twice is refused",
+       not h.act(s, "refer_to_finance", ["E-1007"]).ok)
+    ok("chasing somebody with nothing outstanding is refused",
+       not h.act(s, "chase_acknowledgement", ["E-1019"]).ok)
+
+
+def check_a_signed_off_year_is_closed_to_everyone() -> None:
+    _, _feat, h = registry.feature_of("scs", "rewardlens")
+    closed = Scope(user="compliance", period="FY 2024-25")
+    ok("a signed-off year says only that", h.rules(closed) == ["period_closed"],
+       str(h.rules(closed)))
+    ok("and refuses the action itself",
+       not h.act(closed, "refer_to_finance", ["E-1007"]).ok)
+
+
+def check_the_rail_can_work_rewardlens() -> None:
+    """The assistant reaches it the same way it reaches the other two."""
+    fn, feat, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="compliance", period="FY 2026-27")
+
+    r = assistant.interpret("scs", feat, h, s, "Refer John to Finance", "compliance")
+    ok("naming one person becomes a plan", isinstance(r, assistant.Proposal),
+       type(r).__name__)
+    ok("the plan names only that person",
+       isinstance(r, assistant.Proposal)
+       and [t.id for t in r.targets] == ["E-1007"],
+       str(isinstance(r, assistant.Proposal) and [t.id for t in r.targets]))
+    ok("it is marked outward and irreversible",
+       isinstance(r, assistant.Proposal) and r.outward and not r.reversible)
+    out = assistant.confirm(r.id, "compliance", h)
+    ok("confirming it refers them", out.ok and "Finance" in out.said, out.said)
+
+    everyone = assistant.interpret("scs", feat, h, s, "refer all of them", "compliance")
+    ok("referring everybody is not proposed",
+       isinstance(everyone, assistant.Clarify), type(everyone).__name__)
+
+    unresolved = [st for st in feat.starters
+                  if not isinstance(
+                      assistant.interpret("scs", feat, h, s, st, "compliance"),
+                      (assistant.Proposal, assistant.Answer, assistant.Clarify))]
+    ok("every RewardLens starter resolves", not unresolved, str(unresolved))
+
+
+def check_every_feature_can_be_named() -> None:
+    """Every shipped feature's rows can be named in a sentence.
+
+    This is the check that was missing when RewardLens was added: the rail
+    fell back to a row key RewardLens does not have, every target came back
+    with a blank id, and the symptom was "the assistant says 'which one do
+    you mean' and lists nothing". The fallback now raises; this makes sure
+    nothing ships that would hit it.
+    """
+    for fn in registry.all_functions():
+        for feat in fn.features:
+            h = features.get(feat.handler)
+            s = Scope(user="checker",
+                      entity="Acme Manufacturing" if "entity" in feat.scope else None,
+                      period="FY 2026-27" if "period" in feat.scope else None)
+            tabs = h.tabs(s)
+            rows = h.rows(s, tabs[0].key) if tabs else []
+            named = [assistant._label_for(feat.id, r) for r in rows]
+            ok(f"{fn.id}/{feat.id}: every row has an id and words to say it by",
+               rows and all(i and l for i, l in named),
+               f"{len(rows)} rows, {sum(1 for i, l in named if not (i and l))} unnamed")
+
+
+def check_a_selector_is_never_offered_the_wrong_values() -> None:
+    """Every dimension a person must choose offers values, and says why.
+
+    `entity` and `period` are selectors somebody has to set; `team` and `self`
+    are decided by who is signed in and have nothing to pick. So the first two
+    need values and the last two must not have any — and the values have to be
+    the feature's own, which is the fault this check was written for: the UI
+    held one list of quarters for the whole section, and RewardLens, whose
+    limit is annual, was offered a quarter to total a year against.
+    """
+    PICKABLE = {"entity", "period"}
+    for fn in registry.all_functions():
+        for feat in fn.features:
+            need = [d for d in feat.scope if d in PICKABLE]
+            for dim in need:
+                ok(f"{fn.id}/{feat.id}: there is something to pick for {dim}",
+                   feat.choices.get(dim), str(feat.choices.get(dim)))
+            ok(f"{fn.id}/{feat.id}: offers nothing for what it is not scoped by",
+               not (set(feat.choices) - set(feat.scope)), str(sorted(feat.choices)))
+            if need:
+                ok(f"{fn.id}/{feat.id}: says why the screen waits",
+                   len(feat.scope_why) > 20, feat.scope_why)
+
+    _, form26, _h = registry.feature_of("finance", "form26")
+    _, rl, _h2 = registry.feature_of("scs", "rewardlens")
+    ok("a quarterly reconciliation and an annual limit do not share a period list",
+       set(form26.choices["period"]).isdisjoint(rl.choices["period"]),
+       f"{form26.choices['period']} vs {rl.choices['period']}")
+    ok("RewardLens is scoped by years",
+       all(p.startswith("FY ") for p in rl.choices["period"]),
+       str(rl.choices["period"]))
+
+    bad = FeatureManifest(id="x", name="X", short="x", blurb="x", handler="lms",
+                          scope=["period"], choices={"entity": ["Contoso"]})
+    ok("choices for a dimension it is not scoped by are refused",
+       any("not scoped by" in why
+           for why in bad.problems(registry.get("talent"))),
+       str(bad.problems(registry.get("talent"))))
+
+
+def check_every_row_can_be_pointed_at() -> None:
+    """A row's identity is declared, present and unique — on every tab.
+
+    Two faults wore this shape before the check existed: the rail guessed a
+    row's id from a list of field names, and so did the table. Both fell
+    through for RewardLens, whose rows are keyed by person, and both failed
+    silently — one offered a clarification with blank options, the other gave
+    three different people the same empty id. Neither typecheck nor any
+    backend check caught either; only opening the screen did.
+    """
+    for fn in registry.all_functions():
+        for feat in fn.features:
+            h = features.get(feat.handler)
+            s = Scope(user="checker",
+                      entity="Contoso India" if "entity" in feat.scope else None,
+                      period=(feat.choices.get("period") or [None])[0]
+                      if "period" in feat.scope else None)
+            key = h.row_key
+            ok(f"{fn.id}/{feat.id}: declares which field names a row",
+               bool(key), repr(key))
+            for tab in h.tabs(s):
+                rows = h.rows(s, tab.key)
+                # A tab may hold a different kind of thing and name its own key.
+                key = tab.key_field or h.row_key
+                ids = [str(r.get(key, "")) for r in rows]
+                ok(f"{fn.id}/{feat.id}/{tab.key}: every row carries {key}",
+                   all(ids), f"{sum(1 for i in ids if not i)} of {len(ids)} blank")
+                ok(f"{fn.id}/{feat.id}/{tab.key}: no two rows share it",
+                   len(set(ids)) == len(ids), str(ids))
+
+    # And the id the table sends is the id the handler acts on, which is the
+    # half that would otherwise only break at the moment somebody clicks.
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    s = Scope(user="compliance", period="FY 2026-27")
+    row = h.rows(s, "over")[0]
+    ok("an action aimed with the declared key reaches the row",
+       h.act(s, "refer_to_finance", [row[h.row_key]]).ok)
+    ok("and an empty target reaches nothing",
+       not h.act(s, "refer_to_finance", [""]).ok)
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -676,6 +937,23 @@ def main() -> int:
         check_asking_vaguely_is_a_question_not_an_act()
     with fixtures():
         check_a_row_button_needs_no_plan()
+    check_a_selector_is_never_offered_the_wrong_values()
+    with fixtures():
+        check_every_row_can_be_pointed_at()
+    with fixtures():
+        check_every_feature_can_be_named()
+    with fixtures():
+        check_rewardlens_totals_a_person_not_a_purchase()
+    with fixtures():
+        check_rewardlens_figures_follow_the_rows()
+    with fixtures():
+        check_nobody_clears_their_own_breach()
+    with fixtures():
+        check_a_referral_is_one_person_at_a_time()
+    with fixtures():
+        check_a_signed_off_year_is_closed_to_everyone()
+    with fixtures():
+        check_the_rail_can_work_rewardlens()
     check_the_health_endpoint_advertises_the_section()
 
     print()

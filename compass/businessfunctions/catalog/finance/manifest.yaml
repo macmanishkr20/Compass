@@ -32,6 +32,12 @@ features:
     # one period, and showing it without them would be showing a total of
     # unrelated things.
     scope: [entity, period]
+    choices:
+      entity: [Contoso India, Northwind Services, Fabrikam Logistics]
+      period: [Q2 FY25, Q1 FY25, Q4 FY24]
+    scope_why: >-
+      A credit statement belongs to one entity in one period; a total of
+      unrelated things would not mean anything.
 
     actions:
       - id: accept

@@ -67,6 +67,8 @@ def _open(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 class Lms(Feature):
     key = "lms"
+    #: A row is one leave request.
+    row_key = "id"
 
     def figures(self, scope: Scope) -> list[Figure]:
         waiting = _open(_queue_for(scope))
@@ -86,7 +88,9 @@ class Lms(Feature):
     def tabs(self, scope: Scope) -> list[Tab]:
         return [
             Tab("approvals", "Team approvals", len(_open(_queue_for(scope)))),
-            Tab("mine", "My leave", len(_BALANCES)),
+            # Balances are leave types, not requests: a row here is "Casual",
+            # not "LR-114".
+            Tab("mine", "My leave", len(_BALANCES), key_field="kind"),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:

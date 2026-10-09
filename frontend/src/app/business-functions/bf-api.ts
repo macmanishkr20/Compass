@@ -41,6 +41,12 @@ export interface FeatureCard {
   short: string;
   blurb: string;
   scope: string[];
+  /** What each scope dimension may be set to. The manifest's, not the UI's:
+   *  a quarter means something to a reconciliation and nothing to an annual
+   *  limit, so the values travel with the feature that is scoped by them. */
+  choices: Record<string, string[]>;
+  /** Why the screen is empty until a scope is chosen, in this feature's words. */
+  scope_why: string;
   actions: ActionSpec[];
 }
 
@@ -99,6 +105,9 @@ export interface FeatureView {
   short?: string;
   /** Present instead of everything else when a selector has not been chosen. */
   needs_scope?: string[];
+  scope_why?: string;
+  /** Which field in a row identifies it. The handler's answer, not a guess. */
+  row_key?: string;
   scope?: { entity: string; period: string };
   figures?: Figure[];
   tabs?: TabSpec[];

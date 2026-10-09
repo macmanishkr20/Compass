@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from compass.businessfunctions.features.base import Feature, Outcome, Scope
+from compass.businessfunctions.features.rewardlens import rupees
 from compass.businessfunctions.manifest import Action, FeatureManifest
 
 logger = logging.getLogger("compass.businessfunctions")
@@ -187,7 +188,16 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
                              f"−₹{diff / 100000:.1f}L")
     if feature_id == "lms":
         return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
-    return str(row.get("id", "")), str(row.get("id", ""))
+    if feature_id == "rewardlens":
+        # The row is a person, so the id is the person and the label leads
+        # with the name — that is the only part of it anybody says out loud.
+        return row["employee_id"], (f"{row['recipient']} · {rupees(row['total'])}"
+                                    f" of {rupees(row['limit'])}")
+    # A feature whose rows the rail cannot name is a feature the rail cannot
+    # operate: `_pick` would match nothing and every sentence would come back
+    # as a clarification with blank options. Say so rather than degrade —
+    # `check_every_feature_can_be_named` catches it before it ships.
+    raise KeyError(f"no row label defined for feature {feature_id!r}")
 
 
 def _candidates(feature: FeatureManifest, handler: Feature,

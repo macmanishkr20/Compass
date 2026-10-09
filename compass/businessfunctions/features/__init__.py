@@ -12,7 +12,7 @@ appears, and a manifest with no code does not load.
 
 from __future__ import annotations
 
-from compass.businessfunctions.features import form26, lms  # noqa: F401
+from compass.businessfunctions.features import form26, lms, rewardlens  # noqa: F401
 from compass.businessfunctions.features.base import (  # noqa: F401
     Feature,
     Figure,

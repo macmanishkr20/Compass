@@ -125,7 +125,9 @@
                 <span>Entity</span>
                 <select [ngModel]="entity()" (ngModelChange)="setScope('entity', $event)">
                   <option value="">Choose…</option>
-                  @for (e of entities; track e) { <option [value]="e">{{ e }}</option> }
+                  @for (e of choicesFor(v.id, 'entity'); track e) {
+                    <option [value]="e">{{ e }}</option>
+                  }
                 </select>
               </label>
             }
@@ -134,7 +136,9 @@
                 <span>Period</span>
                 <select [ngModel]="period()" (ngModelChange)="setScope('period', $event)">
                   <option value="">Choose…</option>
-                  @for (p of periods; track p) { <option [value]="p">{{ p }}</option> }
+                  @for (p of choicesFor(v.id, 'period'); track p) {
+                    <option [value]="p">{{ p }}</option>
+                  }
                 </select>
               </label>
             }
@@ -144,8 +148,7 @@
         @if (v.needs_scope?.length) {
           <div class="bf-wait">
             Choose {{ v.needs_scope!.join(' and ') }} to see this.
-            <span>A credit statement belongs to one entity in one period; a total of
-              unrelated things would not mean anything.</span>
+            @if (v.scope_why) { <span>{{ v.scope_why }}</span> }
           </div>
         } @else {
           <!-- a rule speaks only when it applies -->

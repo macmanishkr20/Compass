@@ -73,6 +73,11 @@ class Tab:
     key: str
     label: str
     count: int | None = None
+    #: Which field identifies a row on THIS tab, when it is not the feature's
+    #: usual one. Leave's queue lists requests keyed by id and its balances
+    #: list leave types keyed by kind — the same feature, two kinds of thing,
+    #: so the key cannot only be a property of the feature.
+    key_field: str = ""
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,15 @@ class Feature(ABC):
     #: because the register is flat — two functions wanting the same feature
     #: share the handler rather than each registering their own.
     key: ClassVar[str]
+
+    #: Which field in a row identifies it — the value `act()` will be handed
+    #: back as a target. Declared by the handler because the handler is what
+    #: knows: a reconciliation is keyed by credit line, an approval queue by
+    #: request, and RewardLens by the person. The UI asked by trying a list of
+    #: field names until one matched, which worked until a feature arrived
+    #: whose rows had none of them, and then every row quietly shared the
+    #: empty id.
+    row_key: ClassVar[str] = "id"
 
     @abstractmethod
     def figures(self, scope: Scope) -> list[Figure]:
