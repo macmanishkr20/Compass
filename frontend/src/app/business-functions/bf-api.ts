@@ -125,6 +125,25 @@ export interface FormSpec {
   fields: FormField[];
 }
 
+export interface ReportRun {
+  at: number;
+  period: string;
+  said: string;
+  figures: [string, string][];
+}
+
+export interface ReportState {
+  subscribed: boolean;
+  /** Set when it is on but cannot be delivered — said now, not discovered
+   *  a month later when nothing has arrived. */
+  warning?: string;
+  period?: string;
+  day?: number;
+  time_of_day?: string;
+  summary?: string;
+  runs?: ReportRun[];
+}
+
 export interface FeatureView {
   id: string;
   name: string;
@@ -272,6 +291,36 @@ export class BusinessFunctionsApi {
       blob: response.body as Blob,
       filename: match?.[1] ?? `${featureId}.xlsx`,
     };
+  }
+
+  /** This person's own monthly report for a screen, and what it has sent. */
+  report(fnId: string, featureId: string): Promise<ReportState> {
+    return firstValueFrom(
+      this.http.get<ReportState>(`${ROOT}/${fnId}/features/${featureId}/report`),
+    );
+  }
+
+  /** Ask for it monthly. Only ever for yourself — the body cannot say who. */
+  setReport(fnId: string, featureId: string,
+            body: { period: string; day: number; time_of_day: string },
+  ): Promise<ReportState> {
+    return firstValueFrom(
+      this.http.put<ReportState>(
+        `${ROOT}/${fnId}/features/${featureId}/report`, body),
+    );
+  }
+
+  stopReport(fnId: string, featureId: string): Promise<ReportState> {
+    return firstValueFrom(
+      this.http.delete<ReportState>(`${ROOT}/${fnId}/features/${featureId}/report`),
+    );
+  }
+
+  sendReportNow(fnId: string, featureId: string): Promise<ReportState> {
+    return firstValueFrom(
+      this.http.post<ReportState>(
+        `${ROOT}/${fnId}/features/${featureId}/report/send`, {}),
+    );
   }
 
   /** The rail. Changes nothing — what comes back is a plan, an answer or a question. */

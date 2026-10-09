@@ -556,6 +556,26 @@
 }
 .bf-why textarea:focus { border-color: var(--accent); }
 
+.bf-sched {
+  margin: 13px 22px 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.bf-schedline { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 12px; }
+.bf-schedline b { font-weight: 640; }
+.bf-schedline span { color: var(--muted); }
+.bf-schedline .bf-warn { color: var(--danger); }
+.bf-schedline button { margin-left: auto; }
+.bf-schedrun {
+  display: flex; gap: 9px; flex-wrap: wrap;
+  margin-top: 7px; padding-top: 7px;
+  border-top: 1px solid var(--border);
+  font-size: 11.4px; color: var(--muted);
+}
+.bf-schedrun em { font-style: normal; font-family: var(--mono); font-size: 10.8px; }
+
 /* ── rail ── */
 .bf-rail { flex: 0 0 316px; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 

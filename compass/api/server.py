@@ -104,7 +104,18 @@ async def lifespan(app: FastAPI):
         from compass.missions.schedule import scheduler_loop
 
         mission_scheduler = asyncio.create_task(scheduler_loop())
+    # The same shape as the mission scheduler above, and gated on the same
+    # flag as the rest of the section: switched off, no loop exists.
+    report_sender = None
+    if get_settings().business_functions.enabled:
+        import asyncio
+
+        from compass.businessfunctions.reports import reports_loop
+
+        report_sender = asyncio.create_task(reports_loop())
     yield
+    if report_sender is not None:
+        report_sender.cancel()
     if mission_scheduler is not None:
         mission_scheduler.cancel()
     await manager.stop()

@@ -40,6 +40,7 @@ from compass.businessfunctions import (  # noqa: E402
     features,
     notices,
     registry,
+    reports,
 )
 from compass.businessfunctions.features.base import Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
@@ -519,6 +520,8 @@ def check_the_routes_are_mounted_only_when_switched_on() -> None:
            f"{feature}/act",
            f"{feature}/ask",
            f"{feature}/export.xlsx",
+           f"{feature}/report",
+           f"{feature}/report/send",
            f"{feature}/forms/{{form_id}}",
            f"{feature}/forms/{{form_id}}/preview",
            f"{root}/plans/{{plan_id}}/confirm",
@@ -1973,6 +1976,163 @@ def check_any_feature_can_be_exported() -> None:
                str(wb.sheetnames))
 
 
+def check_a_monthly_slot_lands_on_the_right_day() -> None:
+    """Including the months that have no 31st.
+
+    A subscription that silently never fires is worse than one that fires a
+    day early, so the day is clamped to the month's length rather than
+    skipped. Routines' clock does the timezone; this is only the day
+    arithmetic, which is where a monthly schedule actually goes wrong.
+    """
+    import datetime as dt
+
+    def due_on(day: int, now: dt.datetime, at: str = "08:00") -> str:
+        sub = reports.Subscription(id="x", user="compliance", function_id="scs",
+                                   feature_id="oversight", period="FY 2026-27",
+                                   day=day, time_of_day=at)
+        slot = reports._slot(sub, now=now)
+        local = dt.datetime.utcfromtimestamp(slot) + dt.timedelta(minutes=330)
+        return local.strftime("%Y-%m-%d %H:%M")
+
+    ok("after the hour on the day, it is today's slot",
+       due_on(1, dt.datetime(2026, 2, 1, 9, 0)) == "2026-02-01 08:00",
+       due_on(1, dt.datetime(2026, 2, 1, 9, 0)))
+    ok("before the hour on the day, it is last month's",
+       due_on(1, dt.datetime(2026, 2, 1, 7, 0)) == "2026-01-01 08:00",
+       due_on(1, dt.datetime(2026, 2, 1, 7, 0)))
+    ok("in January it steps back across the year",
+       due_on(15, dt.datetime(2026, 1, 3, 9, 0)) == "2025-12-15 08:00",
+       due_on(15, dt.datetime(2026, 1, 3, 9, 0)))
+    ok("the 31st of February is the 28th, not a skipped month",
+       due_on(31, dt.datetime(2026, 2, 28, 9, 0)) == "2026-02-28 08:00",
+       due_on(31, dt.datetime(2026, 2, 28, 9, 0)))
+    ok("and in a leap February, the 29th",
+       due_on(31, dt.datetime(2028, 2, 29, 9, 0)) == "2028-02-29 08:00",
+       due_on(31, dt.datetime(2028, 2, 29, 9, 0)))
+    ok("a 30-day month gives the 30th",
+       due_on(31, dt.datetime(2026, 4, 30, 9, 0)) == "2026-04-30 08:00",
+       due_on(31, dt.datetime(2026, 4, 30, 9, 0)))
+
+
+def check_a_slot_fires_once_and_is_not_missed_by_a_restart() -> None:
+    import time as clock
+
+    reports.clear()
+    sub = reports.subscribe(user="compliance", function_id="scs",
+                            feature_id="oversight", period="FY 2026-27")
+    slot = reports._slot(sub)
+
+    ok("a slot that has just passed is due",
+       reports.due(sub, now=slot + 60) == slot)
+    ok("and one still hours old is, because a restart should not lose a month",
+       reports.due(sub, now=slot + 6 * 3600) == slot)
+    ok("but not one from last month",
+       reports.due(sub, now=slot + 40 * 3600) is None)
+
+    ran = reports.run(sub)
+    ok("running it records the slot", ran.runs and ran.runs[-1].at == slot)
+    ok("and the same slot does not fire again",
+       reports.due(ran, now=clock.time()) is None)
+    ok("the run kept the figures as they were",
+       ran.runs[-1].figures and ran.runs[-1].figures[0][1].startswith("₹"),
+       str(ran.runs[-1].figures[:1]))
+
+
+def check_a_report_cannot_see_more_than_its_reader() -> None:
+    """The reason this is safe to run unattended.
+
+    There is no privileged render: the report is the person's own screen,
+    read through `Scope(user=...)`. Somebody who would be shown nothing gets
+    a report with nothing in it — not because this checks, but because it is
+    the same call that would empty their screen.
+    """
+    reports.clear()
+    notices.clear()
+
+    boss = reports.subscribe(user="compliance", function_id="scs",
+                             feature_id="oversight", period="FY 2026-27")
+    plain = reports.subscribe(user="enduser", function_id="scs",
+                              feature_id="oversight", period="FY 2026-27")
+
+    _subject, body, figures = reports.render(boss)
+    ok("the compliance role gets the figures", figures and "₹" in body)
+
+    _s2, empty, none = reports.render(plain)
+    ok("somebody without it gets no figures", not none, str(none))
+    for who in ("John Mathew", "Priya Nair", "Manish K.", "₹8,000"):
+        ok(f"and no sign of {who} in their report", who not in empty)
+    ok("and it says why rather than arriving blank",
+       "access may have changed" in empty, empty[:80])
+
+
+def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
+    reports.clear()
+    notices.clear()
+    # `admin` is a reviewer who is also an employee, so there is somewhere to
+    # send it. `compliance` is a reviewer with no employee record — a real
+    # state, checked below.
+    with _Mailbox() as box:
+        sub = reports.subscribe(user="admin", function_id="scs",
+                                feature_id="oversight", period="FY 2026-27")
+        reports.run(sub)
+        notices.flush()
+
+    ok("one message", len(box.sent) == 1, str(len(box.sent)))
+    if box.sent:
+        ok("addressed to the subscriber and nobody else",
+           box.sent[0]["to"] == rl_mod.address_of("admin")
+           and box.sent[0]["to"] == rl_mod._EMAIL["E-1052"],
+           str(box.sent[0]["to"]))
+
+    reports.clear()
+    notices.clear()
+    held = reports.run(reports.subscribe(
+        user="compliance", function_id="scs", feature_id="oversight",
+        period="FY 2026-27"))
+    ok("a reviewer the directory cannot place is held, and says so",
+       "no email address on file" in held.runs[-1].said, held.runs[-1].said)
+
+    # And somebody the directory cannot place is held, not sent somewhere.
+    reports.clear()
+    notices.clear()
+    nobody = reports.subscribe(user="stranger", function_id="scs",
+                               feature_id="oversight", period="FY 2026-27")
+    ran = reports.run(nobody)
+    ok("a subscriber with no address is held, not delivered anywhere",
+       "not emailed" in ran.runs[-1].said, ran.runs[-1].said)
+    ok("and nothing was handed to a mail server", notices.flush() == (0, 0))
+
+
+def check_subscribing_is_something_you_do_to_yourself() -> None:
+    reports.clear()
+    ok("subscribing twice leaves one subscription",
+       (reports.subscribe(user="compliance", function_id="scs",
+                          feature_id="oversight", period="FY 2026-27"),
+        reports.subscribe(user="compliance", function_id="scs",
+                          feature_id="oversight", period="FY 2025-26"))
+       and len(reports.all_subscriptions()) == 1,
+       str(len(reports.all_subscriptions())))
+    ok("and the second one replaced the first",
+       reports.for_user("compliance", "scs", "oversight").period == "FY 2025-26")
+
+    reports.subscribe(user="enduser", function_id="scs",
+                      feature_id="oversight", period="FY 2026-27")
+    ok("two people have two subscriptions", len(reports.all_subscriptions()) == 2)
+    ok("stopping yours leaves theirs",
+       reports.unsubscribe("compliance", "scs", "oversight")
+       and len(reports.all_subscriptions()) == 1
+       and reports.for_user("enduser", "scs", "oversight") is not None)
+    ok("stopping one you do not have is not an error",
+       not reports.unsubscribe("compliance", "scs", "oversight"))
+
+    # The shape of the request itself: there is nowhere to name anybody.
+    from compass.businessfunctions.routes import ReportBody
+    ok("the request body has no field naming a recipient",
+       not ({"to", "recipients", "email", "user", "for_user"}
+            & set(ReportBody.model_fields)),
+       str(sorted(ReportBody.model_fields)))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -2020,6 +2180,15 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    check_a_monthly_slot_lands_on_the_right_day()
+    with fixtures():
+        check_a_slot_fires_once_and_is_not_missed_by_a_restart()
+    with fixtures():
+        check_a_report_cannot_see_more_than_its_reader()
+    with fixtures():
+        check_a_report_goes_to_its_subscriber_and_nobody_else()
+    with fixtures():
+        check_subscribing_is_something_you_do_to_yourself()
     with fixtures():
         check_the_export_is_the_screen()
     with fixtures():

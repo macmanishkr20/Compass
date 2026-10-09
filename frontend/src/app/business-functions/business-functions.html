@@ -150,6 +150,14 @@
               <button class="bf-declare" type="button" [disabled]="exporting()"
                 title="Everything on this screen, as a workbook"
                 (click)="download()">{{ exporting() ? 'Exporting…' : 'Export' }}</button>
+              @if (report(); as rep) {
+                <button class="bf-declare" type="button" [class.on]="rep.subscribed"
+                  [disabled]="reportBusy()"
+                  [title]="rep.subscribed ? rep.summary ?? ''
+                           : 'Email this to you on the 1st of each month'"
+                  (click)="toggleReport()">
+                  {{ rep.subscribed ? 'Monthly: on' : 'Email monthly' }}</button>
+              }
             }
           </div>
         </header>
@@ -160,6 +168,34 @@
         @if (openForm(); as form) {
           @if (!form.on_row) {
             <ng-container *ngTemplateOutlet="formPanel; context: {$implicit: form}" />
+          }
+        }
+
+        <!-- A standing request, and what it has actually sent. The history
+             is here rather than hidden because "it has been emailing you
+             nothing for four months" is the thing worth noticing. -->
+        @if (report()?.subscribed && !openForm()) {
+          @if (report(); as rep) {
+            <section class="bf-sched">
+              <div class="bf-schedline">
+                <b>{{ rep.summary }}</b>
+                @if (rep.warning) {
+                  <span class="bf-warn">{{ rep.warning }}</span>
+                } @else {
+                  <span>Only to you, read with your own access.</span>
+                }
+                <button class="bf-btn quiet" type="button" [disabled]="reportBusy()"
+                  (click)="sendReportNow()">Send one now</button>
+              </div>
+              @for (r of (rep.runs ?? []).slice(0, 3); track r.at) {
+                <div class="bf-schedrun">
+                  <span>{{ r.said }}</span>
+                  @for (f of r.figures; track f[0]) {
+                    <em>{{ f[0] }} {{ f[1] }}</em>
+                  }
+                </div>
+              }
+            </section>
           }
         }
 

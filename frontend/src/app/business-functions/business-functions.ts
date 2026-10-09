@@ -23,6 +23,7 @@ import {
   FunctionDetail,
   Plan,
   PlanTarget,
+  ReportState,
 } from './bf-api';
 
 /** One line in the rail: what was said, by whom, and what it was about. */
@@ -193,6 +194,7 @@ export class BusinessFunctions {
       const view = await this.api.feature(fn.id, featureId, { ...this.scope(), tab });
       this.feature.set(view);
       if (fresh) this.resetRail();
+      if (fresh) void this.loadReport();
     } catch (err) {
       this.error.set(String(err));
     } finally {
@@ -337,6 +339,65 @@ export class BusinessFunctions {
         || (a.id === 'chase_acknowledgement' && unack));
     }
     return all;
+  }
+
+  // ── a standing request ──────────────────────────────────────────────────
+
+  readonly report = signal<ReportState | null>(null);
+  readonly reportBusy = signal(false);
+  readonly reportDay = signal(1);
+
+  private async loadReport(): Promise<void> {
+    const fn = this.current();
+    if (!fn || !this.featureId()) return this.report.set(null);
+    try {
+      const state = await this.api.report(fn.id, this.featureId());
+      this.report.set(state);
+      if (state.day) this.reportDay.set(state.day);
+    } catch {
+      // A screen that works is worth more than knowing about a subscription.
+      this.report.set(null);
+    }
+  }
+
+  async toggleReport(): Promise<void> {
+    const fn = this.current();
+    if (!fn || this.reportBusy()) return;
+    this.reportBusy.set(true);
+    try {
+      const on = this.report()?.subscribed;
+      const state = on
+        ? await this.api.stopReport(fn.id, this.featureId())
+        : await this.api.setReport(fn.id, this.featureId(), {
+            period: this.period(), day: this.reportDay(), time_of_day: '08:00',
+          });
+      this.report.set(state);
+      if (!on && state.warning) this.notice.error(state.warning);
+      else {
+        this.notice.ok(on ? 'Monthly report stopped.'
+                          : `Monthly report on. ${state.summary ?? ''}`);
+      }
+    } catch (err) {
+      this.notice.error(`Could not change that: ${err}`);
+    } finally {
+      this.reportBusy.set(false);
+    }
+  }
+
+  /** Send it now, so somebody can see what will arrive rather than imagine it. */
+  async sendReportNow(): Promise<void> {
+    const fn = this.current();
+    if (!fn || this.reportBusy()) return;
+    this.reportBusy.set(true);
+    try {
+      const state = await this.api.sendReportNow(fn.id, this.featureId());
+      this.report.set(state);
+      this.notice.ok(state.runs?.[0]?.said ?? 'Sent.');
+    } catch (err) {
+      this.notice.error(`Could not send that: ${err}`);
+    } finally {
+      this.reportBusy.set(false);
+    }
   }
 
   // ── taking it away ──────────────────────────────────────────────────────

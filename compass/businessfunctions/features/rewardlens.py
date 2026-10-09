@@ -547,6 +547,11 @@ def superseded() -> dict[str, str]:
     return dict(_SUPERSEDED)
 
 
+def address_of(user: str) -> str:
+    """Where to write to this person, or "" when the directory cannot say."""
+    return _EMAIL.get(_employee(user), "")
+
+
 def is_reviewer(user: str) -> bool:
     """Whether this person holds the compliance role."""
     return _is_reviewer(user)

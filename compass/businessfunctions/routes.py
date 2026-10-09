@@ -34,7 +34,14 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from compass.businessfunctions import assistant, export, notices, registry
+from compass.businessfunctions import (
+    assistant,
+    export,
+    notices,
+    registry,
+    reports,
+)
+from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import Scope
 from compass.common.auth import require_user
 
@@ -280,6 +287,110 @@ async def export_feature(
         headers={"Content-Disposition":
                  f'attachment; filename="{export.filename(fn, feature, scope)}"'},
     )
+
+
+class ReportBody(BaseModel):
+    """When to send it. Never WHO to — that comes from the session.
+
+    There is no recipient field on purpose: a standing request that could
+    name somebody else is one person's click causing mail to a person who
+    never asked for it, every month, possibly containing something they are
+    not allowed to see. Somebody who wants it subscribes themselves.
+    """
+
+    period: str = ""
+    day: int = Field(default=1, ge=1, le=31)
+    time_of_day: str = Field(default="08:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def _report_view(sub: reports.Subscription | None) -> dict:
+    if sub is None:
+        return {"subscribed": False}
+    # Said at the moment somebody turns it on, not discovered a month later
+    # when nothing has arrived. The subscription still stands — an address
+    # can be added — but the person asking is told now.
+    address = rewardlens.address_of(sub.user)
+    return {
+        "subscribed": True,
+        "warning": ("" if address else
+                    "Compass has no email address for you, so this will be "
+                    "recorded each month and not sent. SCS can add one."),
+        "period": sub.period,
+        "day": sub.day,
+        "time_of_day": sub.time_of_day,
+        "summary": sub.summary,
+        "runs": [{"at": r.at, "period": r.period, "said": r.said,
+                  "figures": [list(f) for f in r.figures]}
+                 for r in reversed(sub.runs)],
+    }
+
+
+@router.get("/{function_id}/features/{feature_id}/report")
+async def get_report(
+    function_id: str,
+    feature_id: str,
+    user: str = Depends(require_user),
+) -> dict:
+    """This person's own standing request for this screen, and its history."""
+    _resolve(function_id, feature_id)
+    return _report_view(reports.for_user(user, function_id, feature_id))
+
+
+@router.put("/{function_id}/features/{feature_id}/report")
+async def set_report(
+    function_id: str,
+    feature_id: str,
+    body: ReportBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """Ask for this screen monthly, for yourself.
+
+    Refused when the screen would need a scope nobody has chosen: a report
+    of nothing-in-particular arriving every month is worse than none.
+    """
+    _fn, feature, _handler = _resolve(function_id, feature_id)
+    scope = _scope(user, "", body.period)
+    if missing := scope.missing(feature.scope):
+        raise HTTPException(
+            422,
+            f"A monthly {feature.name} report needs "
+            f"{' and '.join(missing)} — it has to know what it is reporting on.")
+    sub = reports.subscribe(
+        user=user, function_id=function_id, feature_id=feature_id,
+        period=body.period, day=body.day, time_of_day=body.time_of_day)
+    return _report_view(sub)
+
+
+@router.delete("/{function_id}/features/{feature_id}/report")
+async def stop_report(
+    function_id: str,
+    feature_id: str,
+    user: str = Depends(require_user),
+) -> dict:
+    """Stop your own. There is no route for stopping anybody else's."""
+    _resolve(function_id, feature_id)
+    reports.unsubscribe(user, function_id, feature_id)
+    return {"subscribed": False}
+
+
+@router.post("/{function_id}/features/{feature_id}/report/send")
+async def send_report_now(
+    function_id: str,
+    feature_id: str,
+    user: str = Depends(require_user),
+) -> dict:
+    """Send yours now, so somebody can see what will arrive on the 1st.
+
+    The same render and the same delivery the loop uses, so what they see
+    is what the month will bring rather than a preview of it.
+    """
+    _resolve(function_id, feature_id)
+    sub = reports.for_user(user, function_id, feature_id)
+    if sub is None:
+        raise HTTPException(404, "You have no monthly report for this screen.")
+    sub = await asyncio.to_thread(reports.run, sub)
+    await _deliver()
+    return _report_view(reports.for_user(user, function_id, feature_id))
 
 
 async def _deliver() -> None:
