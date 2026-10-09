@@ -27,12 +27,14 @@ Every route is behind `require_user`, like the other 136.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from compass.businessfunctions import assistant, registry
+from compass.businessfunctions import assistant, notices, registry
 from compass.businessfunctions.features.base import Scope
 from compass.common.auth import require_user
 
@@ -236,6 +238,27 @@ async def get_feature(
     }
 
 
+async def _deliver() -> None:
+    """Send anything an action just put in the outbox.
+
+    In a thread, because SMTP blocks and a twenty-second timeout inside a
+    request is a twenty-second request. After the action, never before: the
+    decision is already recorded, so a mail server that is down delays a
+    reply and does not undo what somebody decided.
+
+    Failures are not raised. The notice records what happened and the row
+    shows it, which is the point of writing it down first — an exception here
+    would tell the reviewer their decision failed, and it did not.
+    """
+    try:
+        sent, stuck = await asyncio.to_thread(notices.flush)
+        if sent or stuck:
+            logger.info("business-function notices: %d sent, %d held", sent, stuck)
+    except Exception:  # noqa: BLE001 — a notice is not the decision
+        logger.warning("business-function notices could not be delivered",
+                       exc_info=True)
+
+
 class ActBody(BaseModel):
     action: str
     targets: list[str] = Field(default_factory=list)
@@ -264,6 +287,7 @@ async def act(
     _fn, _feature, handler = _resolve(function_id, feature_id)
     outcome = handler.act(_scope(user, body.entity, body.period),
                           body.action, body.targets, body.note)
+    await _deliver()
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 

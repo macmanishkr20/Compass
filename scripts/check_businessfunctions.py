@@ -35,7 +35,12 @@ sys.path.insert(0, str(ROOT))
 # Refusals log a warning each, which is correct behaviour and noise here.
 logging.disable(logging.WARNING)
 
-from compass.businessfunctions import assistant, features, registry  # noqa: E402
+from compass.businessfunctions import (  # noqa: E402
+    assistant,
+    features,
+    notices,
+    registry,
+)
 from compass.businessfunctions.features.base import Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
@@ -73,7 +78,8 @@ def fixtures():
     before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
               copy.deepcopy(rl_mod._ITEMS), set(rl_mod._REFERRED),
               set(rl_mod._EXCEPTED), copy.deepcopy(rl_mod._REVIEWED),
-              copy.deepcopy(rl_mod._ANSWERS), dict(rl_mod._SUPERSEDED))
+              copy.deepcopy(rl_mod._ANSWERS), dict(rl_mod._SUPERSEDED),
+              dict(notices._outbox))
     try:
         yield
     finally:
@@ -85,6 +91,7 @@ def fixtures():
         rl_mod._REVIEWED.clear(); rl_mod._REVIEWED.update(before[5])
         rl_mod._ANSWERS.clear(); rl_mod._ANSWERS.update(before[6])
         rl_mod._SUPERSEDED.clear(); rl_mod._SUPERSEDED.update(before[7])
+        notices._outbox.clear(); notices._outbox.update(before[8])
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -1467,6 +1474,185 @@ def check_the_row_and_the_handler_cannot_disagree() -> None:
                 break  # one is enough; the first changes the state
 
 
+class _Mailbox:
+    """A stand-in mail server, so the sending path can be checked.
+
+    Replaces `send_email` rather than reaching for SMTP: what is being
+    checked here is the outbox around it — what is recorded, what is
+    attempted, what is said about it — and the SMTP client itself predates
+    this feature and is used by routines.
+    """
+
+    def __init__(self, accept: bool = True) -> None:
+        self.accept, self.sent = accept, []
+
+    def __enter__(self):
+        import compass.code.notify as mail
+        self._mail = mail
+        self._was = (mail.send_email, mail.email_configured)
+        mail.email_configured = lambda: True
+        def send(subject, body, *, to=None):
+            self.sent.append({"subject": subject, "body": body, "to": to})
+            return self.accept
+        mail.send_email = send
+        return self
+
+    def __exit__(self, *_):
+        self._mail.send_email, self._mail.email_configured = self._was
+        return False
+
+
+def check_asking_somebody_is_written_down_before_it_is_sent() -> None:
+    """A notice is a record. The record is what the screen can prove.
+
+    With no mail server, the ordinary state of a developer's box and of this
+    deployment, the question is still asked and still recorded — and the row
+    says plainly that nobody was emailed. A reviewer who believes somebody
+    was told and nobody was is the failure this exists to prevent.
+    """
+    notices.clear()
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    out = h.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
+    ok("the question is asked whatever the mail server is doing", out.ok)
+    ok("and the outcome says it was not emailed", "not emailed" in out.said, out.said)
+    ok("naming what is missing", "no mail server" in out.said, out.said)
+
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("the row says so too", "not emailed" in row["notified"], row["notified"])
+    ok("the item is queried regardless", row["state"] == "queried")
+    ok("one notice was recorded", len(notices.for_item(item["id"])) == 1)
+    ok("and it is held, not failed",
+       notices.latest_for(item["id"]).state == "held")
+    ok("a reviewer is told, once, that somebody was not reached",
+       h.rules(c).count("notices_not_sent") == 1, str(h.rules(c)))
+
+
+def check_a_notice_goes_to_the_person_and_nobody_else() -> None:
+    """Never to whoever runs the server, and never about anybody else.
+
+    `send_email` falls back to COMPASS_NOTIFY_EMAIL when given no recipient,
+    which would post one employee's gift record to the operator. And a
+    notice that helpfully mentioned where somebody sits against their
+    colleagues would put one person's record in another's inbox.
+    """
+    notices.clear()
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    with _Mailbox() as box:
+        out = h.act(c, "query_disclosure", [item["id"]],
+                    "Was the 2,500 the hamper, or the whole basket?")
+        ok("with a mail server it is queued", "queued" in out.said, out.said)
+        ok("nothing is sent until it is flushed", not box.sent)
+        ok("flushing sends it", notices.flush() == (1, 0))
+
+    ok("exactly one message", len(box.sent) == 1, str(len(box.sent)))
+    message = box.sent[0]
+    ok("addressed to the declarer, explicitly",
+       message["to"] == "vikram.rao@example.invalid", str(message["to"]))
+    ok("so the operator's own address is never the fallback",
+       message["to"] is not None and message["to"] != "")
+
+    body = message["body"]
+    ok("it carries the question that was asked",
+       "Was the 2,500 the hamper, or the whole basket?" in body)
+    ok("and their own figures", "₹2,500" in body and "Vendor hamper" in body)
+    ok("and says it keeps counting", "counting towards your annual limit" in body)
+    others = [r["recipient"] for r in h.rows(c, "all")
+              if r["employee_id"] != "E-1066"]
+    ok("and mentions nobody else at all",
+       not [who for who in others if who in body],
+       str([who for who in others if who in body]))
+    ok("and no other figure from the screen",
+       "₹76,500" not in body and "₹20,000" not in body)
+
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("the row now says they were emailed", row["notified"] == "emailed Vikram Rao",
+       row["notified"])
+    ok("and the warning is gone", "notices_not_sent" not in h.rules(c))
+
+
+def check_nobody_is_told_who_has_no_address() -> None:
+    """A held notice is better than a confident one."""
+    notices.clear()
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1019")
+    ok("Priya has no address on file", not rl_mod._EMAIL.get("E-1019"))
+
+    with _Mailbox() as box:
+        out = h.act(c, "query_disclosure", [item["id"]], "Whose dinner was this?")
+        ok("the question is still asked", out.ok)
+        ok("and says nobody knows where to write",
+           "no email address on file" in out.said, out.said)
+        ok("flushing sends nothing", notices.flush() == (0, 0))
+    ok("nothing was handed to the mail server", not box.sent)
+
+    # No retry is offered, because retrying could never work: the gap is in
+    # the directory, not on this screen. What the reviewer gets instead is
+    # the row saying exactly who was not reached and why.
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("no retry is offered, because it could never work",
+       "resend_notice" not in row["can"], str(row["can"]))
+    ok("and the row names who was not reached",
+       "no email address on file for Priya Nair" in row["notified"],
+       row["notified"])
+    ok("asking for one anyway is refused", not h.act(c, "resend_notice",
+                                                     [item["id"]]).ok)
+
+
+def check_a_held_notice_can_be_tried_again() -> None:
+    """Recording it rather than firing it is what makes a retry possible."""
+    notices.clear()
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    h.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("a held notice offers a retry and nothing else",
+       row["can"] == ["resend_notice"], str(row["can"]))
+    ok("retrying with no mail server still refuses, and says what to set",
+       not (o := h.act(c, "resend_notice", [item["id"]])).ok
+       and "COMPASS_SMTP_HOST" in o.said, o.said)
+
+    with _Mailbox() as box:
+        ok("once there is one, it goes", h.act(c, "resend_notice", [item["id"]]).ok)
+        notices.flush()
+    ok("and it is the same question, not a new one",
+       len(box.sent) == 1 and "Was this the whole basket?" in box.sent[0]["body"])
+    ok("the row says it was emailed",
+       next(r["notified"] for r in h.rows(c, "disclosed")
+            if r["id"] == item["id"]) == "emailed Vikram Rao")
+    ok("and there is nothing left to retry",
+       not h.act(c, "resend_notice", [item["id"]]).ok)
+
+
+def check_a_mail_server_that_refuses_does_not_undo_the_decision() -> None:
+    notices.clear()
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = Scope(user="compliance", period="FY 2026-27")
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+
+    with _Mailbox(accept=False):
+        ok("the query succeeds", h.act(c, "query_disclosure", [item["id"]],
+                                       "Was this the whole basket?").ok)
+        ok("delivery fails", notices.flush() == (0, 1))
+
+    row = next(r for r in h.rows(c, "disclosed") if r["id"] == item["id"])
+    ok("the item is still queried", row["state"] == "queried")
+    ok("the row says the email failed", "failed" in row["notified"], row["notified"])
+    ok("and it can be tried again", "resend_notice" in row["can"])
+    ok("the declarer can still answer it",
+       "answer_query" in next(
+           r["can"] for r in h.rows(Scope(user="enduser", period="FY 2026-27"),
+                                    "disclosed") if r["id"] == item["id"]))
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -1533,6 +1719,16 @@ def main() -> int:
         check_the_model_does_not_write_the_justification()
     with fixtures():
         check_who_you_are_survives_an_alias()
+    with fixtures():
+        check_asking_somebody_is_written_down_before_it_is_sent()
+    with fixtures():
+        check_a_notice_goes_to_the_person_and_nobody_else()
+    with fixtures():
+        check_nobody_is_told_who_has_no_address()
+    with fixtures():
+        check_a_held_notice_can_be_tried_again()
+    with fixtures():
+        check_a_mail_server_that_refuses_does_not_undo_the_decision()
     with fixtures():
         check_a_correction_is_a_new_record_not_an_edit()
     with fixtures():

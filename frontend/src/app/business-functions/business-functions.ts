@@ -608,9 +608,12 @@ export class BusinessFunctions {
           { key: 'declared_by', label: 'Declared by' },
           { key: 'what', label: 'What' },
           { key: 'value', label: 'Value', numeric: true },
-          { key: 'given', label: 'Received' },
           { key: 'counts', label: 'Counts' },
           { key: 'status', label: 'Review' },
+          // Whether they were actually told. In the table rather than the
+          // detail, because a reviewer scanning the queue is exactly who
+          // needs to notice that somebody was never reached.
+          { key: 'notified', label: 'Told' },
         ];
       }
       return [

@@ -36,6 +36,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
+from compass.businessfunctions import notices
 from compass.common.config import get_settings
 
 from compass.businessfunctions.features.base import (
@@ -108,6 +109,25 @@ _USER_IS = {
     "mk": "E-1041",        # Manish K. — already over, so the conflict rule bites
     "admin": "E-1052",     # Aisha Khan — ₹12,000, so one declaration crosses it
     "enduser": "E-1066",   # Vikram Rao — well inside, the quiet path
+}
+
+#: Where to write to somebody. A stand-in for the directory, like `_USER_IS`.
+#:
+#: Every address is under `.invalid`, which RFC 2606 reserves so that it can
+#: never resolve. These are fixture people, and a fixture that could put mail
+#: into a real inbox if somebody configured a mail server is a fixture waiting
+#: to do it.
+#:
+#: Priya Nair (E-1019) is deliberately absent, and she is absent from here
+#: rather than somebody with nothing to review: "nobody knows their address"
+#: is a real state, and it has to be reachable by the thing that sends mail or
+#: the screen will one day say "emailed" when nothing was.
+_EMAIL = {
+    "E-1007": "john.mathew@example.invalid",
+    "E-1033": "rahul.desai@example.invalid",
+    "E-1041": "manish.k@example.invalid",
+    "E-1052": "aisha.khan@example.invalid",
+    "E-1066": "vikram.rao@example.invalid",
 }
 
 _ITEMS: list[dict[str, Any]] = [
@@ -327,13 +347,25 @@ def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
 
     if not _is_reviewer(scope.user):
         return []
+
+    # A notice that could not be delivered is a dead end unless somebody can
+    # try again — which is the point of recording it rather than firing it.
+    undelivered = [n for n in notices.for_item(item["id"])
+                   if n.state in ("held", "failed")]
+    # Not offered when there is nowhere to send it. Retrying would refuse
+    # every time, and the fix is in the directory rather than on this screen.
+    retry = (["resend_notice"]
+             if undelivered and _EMAIL.get(item["employee_id"]) else [])
+
+    if state == "queried":
+        return retry
     if state == "awaiting":
-        return ["accept_disclosure", "query_disclosure", "record_breach"]
+        return ["accept_disclosure", "query_disclosure", "record_breach"] + retry
     if state == "answered":
         # Accepting an answer is its own decision: it may apply a correction,
         # which "accept as declared" would be the wrong words for.
-        return ["accept_answer", "query_disclosure", "record_breach"]
-    return []
+        return ["accept_answer", "query_disclosure", "record_breach"] + retry
+    return retry
 
 
 def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
@@ -376,6 +408,11 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
             "replaced_by": _SUPERSEDED.get(item["id"]) or
                            ("withdrawn" if item["id"] in _SUPERSEDED else "—"),
             "corrects": item.get("corrects", "") or "—",
+            # Whether the person was actually told. On the row because the
+            # alternative is a reviewer assuming it, and "I asked them three
+            # weeks ago" is the kind of thing somebody says in an audit.
+            "notified": (notice.said if (notice := notices.latest_for(item["id"]))
+                         else "—"),
             "can": _allowed(scope, item, state),
         })
     # What somebody has to deal with, first: unanswered queries and answers
@@ -520,13 +557,20 @@ class RewardLens(Feature):
             said.append("disclosures_waiting")
             if not _is_reviewer(scope.user):
                 said.append("review_is_a_role")
+        # Only to the people who could do something about it, and only while
+        # it is true. A rule that is always on screen stops being read.
+        if _is_reviewer(scope.user) and any(
+                n.state in ("held", "failed")
+                for r in _disclosed_rows(scope)
+                for n in notices.for_item(r["id"])):
+            said.append("notices_not_sent")
         return said
 
     #: The actions that decide a declared ITEM rather than a person's year.
     #: Separate because their targets are item ids, and mixing the two would
     #: mean one list of targets that is sometimes people and sometimes not.
     REVIEW_ACTIONS = ("accept_disclosure", "query_disclosure", "record_breach",
-                      "accept_answer")
+                      "accept_answer", "resend_notice")
 
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
@@ -693,6 +737,44 @@ class RewardLens(Feature):
                 said=f"Keep the reason under {_TEXT_MAX} characters.",
             )
 
+        if action == "resend_notice":
+            # Every refusal BEFORE anything is requeued. Putting the retry
+            # first left a refused retry having already flipped the notice
+            # to pending — a refusal that changed something, which is the
+            # one thing a refusal must not do.
+            waiting = [n for n in notices.for_item(row["id"])
+                       if n.state in ("held", "failed")]
+            if not waiting:
+                return Outcome(
+                    ok=False,
+                    said=f"There is nothing waiting to go to "
+                         f"{row['declared_by']}.",
+                )
+            # The address first: it is the more specific problem, and the
+            # more actionable. Telling somebody to configure SMTP when the
+            # real gap is that nobody knows where to write sends them to
+            # fix the wrong thing.
+            if not _EMAIL.get(row["employee_id"]):
+                return Outcome(
+                    ok=False,
+                    said=f"Compass has no email address for "
+                         f"{row['declared_by']}, so there is nowhere to send "
+                         f"it. SCS can add one.",
+                )
+            if not notices.configured():
+                return Outcome(
+                    ok=False,
+                    said="There is still no mail server configured, so it "
+                         "would be held again. Set COMPASS_SMTP_HOST, "
+                         "COMPASS_SMTP_USER and COMPASS_SMTP_PASSWORD first.",
+                )
+            notices.retry(row["id"])
+            return Outcome(
+                ok=True,
+                said=f"Queued again for {row['declared_by']}.",
+                touched=[row["id"]],
+            )
+
         if action == "accept_answer":
             return self._settle(scope, row, note)
 
@@ -706,19 +788,34 @@ class RewardLens(Feature):
         _REVIEWED[row["id"]] = {"state": state, "by": scope.user,
                                 "note": note.strip()}
 
-        still = (f"It still counts towards {row['declared_by']}'s total."
-                 if row["counts"] == "yes" else
-                 f"It is recorded against {row['declared_by']} and is not "
-                 f"counted yet.")
+        if state == "queried":
+            # Recorded after the query, so a mail server being down cannot
+            # undo the question. The outcome says what became of the notice
+            # rather than letting the reviewer assume it went.
+            notice = self._ask_by_email(row, note.strip(), scope.user)
+            return Outcome(
+                ok=True,
+                said=f"Asked {row['declared_by']} about {row['what']} — "
+                     f"{notice.said}. {self._still_counts(row)} Nothing about "
+                     f"the record changes while you wait for an answer.",
+                touched=[row["id"]],
+            )
+
+        still = self._still_counts(row)
         said = {
             "accepted": f"{row['what']} accepted as declared. {still}",
-            "queried": f"Asked {row['declared_by']} about {row['what']}. "
-                       f"{still} Nothing about the record changes while you "
-                       f"wait for an answer.",
             "breach": f"{row['what']} recorded as not permitted, with your "
                       f"reason against it. {still}",
         }[state]
         return Outcome(ok=True, said=said, touched=[row["id"]])
+
+    @staticmethod
+    def _still_counts(row: dict[str, Any]) -> str:
+        """The sentence every review decision ends with, in one place."""
+        if row["counts"] == "yes":
+            return f"It still counts towards {row['declared_by']}'s total."
+        return (f"It is recorded against {row['declared_by']} and is not "
+                f"counted yet.")
 
     # ── self-disclosure ─────────────────────────────────────────────────────
     #
@@ -883,6 +980,42 @@ class RewardLens(Feature):
                     f"declaring it would have been.")
         return (f"That puts you at {rupees(after)} of {rupees(ANNUAL_LIMIT)}, "
                 f"{rupees(ANNUAL_LIMIT - after)} still inside the limit.")
+
+    def _ask_by_email(self, row: dict[str, Any], question: str,
+                      asked_by: str) -> notices.Notice:
+        """Write down that the declarer is to be told what was asked.
+
+        The words are built here and not by a model. This is a message about
+        somebody's own record that goes out under the firm's name: what it
+        says has to be the question the reviewer typed and the figures that
+        are recorded, and nothing else.
+
+        It tells them about THEIR item only. A notice that helpfully mentioned
+        where they sit against the limit relative to anybody else would be a
+        notice that leaks one employee's record into another's inbox.
+        """
+        return notices.record(
+            to=_EMAIL.get(row["employee_id"], ""),
+            name=row["declared_by"],
+            about=row["id"],
+            subject=f"A question about what you declared: {row['what']}",
+            body=(
+                f"{row['declared_by']},\n\n"
+                f"You declared this, and somebody in compliance has a "
+                f"question about it.\n\n"
+                f"  What:      {row['what']} ({row['kind']})\n"
+                f"  Value:     {rupees(row['value'])}\n"
+                f"  Received:  {row['given']}\n"
+                f"  From:      {row['source']}\n\n"
+                f"They asked:\n\n  {question}\n\n"
+                f"You can answer in Compass, under SCS, RewardLens, the "
+                f"Self-disclosed tab: say it is right as declared, give the "
+                f"value it should have been, or say you should not have "
+                f"declared it. It keeps counting towards your annual limit "
+                f"until a reviewer settles it either way.\n\n"
+                f"Asked by {asked_by}.\n"
+            ),
+        )
 
     def _settle(self, scope: Scope, row: dict[str, Any], note: str) -> Outcome:
         """Accept what the declarer said, and apply it if it changes anything.

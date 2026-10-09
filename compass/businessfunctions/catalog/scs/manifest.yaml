@@ -75,9 +75,9 @@ features:
       - id: query_disclosure
         label: Query it
         confirm: >-
-          Asks the person who declared it about this item, with the reason
-          you give. The record does not change while you wait, and it keeps
-          counting towards their limit.
+          Emails the person who declared it the question you give, and
+          records that you asked. The record does not change while you wait,
+          and it keeps counting towards their limit.
         reversible: true
         outward: true
         note_label: What do you need to ask them?
@@ -89,6 +89,13 @@ features:
           superseded — this is the only way a recorded item stops counting,
           and it takes both of you.
         reversible: false
+      - id: resend_notice
+        label: Send it again
+        confirm: >-
+          Tries the email again. What was asked does not change — only the
+          sending of it is retried.
+        reversible: true
+        outward: true
       - id: record_breach
         label: Not permitted
         confirm: >-
@@ -192,6 +199,13 @@ features:
           process. It counts towards their limit from the moment it is
           recorded, not from when it is reviewed.
         tone: notice
+      - id: notices_not_sent
+        headline: Somebody was not told.
+        detail: >-
+          A question was recorded but the email did not go — no address on
+          file, or no mail server configured. The question stands and the
+          item keeps counting; the person simply does not know yet.
+        tone: limit
       - id: review_is_a_role
         headline: You can see these, not decide them.
         detail: >-
