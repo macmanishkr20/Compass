@@ -41,6 +41,7 @@ from compass.businessfunctions import (  # noqa: E402
     assistant,
     features,
     notices,
+    people,
     registry,
     reports,
 )
@@ -66,6 +67,20 @@ from compass.common.config import (  # noqa: E402
 SHIPPED_DEFAULT = BusinessFunctionSettings.model_fields["enabled"].default
 
 FAILURES: list[str] = []
+
+
+def as_(user: str, feature: str = "rewardlens", *, fn: str = "scs",
+        period: str = "FY 2026-27", entity: str = "") -> Scope:
+    """A scope the way a request builds one: roles and breadth resolved.
+
+    Constructing `Scope(user=...)` by hand gives somebody no roles and the
+    unrestricted breadth a feature that declares no visibility gets — which
+    is neither of the things a real caller would have. The checks build
+    theirs the same way the routes do, through the one function that knows
+    how, or they are checking a situation that cannot happen.
+    """
+    return people.scope_for(user, registry.feature_of(fn, feature)[1],
+                            entity=entity, period=period)
 
 
 def drive(coro):
@@ -728,7 +743,7 @@ def check_rewardlens_totals_a_person_not_a_purchase() -> None:
     person wrote rather than against a recorded run.
     """
     _, feat, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="compliance", period="FY 2026-27")
+    s = as_("compliance", period="FY 2026-27")
     by_name = {r["recipient"]: r for r in h.rows(s, "all")}
 
     john = by_name.get("John Mathew")
@@ -760,7 +775,7 @@ def check_rewardlens_totals_a_person_not_a_purchase() -> None:
 
 def check_rewardlens_figures_follow_the_rows() -> None:
     _, _feat, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="compliance", period="FY 2026-27")
+    s = as_("compliance", period="FY 2026-27")
     fig = {f.key: f for f in h.figures(s)}
     rows = h.rows(s, "all")
     over = [r for r in rows if r["over_limit"]]
@@ -784,8 +799,8 @@ def check_nobody_clears_their_own_breach() -> None:
     convention.
     """
     _, feat, h = registry.feature_of("scs", "rewardlens")
-    mine = Scope(user="mk", period="FY 2026-27")
-    others = Scope(user="compliance", period="FY 2026-27")
+    mine = as_("mk", period="FY 2026-27")
+    others = as_("compliance", period="FY 2026-27")
 
     ok("a reviewer who is also a recipient is told so",
        "you_are_a_recipient" in h.rules(mine), str(h.rules(mine)))
@@ -806,7 +821,7 @@ def check_nobody_clears_their_own_breach() -> None:
 
 def check_a_referral_is_one_person_at_a_time() -> None:
     _, _feat, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="compliance", period="FY 2026-27")
+    s = as_("compliance", period="FY 2026-27")
 
     ok("two at once is refused",
        not h.act(s, "refer_to_finance", ["E-1007", "E-1019"]).ok)
@@ -824,7 +839,7 @@ def check_a_referral_is_one_person_at_a_time() -> None:
 
 def check_a_signed_off_year_is_closed_to_everyone() -> None:
     _, _feat, h = registry.feature_of("scs", "rewardlens")
-    closed = Scope(user="compliance", period="FY 2024-25")
+    closed = as_("compliance", period="FY 2024-25")
     ok("a signed-off year says only that", h.rules(closed) == ["period_closed"],
        str(h.rules(closed)))
     ok("and refuses the action itself",
@@ -834,7 +849,7 @@ def check_a_signed_off_year_is_closed_to_everyone() -> None:
 def check_the_rail_can_work_rewardlens() -> None:
     """The assistant reaches it the same way it reaches the other two."""
     fn, feat, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="compliance", period="FY 2026-27")
+    s = as_("compliance", period="FY 2026-27")
 
     r = assistant.interpret("scs", feat, h, s, "Refer John to Finance", "compliance")
     ok("naming one person becomes a plan", isinstance(r, assistant.Proposal),
@@ -962,7 +977,7 @@ def check_every_row_can_be_pointed_at() -> None:
     # And the id the table sends is the id the handler acts on, which is the
     # half that would otherwise only break at the moment somebody clicks.
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="compliance", period="FY 2026-27")
+    s = as_("compliance", period="FY 2026-27")
     row = h.rows(s, "over")[0]
     ok("an action aimed with the declared key reaches the row",
        h.act(s, "refer_to_finance", [row[h.row_key]]).ok)
@@ -1029,17 +1044,17 @@ def check_a_declaration_is_about_yourself() -> None:
     # admin is Aisha Khan at 12,000; enduser is Vikram Rao at 2,500. The same
     # values recorded by two people land on two different years.
     before = {r["employee_id"]: r["total"] for r in
-              h.rows(Scope(user="compliance", period="FY 2026-27"), "all")}
-    h.submit(Scope(user="admin", period="FY 2026-27"), "disclose", entry)
+              h.rows(as_("compliance", period="FY 2026-27"), "all")}
+    h.submit(as_("admin", period="FY 2026-27"), "disclose", entry)
     after = {r["employee_id"]: r["total"] for r in
-             h.rows(Scope(user="compliance", period="FY 2026-27"), "all")}
+             h.rows(as_("compliance", period="FY 2026-27"), "all")}
     ok("it lands on the declarer's own record",
        after["E-1052"] == before["E-1052"] + 4000, f"{before.get('E-1052')} -> {after.get('E-1052')}")
     ok("and on nobody else's",
        all(after[k] == v for k, v in before.items() if k != "E-1052"))
 
     ok("somebody Compass cannot place is told so, not given an id",
-       not (o := h.preview(Scope(user="stranger", period="FY 2026-27"),
+       not (o := h.preview(as_("stranger", period="FY 2026-27"),
                            "disclose", entry)).ok
        and "which employee record" in o.said, o.said)
 
@@ -1052,7 +1067,7 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
     from the hamper.
     """
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    admin = Scope(user="admin", period="FY 2026-27")
+    admin = as_("admin", period="FY 2026-27")
     entry = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
              "given": "2026-12-02", "source": "Acme Logistics"}
 
@@ -1064,7 +1079,7 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
     ok("previewing changed nothing",
        [r["total"] for r in h.rows(admin, "all") if r["employee_id"] == "E-1052"] == [12000])
 
-    quiet = h.preview(Scope(user="enduser", period="FY 2026-27"), "disclose", entry)
+    quiet = h.preview(as_("enduser", period="FY 2026-27"), "disclose", entry)
     ok("somebody with room is told the room, not warned",
        quiet.ok and "inside the limit" in quiet.said, quiet.said)
 
@@ -1076,7 +1091,7 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
 
 def check_a_declaration_cannot_be_nonsense() -> None:
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="admin", period="FY 2026-27")
+    s = as_("admin", period="FY 2026-27")
     base = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
             "given": "2026-12-02", "source": "Acme Logistics"}
 
@@ -1098,7 +1113,7 @@ def check_a_declaration_cannot_be_nonsense() -> None:
        h.preview(s, "disclose", dict(base, value="₹4,000")).ok)
 
     ok("a signed-off year takes no declarations",
-       not h.preview(Scope(user="admin", period="FY 2024-25"),
+       not h.preview(as_("admin", period="FY 2024-25"),
                      "disclose", base).ok)
 
     # Submitting twice is the ordinary double-click, and the second one is a
@@ -1112,7 +1127,7 @@ def check_a_declaration_cannot_be_nonsense() -> None:
 def check_what_was_declared_is_what_was_recorded() -> None:
     """A declaration is a statement, so it is kept as made and not improved."""
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    s = Scope(user="enduser", period="FY 2026-27")
+    s = as_("enduser", period="FY 2026-27")
     entry = {"what": "Cricket tickets", "kind": "voucher", "value": "1,500",
              "given": "2026-09-30", "source": "Vendor · Northwind"}
     ok("it records", h.submit(s, "disclose", entry).ok)
@@ -1142,7 +1157,7 @@ def check_reviewing_never_changes_what_was_received() -> None:
     a reason to contest rather than declare.
     """
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
 
     def totals() -> dict[str, int]:
         return {r["employee_id"]: r["total"] for r in h.rows(c, "all")}
@@ -1160,7 +1175,7 @@ def check_reviewing_never_changes_what_was_received() -> None:
     # And the one somebody would most expect to remove it. A fresh
     # declaration, so the breach is tested on something nobody has decided.
     ok("a new declaration arrives",
-       h.submit(Scope(user="enduser", period="FY 2026-27"), "disclose", {
+       h.submit(as_("enduser", period="FY 2026-27"), "disclose", {
            "what": "Cricket tickets", "kind": "voucher", "value": "1500",
            "given": "2026-09-30", "source": "Vendor · Northwind"}).ok)
     with_it = totals()
@@ -1189,9 +1204,9 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
     their row and so slips past the first one entirely.
     """
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    admin = Scope(user="admin", period="FY 2026-27")       # a reviewer
-    other = Scope(user="compliance", period="FY 2026-27")  # another reviewer
-    plain = Scope(user="enduser", period="FY 2026-27")     # not a reviewer
+    admin = as_("admin", period="FY 2026-27")       # a reviewer
+    other = as_("compliance", period="FY 2026-27")  # another reviewer
+    plain = as_("enduser", period="FY 2026-27")     # not a reviewer
 
     ok("a reviewer declares like anybody else",
        h.submit(admin, "disclose", {
@@ -1205,9 +1220,10 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
        and "your own declaration" in o.said, o.said)
     ok("somebody without the role cannot decide anybody's",
        not (o := h.act(plain, "accept_disclosure", [mine["id"]])).ok
-       and "compliance role" in o.said, o.said)
-    ok("but they are still shown the declarations",
-       h.rows(plain, "disclosed"))
+       and "not decide it" in o.said, o.said)
+    ok("they are shown their own declaration, and only that",
+       [r["employee_id"] for r in h.rows(plain, "disclosed")] == ["E-1066"],
+       str([r["employee_id"] for r in h.rows(plain, "disclosed")]))
     review = set(rl_mod.RewardLens.REVIEW_ACTIONS)
     ok("and are offered no reviewing button they could not have used",
        not any(set(r["can"]) & review for r in h.rows(plain, "disclosed")))
@@ -1217,15 +1233,28 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
     ok("and not their own",
        not (set(next(r for r in h.rows(admin, "disclosed")
                      if r["employee_id"] == "E-1052")["can"]) & review))
-    ok("and told why the buttons are not theirs",
-       "review_is_a_role" in h.rules(plain), str(h.rules(plain)))
+    # An employee is told what the screen IS, not what they may not do on
+    # it: "reviewing is a compliance role" is a sentence written for
+    # somebody looking at other people, and they are looking at themselves.
+    ok("an employee is told whose record they are reading",
+       h.rules(plain) == ["your_own_record"], str(h.rules(plain)))
+
+    # Somebody who DOES see other people and still cannot decide — a service
+    # line lead — is the one that sentence was written for.
+    lead = as_("servicelead")
+    ok("a manager sees their team rather than themselves alone",
+       len(h.rows(lead, "all")) > 1, str(len(h.rows(lead, "all"))))
+    ok("and is told why the buttons are not theirs",
+       "review_is_a_role" in h.rules(lead), str(h.rules(lead)))
+    ok("and is offered none of them",
+       not any(set(r["can"]) & review for r in h.rows(lead, "disclosed")))
     ok("a reviewer who is not the declarer can decide it",
        h.act(other, "accept_disclosure", [mine["id"]]).ok)
 
 
 def check_a_decision_carries_a_reason_and_a_name() -> None:
     _, feat, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     by_id = {a.id: a for a in feat.actions}
 
     ok("accepting as declared needs no reason", not by_id["accept_disclosure"].note_label)
@@ -1250,7 +1279,7 @@ def check_a_decision_carries_a_reason_and_a_name() -> None:
     ok("two at once is refused", not h.act(
         c, "accept_disclosure", [r["id"] for r in h.rows(c, "disclosed")]).ok)
     ok("a signed-off year decides nothing",
-       not h.act(Scope(user="compliance", period="FY 2024-25"),
+       not h.act(as_("compliance", period="FY 2024-25"),
                  "accept_disclosure", [item]).ok)
 
 
@@ -1263,7 +1292,7 @@ def check_the_model_does_not_write_the_justification() -> None:
     under somebody else's name.
     """
     _, feat, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
 
     for sentence in ("Mark it not permitted", "record_breach", "Query it"):
         r = assistant.interpret("scs", feat, h, c, sentence, "compliance", "disclosed")
@@ -1308,7 +1337,7 @@ def check_who_you_are_survives_an_alias() -> None:
     try:
         settings.auth.identity_aliases = {"admin": "someone@example.test"}
         _, _f, h = registry.feature_of("scs", "rewardlens")
-        aliased = Scope(user="someone@example.test", period="FY 2026-27")
+        aliased = as_("someone@example.test", period="FY 2026-27")
 
         ok("an aliased login is still the employee it maps to",
            "you_are_a_recipient" in h.rules(aliased), str(h.rules(aliased)))
@@ -1321,8 +1350,7 @@ def check_who_you_are_survives_an_alias() -> None:
            not h.act(aliased, "refer_to_finance", ["E-1052"]).ok)
 
         ok("somebody the aliases do not name is still nobody",
-           not (o := h.preview(Scope(user="stranger@example.test",
-                                     period="FY 2026-27"), "disclose", {
+           not (o := h.preview(as_("stranger@example.test", period="FY 2026-27"), "disclose", {
                "what": "x", "kind": "gift", "value": "100",
                "given": "2026-12-02", "source": "y"})).ok
            and "which employee record" in o.said, o.said)
@@ -1345,8 +1373,8 @@ def check_a_correction_is_a_new_record_not_an_edit() -> None:
     figure.
     """
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
-    e = Scope(user="enduser", period="FY 2026-27")     # Vikram Rao, E-1066
+    c = as_("compliance", period="FY 2026-27")
+    e = as_("enduser", period="FY 2026-27")     # Vikram Rao, E-1066
     total = lambda: next((r["total"] for r in h.rows(c, "all")
                           if r["employee_id"] == "E-1066"), 0)
 
@@ -1395,8 +1423,8 @@ def check_only_a_mistaken_record_stops_counting() -> None:
     first, so it is the one worth checking hardest.
     """
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
-    e = Scope(user="enduser", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
+    e = as_("enduser", period="FY 2026-27")
     total = lambda: next((r["total"] for r in h.rows(c, "all")
                           if r["employee_id"] == "E-1066"), 0)
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
@@ -1415,9 +1443,9 @@ def check_only_a_mistaken_record_stops_counting() -> None:
 
 def check_nobody_corrects_their_own_record_alone() -> None:
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
-    e = Scope(user="enduser", period="FY 2026-27")
-    a = Scope(user="admin", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
+    e = as_("enduser", period="FY 2026-27")
+    a = as_("admin", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
     _queried(h, c, item["id"])
 
@@ -1446,8 +1474,8 @@ def check_nobody_corrects_their_own_record_alone() -> None:
 
 def check_an_answer_has_to_make_sense() -> None:
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
-    e = Scope(user="enduser", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
+    e = as_("enduser", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
     _queried(h, c, item["id"])
 
@@ -1465,7 +1493,7 @@ def check_an_answer_has_to_make_sense() -> None:
     ok("a figure with no correction is refused",
        refused(response="stands", value="900"))
     ok("a signed-off year takes no answers",
-       not h.preview(Scope(user="enduser", period="FY 2024-25"),
+       not h.preview(as_("enduser", period="FY 2024-25"),
                      "answer_query",
                      {"response": "stands", "note": "x"}, item["id"]).ok)
     ok("previewing it changed nothing",
@@ -1476,8 +1504,8 @@ def check_an_answer_has_to_make_sense() -> None:
 def check_asking_again_drops_the_old_answer() -> None:
     """A reply to a question nobody is asking any more is not a reply."""
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
-    e = Scope(user="enduser", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
+    e = as_("enduser", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
     _queried(h, c, item["id"])
@@ -1509,8 +1537,7 @@ def check_the_row_and_the_handler_cannot_disagree() -> None:
     would be a button that exists and does not work.
     """
     _, feat, h = registry.feature_of("scs", "rewardlens")
-    everyone = [Scope(user=u, period="FY 2026-27")
-                for u in ("compliance", "admin", "enduser", "stranger")]
+    everyone = [as_(u) for u in ("compliance", "admin", "enduser", "stranger")]
     review_actions = set(rl_mod.RewardLens.REVIEW_ACTIONS)
 
     for scope in everyone:
@@ -1564,7 +1591,7 @@ def check_asking_somebody_is_written_down_before_it_is_sent() -> None:
     """
     notices.clear()
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
     out = h.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
@@ -1592,7 +1619,7 @@ def check_a_notice_goes_to_the_person_and_nobody_else() -> None:
     """
     notices.clear()
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
     with _Mailbox() as box:
@@ -1632,9 +1659,9 @@ def check_nobody_is_told_who_has_no_address() -> None:
     """A held notice is better than a confident one."""
     notices.clear()
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1019")
-    ok("Priya has no address on file", not rl_mod._EMAIL.get("E-1019"))
+    ok("Priya has no address on file", not rl_mod._address_for_employee("E-1019"))
 
     with _Mailbox() as box:
         out = h.act(c, "query_disclosure", [item["id"]], "Whose dinner was this?")
@@ -1662,7 +1689,7 @@ def check_a_held_notice_can_be_tried_again() -> None:
     """Recording it rather than firing it is what makes a retry possible."""
     notices.clear()
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
     h.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
@@ -1691,7 +1718,7 @@ def check_a_held_notice_can_be_tried_again() -> None:
 def check_a_mail_server_that_refuses_does_not_undo_the_decision() -> None:
     notices.clear()
     _, _f, h = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
     with _Mailbox(accept=False):
@@ -1712,7 +1739,7 @@ def check_a_mail_server_that_refuses_does_not_undo_the_decision() -> None:
     ok("the item is still queried throughout", row["state"] == "queried")
     ok("the declarer can still answer it",
        "answer_query" in next(
-           r["can"] for r in h.rows(Scope(user="enduser", period="FY 2026-27"),
+           r["can"] for r in h.rows(as_("enduser", period="FY 2026-27"),
                                     "disclosed") if r["id"] == item["id"]))
 
 
@@ -1727,7 +1754,7 @@ def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
     """
     _, _f, board = registry.feature_of("scs", "oversight")
     _, _f2, bench = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
 
     def agree(why: str) -> None:
         over = [r for r in bench.rows(c, "all") if r["over_limit"]]
@@ -1745,7 +1772,7 @@ def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
     agree("to begin with")
 
     # Move the workbench under it, three different ways.
-    bench.submit(Scope(user="admin", period="FY 2026-27"), "disclose", {
+    bench.submit(as_("admin", period="FY 2026-27"), "disclose", {
         "what": "Vendor hamper", "kind": "gift", "value": "4000",
         "given": "2026-12-02", "source": "Acme"})
     agree("after a declaration takes somebody over")
@@ -1756,7 +1783,7 @@ def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
     item = next(r for r in bench.rows(c, "disclosed")
                 if r["employee_id"] == "E-1066")
     bench.act(c, "query_disclosure", [item["id"]], "Was this the whole basket?")
-    bench.submit(Scope(user="enduser", period="FY 2026-27"), "answer_query",
+    bench.submit(as_("enduser", period="FY 2026-27"), "answer_query",
                  {"response": "withdrawn", "note": "Declared it twice."},
                  item["id"])
     bench.act(c, "accept_answer", [item["id"]])
@@ -1772,7 +1799,7 @@ def check_the_dashboard_answers_a_different_question() -> None:
     """
     _, feat, board = registry.feature_of("scs", "oversight")
     _, _f, bench = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
 
     mine = {f.key for f in board.figures(c)}
     theirs = {f.key for f in bench.figures(c)}
@@ -1796,7 +1823,7 @@ def check_the_dashboard_sees_the_process_stopping() -> None:
     notices.clear()
     _, _f, board = registry.feature_of("scs", "oversight")
     _, _f2, bench = registry.feature_of("scs", "rewardlens")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
 
     figures = lambda: {f.key: f.value for f in board.figures(c)}
     ok("nothing is unanswered to begin with", figures()["unanswered"] == "0")
@@ -1823,15 +1850,16 @@ def check_the_dashboard_sees_the_process_stopping() -> None:
 
     # Answering it clears both.
     with _Mailbox():
-        bench.act(c, "resend_notice", [item["id"]]) if rl_mod._EMAIL.get("E-1019") else None
-    bench.submit(Scope(user="mk", period="FY 2026-27"), "answer_query",
+        bench.act(c, "resend_notice", [item["id"]]) \
+            if rl_mod._address_for_employee("E-1019") else None
+    bench.submit(as_("mk", period="FY 2026-27"), "answer_query",
                  {"response": "stands", "note": "It was mine."}, item["id"]) \
         if rl_mod._employee("mk") == item["employee_id"] else None
 
 
 def check_leadership_can_look_and_not_touch() -> None:
     _, feat, board = registry.feature_of("scs", "oversight")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", "oversight", period="FY 2026-27")
 
     ok("the dashboard declares no actions", not feat.actions, str(feat.actions))
     ok("so the rail says it cannot operate here",
@@ -1855,8 +1883,8 @@ def check_leadership_can_look_and_not_touch() -> None:
 def check_a_firm_wide_view_is_for_the_role() -> None:
     """It names people and their totals, so it is not for everybody."""
     _, _f, board = registry.feature_of("scs", "oversight")
-    plain = Scope(user="enduser", period="FY 2026-27")
-    allowed = Scope(user="compliance", period="FY 2026-27")
+    plain = as_("enduser", "oversight", period="FY 2026-27")
+    allowed = as_("compliance", "oversight", period="FY 2026-27")
 
     ok("somebody without the role sees no figures", not board.figures(plain))
     ok("no tabs", not board.tabs(plain))
@@ -1894,7 +1922,7 @@ def check_the_export_is_the_screen() -> None:
     spreadsheet is the copy that gets emailed to a board and quoted back.
     """
     _, feat, h = registry.feature_of("scs", "oversight")
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     wb = _workbook("scs", "oversight", c)
 
     tabs = h.tabs(c)
@@ -1930,7 +1958,7 @@ def check_the_export_is_the_screen() -> None:
 
 def check_the_export_says_when_it_was_true() -> None:
     """It outlives the screen. Nothing else in the file admits that."""
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     wb = _workbook("scs", "oversight", c)
     said = {r[0]: r[1] for r in
             ([cell.value for cell in row] for row in wb["Summary"].iter_rows())
@@ -1958,7 +1986,7 @@ def check_the_export_cannot_see_what_the_screen_hides() -> None:
     nothing in it — and that is a property of the design rather than a
     check somebody remembered to add.
     """
-    plain = Scope(user="enduser", period="FY 2026-27")
+    plain = as_("enduser", period="FY 2026-27")
     wb = _workbook("scs", "oversight", plain)
 
     ok("somebody without the role gets only a summary",
@@ -1977,7 +2005,7 @@ def check_a_workbook_is_worth_opening() -> None:
     printout pretending to be a spreadsheet."""
     import datetime as dt
 
-    c = Scope(user="compliance", period="FY 2026-27")
+    c = as_("compliance", period="FY 2026-27")
     wb = _workbook("scs", "oversight", c)
     sheet = wb["Nobody has decided"]
     heads = [cell.value for cell in sheet[1]]
@@ -2123,7 +2151,7 @@ def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
     if box.sent:
         ok("addressed to the subscriber and nobody else",
            box.sent[0]["to"] == rl_mod.address_of("admin")
-           and box.sent[0]["to"] == rl_mod._EMAIL["E-1052"],
+           and box.sent[0]["to"] == rl_mod._address_for_employee("E-1052"),
            str(box.sent[0]["to"]))
 
     drive(reports.clear())
@@ -2248,6 +2276,165 @@ def check_an_unreadable_subscription_is_skipped_not_fatal() -> None:
     ok("and it is the right one", subs and subs[0].user == "admin")
 
 
+def check_every_persona_sees_its_own_breadth() -> None:
+    """The seven personas, on the two screens, in one place.
+
+    Written as a table because that is what it is: the useful question
+    about a persona is not "may they open this" but "how much of it is
+    theirs", and reading it down a column is how a mistake gets noticed.
+    """
+    _, bench, h = registry.feature_of("scs", "rewardlens")
+    _, board, board_h = registry.feature_of("scs", "oversight")
+    everybody = len(h.rows(as_("compliance"), "all"))
+
+    table = [
+        # login          roles                      register   dashboard
+        ("admin",        {"compliance", "leadership"}, "firm",  "firm"),
+        ("compliance",   {"compliance"},               "firm",  "firm"),
+        ("finance",      {"finance"},                  "firm",  "firm"),
+        ("audit",        {"audit"},                    "firm",  "firm"),
+        ("servicelead",  {"manager"},                  "team",  "none"),
+        ("enduser",      set(),                        "self",  "none"),
+        ("stranger",     None,                         "none",  "none"),
+    ]
+    for login, roles, on_register, on_board in table:
+        mine = people.roles_of(login)
+        if roles is None:
+            ok(f"{login}: the directory does not know them", not mine, str(mine))
+        else:
+            ok(f"{login}: is {', '.join(sorted(roles)) or 'an employee'}",
+               mine == (roles | {"employee"}), str(sorted(mine)))
+
+        ok(f"{login}: sees the register at {on_register}",
+           people.breadth(login, bench.visibility) == on_register,
+           people.breadth(login, bench.visibility))
+        ok(f"{login}: sees the dashboard at {on_board}",
+           people.breadth(login, board.visibility) == on_board,
+           people.breadth(login, board.visibility))
+
+        rows = h.rows(as_(login), "all")
+        if on_register == "firm":
+            ok(f"{login}: the whole register", len(rows) == everybody, str(len(rows)))
+        elif on_register == "self":
+            ok(f"{login}: one row, their own",
+               [r["employee_id"] for r in rows] == [people.employee_of(login)],
+               str([r["employee_id"] for r in rows]))
+        elif on_register == "team":
+            theirs = people.team_of(login) | {people.employee_of(login)}
+            ok(f"{login}: their team and nobody else",
+               rows and {r["employee_id"] for r in rows} <= theirs,
+               str({r["employee_id"] for r in rows} - theirs))
+        else:
+            ok(f"{login}: nothing at all", not rows, str(len(rows)))
+
+
+def check_an_employee_is_not_shown_a_colleague() -> None:
+    """The hole this phase was opened to close.
+
+    Before roles, the register listed every recipient to anybody signed in:
+    an ordinary employee could read what each colleague had received and
+    what the firm had spent. The dashboard was gated and the workbench was
+    not, which is the usual shape of it — the restricted screen gets the
+    attention and the one people actually open does not.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    them = as_("enduser")
+    mine = people.employee_of("enduser")
+
+    rows = h.rows(them, "all")
+    ok("an employee sees exactly one row", len(rows) == 1, str(len(rows)))
+    ok("and it is their own", rows and rows[0]["employee_id"] == mine)
+
+    others = {r["recipient"] for r in h.rows(as_("compliance"), "all")} - {
+        rows[0]["recipient"]}
+    everything = " ".join(
+        str(v) for tab in h.tabs(them) for r in h.rows(them, tab.key)
+        for v in r.values())
+    everything += " ".join(f.value + f.caption for f in h.figures(them))
+    for who in others:
+        ok(f"no sign of {who} anywhere on their screen", who not in everything)
+
+    # And the figures are written for them rather than translated: a
+    # reviewer's strip counts people and declarations to review, which to
+    # somebody reading their own year is at best odd and at worst suggests
+    # the screen is about somebody else.
+    figures = {f.key: f for f in h.figures(them)}
+    ok("the figures are their own year, not a count of people",
+       "recipients" not in figures, str(sorted(figures)))
+    ok("they are told what is counted so far",
+       figures["recorded"].value == rl_mod.rupees(rows[0]["total"]),
+       figures["recorded"].value)
+    ok("and how much room is left",
+       figures["headroom"].value == rl_mod.rupees(rows[0]["headroom"]),
+       figures["headroom"].value)
+    ok("in their own words", "your limit" in figures["recorded"].caption,
+       figures["recorded"].caption)
+    ok("and the first tab is their year rather than an empty queue",
+       h.tabs(them)[0].key == "all" and h.rows(them, h.tabs(them)[0].key),
+       h.tabs(them)[0].key)
+
+
+def check_what_a_feature_declares_is_what_is_enforced() -> None:
+    """A role outside the declared list is refused; one inside it is not.
+
+    Checked against the real manifest rather than by mutating it: the thing
+    worth proving is that the list in the YAML is the list the handler
+    applies, and a role nobody declared getting through is exactly how a
+    read-only persona ends up able to decide somebody's record.
+    """
+    _, bench, h = registry.feature_of("scs", "rewardlens")
+    declared = {a.id: set(a.roles) for a in bench.actions if a.roles}
+    ok("every review action names who may take it",
+       set(rl_mod.RewardLens.REVIEW_ACTIONS) <= set(declared), str(sorted(declared)))
+
+    # Audit reads the firm and decides none of it — the persona most likely
+    # to be quietly over-granted, because it can already see everything.
+    audit = as_("audit")
+    ok("audit sees the whole register",
+       len(h.rows(audit, "all")) == len(h.rows(as_("compliance"), "all")))
+    for action, roles in sorted(declared.items()):
+        if "audit" in roles:
+            continue
+        out = h.act(audit, action, ["E-1007"], "a reason")
+        ok(f"and is refused {action}, which is for {', '.join(sorted(roles))}",
+           not out.ok, out.said)
+
+    ok("while compliance, which is named, is not refused for the role",
+       "another team" not in h.act(as_("compliance"), "refer_to_finance",
+                                   ["E-1007"]).said)
+    ok("an undeclared action is open to anybody who can see the row, as before",
+       all(a.roles for a in bench.actions),
+       str([a.id for a in bench.actions if not a.roles]))
+
+
+def check_a_role_cannot_be_claimed_by_a_caller() -> None:
+    """Roles are resolved, never received.
+
+    A client that could name its own role could name any of them, so the
+    request models have nowhere to put one and the scope is built from the
+    directory on the server.
+    """
+    from compass.businessfunctions.routes import ActBody, FormBody, ReportBody
+
+    for model in (ActBody, FormBody, ReportBody):
+        leaked = {"role", "roles", "user", "sees", "employee", "team",
+                  "as_user"} & set(model.model_fields)
+        ok(f"{model.__name__} has no field naming who the caller is",
+           not leaked, str(sorted(leaked)))
+
+    ok("a scope built for somebody unknown holds no role",
+       not as_("nobody-at-all").roles)
+    ok("and sees nothing", as_("nobody-at-all").sees == "none")
+
+    # The oldest features declare no visibility and must be untouched by any
+    # of this.
+    for fn_id, feature_id in (("finance", "form26"), ("talent", "lms")):
+        _fn, feature, _h = registry.feature_of(fn_id, feature_id)
+        ok(f"{fn_id}/{feature_id} declares no visibility and so is unrestricted",
+           not feature.visibility
+           and people.breadth("anybody", feature.visibility) == "firm")
+
+
 def main() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -2295,6 +2482,14 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    with fixtures():
+        check_every_persona_sees_its_own_breadth()
+    with fixtures():
+        check_an_employee_is_not_shown_a_colleague()
+    with fixtures():
+        check_what_a_feature_declares_is_what_is_enforced()
+    with fixtures():
+        check_a_role_cannot_be_claimed_by_a_caller()
     check_a_monthly_slot_lands_on_the_right_day()
     # Every one of these writes subscriptions, so they run against a
     # throwaway folder rather than the real data directory.

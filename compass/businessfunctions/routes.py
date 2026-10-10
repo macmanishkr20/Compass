@@ -38,6 +38,7 @@ from compass.businessfunctions import (
     assistant,
     export,
     notices,
+    people,
     registry,
     reports,
 )
@@ -50,9 +51,14 @@ logger = logging.getLogger("compass.businessfunctions")
 router = APIRouter(prefix="/v1/business-functions", tags=["business-functions"])
 
 
-def _scope(user: str, entity: str, period: str) -> Scope:
-    """What the person has narrowed to. `user` is never one of the inputs."""
-    return Scope(user=user, entity=entity, period=period)
+def _scope(user: str, entity: str, period: str, feature=None) -> Scope:
+    """What the person has narrowed to, and what they are.
+
+    `user` is never one of the inputs, and neither is anything resolved from
+    it: the roles come from the directory and the breadth from the feature's
+    own manifest. A client that could send either could send any.
+    """
+    return people.scope_for(user, feature, entity=entity, period=period)
 
 
 def _resolve(function_id: str, feature_id: str):
@@ -151,12 +157,18 @@ async def get_function(
     if fn is None:
         raise HTTPException(404, f"No business function called {function_id!r}.")
 
-    scope = _scope(user, entity, period)
     queue: list[dict] = []
     for feature in fn.features:
         handler = registry.feature_of(fn.id, feature.id)[2]
         if handler is None:
             continue
+        # A scope PER FEATURE, because the breadth is a property of the
+        # screen and not of the function. Built once for the whole overview,
+        # this quietly answered every feature at firm breadth — so an
+        # employee's "what needs you" counted the firm's unacknowledged
+        # items, which is the figure the register itself refuses to show
+        # them. Two lines up, one hole.
+        scope = _scope(user, entity, period, feature)
         try:
             needs = [f for f in handler.figures(scope) if f.tone == "warn"]
         except Exception:  # noqa: BLE001 — one unhappy feature is not the page
@@ -180,7 +192,7 @@ async def get_function(
         "empty": fn.empty,
         "features": [_feature_card(fn.id, f) for f in fn.features],
         "queue": queue,
-        "rail": _rail(fn, None, scope),
+        "rail": _rail(fn, None, _scope(user, entity, period)),
     }
 
 
@@ -201,7 +213,7 @@ async def get_feature(
     have.
     """
     fn, feature, handler = _resolve(function_id, feature_id)
-    scope = _scope(user, entity, period)
+    scope = _scope(user, entity, period, feature)
 
     if missing := scope.missing(feature.scope):
         # Not an error. The person has not chosen an entity yet, and the UI
@@ -265,7 +277,7 @@ async def export_feature(
     holding the loop while a few hundred rows are formatted.
     """
     fn, feature, handler = _resolve(function_id, feature_id)
-    scope = _scope(user, entity, period)
+    scope = _scope(user, entity, period, feature)
     if missing := scope.missing(feature.scope):
         # The screen would be asking for a selector; a spreadsheet of
         # nothing-in-particular is worse than being told to choose.
@@ -349,7 +361,7 @@ async def set_report(
     of nothing-in-particular arriving every month is worse than none.
     """
     _fn, feature, _handler = _resolve(function_id, feature_id)
-    scope = _scope(user, "", body.period)
+    scope = _scope(user, "", body.period, feature)
     if missing := scope.missing(feature.scope):
         raise HTTPException(
             422,
@@ -443,7 +455,7 @@ async def act(
     refuses a closed period and refuses a bulk outward action.
     """
     _fn, _feature, handler = _resolve(function_id, feature_id)
-    outcome = handler.act(_scope(user, body.entity, body.period),
+    outcome = handler.act(_scope(user, body.entity, body.period, _feature),
                           body.action, body.targets, body.note)
     await _deliver()
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
@@ -506,7 +518,7 @@ async def preview_form(
     """
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
-    outcome = handler.preview(_scope(user, body.entity, body.period),
+    outcome = handler.preview(_scope(user, body.entity, body.period, feature),
                               form_id, values, body.about)
     return {"ok": outcome.ok, "said": outcome.said}
 
@@ -527,7 +539,7 @@ async def submit_form(
     """
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
-    outcome = handler.submit(_scope(user, body.entity, body.period),
+    outcome = handler.submit(_scope(user, body.entity, body.period, feature),
                              form_id, values, body.about)
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
@@ -557,7 +569,7 @@ async def ask(
     picks the likeliest row is wrong exactly when it hurts.
     """
     fn, feature, handler = _resolve(function_id, feature_id)
-    scope = _scope(user, body.entity, body.period)
+    scope = _scope(user, body.entity, body.period, feature)
     result = assistant.interpret(fn.id, feature, handler, scope, body.text,
                                  user, body.tab)
 

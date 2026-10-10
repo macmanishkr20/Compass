@@ -27,9 +27,12 @@ shape of the thing, and the individual decisions belong to the people whose
 names go against them. A feature with no actions also tells the assistant it
 cannot act, so the rail here answers and never proposes.
 
-WHO MAY SEE IT. The firm-wide view names people and their totals, so it is
-for the compliance role. Everybody else gets the explanation and an empty
-screen: that this screen exists is not the secret, what is on it is.
+WHO MAY SEE IT. The firm-wide view names people and their totals, so the
+manifest declares it firm-only and gives that breadth to Compliance,
+Finance, Audit and Leadership. Everybody else gets the explanation and an
+empty screen: that this screen exists is not the secret, what is on it is.
+Notably there is no `self` breadth here — an aggregate of one person is not
+a dashboard, and an employee's own record is RewardLens's job.
 """
 
 from __future__ import annotations
@@ -185,8 +188,15 @@ class Oversight(Feature):
     private = rewardlens.RewardLens.private | frozenset({"id"})
 
     def _shut_out(self, scope: Scope) -> bool:
-        """Whether this person may not see the firm-wide view."""
-        return not rewardlens.is_reviewer(scope.user)
+        """Whether this person may not see the firm-wide view.
+
+        Asked of the scope rather than of a role list kept here: the
+        manifest declares who sees this screen, the route resolves it, and
+        this is the one line that acts on the answer. A handler holding its
+        own copy of the rule is a handler that can disagree with the
+        manifest somebody edited.
+        """
+        return scope.sees != "firm"
 
     def figures(self, scope: Scope) -> list[Figure]:
         if self._shut_out(scope):

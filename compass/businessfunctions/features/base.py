@@ -48,12 +48,50 @@ class Scope:
     user: str
     entity: str = ""
     period: str = ""
+    #: What this person IS, resolved from the directory by the route. Never
+    #: sent by a client, for the same reason `user` is not: a role that
+    #: could arrive in a request is a role anybody can claim.
+    roles: frozenset[str] = field(default_factory=frozenset)
+    #: Their own employee record, when the directory knows one.
+    employee: str = ""
+    #: The employee ids reporting to them. Empty unless they are a manager.
+    team: frozenset[str] = field(default_factory=frozenset)
+    #: How much of this screen is theirs — "firm", "team", "self" or "none".
+    #: Decided by the route from the feature's declared visibility, so one
+    #: feature can be firm-wide and another self-only for the same person.
+    sees: str = "firm"
 
     def missing(self, wanted: list[str]) -> list[str]:
         """Which declared dimensions have not been chosen yet."""
         have = {"entity": self.entity, "period": self.period,
                 "team": self.user, "self": self.user}
         return [d for d in wanted if not have.get(d, "")]
+
+    def mine(self, employee_id: str) -> bool:
+        """Whether a record about this employee is this person's own."""
+        return bool(self.employee) and employee_id == self.employee
+
+    def narrow(self, rows: list[dict[str, Any]], *,
+               person_key: str) -> list[dict[str, Any]]:
+        """The rows this person may see, out of everything that exists.
+
+        One implementation, called by each handler at the single place its
+        rows come from — so a feature's figures, its tabs, its table, its
+        export and its monthly report all narrow together and cannot
+        disagree about who is being shown what.
+
+        It is here rather than in the route for exactly that reason: a
+        filter applied on the way out would leave the counts above the table
+        describing a firm the reader cannot see.
+        """
+        if self.sees == "firm":
+            return rows
+        if self.sees == "none":
+            return []
+        allowed = {self.employee} if self.employee else set()
+        if self.sees == "team":
+            allowed |= set(self.team)
+        return [r for r in rows if str(r.get(person_key, "")) in allowed]
 
 
 @dataclass(frozen=True)

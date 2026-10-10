@@ -39,6 +39,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from compass.businessfunctions.people import BREADTHS, ROLES
+
 _ID_OK = re.compile(r"^[a-z0-9_]+$")
 ID_MAX = 48
 NAME_MAX = 64
@@ -132,6 +134,11 @@ class Action(BaseModel):
     #: model phrased is not the reviewer's justification, and a compliance
     #: record is the last place for a plausible one.
     note_label: str = ""
+    #: Which personas may take it. Empty means anybody who can see the row,
+    #: which is what every action written before roles existed meant and
+    #: still means — a feature does not acquire a restriction by the
+    #: framework learning how to express one.
+    roles: list[str] = Field(default_factory=list)
 
     def problems(self) -> list[str]:
         found: list[str] = []
@@ -144,6 +151,11 @@ class Action(BaseModel):
         if self.note_label and (why := _unusable(self.note_label, limit=NAME_MAX,
                                                  what="note prompt")):
             found.append(f"action {self.id!r}: {why}")
+        if unknown := sorted(set(self.roles) - ROLES):
+            found.append(
+                f"action {self.id!r} is for {', '.join(unknown)}, which is "
+                f"not a role Compass knows"
+            )
         return found
 
 
@@ -305,6 +317,16 @@ class FeatureManifest(BaseModel):
     #: The sentence shown while a scope is still unchosen. Says why the screen
     #: is empty in this feature's own terms.
     scope_why: str = ""
+    #: How much of this screen each persona may see — {"firm": [...], ...}.
+    #:
+    #: Declared rather than coded because it is a claim about the firm: who
+    #: is allowed to know what the firm gave to whom is a policy question,
+    #: and policy belongs beside the words rather than inside a handler.
+    #:
+    #: An absent block means everybody sees everything, which is what every
+    #: feature written before this meant. A feature becomes restricted by
+    #: somebody saying so, never by this field being added to the model.
+    visibility: dict[str, list[str]] = Field(default_factory=dict)
     actions: list[Action] = Field(default_factory=list)
     #: Things a person records that did not exist before. Separate from
     #: actions because a form creates a row rather than deciding one.
@@ -354,6 +376,18 @@ class FeatureManifest(BaseModel):
         if self.scope_why:
             if why := _unusable(self.scope_why, limit=TEXT_MAX, what="scope_why"):
                 found.append(why)
+
+        if bad := sorted(set(self.visibility) - set(BREADTHS)):
+            found.append(
+                f"is visible at {', '.join(bad)}, which is not a breadth "
+                f"Compass can apply"
+            )
+        for level, who in self.visibility.items():
+            if unknown := sorted(set(who) - ROLES):
+                found.append(
+                    f"shows {level} to {', '.join(unknown)}, which is not a "
+                    f"role Compass knows"
+                )
 
         # The two-layer rule: a feature narrows its function's grant, never
         # widens it. Stated as two failures because they are different

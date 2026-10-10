@@ -51,7 +51,7 @@ import time
 import uuid
 from dataclasses import dataclass, field, replace
 
-from compass.businessfunctions import notices, registry
+from compass.businessfunctions import notices, people, registry
 from compass.common.persistence.catalog import Collection
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import Scope
@@ -233,7 +233,10 @@ def render(sub: Subscription) -> tuple[str, str, list[tuple[str, str]]]:
     if fn is None or feature is None or handler is None:
         return "", "", []
 
-    scope = Scope(user=sub.user, period=sub.period)
+    # Built the same way a request builds one, through the one function that
+    # knows how. Constructing it here by hand is what made an employee's
+    # report carry the firm's figures for the length of one commit.
+    scope = people.scope_for(sub.user, feature, period=sub.period)
     figures = [(f.caption.capitalize(), f.value) for f in handler.figures(scope)]
     applies = set(handler.rules(scope))
     said = [r for r in feature.rules if r.id in applies]

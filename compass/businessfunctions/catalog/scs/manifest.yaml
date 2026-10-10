@@ -37,6 +37,13 @@ features:
       Exposure is a figure for one year. Picking the year is what makes it
       a number rather than a pile.
 
+    # No `self` and no `team`: an aggregate of one person is not a
+    # dashboard, and "what is the firm exposed to" is not a question an
+    # individual's own record can answer. Everybody else is told why rather
+    # than shown an empty screen.
+    visibility:
+      firm: [compliance, finance, audit, leadership]
+
     # No actions, deliberately. This screen reports; the decisions belong
     # to the people whose names go against them, on RewardLens. A feature
     # with no actions also tells the assistant it cannot operate here, so
@@ -94,6 +101,18 @@ features:
     # this phase — the moment that changes the totals stop being comparable
     # and the scope has to say so rather than quietly summing two currencies.
     scope: [period]
+
+    # Who sees how much of it. An employee sees their own year against the
+    # limit — a useful screen, and the one the requirement asks for when it
+    # says employees declare what they were given. A service line lead sees
+    # the people who report to them. Compliance, Finance, Audit and
+    # Leadership see the firm, because answering "who received what" across
+    # it is the problem this exists to solve.
+    visibility:
+      firm: [compliance, finance, audit, leadership]
+      team: [manager]
+      self: [employee]
+
     # Financial years, not quarters: the limit this screen exists to watch is
     # an annual one, and a quarterly total could not be compared against it.
     choices:
@@ -105,6 +124,7 @@ features:
     actions:
       - id: refer_to_finance
         label: Refer to Finance
+        roles: [compliance]
         confirm: >-
           Sends this person's cumulative total and the items behind it to
           Finance to decide the tax treatment. Compass cannot take it back.
@@ -112,6 +132,7 @@ features:
         outward: true
       - id: chase_acknowledgement
         label: Chase acknowledgement
+        roles: [compliance, procurement]
         confirm: >-
           Asks the recipient to confirm they received the items that are
           still unacknowledged. Can be sent again later.
@@ -119,6 +140,7 @@ features:
         outward: true
       - id: record_exception
         label: Record an exception
+        roles: [compliance]
         confirm: >-
           Records that this breach is accepted, with your name against it and
           the reason you give. It stays on the audit trail and does not
@@ -127,6 +149,7 @@ features:
 
       - id: accept_disclosure
         label: Accept as declared
+        roles: [compliance]
         confirm: >-
           Records that you reviewed this declaration and it stands as made.
           Your name goes against the decision. It does not change the item,
@@ -134,6 +157,7 @@ features:
         reversible: false
       - id: query_disclosure
         label: Query it
+        roles: [compliance]
         confirm: >-
           Emails the person who declared it the question you give, and
           records that you asked. The record does not change while you wait,
@@ -143,6 +167,7 @@ features:
         note_label: What do you need to ask them?
       - id: accept_answer
         label: Accept the answer
+        roles: [compliance]
         confirm: >-
           Settles what you asked. If they said the value was wrong, the
           corrected figure replaces it and the original stays on the record,
@@ -151,6 +176,7 @@ features:
         reversible: false
       - id: resend_notice
         label: Send it again
+        roles: [compliance]
         confirm: >-
           Tries the email again. What was asked does not change — only the
           sending of it is retried.
@@ -158,6 +184,7 @@ features:
         outward: true
       - id: record_breach
         label: Not permitted
+        roles: [compliance]
         confirm: >-
           Records that what was given was not permitted, with your reason
           against it. It stays on the audit trail and still counts towards
@@ -273,6 +300,28 @@ features:
           shown because knowing what the firm received is not restricted;
           deciding them is.
         tone: notice
+      - id: your_own_record
+        headline: This is your year, and nobody else's.
+        detail: >-
+          Everything recorded against your name, totalled against the annual
+          limit. Colleagues' records are not shown to you, and yours is not
+          shown to them — only to the people who have to answer for the
+          firm's position.
+        tone: notice
+      - id: you_are_over
+        headline: You are past the annual limit.
+        detail: >-
+          Declaring what you received was the right thing. Finance decides
+          whether there is a tax consequence; nothing here is a finding
+          against you, and the figure is the sum of what is recorded.
+        tone: limit
+      - id: not_yours_to_see
+        headline: Compass cannot place you.
+        detail: >-
+          This screen is read with your own access, and the directory has no
+          record of who you are — so there is nothing it can show you rather
+          than somebody else's. SCS can link your account.
+        tone: limit
       - id: period_closed
         headline: Read-only.
         detail: This year has been signed off. Nothing in it can change.

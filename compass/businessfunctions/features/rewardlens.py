@@ -14,6 +14,13 @@ comparison is `>`; the excess is a subtraction. No part of the number a tax
 decision rests on is generated, and the check beside this file asserts the
 arithmetic against the worked example from the requirement.
 
+WHO SEES WHAT IS NOT DECIDED HERE. `scope.narrow` is applied at the single
+place the rows are built, and the breadth it applies was decided by the
+manifest and the directory before this module was called. An employee
+opening this screen sees one row — their own, against the limit — which is
+a useful screen rather than a locked door, and it is the same code path
+that shows compliance all six.
+
 A PERSON CANNOT CLEAR THEIR OWN BREACH. If the signed-in reviewer is also a
 recipient their row is shown — hiding it would be worse — but every action
 against it is refused. That is the one rule a system like this exists to
@@ -37,7 +44,7 @@ import time
 import uuid
 from typing import Any
 
-from compass.businessfunctions import notices
+from compass.businessfunctions import notices, people, registry
 from compass.common.config import get_settings
 
 from compass.businessfunctions.features.base import (
@@ -66,70 +73,53 @@ _KINDS = frozenset({"gift", "award", "voucher", "hospitality"})
 #: Periods already signed off. Nothing in them moves, for anybody.
 _CLOSED = {"FY 2024-25"}
 
-def _names_for(user: str) -> set[str]:
-    """Every login that resolves to this identity, and the identity itself.
-
-    `require_user` hands back the CANONICAL identity, and a deployment may
-    alias a login onto something else entirely — `admin` becomes somebody's
-    address. The stand-ins below are keyed by login name, because that is
-    what a person reading this file recognises, so the aliases are followed
-    back before either is consulted.
-
-    This was not theoretical. Keyed on the login alone, the role and the
-    conflict rule both silently matched nobody on a deployment that aliases
-    its accounts — the screen looked right and every rule that should have
-    fired stayed quiet. The directory this stands in for will answer for the
-    identity directly and none of this will be needed.
-    """
-    aliases = get_settings().auth.identity_aliases
-    return {user} | {login for login, ident in aliases.items() if ident == user}
-
-
 def _employee(user: str) -> str:
-    """The employee record this person is, or "" when Compass cannot say."""
-    for name in _names_for(user):
-        if found := _USER_IS.get(name):
-            return found
-    return ""
+    """The employee record this person is, or "" when Compass cannot say.
+
+    Delegated to the directory. This, the address and the reviewer role were
+    three separate tables in this file; they are one fact about a person and
+    they now live in one place, where a second feature can ask the same
+    question and get the same answer.
+    """
+    return people.employee_of(user)
+
+
+def address_of(user: str) -> str:
+    """Where to write to this person, or "" when the directory cannot say."""
+    return people.address_of(user)
 
 
 def _is_reviewer(user: str) -> bool:
-    return bool(_names_for(user) & _REVIEWERS)
+    """Whether this person holds the compliance role."""
+    return "compliance" in people.roles_of(user)
 
 
-#: Which employee the signed-in user is. A stand-in for the directory lookup
-#: that arrives with the store — it exists now so the conflict-of-interest
-#: rule is exercised rather than assumed, and so a person can declare
-#: something against their own record.
-#:
-#: A user who is not here has no employee record, and the honest answer to
-#: "declare what I was given" is then that Compass does not know who to
-#: record it against. Inventing an id for them would put a gift on a
-#: person-shaped hole in a compliance system.
-_USER_IS = {
-    "mk": "E-1041",        # Manish K. — already over, so the conflict rule bites
-    "admin": "E-1052",     # Aisha Khan — ₹12,000, so one declaration crosses it
-    "enduser": "E-1066",   # Vikram Rao — well inside, the quiet path
-}
+def _may(scope: Scope, action_id: str) -> bool:
+    """Whether this person holds a role the action was declared for.
 
-#: Where to write to somebody. A stand-in for the directory, like `_USER_IS`.
-#:
-#: Every address is under `.invalid`, which RFC 2606 reserves so that it can
-#: never resolve. These are fixture people, and a fixture that could put mail
-#: into a real inbox if somebody configured a mail server is a fixture waiting
-#: to do it.
-#:
-#: Priya Nair (E-1019) is deliberately absent, and she is absent from here
-#: rather than somebody with nothing to review: "nobody knows their address"
-#: is a real state, and it has to be reachable by the thing that sends mail or
-#: the screen will one day say "emailed" when nothing was.
-_EMAIL = {
-    "E-1007": "john.mathew@example.invalid",
-    "E-1033": "rahul.desai@example.invalid",
-    "E-1041": "manish.k@example.invalid",
-    "E-1052": "aisha.khan@example.invalid",
-    "E-1066": "vikram.rao@example.invalid",
-}
+    Read off the manifest at call time rather than copied into a constant,
+    because the two drifting apart is how a screen comes to offer a button
+    the server refuses — or worse, accept one it should not have.
+    """
+    feature = registry.feature_of("scs", "rewardlens")[1]
+    if feature is None:
+        return False
+    declared = next((a.roles for a in feature.actions if a.id == action_id), None)
+    # No roles declared means anybody who can see the row, which is what
+    # every action meant before roles existed.
+    return not declared or bool(scope.roles & set(declared))
+
+
+def _address_for_employee(employee_id: str) -> str:
+    """Where to write to the person a record is about.
+
+    The directory is keyed by login and a record names an employee, so this
+    is the one place that walks it the other way. Empty when nobody knows,
+    which is a state the screen shows rather than a send to somebody else.
+    """
+    return next((p.email for p in people.DIRECTORY.values()
+                 if p.employee_id == employee_id and p.email), "")
+
 
 _ITEMS: list[dict[str, Any]] = [
     # The worked example from the requirement: three gifts, three teams,
@@ -231,12 +221,6 @@ _STATE_WORDS = {
 #: So the only way an item stops counting is for somebody to conclude the
 #: record was mistaken, and the person who received it cannot conclude that
 #: alone: they propose it and a reviewer decides. Both records stay.
-
-#: Who may review somebody else's disclosure. A stand-in for the role the
-#: directory will carry, in the same spirit as `_USER_IS`. It is a short list
-#: on purpose: a compliance system where any employee can clear another
-#: employee's disclosure has a review step in name only.
-_REVIEWERS = frozenset({"admin", "compliance"})
 
 #: Decisions taken on disclosed items: item id -> who, when, what and why.
 #: Beside the items rather than inside them because a decision is a record
@@ -347,7 +331,10 @@ def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
     if mine:
         return ["answer_query"] if state == "queried" else []
 
-    if not _is_reviewer(scope.user):
+    # What the manifest said about this action, not what this file thinks.
+    # One rule, declared once, applied here — so changing who may review is
+    # a line of YAML rather than a hunt through handlers.
+    if not _may(scope, "accept_disclosure"):
         return []
 
     # A notice that could not be delivered is a dead end unless somebody can
@@ -361,7 +348,7 @@ def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
     # "not emailed — ..." text already says which, and a button that
     # restates it and then fails adds nothing.
     retry = (["resend_notice"] if undelivered
-             and _EMAIL.get(item["employee_id"])
+             and _address_for_employee(item["employee_id"])
              and notices.configured() else [])
 
     if state == "queried":
@@ -429,7 +416,8 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
     # What somebody has to deal with, first: unanswered queries and answers
     # waiting on a decision come before anything already settled.
     order = {"answered": 0, "awaiting": 1, "queried": 2}
-    return sorted(out, key=lambda r: (order.get(r["state"], 3), r["given"]))
+    out.sort(key=lambda r: (order.get(r["state"], 3), r["given"]))
+    return scope.narrow(out, person_key="employee_id")
 
 
 def _awaiting(scope: Scope) -> list[dict[str, Any]]:
@@ -513,7 +501,12 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             ) or "—",
         })
     # Worst first: the people a reviewer has to deal with are at the top.
-    return sorted(out, key=lambda r: (-r["total"], r["recipient"]))
+    out.sort(key=lambda r: (-r["total"], r["recipient"]))
+    # And narrowed to what this person may see, HERE rather than on the way
+    # out: figures, tabs and the table are all built from this one call, so
+    # narrowing it once is what stops an employee being shown "6 people
+    # tracked" above a list containing only themselves.
+    return scope.narrow(out, person_key="employee_id")
 
 
 # ── what another screen may read ──────────────────────────────────────────
@@ -549,7 +542,7 @@ def superseded() -> dict[str, str]:
 
 def address_of(user: str) -> str:
     """Where to write to this person, or "" when the directory cannot say."""
-    return _EMAIL.get(_employee(user), "")
+    return people.address_of(user)
 
 
 def is_reviewer(user: str) -> bool:
@@ -573,6 +566,33 @@ class RewardLens(Feature):
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)
         over = [r for r in rows if r["over_limit"]]
+
+        if scope.sees == "self":
+            # Written for the person whose year it is. "People tracked: 1"
+            # and "declarations to review" are a reviewer's numbers; to
+            # somebody reading their own record they are at best odd and at
+            # worst suggest the screen is about somebody else.
+            me = rows[0] if rows else None
+            headroom = me["headroom"] if me else ANNUAL_LIMIT
+            return [
+                Figure("recorded", rupees(me["total"] if me else 0),
+                       "counting towards your limit"),
+                Figure("limit", rupees(ANNUAL_LIMIT), "the annual limit"),
+                Figure("headroom", rupees(headroom) if headroom
+                       else rupees(me["excess"]) if me else rupees(0),
+                       "left before the limit" if headroom
+                       else "over the limit",
+                       "good" if headroom else "bad"),
+                Figure("unacknowledged",
+                       str(me["unacknowledged"] if me else 0),
+                       "for you to acknowledge" if me and me["unacknowledged"]
+                       else "nothing to acknowledge",
+                       "warn" if me and me["unacknowledged"] else "good"),
+                Figure("to_review", str(len(_awaiting(scope))),
+                       "of yours waiting on compliance" if _awaiting(scope)
+                       else "nothing waiting on compliance"),
+            ]
+
         unack = sum(r["unacknowledged"] for r in rows)
         counted = sum(r["total"] for r in rows)
         return [
@@ -591,9 +611,22 @@ class RewardLens(Feature):
 
     def tabs(self, scope: Scope) -> list[Tab]:
         rows = _totals(scope)
+        over = [r for r in rows if r["over_limit"]]
+        if scope.sees == "self":
+            # A reviewer opens this on the queue, which is what needs them.
+            # Somebody reading their own year has no queue — landing them on
+            # "over the limit", empty, makes their own record look like it
+            # is not there. Their year comes first; the rest still follow.
+            return [
+                Tab("all", "Your year", len(rows)),
+                Tab("over", "Over the limit", len(over)),
+                Tab("unacknowledged", "To acknowledge",
+                    len([r for r in rows if r["unacknowledged"]])),
+                Tab("disclosed", "What you declared", len(_awaiting(scope)),
+                    key_field="id"),
+            ]
         return [
-            Tab("over", "Over the limit",
-                len([r for r in rows if r["over_limit"]])),
+            Tab("over", "Over the limit", len(over)),
             Tab("all", "Everyone", len(rows)),
             Tab("unacknowledged", "Awaiting acknowledgement",
                 len([r for r in rows if r["unacknowledged"]])),
@@ -615,14 +648,31 @@ class RewardLens(Feature):
         return rows
 
     def rules(self, scope: Scope) -> list[str]:
+        if scope.sees == "none":
+            # Said rather than shown a blank screen. Somebody the directory
+            # cannot place is not a thief at the door; usually they are new.
+            return ["not_yours_to_see"]
         if scope.period in _CLOSED:
             return ["period_closed"]
         rows = _totals(scope)
         said: list[str] = []
+        if scope.sees == "self":
+            # Each of the rules below is written for somebody looking at
+            # other people. To a person reading their own year they are
+            # either confusing or faintly accusatory, so the screen says
+            # what it actually is instead.
+            said.append("your_own_record")
+            if any(r["over_limit"] for r in rows):
+                said.append("you_are_over")
+            return said
+
         if any(r["over_limit"] for r in rows):
             said.append("over_limit")
         mine = _employee(scope.user)
-        if mine and any(r["employee_id"] == mine for r in rows):
+        # Only to somebody who could otherwise act on it: being in the list
+        # is not news to the person whose list it is.
+        if mine and _is_reviewer(scope.user) and any(
+                r["employee_id"] == mine for r in rows):
             said.append("you_are_a_recipient")
         if _awaiting(scope):
             said.append("disclosures_waiting")
@@ -649,6 +699,17 @@ class RewardLens(Feature):
             return Outcome(
                 ok=False,
                 said=f"{scope.period} has been signed off — nothing in it can change.",
+            )
+
+        # Every action, not only the review ones. Declaring roles on all
+        # eight and enforcing them on five left Audit — a persona that can
+        # already see the whole register — able to refer somebody to
+        # Finance. One gate, at the way in.
+        if not _may(scope, action):
+            return Outcome(
+                ok=False,
+                said="That decision belongs to another team. You can see "
+                     "this and not decide it.",
             )
 
         if action in self.REVIEW_ACTIONS:
@@ -755,13 +816,6 @@ class RewardLens(Feature):
 
     def _review(self, scope: Scope, action: str, targets: list[str],
                 note: str) -> Outcome:
-        if not _is_reviewer(scope.user):
-            return Outcome(
-                ok=False,
-                said="Reviewing a declaration is a compliance role. Yours is "
-                     "not one, so you can see these and not decide them.",
-            )
-
         rows = {r["id"]: r for r in _disclosed_rows(scope)}
         chosen = [rows[t] for t in targets if t in rows]
         if not chosen:
@@ -1052,7 +1106,7 @@ class RewardLens(Feature):
         notice that leaks one employee's record into another's inbox.
         """
         return notices.record(
-            to=_EMAIL.get(row["employee_id"], ""),
+            to=_address_for_employee(row["employee_id"]),
             name=row["declared_by"],
             about=row["id"],
             subject=f"A question about what you declared: {row['what']}",
