@@ -105,6 +105,10 @@ DIRECTORY: dict[str, Person] = {
     # Roles with no person behind them: compliance, finance and audit review
     # other people's records and have none of their own in this fixture, so
     # there is nothing for a conflict rule to trip over.
+    # Buys and hands over. No employee record: Procurement acts on other
+    # people's gifts and receives none in this fixture, so there is nothing
+    # for the "not your own" rules to trip over.
+    "procurement": Person("", "Procurement", "", frozenset({"procurement"})),
     "compliance": Person("", "Compliance", "", frozenset({"compliance"})),
     "finance": Person("", "Finance", "", frozenset({"finance"})),
     "audit": Person("", "Audit", "", frozenset({"audit"})),

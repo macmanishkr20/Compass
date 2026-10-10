@@ -59,6 +59,13 @@ _items_store = Collection("bf_gift_item", "business_function_gift_items.json",
 _events_store = Collection("bf_gift_event", "business_function_gift_events.json",
                            shape="map")
 
+#: What somebody has ASKED to give, before it exists. A request is not a
+#: record of something that happened — it is a proposal that may be
+#: declined, and conflating the two would put things on the register that
+#: nobody ever received. It becomes an item when it is handed over.
+_requests_store = Collection("bf_gift_request",
+                             "business_function_gift_requests.json", shape="map")
+
 #: The kinds of thing that happen. A closed set, because an event nobody
 #: can fold is an event that silently does nothing.
 #:
@@ -70,15 +77,20 @@ _events_store = Collection("bf_gift_event", "business_function_gift_events.json"
 #: at first, meant the thing Audit most wants to read — who referred whom,
 #: and when — did not survive a restart.
 EVENTS = ("reviewed", "answered", "superseded", "notified",
-          "referred", "excepted", "chased")
+          "referred", "excepted", "chased",
+          # the request lifecycle
+          "requested", "approved", "declined", "purchased", "given",
+          "acknowledged", "cancelled")
 
 #: In-process state. Authoritative for reads; see the note above.
 _items: list[dict[str, Any]] = []
 _events: list[dict[str, Any]] = []
+_requests: list[dict[str, Any]] = []
 
 #: Written but not yet flushed. Ids, so a double flush is not a double write.
 _unsaved_items: list[str] = []
 _unsaved_events: list[str] = []
+_unsaved_requests: list[str] = []
 
 _loaded = False
 
@@ -90,6 +102,11 @@ _loaded = False
 def items() -> list[dict[str, Any]]:
     """Every recorded item, superseded ones included. This is the register."""
     return _items
+
+
+def requests() -> list[dict[str, Any]]:
+    """Everything that has been asked for, in whatever state."""
+    return _requests
 
 
 def events(subject: str = "") -> list[dict[str, Any]]:
@@ -134,6 +151,36 @@ def add_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def add_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Ask for something. Changes nothing on the register until it is given."""
+    _requests.append(request)
+    _unsaved_requests.append(request["id"])
+    return request
+
+
+def touch_request(request_id: str) -> None:
+    """Mark a request as changed, so the next flush writes it.
+
+    Requests are the one thing here that is edited rather than appended:
+    a request moves through states, and its state IS the record. What
+    happened to it is still on the trail, which is where the history lives.
+    """
+    if request_id not in _unsaved_requests:
+        _unsaved_requests.append(request_id)
+
+
+def touch_item(item_id: str) -> None:
+    """Mark a record as changed, so the next flush writes it.
+
+    The one field on an item that moves: whether the recipient has
+    confirmed receiving it. It is theirs to set and nobody else's, and the
+    acknowledgement itself is on the trail — this only keeps the register
+    and the trail saying the same thing.
+    """
+    if item_id not in _unsaved_items:
+        _unsaved_items.append(item_id)
+
+
 def add_event(*, subject: str, kind: str, by: str,
               **payload: Any) -> dict[str, Any]:
     """Record something somebody did — to an item, or to a person's year."""
@@ -150,7 +197,8 @@ def add_event(*, subject: str, kind: str, by: str,
 # the store
 # ──────────────────────────────────────────────────────────────────────────
 
-async def ready(seed: list[dict[str, Any]] | None = None) -> None:
+async def ready(seed: list[dict[str, Any]] | None = None,
+                requests_seed: list[dict[str, Any]] | None = None) -> None:
     """Load the register and the trail, once per process.
 
     `seed` is written only when the register is EMPTY — a deployment with
@@ -173,9 +221,15 @@ async def ready(seed: list[dict[str, Any]] | None = None) -> None:
 
     _items[:] = sorted(stored, key=lambda i: (i.get("given", ""), i.get("id", "")))
     _events[:] = sorted(await _events_store.all(), key=lambda e: e.get("at", 0))
+    waiting = await _requests_store.all()
+    if not waiting and requests_seed:
+        for request in requests_seed:
+            await _requests_store.put(dict(request, owner=request.get("by", "")))
+        waiting = await _requests_store.all()
+    _requests[:] = sorted(waiting, key=lambda r: r.get("at", 0))
     _loaded = True
-    logger.info("business functions: %d gift records, %d events",
-                len(_items), len(_events))
+    logger.info("business functions: %d gift records, %d events, %d requests",
+                len(_items), len(_events), len(_requests))
 
 
 async def flush() -> None:
@@ -190,6 +244,11 @@ async def flush() -> None:
         item = next((i for i in _items if i["id"] == item_id), None)
         if item is not None:
             await _items_store.put(dict(item, owner=item.get("employee_id", "")))
+    while _unsaved_requests:
+        request_id = _unsaved_requests.pop(0)
+        request = next((r for r in _requests if r["id"] == request_id), None)
+        if request is not None:
+            await _requests_store.put(dict(request, owner=request.get("by", "")))
     while _unsaved_events:
         event_id = _unsaved_events.pop(0)
         event = next((e for e in _events if e["id"] == event_id), None)
@@ -199,7 +258,8 @@ async def flush() -> None:
 
 def pending() -> int:
     """How much has not reached the store. For checks and a health line."""
-    return len(_unsaved_items) + len(_unsaved_events)
+    return (len(_unsaved_items) + len(_unsaved_events)
+            + len(_unsaved_requests))
 
 
 def forget() -> None:
@@ -207,6 +267,8 @@ def forget() -> None:
     global _loaded
     _items.clear()
     _events.clear()
+    _requests.clear()
     _unsaved_items.clear()
     _unsaved_events.clear()
+    _unsaved_requests.clear()
     _loaded = False

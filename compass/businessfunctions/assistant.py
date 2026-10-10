@@ -203,6 +203,9 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
                                         f"{rupees(row['limit'])}")
         return row["id"], (f"{row['declared_by']} · {row['what']} · "
                            f"{rupees(row['value'])}")
+    if feature_id == "requests":
+        return row["id"], (f"{row['what']} for {row['recipient']} · "
+                           f"{rupees(row['value'])}")
     if feature_id == "oversight":
         # Three shapes on one feature, told apart by what the row carries
         # rather than by which tab asked, so this cannot drift out of step

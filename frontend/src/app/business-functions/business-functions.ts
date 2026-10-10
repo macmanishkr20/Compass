@@ -316,27 +316,35 @@ export class BusinessFunctions {
     if (this.featureId() === 'lms') {
       return status === 'open' ? all.filter((a) => a.id !== 'undo') : [];
     }
+    // A row that says what may be done to it is believed, whatever feature
+    // it came from. The server knows who holds which role, whose record it
+    // is and what state it is in; none of that is knowable here.
+    //
+    // This used to sit inside the RewardLens branch, so a feature added
+    // afterwards fell through to "offer everything the manifest declares" —
+    // and Gift requests showed an approver the Bought and Handed over
+    // buttons, which are Procurement's and which the server refuses. One
+    // rule, above the per-feature guessing.
+    if (Array.isArray(row['can'])) {
+      const can = row['can'] as string[];
+      return all.filter((a) => can.includes(a.id));
+    }
     if (this.featureId() === 'rewardlens') {
       // A declared item is reviewed; a person's year is referred, chased or
-      // excepted. Two kinds of row, so two sets of buttons, and neither is
-      // ever offered against the other.
-      // A row that says what may be done to it is believed. The server
-      // knows who holds the reviewer role, whose declaration this is and
-      // what state it is in; none of that is knowable here, and guessing
-      // at it is what offers somebody a button and then refuses it.
-      if (Array.isArray(row['can'])) {
-        const can = row['can'] as string[];
-        return all.filter((a) => can.includes(a.id));
-      }
+      // excepted. Two kinds of row, so two sets of buttons.
       // Only what this row can actually take. A referral that would be
       // refused is a button that should not have been drawn.
       const over = row['over_limit'] === true;
       const referred = row['referred'] === true;
       const unack = Number(row['unacknowledged'] ?? 0) > 0;
+      // Acknowledging is the recipient's own, and only theirs: the row
+      // says `yours` because only the server knows whose it is.
+      const yours = row['yours'] === true;
       return all.filter((a) =>
-        (a.id === 'refer_to_finance' && over && !referred)
-        || (a.id === 'record_exception' && over)
-        || (a.id === 'chase_acknowledgement' && unack));
+        (a.id === 'acknowledge' && yours && unack)
+        || (a.id === 'refer_to_finance' && over && !referred && !yours)
+        || (a.id === 'record_exception' && over && !yours)
+        || (a.id === 'chase_acknowledgement' && unack && !yours));
     }
     return all;
   }
@@ -720,6 +728,20 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
+    // Gift requests: what is being asked for, with the three answers the
+    // approver needs on the row rather than a click away.
+    if (this.featureId() === 'requests') {
+      return [
+        { key: 'recipient', label: 'For' },
+        { key: 'what', label: 'What' },
+        { key: 'value', label: 'Value', numeric: true },
+        { key: 'occasion', label: 'Why' },
+        { key: 'policy', label: 'Policy' },
+        { key: 'tax', label: 'Their year' },
+        { key: 'budget', label: 'Budget' },
+        { key: 'status', label: 'Status' },
+      ];
+    }
     // The dashboard. Three tabs, three shapes: people nobody has decided,
     // the places the process stopped, and where the value comes from.
     if (this.featureId() === 'oversight') {
@@ -801,7 +823,8 @@ export class BusinessFunctions {
     const shown = new Set(this.columns().map((c) => c.key));
     const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days',
                       'employee_id', 'over_limit', 'referred', 'exception',
-                      'disclosed', 'items', 'state', 'can']);
+                      'disclosed', 'items', 'state', 'can', 'yours',
+                      'by_employee', 'blocked', 'warns']);
     return Object.entries(row)
       .filter(([k]) => !skip.has(k))
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: this.cell(row, k) }));

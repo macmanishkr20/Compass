@@ -69,6 +69,10 @@ COUNTS_TOWARDS_LIMIT = frozenset({"gift", "award", "voucher"})
 #: accept it would be a form that taught people not to mention it.
 _KINDS = frozenset({"gift", "award", "voucher", "hospitality"})
 
+#: The same vocabulary a request uses, so an approved request that
+#: becomes an item does not change its own meaning on the way.
+KINDS = _KINDS
+
 #: Periods already signed off. Nothing in them moves, for anybody.
 _CLOSED = {"FY 2024-25"}
 
@@ -501,6 +505,9 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             "headroom": max(0, ANNUAL_LIMIT - total),
             "over_limit": over,
             "crossed_on": crossed or "—",
+            # Whether this row is the reader's own. On the row because the
+            # surface cannot know: it decides which buttons are theirs.
+            "yours": scope.mine(row["employee_id"]),
             "unacknowledged": len(unack),
             "disclosed": len(disclosed),
             "referred": ledger.happened(row["employee_id"], "referred"),
@@ -572,6 +579,21 @@ def is_reviewer(user: str) -> bool:
 
 def limit() -> int:
     return ANNUAL_LIMIT
+
+
+def closed_periods() -> frozenset[str]:
+    """Years that have been signed off. Nothing in them moves, for anybody."""
+    return frozenset(_CLOSED)
+
+
+def whole_rupees(raw: str) -> int | None:
+    """A value somebody typed, as whole rupees, or None. Shared so a request
+    and a declaration cannot disagree about what "₹8,000" means."""
+    return _whole_rupees(raw)
+
+
+def most_per_item() -> int:
+    return _MOST_PER_ITEM
 
 
 class RewardLens(Feature):
@@ -743,8 +765,16 @@ class RewardLens(Feature):
         # The rule the whole feature exists for. Checked before anything else,
         # because a reviewer acting on their own year is not a smaller problem
         # when the action happens to be a reasonable one.
+        #
+        # Acknowledging is the exception, and it is not a loophole: the rule
+        # says nobody DECIDES their own case, and confirming you received
+        # something is not a decision about a case — it is the one act on
+        # this screen that is only ever about yourself. Written as an
+        # exemption rather than by moving the guard, so the next action
+        # added is covered by default.
         mine = _employee(scope.user)
-        if mine and any(r["employee_id"] == mine for r in chosen):
+        if action != "acknowledge" and mine and any(
+                r["employee_id"] == mine for r in chosen):
             return Outcome(
                 ok=False,
                 said="That is your own record. Someone else has to decide it.",
@@ -778,6 +808,38 @@ class RewardLens(Feature):
                 said=f"{row['recipient']} referred to Finance — "
                      f"{rupees(row['total'])} against a {rupees(ANNUAL_LIMIT)} "
                      f"limit, {rupees(row['excess'])} over.",
+                touched=[row["employee_id"]],
+            )
+
+        if action == "acknowledge":
+            # The only thing on this screen the recipient themselves does,
+            # and the one that makes the register something they have agreed
+            # to rather than something done to them.
+            row = chosen[0] if len(chosen) == 1 else None
+            if row is None:
+                return Outcome(ok=False, said="Acknowledge your own record.")
+            if not scope.mine(row["employee_id"]):
+                return Outcome(
+                    ok=False,
+                    said="You can only acknowledge what you were given.")
+            outstanding = [i for i in _items_for(scope)
+                           if i["employee_id"] == row["employee_id"]
+                           and not i["acknowledged"]
+                           and _superseded_by(i["id"]) is None]
+            if not outstanding:
+                return Outcome(ok=False, said="There is nothing of yours "
+                                              "waiting to be acknowledged.")
+            for item in outstanding:
+                item["acknowledged"] = True
+                ledger.touch_item(item["id"])
+                ledger.add_event(subject=item["id"], kind="acknowledged",
+                                 by=scope.user)
+            return Outcome(
+                ok=True,
+                said=f"Acknowledged {len(outstanding)} item"
+                     f"{'s' if len(outstanding) > 1 else ''}. The record now "
+                     f"says you confirmed receiving "
+                     f"{'them' if len(outstanding) > 1 else 'it'}.",
                 touched=[row["employee_id"]],
             )
 

@@ -43,7 +43,7 @@ from compass.businessfunctions import (
     registry,
     reports,
 )
-from compass.businessfunctions.features import rewardlens
+from compass.businessfunctions.features import giftrequests, rewardlens
 from compass.businessfunctions.features.base import Scope
 from compass.common.auth import require_user
 
@@ -426,7 +426,8 @@ async def _ready() -> None:
     """
     from compass.businessfunctions.features import rewardlens
 
-    await ledger.ready(seed=rewardlens.SEED)
+    await ledger.ready(seed=rewardlens.SEED,
+                       requests_seed=giftrequests.SEED)
     await notices.ready()
 
 

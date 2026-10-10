@@ -111,12 +111,13 @@ async def lifespan(app: FastAPI):
         import asyncio
 
         from compass.businessfunctions import ledger, notices
-        from compass.businessfunctions.features import rewardlens
+        from compass.businessfunctions.features import giftrequests, rewardlens
         from compass.businessfunctions.reports import reports_loop
 
         # Loaded here so the first request does not pay for it, and so a
         # deployment that has never run gets the sample register once.
-        await ledger.ready(seed=rewardlens.SEED)
+        await ledger.ready(seed=rewardlens.SEED,
+                           requests_seed=giftrequests.SEED)
         await notices.ready()
         report_sender = asyncio.create_task(reports_loop())
     yield

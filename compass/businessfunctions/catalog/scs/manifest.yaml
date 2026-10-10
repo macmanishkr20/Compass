@@ -88,6 +88,156 @@ features:
       - read_rows
       - explain_row
 
+  - id: requests
+    name: Gift requests
+    short: Ask · check · approve
+    blurb: >-
+      Asking before giving, with the three answers in front of whoever
+      approves: whether it is permitted, what it does to the recipient's
+      year, and whether the team has the money. Nothing reaches the
+      register until it is actually handed over.
+    handler: gift_requests
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      A limit is annual and so is a budget. The year is what makes "can we
+      afford this" and "does this take them over" answerable.
+
+    # Everybody can ask, and sees what they asked for or what is for them.
+    # A lead sees their team's. Procurement, Compliance, Finance, Audit and
+    # Leadership see the firm, because a request nobody can see is the
+    # problem this exists to end.
+    visibility:
+      firm: [procurement, compliance, finance, audit, leadership]
+      team: [manager]
+      self: [employee]
+
+    actions:
+      - id: approve
+        label: Approve
+        roles: [manager, compliance]
+        confirm: >-
+          Lets Procurement buy it and commits the budget. If it takes the
+          recipient past the annual limit you will have been told so, and
+          the approval records that you knew.
+        reversible: false
+      - id: decline
+        label: Decline
+        roles: [manager, compliance]
+        note_label: Why are you declining it?
+        confirm: >-
+          Refuses it, with your reason on the record. Nothing is bought and
+          nothing reaches anybody's total.
+        reversible: false
+      - id: cancel_request
+        label: Withdraw it
+        roles: [employee]
+        confirm: Withdraws your own request. Nothing was bought.
+        reversible: false
+      - id: mark_purchased
+        label: Bought
+        roles: [procurement]
+        confirm: >-
+          Records that this has been purchased. It still does not count
+          towards anybody's limit — that happens when it is handed over.
+        reversible: false
+      - id: mark_given
+        label: Handed over
+        roles: [procurement]
+        confirm: >-
+          Puts it on the register against the recipient, from today, and
+          asks them to acknowledge it. This is the moment it starts
+          counting towards their annual limit.
+        reversible: false
+        outward: true
+
+    forms:
+      - id: request_gift
+        label: Ask for a gift
+        submit_label: Send the request
+        blurb: >-
+          Say who it is for and what it is. Before you send it, "What would
+          this do?" will tell you whether it is permitted, what it does to
+          their year, and whether your team has the money — which is
+          cheaper to find out now than after it is bought.
+        confirm: >-
+          Goes to a manager or compliance to approve, with your name on it.
+          Nothing is bought and nothing counts towards anybody's limit
+          until somebody approves it and it is handed over.
+        fields:
+          - id: recipient
+            label: Who it is for
+            kind: text
+            help: Their name, as Compass knows it.
+          - id: what
+            label: What it is
+            kind: text
+            help: A hamper, a watch, tickets.
+          - id: kind
+            label: Type
+            kind: choice
+            options: [gift, award, voucher, hospitality]
+            help: >-
+              Gifts, awards and vouchers count towards the recipient's
+              annual limit. Hospitality is not requested through this yet.
+          - id: occasion
+            label: Why
+            kind: choice
+            options: [festival, long service, performance, client courtesy,
+                      farewell, other]
+            help: Policy depends on this, so it is not a free-text note.
+          - id: value
+            label: What it costs
+            kind: money
+            help: Whole rupees.
+          - id: source
+            label: Which team is paying
+            kind: choice
+            options: [Procurement · Chennai, Procurement · Bengaluru,
+                      People team, Service line · Advisory,
+                      Service line · Tax, Service line · Assurance]
+            help: The budget it comes out of.
+
+    rules:
+      - id: would_cross_the_limit
+        headline: Something here takes somebody past the limit.
+        detail: >-
+          It can still be approved — this is a decision, not a block. What
+          has changed is that whoever approves it knows before they do,
+          rather than Finance finding out at the year end.
+        tone: limit
+      - id: against_policy
+        headline: Something here cannot be approved as asked.
+        detail: >-
+          Policy or budget says no. The request stays on the record with
+          its reason; changing what is asked for means a new request.
+        tone: limit
+      - id: nothing_requested
+        headline: Nothing has been asked for yet.
+        detail: >-
+          Requests raised here are checked before approval and reach
+          RewardLens only when they are handed over.
+        tone: notice
+      - id: not_yours_to_see
+        headline: Compass cannot place you.
+        detail: >-
+          This is read with your own access, and the directory has no
+          record of who you are. SCS can link your account.
+        tone: limit
+      - id: period_closed
+        headline: Read-only.
+        detail: This year has been signed off. Nothing in it can change.
+        tone: limit
+
+    starters:
+      - What is waiting for approval?
+      - What would take somebody over the limit?
+
+    tools:
+      - read_rows
+      - explain_row
+
   - id: rewardlens
     name: RewardLens
     short: Gifts · awards · thresholds
@@ -130,6 +280,14 @@ features:
           Finance to decide the tax treatment. Compass cannot take it back.
         reversible: false
         outward: true
+      - id: acknowledge
+        label: I received these
+        roles: [employee]
+        confirm: >-
+          Confirms you received what is recorded against you. It does not
+          change any figure — it changes the record from something the firm
+          says happened to something you have agreed happened.
+        reversible: false
       - id: chase_acknowledgement
         label: Chase acknowledgement
         roles: [compliance, procurement]

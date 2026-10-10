@@ -72,7 +72,7 @@ class Scope:
         return bool(self.employee) and employee_id == self.employee
 
     def narrow(self, rows: list[dict[str, Any]], *,
-               person_key: str) -> list[dict[str, Any]]:
+               person_key: str | tuple[str, ...]) -> list[dict[str, Any]]:
         """The rows this person may see, out of everything that exists.
 
         One implementation, called by each handler at the single place its
@@ -91,7 +91,13 @@ class Scope:
         allowed = {self.employee} if self.employee else set()
         if self.sees == "team":
             allowed |= set(self.team)
-        return [r for r in rows if str(r.get(person_key, "")) in allowed]
+        # More than one key, because a row can be about more than one
+        # person: a gift request is the recipient's business and the
+        # requester's, and showing it to only one of them would hide from
+        # somebody the thing they themselves asked for.
+        keys = (person_key,) if isinstance(person_key, str) else person_key
+        return [r for r in rows
+                if any(str(r.get(k, "")) in allowed for k in keys)]
 
 
 @dataclass(frozen=True)

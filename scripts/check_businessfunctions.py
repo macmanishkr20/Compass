@@ -49,6 +49,7 @@ from compass.businessfunctions import (  # noqa: E402
 from compass.businessfunctions.features.base import Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
+from compass.businessfunctions.features import giftrequests as gr_mod  # noqa: E402
 from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E402
 from compass.businessfunctions.manifest import (  # noqa: E402
     WITHHELD_TOOLS,
@@ -142,7 +143,7 @@ def stored():
         drive(ledger._items_store.replace_all(items))
         drive(ledger._events_store.replace_all(events))
         ledger.forget()
-        drive(ledger.ready(seed=rl_mod.SEED))
+        drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
 
 
 @contextlib.contextmanager
@@ -2495,7 +2496,7 @@ def check_the_register_and_the_trail_survive_a_restart() -> None:
     # What a restart is: the process forgets, and reads it back.
     ledger.forget()
     ok("the register is empty in memory", not ledger.items())
-    drive(ledger.ready(seed=rl_mod.SEED))
+    drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
 
     ok("the register came back", len(ledger.items()) == len(before) and True
        or len(ledger.items()) > 0, str(len(ledger.items())))
@@ -2536,7 +2537,7 @@ def check_a_correction_still_supersedes_after_a_restart() -> None:
 
     drive(ledger.flush())
     ledger.forget()
-    drive(ledger.ready(seed=rl_mod.SEED))
+    drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
 
     rows = {r["id"]: r for r in h.rows(c, "disclosed")}
     ok("the original is still on the register", item["id"] in rows)
@@ -2586,7 +2587,7 @@ def check_seeding_only_fills_an_empty_register() -> None:
     count = len(ledger.items())
 
     ledger.forget()
-    drive(ledger.ready(seed=rl_mod.SEED))
+    drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
     ok("a register with records in it is not re-seeded",
        len(ledger.items()) == count, f"{len(ledger.items())} vs {count}")
     ok("and the real declaration is still there",
@@ -2594,7 +2595,7 @@ def check_seeding_only_fills_an_empty_register() -> None:
 
     ledger.forget()
     drive(ledger._items_store.replace_all([]))
-    drive(ledger.ready(seed=rl_mod.SEED))
+    drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
     ok("an empty one is seeded, so a fresh deployment has something to see",
        len(ledger.items()) == len(rl_mod.SEED), str(len(ledger.items())))
 
@@ -2623,6 +2624,235 @@ def check_a_notice_outlives_the_process() -> None:
        notices.latest_for(item["id"]).state in ("held", "failed"))
 
 
+def _req(user: str = "servicelead", **over) -> Scope:
+    return people.scope_for(user, registry.feature_of("scs", "requests")[1],
+                            period="FY 2026-27")
+
+
+def check_nothing_reaches_the_register_until_it_is_given() -> None:
+    """A request is a proposal. Most of what goes wrong in systems like
+    this is treating it as a record: a declined request on the register is
+    a gift nobody received, and an approved one never handed over is a
+    total that is wrong the other way."""
+    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f2, bench = registry.feature_of("scs", "rewardlens")
+    seen = as_("compliance")
+    total = lambda: next((r["total"] for r in bench.rows(seen, "all")
+                          if r["employee_id"] == "E-1066"), 0)
+    before = total()
+
+    out = h.submit(_req(), "request_gift", {
+        "recipient": "Vikram Rao", "what": "Diwali hamper", "kind": "gift",
+        "value": "3000", "occasion": "festival",
+        "source": "Service line · Advisory"})
+    ok("a request can be raised", out.ok, out.said)
+    rid = out.touched[0]
+    ok("and changes nobody's total", total() == before, str(total()))
+
+    ok("approving changes nobody's total",
+       h.act(_req("admin"), "approve", [rid]).ok and total() == before)
+    ok("buying it changes nobody's total",
+       h.act(_req("procurement"), "mark_purchased", [rid]).ok
+       and total() == before)
+
+    given = h.act(_req("procurement"), "mark_given", [rid])
+    ok("handing it over is what puts it on the register",
+       given.ok and total() == before + 3000, f"{given.said} -> {total()}")
+    ok("and the outcome says their new year", "₹5,500" in given.said, given.said)
+    ok("the item knows which request it came from",
+       any(i.get("from_request") == rid for i in ledger.items()))
+    ok("and it is not acknowledged yet, because they have not said so",
+       next(i["acknowledged"] for i in ledger.items()
+            if i.get("from_request") == rid) is False)
+
+
+def check_a_declined_request_never_becomes_a_gift() -> None:
+    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f2, bench = registry.feature_of("scs", "rewardlens")
+    seen = as_("compliance")
+    total = lambda: next((r["total"] for r in bench.rows(seen, "all")
+                          if r["employee_id"] == "E-1066"), 0)
+    before, items = total(), len(ledger.items())
+
+    rid = h.submit(_req(), "request_gift", {
+        "recipient": "Vikram Rao", "what": "A thing", "kind": "gift",
+        "value": "2000", "occasion": "festival",
+        "source": "Service line · Tax"}).touched[0]
+    ok("declining needs a reason",
+       not h.act(_req("admin"), "decline", [rid]).ok)
+    ok("with one, it is declined",
+       h.act(_req("admin"), "decline", [rid], "Too close to the tender.").ok)
+    ok("nothing was added to the register", len(ledger.items()) == items)
+    ok("and nobody's total moved", total() == before)
+    row = next(r for r in h.rows(_req("admin"), "all") if r["id"] == rid)
+    ok("the reason is on the record", row["why"] == "Too close to the tender.")
+    ok("and it cannot then be approved",
+       not h.act(_req("admin"), "approve", [rid]).ok)
+
+
+def check_the_breach_is_caught_before_it_is_bought() -> None:
+    """The point of the whole phase.
+
+    The requirement's complaint is that the firm finds out afterwards. A
+    ₹6,000 watch for John is unremarkable on its own and takes him to
+    ₹26,000 because of what three other teams already gave him — and that
+    sentence is now said while it still costs nothing to say no.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    asking = _req()
+
+    said = h.preview(asking, "request_gift", {
+        "recipient": "John Mathew", "what": "Long service watch",
+        "kind": "gift", "value": "6000", "occasion": "long service",
+        "source": "People team"}).said
+    ok("the preview adds it to what he already has",
+       "₹26,000" in said, said)
+    ok("and says how far over that is", "₹11,000 over" in said, said)
+    ok("but does not refuse it — somebody senior decides knowingly",
+       "cannot be approved" not in said, said)
+
+    rid = h.submit(asking, "request_gift", {
+        "recipient": "John Mathew", "what": "Long service watch",
+        "kind": "gift", "value": "6000", "occasion": "long service",
+        "source": "People team"}).touched[0]
+    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == rid)
+    ok("the row carries it to whoever approves", "over" in row["tax"], row["tax"])
+    ok("and the screen says so out loud",
+       "would_cross_the_limit" in h.rules(_req("admin")),
+       str(h.rules(_req("admin"))))
+    ok("approving is still offered", "approve" in row["can"], str(row["can"]))
+    out = h.act(_req("admin"), "approve", [rid])
+    ok("and the approval records that they knew",
+       out.ok and "knowingly" in out.said, out.said)
+
+
+def check_policy_and_budget_block_where_tax_only_warns() -> None:
+    """Three checks, two of which are refusals and one of which is not."""
+    _, _f, h = registry.feature_of("scs", "requests")
+    asking = _req()
+
+    hospitality = h.preview(asking, "request_gift", {
+        "recipient": "Vikram Rao", "what": "Dinner", "kind": "hospitality",
+        "value": "4000", "occasion": "client courtesy",
+        "source": "People team"}).said
+    ok("hospitality is not requested through this yet",
+       "cannot be approved" in hospitality, hospitality)
+
+    courtesy = h.preview(asking, "request_gift", {
+        "recipient": "Vikram Rao", "what": "Hamper", "kind": "gift",
+        "value": "12000", "occasion": "client courtesy",
+        "source": "People team"}).said
+    ok("a large client courtesy needs a conversation, not a form",
+       "conversation" in courtesy, courtesy)
+
+    broke = h.preview(asking, "request_gift", {
+        "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
+        "value": "30000", "occasion": "festival",
+        "source": "Service line · Advisory"}).said
+    ok("a team without the budget is told what is left",
+       "short by" in broke, broke)
+
+    rid = h.submit(asking, "request_gift", {
+        "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
+        "value": "30000", "occasion": "festival",
+        "source": "Service line · Advisory"}).touched[0]
+    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == rid)
+    ok("a blocked request offers no approval", "approve" not in row["can"],
+       str(row["can"]))
+    ok("but can still be declined", "decline" in row["can"])
+    ok("and asking anyway is refused",
+       not h.act(_req("admin"), "approve", [rid]).ok)
+
+
+def check_nobody_approves_their_own() -> None:
+    """Two shapes of the same rule: not your request, not your gift."""
+    _, _f, h = registry.feature_of("scs", "requests")
+
+    mine = h.submit(_req("admin"), "request_gift", {
+        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
+        "value": "2000", "occasion": "festival",
+        "source": "People team"}).touched[0]
+    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == mine)
+    ok("the person who asked cannot approve it",
+       "approve" not in row["can"] and "cancel_request" in row["can"],
+       str(row["can"]))
+    ok("somebody else can", "approve" in next(
+        r for r in h.rows(_req("compliance"), "waiting")
+        if r["id"] == mine)["can"])
+
+    for_me = h.submit(_req("servicelead"), "request_gift", {
+        "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
+        "value": "2000", "occasion": "performance",
+        "source": "People team"}).touched[0]
+    ok("and a gift to you is not yours to approve either",
+       "approve" not in next(r for r in h.rows(_req("admin"), "waiting")
+                             if r["id"] == for_me)["can"])
+    ok("though somebody else may",
+       "approve" in next(r for r in h.rows(_req("compliance"), "waiting")
+                         if r["id"] == for_me)["can"])
+    ok("you cannot even ask for one for yourself",
+       "cannot be approved" in h.preview(_req("admin"), "request_gift", {
+           "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
+           "value": "2000", "occasion": "performance",
+           "source": "People team"}).said)
+
+
+def check_only_procurement_moves_it_along() -> None:
+    _, _f, h = registry.feature_of("scs", "requests")
+    rid = h.submit(_req(), "request_gift", {
+        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
+        "value": "1000", "occasion": "festival",
+        "source": "People team"}).touched[0]
+    h.act(_req("admin"), "approve", [rid])
+
+    for who in ("admin", "compliance", "servicelead", "enduser"):
+        ok(f"{who} cannot mark it bought",
+           not h.act(_req(who), "mark_purchased", [rid]).ok)
+    ok("procurement can", h.act(_req("procurement"), "mark_purchased", [rid]).ok)
+    ok("and only then can it be handed over",
+       h.act(_req("procurement"), "mark_given", [rid]).ok)
+    ok("a request cannot be handed over twice",
+       not h.act(_req("procurement"), "mark_given", [rid]).ok)
+
+
+def check_the_recipient_acknowledges_their_own() -> None:
+    """The one act on the register that belongs to the person it is about.
+
+    It is exempt from the rule that nobody acts on their own record, and
+    that is not a loophole: the rule says nobody DECIDES their own case,
+    and confirming you received something is not a decision about a case.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f2, bench = registry.feature_of("scs", "rewardlens")
+    rid = h.submit(_req(), "request_gift", {
+        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
+        "value": "1000", "occasion": "festival",
+        "source": "People team"}).touched[0]
+    h.act(_req("admin"), "approve", [rid])
+    h.act(_req("procurement"), "mark_purchased", [rid])
+    h.act(_req("procurement"), "mark_given", [rid])
+
+    them = as_("enduser")
+    row = next(r for r in bench.rows(them, "all")
+               if r["employee_id"] == "E-1066")
+    ok("it arrives unacknowledged", row["unacknowledged"] >= 1,
+       str(row["unacknowledged"]))
+    ok("the row knows it is theirs", row["yours"] is True)
+
+    ok("somebody else cannot acknowledge it for them",
+       not bench.act(as_("compliance"), "acknowledge", ["E-1066"]).ok)
+    out = bench.act(them, "acknowledge", ["E-1066"])
+    ok("they can", out.ok, out.said)
+    ok("and the register says they confirmed it",
+       next(r["unacknowledged"] for r in bench.rows(them, "all")
+            if r["employee_id"] == "E-1066") == 0)
+    ok("it is on the trail under the item, with their name",
+       any(e["kind"] == "acknowledged" and e["by"] == "enduser"
+           for e in ledger.events()))
+    ok("and there is nothing left to acknowledge",
+       not bench.act(them, "acknowledge", ["E-1066"]).ok)
+
+
 def main() -> int:
     """Every check, against a register nobody will miss.
 
@@ -2634,7 +2864,7 @@ def main() -> int:
     """
     with scratch_data():
         ledger.forget()
-        drive(ledger.ready(seed=rl_mod.SEED))
+        drive(ledger.ready(seed=rl_mod.SEED, requests_seed=gr_mod.SEED))
         return _checks()
 
 
@@ -2695,6 +2925,20 @@ def _checks() -> int:
         check_seeding_only_fills_an_empty_register()
     with stored(), fixtures():
         check_a_notice_outlives_the_process()
+    with fixtures():
+        check_nothing_reaches_the_register_until_it_is_given()
+    with fixtures():
+        check_a_declined_request_never_becomes_a_gift()
+    with fixtures():
+        check_the_breach_is_caught_before_it_is_bought()
+    with fixtures():
+        check_policy_and_budget_block_where_tax_only_warns()
+    with fixtures():
+        check_nobody_approves_their_own()
+    with fixtures():
+        check_only_procurement_moves_it_along()
+    with fixtures():
+        check_the_recipient_acknowledges_their_own()
     with fixtures():
         check_every_persona_sees_its_own_breadth()
     with fixtures():
