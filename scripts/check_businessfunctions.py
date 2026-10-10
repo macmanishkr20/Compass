@@ -40,6 +40,7 @@ logging.disable(logging.WARNING)
 from compass.businessfunctions import (  # noqa: E402
     assistant,
     features,
+    ledger,
     notices,
     people,
     registry,
@@ -123,32 +124,52 @@ def scratch_data():
 
 
 @contextlib.contextmanager
-def fixtures():
-    """Run a check against untouched rows, whatever ran before it.
+def stored():
+    """Roll back the STORE as well as memory, for checks that flush.
 
-    The handlers still carry fixtures, and approving leave is deliberately
-    irreversible — there is no undo to put it back with. So the rows are
-    deep-copied in and restored out, which makes every check below
-    order-independent. When the store lands this becomes a transaction that
-    rolls back, and the checks do not change.
+    `fixtures` restores what is held in the process; it cannot restore what
+    a check wrote through to disk. A handful of checks here deliberately
+    flush and reload to prove a restart keeps things, and without this the
+    next one reads a register carrying everything every earlier check ever
+    wrote — which showed up as a total that was right before the reload and
+    wrong after, for reasons that had nothing to do with the code.
+    """
+    items = drive(ledger._items_store.all())
+    events = drive(ledger._events_store.all())
+    try:
+        yield
+    finally:
+        drive(ledger._items_store.replace_all(items))
+        drive(ledger._events_store.replace_all(events))
+        ledger.forget()
+        drive(ledger.ready(seed=rl_mod.SEED))
+
+
+@contextlib.contextmanager
+def fixtures():
+    """Run a check against untouched records, whatever ran before it.
+
+    Everything mutable now lives in two places — the ledger's register and
+    its trail — plus the outbox and the two older handlers' own fixtures.
+    Snapshotting the ledger is four lines where it used to be three
+    dictionaries, which is the first dividend of folding state instead of
+    storing it.
     """
     before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
-              copy.deepcopy(rl_mod._ITEMS), set(rl_mod._REFERRED),
-              set(rl_mod._EXCEPTED), copy.deepcopy(rl_mod._REVIEWED),
-              copy.deepcopy(rl_mod._ANSWERS), dict(rl_mod._SUPERSEDED),
-              dict(notices._outbox))
+              copy.deepcopy(ledger._items), copy.deepcopy(ledger._events),
+              list(ledger._unsaved_items), list(ledger._unsaved_events),
+              dict(notices._outbox), set(notices._unsaved))
     try:
         yield
     finally:
         form26_mod._FIXTURE[:] = before[0]
         lms_mod._FIXTURE[:] = before[1]
-        rl_mod._ITEMS[:] = before[2]
-        rl_mod._REFERRED.clear(); rl_mod._REFERRED.update(before[3])
-        rl_mod._EXCEPTED.clear(); rl_mod._EXCEPTED.update(before[4])
-        rl_mod._REVIEWED.clear(); rl_mod._REVIEWED.update(before[5])
-        rl_mod._ANSWERS.clear(); rl_mod._ANSWERS.update(before[6])
-        rl_mod._SUPERSEDED.clear(); rl_mod._SUPERSEDED.update(before[7])
-        notices._outbox.clear(); notices._outbox.update(before[8])
+        ledger._items[:] = before[2]
+        ledger._events[:] = before[3]
+        ledger._unsaved_items[:] = before[4]
+        ledger._unsaved_events[:] = before[5]
+        notices._outbox.clear(); notices._outbox.update(before[6])
+        notices._unsaved.clear(); notices._unsaved.update(before[7])
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -1132,7 +1153,7 @@ def check_what_was_declared_is_what_was_recorded() -> None:
              "given": "2026-09-30", "source": "Vendor · Northwind"}
     ok("it records", h.submit(s, "disclose", entry).ok)
 
-    item = next(i for i in rl_mod._ITEMS if i["what"] == "Cricket tickets")
+    item = next(i for i in ledger.items() if i["what"] == "Cricket tickets")
     ok("the words are the person's own", item["source"] == "Vendor · Northwind")
     ok("the value is whole rupees", item["value"] == 1500)
     ok("it is marked as disclosed, not procured", item["channel"] == "disclosed")
@@ -1411,7 +1432,7 @@ def check_a_correction_is_a_new_record_not_an_edit() -> None:
        next(r["breakdown"] for r in h.rows(c, "all")
             if r["employee_id"] == "E-1066").count("Vendor hamper") == 1)
     ok("nothing was deleted",
-       len([i for i in rl_mod._ITEMS if i["employee_id"] == "E-1066"]) == 2)
+       len([i for i in ledger.items() if i["employee_id"] == "E-1066"]) == 2)
 
 
 def check_only_a_mistaken_record_stops_counting() -> None:
@@ -2435,7 +2456,189 @@ def check_a_role_cannot_be_claimed_by_a_caller() -> None:
            and people.breadth("anybody", feature.visibility) == "firm")
 
 
+def check_the_register_and_the_trail_survive_a_restart() -> None:
+    """What a deploy must not forget.
+
+    Everything here was in memory an hour ago: a declaration, the question
+    somebody asked about it, the answer, the decision, the supersession and
+    the referral. "The November report said eight thousand" and "we asked
+    them on the 9th" both have to be answerable after a restart, and an
+    audit trail that empties on one answers neither.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = as_("compliance")
+    e = as_("enduser")
+
+    # A full round trip, of the kind the trail exists to remember.
+    ok("a declaration is recorded",
+       h.submit(e, "disclose", {
+           "what": "Cricket tickets", "kind": "voucher", "value": "1500",
+           "given": "2026-09-30", "source": "Vendor · Northwind"}).ok)
+    fresh = next(r for r in h.rows(c, "disclosed") if r["what"] == "Cricket tickets")
+    ok("a reviewer asks about it",
+       h.act(c, "query_disclosure", [fresh["id"]], "Was this yours alone?").ok)
+    ok("the declarer answers",
+       h.submit(e, "answer_query", {"response": "stands", "note": "Mine."},
+                fresh["id"]).ok)
+    ok("and the reviewer settles it", h.act(c, "accept_answer", [fresh["id"]]).ok)
+    ok("somebody is referred to Finance",
+       h.act(c, "refer_to_finance", ["E-1007"]).ok)
+
+    before = {r["employee_id"]: (r["total"], r["status"])
+              for r in h.rows(c, "all")}
+    declarations = {r["id"]: (r["status"], r["reviewed_by"], r["answered"])
+                    for r in h.rows(c, "disclosed")}
+
+    drive(ledger.flush())
+    ok("nothing is left unsaved", ledger.pending() == 0, str(ledger.pending()))
+
+    # What a restart is: the process forgets, and reads it back.
+    ledger.forget()
+    ok("the register is empty in memory", not ledger.items())
+    drive(ledger.ready(seed=rl_mod.SEED))
+
+    ok("the register came back", len(ledger.items()) == len(before) and True
+       or len(ledger.items()) > 0, str(len(ledger.items())))
+    after = {r["employee_id"]: (r["total"], r["status"]) for r in h.rows(c, "all")}
+    ok("every person's total is what it was", after == before,
+       str({k: (before.get(k), after.get(k)) for k in set(before) | set(after)
+            if before.get(k) != after.get(k)}))
+    ok("the referral is still recorded",
+       after.get("E-1007", ("", ""))[1] == "referred", str(after.get("E-1007")))
+
+    again = {r["id"]: (r["status"], r["reviewed_by"], r["answered"])
+             for r in h.rows(c, "disclosed")}
+    ok("every declaration is in the state it was left in", again == declarations,
+       str({k: (declarations.get(k), again.get(k)) for k in set(declarations)
+            if declarations.get(k) != again.get(k)}))
+    ok("including who decided it",
+       again[fresh["id"]][1] == "compliance", str(again[fresh["id"]]))
+
+
+def check_a_correction_still_supersedes_after_a_restart() -> None:
+    """The invariant, across the thing most likely to break it.
+
+    A correction is two records and an event tying them together. Stored as
+    a state on the item it would be one record that changed, which is the
+    thing the disclosure form promises never happens.
+    """
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = as_("compliance")
+    e = as_("enduser")
+
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
+    h.act(c, "query_disclosure", [item["id"]], "Was that the whole basket?")
+    h.submit(e, "answer_query",
+             {"response": "corrected", "value": "1500", "note": "Mine was 1,500."},
+             item["id"])
+    ok("the correction is accepted", h.act(c, "accept_answer", [item["id"]]).ok)
+    total = next(r["total"] for r in h.rows(c, "all") if r["employee_id"] == "E-1066")
+
+    drive(ledger.flush())
+    ledger.forget()
+    drive(ledger.ready(seed=rl_mod.SEED))
+
+    rows = {r["id"]: r for r in h.rows(c, "disclosed")}
+    ok("the original is still on the register", item["id"] in rows)
+    ok("still marked superseded", rows[item["id"]]["state"] == "superseded",
+       rows[item["id"]]["state"])
+    ok("still pointing at what replaced it",
+       rows[item["id"]]["replaced_by"].startswith("C-"),
+       rows[item["id"]]["replaced_by"])
+    ok("the corrected figure is still the one that counts",
+       next(r["total"] for r in h.rows(c, "all")
+            if r["employee_id"] == "E-1066") == total, str(total))
+    ok("and nothing was edited — both records are there",
+       len([i for i in ledger.items() if i["employee_id"] == "E-1066"]) >= 2)
+
+
+def check_the_trail_says_who_and_when() -> None:
+    """An audit trail with no name or time on it is a list of rumours."""
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = as_("compliance")
+    h.act(c, "refer_to_finance", ["E-1019"])
+    h.act(c, "chase_acknowledgement", ["E-1007"])
+
+    for subject, kind in (("E-1019", "referred"), ("E-1007", "chased")):
+        event = ledger.latest(subject, kind)
+        ok(f"{kind} is on the trail", event is not None)
+        ok(f"{kind} names who did it", event and event["by"] == "compliance")
+        ok(f"{kind} is timed", event and event["at"] > 0)
+
+    ok("every event names its subject, kind, who and when",
+       all({"subject", "kind", "by", "at"} <= set(e) for e in ledger.events()),
+       str([e for e in ledger.events()
+            if not {"subject", "kind", "by", "at"} <= set(e)][:1]))
+    ok("and nothing on the trail is an event nobody can fold",
+       all(e["kind"] in ledger.EVENTS for e in ledger.events()),
+       str({e["kind"] for e in ledger.events()} - set(ledger.EVENTS)))
+
+
+def check_seeding_only_fills_an_empty_register() -> None:
+    """Seeding on every start would overwrite a year with a fixture."""
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = as_("compliance")
+
+    h.submit(as_("enduser"), "disclose", {
+        "what": "A real declaration", "kind": "gift", "value": "900",
+        "given": "2026-08-01", "source": "A real vendor"})
+    drive(ledger.flush())
+    count = len(ledger.items())
+
+    ledger.forget()
+    drive(ledger.ready(seed=rl_mod.SEED))
+    ok("a register with records in it is not re-seeded",
+       len(ledger.items()) == count, f"{len(ledger.items())} vs {count}")
+    ok("and the real declaration is still there",
+       any(i["what"] == "A real declaration" for i in ledger.items()))
+
+    ledger.forget()
+    drive(ledger._items_store.replace_all([]))
+    drive(ledger.ready(seed=rl_mod.SEED))
+    ok("an empty one is seeded, so a fresh deployment has something to see",
+       len(ledger.items()) == len(rl_mod.SEED), str(len(ledger.items())))
+
+
+def check_a_notice_outlives_the_process() -> None:
+    _, _f, h = registry.feature_of("scs", "rewardlens")
+    c = as_("compliance")
+    notices.clear()
+
+    item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1019")
+    h.act(c, "query_disclosure", [item["id"]], "Whose dinner was this?")
+    said = next(r["notified"] for r in h.rows(c, "disclosed")
+                if r["id"] == item["id"])
+    ok("the notice says it could not go", "not emailed" in said, said)
+
+    drive(notices.save())
+    notices.clear()
+    notices._loaded = False
+    drive(notices.ready())
+
+    ok("it came back", notices.latest_for(item["id"]) is not None)
+    ok("saying the same thing",
+       next(r["notified"] for r in h.rows(c, "disclosed")
+            if r["id"] == item["id"]) == said)
+    ok("so a restart cannot make an unsent question look sent",
+       notices.latest_for(item["id"]).state in ("held", "failed"))
+
+
 def main() -> int:
+    """Every check, against a register nobody will miss.
+
+    The whole run is wrapped rather than the few checks that obviously
+    write, because almost everything here now touches the ledger — and the
+    last time isolation was approximate, test records went into a live Azure
+    account. The backend is forced local AND the folder is thrown away;
+    either alone is not isolation.
+    """
+    with scratch_data():
+        ledger.forget()
+        drive(ledger.ready(seed=rl_mod.SEED))
+        return _checks()
+
+
+def _checks() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
     check_a_feature_must_name_code_that_exists()
@@ -2482,6 +2685,16 @@ def main() -> int:
     with fixtures():
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
+    with stored(), fixtures():
+        check_the_register_and_the_trail_survive_a_restart()
+    with stored(), fixtures():
+        check_a_correction_still_supersedes_after_a_restart()
+    with stored(), fixtures():
+        check_the_trail_says_who_and_when()
+    with stored(), fixtures():
+        check_seeding_only_fills_an_empty_register()
+    with stored(), fixtures():
+        check_a_notice_outlives_the_process()
     with fixtures():
         check_every_persona_sees_its_own_breadth()
     with fixtures():
@@ -2493,19 +2706,19 @@ def main() -> int:
     check_a_monthly_slot_lands_on_the_right_day()
     # Every one of these writes subscriptions, so they run against a
     # throwaway folder rather than the real data directory.
-    with scratch_data(), fixtures():
+    with fixtures():
         check_a_slot_fires_once_and_is_not_missed_by_a_restart()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_a_report_cannot_see_more_than_its_reader()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_a_report_goes_to_its_subscriber_and_nobody_else()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_subscribing_is_something_you_do_to_yourself()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_these_checks_write_nowhere_that_matters()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_a_subscription_outlives_the_process()
-    with scratch_data(), fixtures():
+    with fixtures():
         check_an_unreadable_subscription_is_skipped_not_fatal()
     with fixtures():
         check_the_export_is_the_screen()

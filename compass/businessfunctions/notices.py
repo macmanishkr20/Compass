@@ -23,10 +23,11 @@ finished", wrong here, where it would post one employee's gift record to the
 operator. So a notice with no address is held, never sent, and this module
 passes `to=` on every call.
 
-The store is in memory, newest kept. That is the same decision the assistant's
-plans make and for a weaker reason: these belong in the store when it lands,
-and losing them on restart loses an audit trail, which is a real cost. It is
-recorded here rather than pretended away.
+Notices are kept, like everything else on the trail. "We asked them on the
+9th and it never went" has to be answerable after a deploy, and an outbox
+that empties on restart answers nothing — which was the argument for writing
+them down in the first place. Writes land in memory and are flushed by the
+route, for the reason set out in `ledger`.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from compass.code import notify
+from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.businessfunctions")
 
@@ -95,6 +97,14 @@ class Notice:
 #: notice id -> notice. Insertion-ordered, which is also oldest-first.
 _outbox: dict[str, Notice] = {}
 
+#: Written but not yet stored, by id. A set rather than a list because a
+#: notice that is recorded and then delivered in the same request has
+#: changed twice and needs storing once.
+_unsaved: set[str] = set()
+
+_store = Collection("bf_notice", "business_function_notices.json", shape="map")
+_loaded = False
+
 
 def configured() -> bool:
     """Whether a notice could be delivered at all right now."""
@@ -132,6 +142,7 @@ def record(*, to: str, name: str, subject: str, body: str, about: str) -> Notice
         )
 
     _outbox[notice.id] = notice
+    _unsaved.add(notice.id)
     _trim()
     logger.info("notice %s for %s about %s: %s",
                 notice.id, notice.name, notice.about, notice.state)
@@ -160,6 +171,7 @@ def retry(about: str) -> int:
     for key, notice in list(_outbox.items()):
         if notice.about == about and notice.state in ("held", "failed"):
             _outbox[key] = replace(notice, state="pending", detail="")
+            _unsaved.add(key)
             count += 1
     return count
 
@@ -185,6 +197,7 @@ def flush() -> tuple[int, int]:
                 detail="no mail server configured (COMPASS_SMTP_HOST, "
                        "COMPASS_SMTP_USER, COMPASS_SMTP_PASSWORD)",
             )
+            _unsaved.add(key)
             stuck += 1
             continue
         # `to=` always, explicitly. Without it this falls back to the
@@ -192,6 +205,7 @@ def flush() -> tuple[int, int]:
         if notify.send_email(notice.subject, notice.body, to=notice.to):
             _outbox[key] = replace(notice, state="sent", detail="",
                                    sent_at=time.time())
+            _unsaved.add(key)
             sent += 1
         else:
             _outbox[key] = replace(
@@ -199,6 +213,7 @@ def flush() -> tuple[int, int]:
                 detail="the mail server would not take it; the server log has "
                        "the reason",
             )
+            _unsaved.add(key)
             stuck += 1
     return sent, stuck
 
@@ -208,6 +223,30 @@ def waiting() -> int:
     return len([n for n in _outbox.values() if n.state != "sent"])
 
 
+async def ready() -> None:
+    """Load the outbox, once per process."""
+    global _loaded
+    if _loaded:
+        return
+    for doc in await _store.all():
+        try:
+            _outbox[doc["id"]] = Notice(**{k: doc[k] for k in Notice.__annotations__
+                                           if k in doc})
+        except (KeyError, TypeError):
+            logger.warning("skipping unreadable notice %r", doc.get("id"))
+    _loaded = True
+
+
+async def save() -> None:
+    """Persist what changed. Called by the route, after delivery."""
+    while _unsaved:
+        key = _unsaved.pop()
+        notice = _outbox.get(key)
+        if notice is not None:
+            await _store.put({**notice.__dict__, "owner": notice.about})
+
+
 def clear() -> None:
-    """Empty the outbox. For checks; nothing in the app calls this."""
+    """Empty the outbox in memory. For checks; nothing in the app calls this."""
     _outbox.clear()
+    _unsaved.clear()

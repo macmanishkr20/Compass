@@ -40,11 +40,10 @@ the arithmetic can be checked against something somebody wrote down.
 from __future__ import annotations
 
 import datetime as dt
-import time
 import uuid
 from typing import Any
 
-from compass.businessfunctions import notices, people, registry
+from compass.businessfunctions import ledger, notices, people, registry
 from compass.common.config import get_settings
 
 from compass.businessfunctions.features.base import (
@@ -121,7 +120,12 @@ def _address_for_employee(employee_id: str) -> str:
                  if p.employee_id == employee_id and p.email), "")
 
 
-_ITEMS: list[dict[str, Any]] = [
+#: The sample the screens were built against, written to the register only
+#: when it is EMPTY — a fresh deployment gets something to look at, and one
+#: with a year of declarations in it keeps them. Seeding on every start
+#: would overwrite real records with a fixture, which is a mistake nobody
+#: notices until the year end.
+SEED: list[dict[str, Any]] = [
     # The worked example from the requirement: three gifts, three teams,
     # ₹20,000 in total, nobody aware of the other two.
     {"id": "G-2201", "employee_id": "E-1007", "recipient": "John Mathew",
@@ -222,21 +226,14 @@ _STATE_WORDS = {
 #: record was mistaken, and the person who received it cannot conclude that
 #: alone: they propose it and a reviewer decides. Both records stay.
 
-#: Decisions taken on disclosed items: item id -> who, when, what and why.
-#: Beside the items rather than inside them because a decision is a record
-#: about the record — the item is what was declared, and this is what somebody
-#: did about it afterwards.
-_REVIEWED: dict[str, dict[str, Any]] = {}
-
-#: What a declarer said when asked: item id -> {response, value, note}.
-#: A proposal, not a change — nothing here moves a figure until a reviewer
-#: accepts it.
-_ANSWERS: dict[str, dict[str, Any]] = {}
-
-#: Records the firm has concluded were wrong: item id -> the id of the record
-#: that replaces it, or "" when there is nothing to replace it with. A
-#: superseded item stays on every list and in no total.
-_SUPERSEDED: dict[str, str] = {}
+#: Decisions, answers and supersessions were three dictionaries here. They
+#: are one thing — events about a record — and they now live on the ledger's
+#: trail, where they survive a restart and can be read in order.
+#:
+#: Nothing below stores a state. Whether an item is accepted, queried,
+#: answered or superseded is folded from what happened to it, so there is
+#: one way for a fact to be true: something made it true, and that something
+#: is still on the trail.
 
 #: How a declarer may answer being asked about something.
 ANSWERS = {
@@ -246,16 +243,15 @@ ANSWERS = {
 }
 
 
-#: Who has been sent to Finance, and who has an accepted exception against
-#: them. Separate from the items because they are decisions about a person's
-#: year, not facts about one purchase.
-_REFERRED: set[str] = set()
-_EXCEPTED: set[str] = set()
+#: Referral and exception were two module-level sets, which made them the
+#: only decisions in the feature that a restart forgot. They are decisions
+#: about a person's year — exactly what Audit reads — so they are on the
+#: trail with everything else, under the employee they are about.
 
 
 def _items_for(scope: Scope) -> list[dict[str, Any]]:
-    """Every recorded item in the period. The store replaces this and nothing else."""
-    return _ITEMS
+    """Every recorded item in the period, from the register."""
+    return ledger.items()
 
 
 def rupees(amount: int) -> str:
@@ -307,8 +303,31 @@ def _whole_rupees(raw: str) -> int | None:
 
 def _review_of(item_id: str) -> dict[str, Any]:
     """The decision on this item, or the absence of one."""
-    return _REVIEWED.get(item_id,
-                         {"state": "awaiting", "by": "", "note": "", "at": 0.0})
+    event = ledger.latest(item_id, "reviewed")
+    if event is None:
+        return {"state": "awaiting", "by": "", "note": "", "at": 0.0}
+    return {"state": event["state"], "by": event["by"],
+            "note": event.get("note", ""), "at": event.get("at", 0.0)}
+
+
+def _answer_to(item_id: str) -> dict[str, Any]:
+    """What the declarer last said, if it answers the question still open.
+
+    An answer given before the reviewer asked again is a reply to a question
+    nobody is asking, so it does not count — and it is still on the trail,
+    which is the difference between folding and clearing.
+    """
+    event = ledger.since_last(item_id, "answered", after="reviewed")
+    if event is None:
+        return {}
+    return {"response": event["response"], "value": event.get("value"),
+            "note": event.get("note", ""), "by": event["by"]}
+
+
+def _superseded_by(item_id: str) -> str | None:
+    """The record that replaced this one, "" when withdrawn, None if neither."""
+    event = ledger.latest(item_id, "superseded")
+    return None if event is None else event.get("replacement", "")
 
 
 def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
@@ -323,7 +342,7 @@ def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
     rules are. Drawing a button the server will refuse is worse than drawing
     none: by the time the person is told, they have already decided to do it.
     """
-    if scope.period in _CLOSED or item["id"] in _SUPERSEDED:
+    if scope.period in _CLOSED or _superseded_by(item["id"]) is not None:
         return []
 
     mine = _employee(scope.user) == item["employee_id"]
@@ -374,8 +393,8 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
         if item["channel"] != "disclosed":
             continue
         review = _review_of(item["id"])
-        answer = _ANSWERS.get(item["id"], {})
-        state = ("superseded" if item["id"] in _SUPERSEDED
+        answer = _answer_to(item["id"])
+        state = ("superseded" if _superseded_by(item["id"]) is not None
                  else "answered" if answer and review["state"] == "queried"
                  else review["state"])
         out.append({
@@ -403,8 +422,8 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
             # reviewer's rather than replacing it.
             "answered": ANSWERS.get(answer.get("response", ""), "—"),
             "answer_note": answer.get("note", "") or "—",
-            "replaced_by": _SUPERSEDED.get(item["id"]) or
-                           ("withdrawn" if item["id"] in _SUPERSEDED else "—"),
+            "replaced_by": (_superseded_by(item["id"]) or "withdrawn"
+                            if _superseded_by(item["id"]) is not None else "—"),
             "corrects": item.get("corrects", "") or "—",
             # Whether the person was actually told. On the row because the
             # alternative is a reviewer assuming it, and "I asked them three
@@ -444,7 +463,7 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
         # stays on the declarations tab, where the trail is; it is not in
         # anybody's total, because the thing it recorded did not happen the
         # way it said.
-        if item["id"] in _SUPERSEDED:
+        if _superseded_by(item["id"]) is not None:
             continue
         row = people.setdefault(item["employee_id"], {
             "employee_id": item["employee_id"],
@@ -484,10 +503,10 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             "crossed_on": crossed or "—",
             "unacknowledged": len(unack),
             "disclosed": len(disclosed),
-            "referred": row["employee_id"] in _REFERRED,
-            "exception": row["employee_id"] in _EXCEPTED,
-            "status": ("referred" if row["employee_id"] in _REFERRED
-                       else "exception" if row["employee_id"] in _EXCEPTED
+            "referred": ledger.happened(row["employee_id"], "referred"),
+            "exception": ledger.happened(row["employee_id"], "excepted"),
+            "status": ("referred" if ledger.happened(row["employee_id"], "referred")
+                       else "exception" if ledger.happened(row["employee_id"], "excepted")
                        else "over limit" if over
                        else "within limit"),
             # Pre-formatted so the detail panel reads as a list of things
@@ -537,7 +556,8 @@ def items(scope: Scope) -> list[dict[str, Any]]:
 
 def superseded() -> dict[str, str]:
     """Records the firm concluded were wrong, and what replaced each."""
-    return dict(_SUPERSEDED)
+    return {i["id"]: (_superseded_by(i["id"]) or "")
+            for i in ledger.items() if _superseded_by(i["id"]) is not None}
 
 
 def address_of(user: str) -> str:
@@ -750,7 +770,9 @@ class RewardLens(Feature):
                     ok=False,
                     said=f"{row['recipient']} has already gone to Finance.",
                 )
-            _REFERRED.add(row["employee_id"])
+            ledger.add_event(subject=row["employee_id"], kind="referred",
+                             by=scope.user, total=row["total"],
+                             excess=row["excess"])
             return Outcome(
                 ok=True,
                 said=f"{row['recipient']} referred to Finance — "
@@ -772,6 +794,12 @@ class RewardLens(Feature):
                     ok=False,
                     said=f"{row['recipient']} has acknowledged everything.",
                 )
+            # Recorded, like every other outward act. This one left no
+            # trace at all before: an email went to an employee and nothing
+            # in Compass could say it had, which is the gap the notices
+            # outbox was built to close for queries and this was missed in.
+            ledger.add_event(subject=row["employee_id"], kind="chased",
+                             by=scope.user, items=row["unacknowledged"])
             return Outcome(
                 ok=True,
                 said=f"Asked {row['recipient']} to acknowledge "
@@ -794,7 +822,9 @@ class RewardLens(Feature):
                     said=f"{row['recipient']} is within the limit, so there is "
                          f"no breach to accept.",
                 )
-            _EXCEPTED.add(row["employee_id"])
+            ledger.add_event(subject=row["employee_id"], kind="excepted",
+                             by=scope.user, note=note.strip(),
+                             total=row["total"])
             return Outcome(
                 ok=True,
                 said=f"Exception recorded for {row['recipient']}. The breach "
@@ -892,12 +922,13 @@ class RewardLens(Feature):
         state = {"accept_disclosure": "accepted",
                  "query_disclosure": "queried",
                  "record_breach": "breach"}[action]
-        # Asking again clears the previous answer: the question has changed,
-        # so the reply to the old one is no longer a reply to anything.
-        if state == "queried":
-            _ANSWERS.pop(row["id"], None)
-        _REVIEWED[row["id"]] = {"state": state, "by": scope.user,
-                                "note": note.strip(), "at": time.time()}
+        # Asking again does not need to clear the previous answer: an answer
+        # given before the new question was asked is already not a reply to
+        # it, because `_answer_to` only counts what came after the latest
+        # question. The old reply stays on the trail, which is the
+        # difference between folding state and storing it.
+        ledger.add_event(subject=row["id"], kind="reviewed", by=scope.user,
+                         state=state, note=note.strip())
 
         if state == "queried":
             # Recorded after the query, so a mail server being down cannot
@@ -1137,12 +1168,12 @@ class RewardLens(Feature):
         the correction is ever deleted — superseding is a thing that happens
         TO a record, which is why both are still on the tab afterwards.
         """
-        answer = _ANSWERS.get(row["id"])
+        answer = _answer_to(row["id"])
         if not answer:
             return Outcome(ok=False, said=f"{row['what']} has not been answered.")
 
-        _REVIEWED[row["id"]] = {"state": "accepted", "by": scope.user,
-                                "note": note.strip(), "at": time.time()}
+        ledger.add_event(subject=row["id"], kind="reviewed", by=scope.user,
+                         state="accepted", note=note.strip())
 
         if answer["response"] == "stands":
             return Outcome(
@@ -1157,7 +1188,9 @@ class RewardLens(Feature):
                       if r["employee_id"] == row["employee_id"])
 
         if answer["response"] == "withdrawn":
-            _SUPERSEDED[row["id"]] = ""
+            ledger.add_event(subject=row["id"], kind="superseded",
+                             by=scope.user, replacement="",
+                             why="withdrawn by the declarer")
             after = next((r["total"] for r in _totals(scope)
                           if r["employee_id"] == row["employee_id"]), 0)
             return Outcome(
@@ -1173,16 +1206,18 @@ class RewardLens(Feature):
         replacement["id"] = f"C-{uuid.uuid4().hex[:6].upper()}"
         replacement["value"] = answer["value"]
         replacement["corrects"] = row["id"]
-        _ITEMS.append(replacement)
-        _SUPERSEDED[row["id"]] = replacement["id"]
+        ledger.add_item(replacement)
+        ledger.add_event(subject=row["id"], kind="superseded", by=scope.user,
+                         replacement=replacement["id"],
+                         why=f"corrected to {rupees(answer['value'])}")
         # The correction arrives already reviewed: it is what this decision
         # concluded, so leaving it "awaiting" would put it straight back on
         # the queue the decision just cleared.
-        _REVIEWED[replacement["id"]] = {
-            "state": "accepted", "by": scope.user, "at": time.time(),
-            "note": note.strip() or f"Corrected from {rupees(row['value'])} "
-                                    f"on {row['id']}.",
-        }
+        ledger.add_event(
+            subject=replacement["id"], kind="reviewed", by=scope.user,
+            state="accepted",
+            note=note.strip() or f"Corrected from {rupees(row['value'])} "
+                                 f"on {row['id']}.")
         after = next(r["total"] for r in _totals(scope)
                      if r["employee_id"] == row["employee_id"])
         return Outcome(
@@ -1293,9 +1328,8 @@ class RewardLens(Feature):
         if not commit:
             return Outcome(ok=True, said=would)
 
-        _ANSWERS[row["id"]] = {"response": response, "value": corrected,
-                               "note": note, "by": scope.user,
-                               "at": time.time()}
+        ledger.add_event(subject=row["id"], kind="answered", by=scope.user,
+                         response=response, value=corrected, note=note)
         return Outcome(
             ok=True,
             said=f"Answered: {ANSWERS[response]}. It goes back to the "
@@ -1327,7 +1361,7 @@ class RewardLens(Feature):
 
         effect = self._effect(scope, item)
         item["id"] = f"D-{uuid.uuid4().hex[:6].upper()}"
-        _ITEMS.append(item)
+        ledger.add_item(item)
         return Outcome(
             ok=True,
             said=f"Declared: {item['what']}, {rupees(item['value'])}, from "

@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field
 from compass.businessfunctions import (
     assistant,
     export,
+    ledger,
     notices,
     people,
     registry,
@@ -153,6 +154,7 @@ async def get_function(
     that will not render because one feature is unhappy is worse than an
     overview missing a line.
     """
+    await _ready()
     fn = registry.get(function_id)
     if fn is None:
         raise HTTPException(404, f"No business function called {function_id!r}.")
@@ -212,6 +214,7 @@ async def get_feature(
     are true — which is the handler's job and depends on data the UI does not
     have.
     """
+    await _ready()
     fn, feature, handler = _resolve(function_id, feature_id)
     scope = _scope(user, entity, period, feature)
 
@@ -276,6 +279,7 @@ async def export_feature(
     Building a workbook is CPU work, so it runs in a thread rather than
     holding the loop while a few hundred rows are formatted.
     """
+    await _ready()
     fn, feature, handler = _resolve(function_id, feature_id)
     scope = _scope(user, entity, period, feature)
     if missing := scope.missing(feature.scope):
@@ -344,6 +348,7 @@ async def get_report(
     user: str = Depends(require_user),
 ) -> dict:
     """This person's own standing request for this screen, and its history."""
+    await _ready()
     _resolve(function_id, feature_id)
     return _report_view(await reports.for_user(user, function_id, feature_id))
 
@@ -360,6 +365,7 @@ async def set_report(
     Refused when the screen would need a scope nobody has chosen: a report
     of nothing-in-particular arriving every month is worse than none.
     """
+    await _ready()
     _fn, feature, _handler = _resolve(function_id, feature_id)
     scope = _scope(user, "", body.period, feature)
     if missing := scope.missing(feature.scope):
@@ -380,6 +386,7 @@ async def stop_report(
     user: str = Depends(require_user),
 ) -> dict:
     """Stop your own. There is no route for stopping anybody else's."""
+    await _ready()
     _resolve(function_id, feature_id)
     await reports.unsubscribe(user, function_id, feature_id)
     return {"subscribed": False}
@@ -396,6 +403,7 @@ async def send_report_now(
     The same render and the same delivery the loop uses, so what they see
     is what the month will bring rather than a preview of it.
     """
+    await _ready()
     _resolve(function_id, feature_id)
     sub = await reports.for_user(user, function_id, feature_id)
     if sub is None:
@@ -405,7 +413,37 @@ async def send_report_now(
     # preview of it.
     sub = await reports.save(await asyncio.to_thread(reports.run, sub))
     await _deliver()
+    await _save()
     return _report_view(sub)
+
+
+async def _ready() -> None:
+    """Load the register, the trail and the outbox before answering.
+
+    Lazily rather than only at startup: a check, a test client or a reload
+    gets the same state a running server has, and `ready` is a no-op once
+    the process has it.
+    """
+    from compass.businessfunctions.features import rewardlens
+
+    await ledger.ready(seed=rewardlens.SEED)
+    await notices.ready()
+
+
+async def _save() -> None:
+    """Persist what this request recorded.
+
+    After the work and after delivery, for the reason the ledger gives: a
+    slow store delays a reply rather than undoing a decision that is
+    already true in this process.
+    """
+    try:
+        await ledger.flush()
+        await notices.save()
+    except Exception:  # noqa: BLE001 — a decision is not undone by a slow store
+        logger.warning("business functions: could not store what just "
+                       "happened; it is in memory and will be written on the "
+                       "next change", exc_info=True)
 
 
 async def _deliver() -> None:
@@ -454,10 +492,12 @@ async def act(
     a sentence somebody had to interpret. The handler still re-checks state,
     refuses a closed period and refuses a bulk outward action.
     """
+    await _ready()
     _fn, _feature, handler = _resolve(function_id, feature_id)
     outcome = handler.act(_scope(user, body.entity, body.period, _feature),
                           body.action, body.targets, body.note)
     await _deliver()
+    await _save()
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 
@@ -516,6 +556,7 @@ async def preview_form(
     hamper cannot otherwise know it is the one that takes them past the
     annual limit, which is the same blindness the whole feature is about.
     """
+    await _ready()
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
     outcome = handler.preview(_scope(user, body.entity, body.period, feature),
@@ -537,10 +578,12 @@ async def submit_form(
     caller name whose record to write to would be a form for putting a gift
     on somebody else's year.
     """
+    await _ready()
     _fn, feature, handler = _resolve(function_id, feature_id)
     values = _form_values(feature, form_id, body)
     outcome = handler.submit(_scope(user, body.entity, body.period, feature),
                              form_id, values, body.about)
+    await _save()
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 
@@ -568,6 +611,7 @@ async def ask(
     enough which rows — asked rather than guessed, because an assistant that
     picks the likeliest row is wrong exactly when it hurts.
     """
+    await _ready()
     fn, feature, handler = _resolve(function_id, feature_id)
     scope = _scope(user, body.entity, body.period, feature)
     result = assistant.interpret(fn.id, feature, handler, scope, body.text,
@@ -611,9 +655,16 @@ class PlanBody(BaseModel):
 async def confirm_plan(
     plan_id: str, body: PlanBody, user: str = Depends(require_user)
 ) -> dict:
-    """Carry out a plan, once, for the person who made it."""
+    """Carry out a plan, once, for the person who made it.
+
+    This performs, so it loads and saves like any other way of acting: a
+    decision taken from the rail is the same decision taken from the table.
+    """
+    await _ready()
     _fn, _feature, handler = _resolve(body.function_id, body.feature_id)
     outcome = assistant.confirm(plan_id, user, handler)
+    await _deliver()
+    await _save()
     return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
 
 
