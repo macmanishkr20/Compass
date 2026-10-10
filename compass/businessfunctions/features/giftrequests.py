@@ -123,6 +123,12 @@ def _state(request: dict[str, Any]) -> str:
     return "requested"
 
 
+def committed(source: str) -> int:
+    """What this team has committed. Public, so a budget screen reads the
+    same figure the approval check uses rather than summing requests again."""
+    return _spent(source)
+
+
 def _spent(source: str) -> int:
     """What this team has committed: approved requests and what it has given.
 

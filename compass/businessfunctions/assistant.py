@@ -203,6 +203,16 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
                                         f"{rupees(row['limit'])}")
         return row["id"], (f"{row['declared_by']} · {row['what']} · "
                            f"{rupees(row['value'])}")
+    if feature_id == "audit":
+        return row["id"], f"{row['when']} · {row['who']} {row['did']}"
+    if feature_id == "finance":
+        # Three shapes again, told apart by what the row carries: a team's
+        # budget is not a person, and neither is a referral a threshold.
+        if "source" in row:
+            return row["source"], (f"{row['source']} · "
+                                   f"{rupees(row['left'])} left")
+        return row["employee_id"], (f"{row['recipient']} · "
+                                    f"{rupees(row['above_limit'])} above")
     if feature_id == "requests":
         return row["id"], (f"{row['what']} for {row['recipient']} · "
                            f"{rupees(row['value'])}")

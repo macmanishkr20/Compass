@@ -48,6 +48,7 @@ RUPEES = r'[>=10000000]"₹"#\,##\,##\,##0;[>=100000]"₹"#\,##\,##0;"₹"#,##0'
 #: value written is the integer either way, so a column of them adds up.
 MONEY = frozenset({
     "total", "excess", "headroom", "limit", "value", "to_people_over",
+    "above_limit", "budget", "committed", "left", "not_requested", "given",
 })
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

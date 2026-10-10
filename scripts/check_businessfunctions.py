@@ -905,6 +905,13 @@ def check_every_feature_can_be_named() -> None:
     you mean' and lists nothing". The fallback now raises; this makes sure
     nothing ships that would hit it.
     """
+    # One real decision first, so the audit trail has something in it. Its
+    # rows are events, and an empty trail is the correct state for a
+    # deployment where nothing has happened — seeding fabricated history
+    # into an audit trail to make a check pass would be the single worst
+    # thing in this file.
+    registry.feature_of("scs", "rewardlens")[2].act(
+        as_("compliance"), "refer_to_finance", ["E-1007"])
     for fn in registry.all_functions():
         for feat in fn.features:
             h = features.get(feat.handler)
@@ -2853,6 +2860,232 @@ def check_the_recipient_acknowledges_their_own() -> None:
        not bench.act(them, "acknowledge", ["E-1066"]).ok)
 
 
+def _fin(user: str = "finance") -> Scope:
+    return people.scope_for(user, registry.feature_of("scs", "finance")[1],
+                            period="FY 2026-27")
+
+
+def _aud(user: str = "audit") -> Scope:
+    return people.scope_for(user, registry.feature_of("scs", "audit")[1],
+                            period="FY 2026-27")
+
+
+def check_finance_reports_the_amount_and_not_a_tax_bill() -> None:
+    """The requirement gives a threshold, not a rate.
+
+    So this reports the amount above ₹15,000 and stops. A percentage would
+    put a figure on screen that looks like a liability, is not one, and
+    would be believed — the rate and the heads of income belong to
+    Finance's own system, and this hands it the number it needs.
+    """
+    _, feat, h = registry.feature_of("scs", "finance")
+    rows = h.rows(_fin(), "taxable")
+    bench = registry.feature_of("scs", "rewardlens")[2]
+    over = [r for r in bench.rows(as_("compliance"), "all") if r["over_limit"]]
+
+    ok("everybody past the limit is listed", len(rows) == len(over),
+       f"{len(rows)} vs {len(over)}")
+    for row in rows:
+        theirs = next(r for r in over if r["employee_id"] == row["employee_id"])
+        ok(f"{row['recipient']}: the amount above is total minus the limit",
+           row["above_limit"] == theirs["total"] - row["limit"]
+           == theirs["excess"],
+           f"{row['above_limit']} vs {theirs['excess']}")
+
+    said = " ".join(f.caption for f in h.figures(_fin()))
+    ok("nothing on the screen calls it tax, a rate or a liability",
+       not any(word in said.lower() for word in ("tax due", "rate", "%",
+                                                 "liability", "payable")),
+       said)
+    ok("the total above the limit is the sum of the parts",
+       {f.key: f.value for f in h.figures(_fin())}["above_limit"]
+       == rl_mod.rupees(sum(r["above_limit"] for r in rows)))
+
+
+def check_finance_sees_what_nobody_referred() -> None:
+    """Hearing only about the breaches compliance remembered to send is
+    the shape of the problem this function exists to end."""
+    _, _f, h = registry.feature_of("scs", "finance")
+    bench = registry.feature_of("scs", "rewardlens")[2]
+
+    taxable = h.rows(_fin(), "taxable")
+    ok("somebody is past the limit", taxable)
+    ok("and not all of them were referred",
+       any(not r["referred"] for r in taxable))
+    ok("which the screen says out loud",
+       "not_everything_was_referred" in h.rules(_fin()), str(h.rules(_fin())))
+
+    referred = {r["employee_id"] for r in h.rows(_fin(), "referred")}
+    ok("the referral queue is narrower than the list of breaches",
+       referred < {r["employee_id"] for r in taxable} or not referred,
+       f"{len(referred)} referred of {len(taxable)} over")
+
+    # Refer everybody and the warning goes.
+    for row in taxable:
+        bench.act(as_("compliance"), "refer_to_finance", [row["employee_id"]])
+    ok("once everybody is referred, it stops saying so",
+       "not_everything_was_referred" not in h.rules(_fin()),
+       str(h.rules(_fin())))
+
+
+def check_only_finance_records_the_treatment() -> None:
+    _, _f, h = registry.feature_of("scs", "finance")
+    bench = registry.feature_of("scs", "rewardlens")[2]
+    bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
+    row = next(r for r in h.rows(_fin(), "referred")
+               if r["employee_id"] == "E-1007")
+
+    ok("it is with Finance", row["status"] == "with Finance", row["status"])
+    for who in ("compliance", "admin", "audit", "enduser"):
+        ok(f"{who} cannot record the treatment",
+           not h.act(_fin(who), "record_tax", ["E-1007"], "done").ok)
+    ok("and Finance must say what was done",
+       not h.act(_fin(), "record_tax", ["E-1007"]).ok)
+
+    before = next(r["total"] for r in bench.rows(as_("compliance"), "all")
+                  if r["employee_id"] == "E-1007")
+    out = h.act(_fin(), "record_tax", ["E-1007"],
+                "Treated as a perquisite in the December payroll.")
+    ok("with a note, Finance records it", out.ok, out.said)
+    ok("and the total is untouched — no department edits what was received",
+       next(r["total"] for r in bench.rows(as_("compliance"), "all")
+            if r["employee_id"] == "E-1007") == before)
+    ok("the note is on the row",
+       "perquisite" in next(r["note"] for r in h.rows(_fin(), "referred")
+                            if r["employee_id"] == "E-1007"))
+    ok("and it cannot be recorded twice",
+       not h.act(_fin(), "record_tax", ["E-1007"], "again").ok)
+
+
+def check_a_budget_counts_everything_that_left() -> None:
+    """Committed, not approved — and not only what came through a request.
+
+    The register predates the request flow and a declaration never had one.
+    Counting approvals alone showed a team ₹13,000 given against ₹0
+    committed and a full budget remaining, which is a budget screen
+    understating spend by every gift given before it existed.
+    """
+    _, _f, h = registry.feature_of("scs", "finance")
+    rows = {r["source"]: r for r in h.rows(_fin(), "budgets")}
+    ok("every team with a budget is listed",
+       set(rows) == set(gr_mod.BUDGETS), str(set(rows) ^ set(gr_mod.BUDGETS)))
+
+    for row in rows.values():
+        ok(f"{row['source']}: what is left is the budget minus what is committed",
+           row["left"] == row["budget"] - row["committed"])
+        ok(f"{row['source']}: gifts given without a request are counted",
+           row["committed"] >= row["not_requested"])
+
+    bengaluru = rows["Procurement · Bengaluru"]
+    ok("a team that gave before the request flow existed shows that spend",
+       bengaluru["not_requested"] > 0 and bengaluru["left"] < bengaluru["budget"],
+       f"{bengaluru['not_requested']} / {bengaluru['left']}")
+
+    # Approving a request commits the money before it is handed over.
+    req = registry.feature_of("scs", "requests")[2]
+    rid = req.submit(_req(), "request_gift", {
+        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
+        "value": "2000", "occasion": "festival",
+        "source": "Service line · Tax"}).touched[0]
+    before = next(r["left"] for r in h.rows(_fin(), "budgets")
+                  if r["source"] == "Service line · Tax")
+    ok("asking does not commit anything", before == next(
+        r["left"] for r in h.rows(_fin(), "budgets")
+        if r["source"] == "Service line · Tax"))
+    req.act(_req("admin"), "approve", [rid])
+    after = next(r["left"] for r in h.rows(_fin(), "budgets")
+                 if r["source"] == "Service line · Tax")
+    ok("approving it does", after == before - 2000, f"{before} -> {after}")
+
+
+def check_audit_reads_and_cannot_write() -> None:
+    """A function that could alter what it audits is not one."""
+    _, feat, h = registry.feature_of("scs", "audit")
+    bench = registry.feature_of("scs", "rewardlens")[2]
+    bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
+
+    ok("the trail declares no actions", not feat.actions, str(feat.actions))
+    ok("so the rail cannot operate here",
+       not assistant.view(registry.get("scs"), feat, _aud()).can_act)
+    out = h.act(_aud(), "refer_to_finance", ["E-1007"])
+    ok("and acting is refused, including for Audit itself",
+       not out.ok and "Audit reads" in out.said, out.said)
+    ok("no sentence turns into a plan here",
+       not isinstance(assistant.interpret("scs", feat, h, _aud(),
+                                          "refer John to Finance", "audit"),
+                      assistant.Proposal))
+
+
+def check_the_trail_reads_as_what_happened() -> None:
+    _, _f, h = registry.feature_of("scs", "audit")
+    bench = registry.feature_of("scs", "rewardlens")[2]
+    req = registry.feature_of("scs", "requests")[2]
+
+    bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
+    req.act(_req("admin"), "approve", ["R-SEED01"])
+
+    rows = h.rows(_aud(), "everything")
+    ok("the newest is first",
+       rows and rows[0]["when"] >= rows[-1]["when"], str(len(rows)))
+    for row in rows:
+        ok(f"{row['id']}: it says when", row["when"] != "—")
+        ok(f"{row['id']}: who", row["who"] != "—")
+        ok(f"{row['id']}: and what they did", row["did"])
+        break
+
+    approval = next(r for r in rows if r["did"] == "approved")
+    ok("an approval names what was approved",
+       "Diwali" in approval["what"], approval["what"])
+    ok("and carries the figure", "₹3,000" in approval["detail"],
+       approval["detail"])
+
+    referral = next(r for r in rows if r["did"] == "referred to Finance")
+    ok("a referral names the person, not an id",
+       referral["what"] == "John Mathew", referral["what"])
+
+    decisions = h.rows(_aud(), "decisions")
+    ok("the decisions tab is only things somebody is answerable for",
+       all(r["kind"] in h.DECISIONS if hasattr(h, "DECISIONS") else True
+           for r in decisions) and len(decisions) <= len(rows))
+    ok("and it includes the approval and the referral",
+       {"approved", "referred to Finance"} <= {r["did"] for r in decisions})
+
+
+def check_the_new_screens_are_for_their_people() -> None:
+    _, fin_m, fin = registry.feature_of("scs", "finance")
+    _, aud_m, aud = registry.feature_of("scs", "audit")
+
+    table = [
+        ("finance", "firm", "firm"),
+        ("audit", "firm", "firm"),
+        ("compliance", "firm", "firm"),
+        ("admin", "firm", "firm"),       # compliance + leadership
+        ("servicelead", "none", "none"),
+        ("enduser", "none", "none"),
+        ("procurement", "none", "none"),
+    ]
+    for who, on_finance, on_audit in table:
+        ok(f"{who}: sees Tax & budget at {on_finance}",
+           people.breadth(who, fin_m.visibility) == on_finance,
+           people.breadth(who, fin_m.visibility))
+        ok(f"{who}: sees the trail at {on_audit}",
+           people.breadth(who, aud_m.visibility) == on_audit,
+           people.breadth(who, aud_m.visibility))
+        if on_finance == "none":
+            ok(f"{who}: and gets nothing from either",
+               not fin.rows(_fin(who), "taxable") and not aud.rows(_aud(who),
+                                                                   "everything"))
+            ok(f"{who}: with a reason rather than a blank screen",
+               fin.rules(_fin(who)) == ["finance_is_a_role"]
+               and aud.rules(_aud(who)) == ["audit_is_a_role"])
+
+    # Procurement can move a gift along and may not read the firm's
+    # thresholds: the roles are separate claims, not a ladder.
+    ok("procurement moves requests but reads no thresholds",
+       "procurement" in people.roles_of("procurement")
+       and not fin.figures(_fin("procurement")))
+
+
 def main() -> int:
     """Every check, against a register nobody will miss.
 
@@ -2925,6 +3158,20 @@ def _checks() -> int:
         check_seeding_only_fills_an_empty_register()
     with stored(), fixtures():
         check_a_notice_outlives_the_process()
+    with fixtures():
+        check_finance_reports_the_amount_and_not_a_tax_bill()
+    with fixtures():
+        check_finance_sees_what_nobody_referred()
+    with fixtures():
+        check_only_finance_records_the_treatment()
+    with fixtures():
+        check_a_budget_counts_everything_that_left()
+    with fixtures():
+        check_audit_reads_and_cannot_write()
+    with fixtures():
+        check_the_trail_reads_as_what_happened()
+    with fixtures():
+        check_the_new_screens_are_for_their_people()
     with fixtures():
         check_nothing_reaches_the_register_until_it_is_given()
     with fixtures():

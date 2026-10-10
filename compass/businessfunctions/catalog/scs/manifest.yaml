@@ -88,6 +88,116 @@ features:
       - read_rows
       - explain_row
 
+  - id: audit
+    name: Audit trail
+    short: Every decision, in order
+    blurb: >-
+      Not a position but a history: one row per thing that happened, with a
+      name and a time against it. The question this answers is whether
+      every gift and every approval can be shown to have happened, which no
+      summary can.
+    handler: gift_audit
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      The trail is kept per year, like everything else that hangs off an
+      annual limit.
+
+    # No actions at all. A function that could alter what it audits is not
+    # one — and Audit, which can see everything, is the persona most likely
+    # to be over-granted by somebody being helpful.
+
+    visibility:
+      firm: [audit, compliance, finance, leadership]
+
+    rules:
+      - id: audit_is_a_role
+        headline: This one is for Audit.
+        detail: >-
+          It shows every decision anybody has taken about anybody's gifts,
+          which is more than most people have any reason to read.
+        tone: limit
+      - id: nothing_has_happened
+        headline: Nothing has been recorded yet.
+        detail: >-
+          No gift has been requested, reviewed or declared in this year. An
+          empty trail is a true answer, not a broken screen.
+        tone: notice
+
+    starters:
+      - What happened most recently?
+      - Which decisions has anybody taken?
+
+    tools:
+      - read_rows
+      - explain_row
+
+  - id: finance
+    name: Tax & budget
+    short: Referrals · thresholds · spend
+    blurb: >-
+      What compliance has sent to Finance, who is past the annual limit and
+      by how much, and what each team has committed against its budget. The
+      amount above the limit is reported; the tax treatment is Finance's own
+      system's to decide.
+    handler: gift_finance
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      A limit is annual and so is a budget. Without the year, neither
+      question has an answer.
+
+    visibility:
+      firm: [finance, compliance, audit, leadership]
+
+    actions:
+      - id: record_tax
+        label: Record the treatment
+        roles: [finance]
+        note_label: What did Finance do with it?
+        confirm: >-
+          Records that Finance has dealt with this referral, with your note
+          on the trail. It does not change the total — a total is the sum of
+          what somebody received, and no department edits that.
+        reversible: false
+
+    rules:
+      - id: finance_is_a_role
+        headline: This one is for Finance.
+        detail: >-
+          It names everybody past the annual limit across the firm, which is
+          not something an individual needs to read.
+        tone: limit
+      - id: not_everything_was_referred
+        headline: Somebody is past the limit and was never referred.
+        detail: >-
+          Finance hearing only about the breaches compliance remembered to
+          send is the shape of the problem this function exists to end, so
+          the list here is everybody — referred or not.
+        tone: limit
+      - id: a_team_is_over_budget
+        headline: A team has committed more than it was given.
+        detail: >-
+          Committed, not spent: an approval commits the money and handing it
+          over spends it. The gap is where a budget holder still has a
+          choice.
+        tone: limit
+      - id: nothing_above_the_limit
+        headline: Nobody is past the limit.
+        detail: Worth saying plainly, so the screen is read when it is not.
+        tone: notice
+
+    starters:
+      - Who is past the limit?
+      - What has been referred to Finance?
+      - Which teams are near their budget?
+
+    tools:
+      - read_rows
+      - explain_row
+
   - id: requests
     name: Gift requests
     short: Ask · check · approve

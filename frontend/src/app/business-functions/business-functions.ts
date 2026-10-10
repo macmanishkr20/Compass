@@ -728,6 +728,48 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
+    // Audit: one row per thing that happened, in the words of what it was.
+    if (this.featureId() === 'audit') {
+      return [
+        { key: 'when', label: 'When' },
+        { key: 'who', label: 'Who' },
+        { key: 'did', label: 'Did' },
+        { key: 'what', label: 'What' },
+        { key: 'detail', label: 'Detail' },
+      ];
+    }
+    // Finance: three questions, three shapes.
+    if (this.featureId() === 'finance') {
+      const tab = this.feature()?.tab;
+      if (tab === 'budgets') {
+        return [
+          { key: 'source', label: 'Team' },
+          { key: 'budget', label: 'Budget', numeric: true },
+          { key: 'committed', label: 'Committed', numeric: true },
+          { key: 'not_requested', label: 'Never requested', numeric: true },
+          { key: 'left', label: 'Left', numeric: true },
+          { key: 'status', label: 'Status' },
+        ];
+      }
+      if (tab === 'taxable') {
+        return [
+          { key: 'recipient', label: 'Person' },
+          { key: 'total', label: 'Total', numeric: true },
+          { key: 'limit', label: 'Limit', numeric: true },
+          { key: 'above_limit', label: 'Above the limit', numeric: true },
+          { key: 'crossed_on', label: 'Over since' },
+          { key: 'status', label: 'Status' },
+        ];
+      }
+      return [
+        { key: 'recipient', label: 'Person' },
+        { key: 'total', label: 'Total', numeric: true },
+        { key: 'above_limit', label: 'Above the limit', numeric: true },
+        { key: 'referred_by', label: 'Referred by' },
+        { key: 'when', label: 'When' },
+        { key: 'status', label: 'Status' },
+      ];
+    }
     // Gift requests: what is being asked for, with the three answers the
     // approver needs on the row rather than a click away.
     if (this.featureId() === 'requests') {
@@ -805,6 +847,10 @@ export class BusinessFunctions {
     // A declared item's own amount. Never '—' at zero: the server refuses a
     // declaration of nothing, so a zero here would be a bug worth seeing.
     if (key === 'value') return BusinessFunctions.rupees(Number(value));
+    if (key === 'above_limit' || key === 'budget' || key === 'committed'
+        || key === 'left' || key === 'not_requested' || key === 'given') {
+      return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
+    }
     if (key === 'to_people_over') {
       return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
     }

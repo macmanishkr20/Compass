@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from compass.businessfunctions.features import (  # noqa: F401
     form26,
+    giftaudit,
+    giftfinance,
     giftrequests,
     lms,
     oversight,
