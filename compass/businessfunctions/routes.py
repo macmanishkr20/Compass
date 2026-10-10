@@ -333,7 +333,7 @@ async def get_report(
 ) -> dict:
     """This person's own standing request for this screen, and its history."""
     _resolve(function_id, feature_id)
-    return _report_view(reports.for_user(user, function_id, feature_id))
+    return _report_view(await reports.for_user(user, function_id, feature_id))
 
 
 @router.put("/{function_id}/features/{feature_id}/report")
@@ -355,7 +355,7 @@ async def set_report(
             422,
             f"A monthly {feature.name} report needs "
             f"{' and '.join(missing)} — it has to know what it is reporting on.")
-    sub = reports.subscribe(
+    sub = await reports.subscribe(
         user=user, function_id=function_id, feature_id=feature_id,
         period=body.period, day=body.day, time_of_day=body.time_of_day)
     return _report_view(sub)
@@ -369,7 +369,7 @@ async def stop_report(
 ) -> dict:
     """Stop your own. There is no route for stopping anybody else's."""
     _resolve(function_id, feature_id)
-    reports.unsubscribe(user, function_id, feature_id)
+    await reports.unsubscribe(user, function_id, feature_id)
     return {"subscribed": False}
 
 
@@ -385,12 +385,15 @@ async def send_report_now(
     is what the month will bring rather than a preview of it.
     """
     _resolve(function_id, feature_id)
-    sub = reports.for_user(user, function_id, feature_id)
+    sub = await reports.for_user(user, function_id, feature_id)
     if sub is None:
         raise HTTPException(404, "You have no monthly report for this screen.")
-    sub = await asyncio.to_thread(reports.run, sub)
+    # The same render, the same save and the same delivery the loop uses, so
+    # what somebody sees now is what the month will bring rather than a
+    # preview of it.
+    sub = await reports.save(await asyncio.to_thread(reports.run, sub))
     await _deliver()
-    return _report_view(reports.for_user(user, function_id, feature_id))
+    return _report_view(sub)
 
 
 async def _deliver() -> None:

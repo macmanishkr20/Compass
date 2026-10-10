@@ -30,7 +30,10 @@ somebody reads on a phone anyway.
 
 EVERY RUN IS RECORDED, with the figures as they were. "The November report
 said eight thousand" has to be answerable later; a mail server's log does
-not answer it, and neither does the screen, which has moved on.
+not answer it, and neither does the screen, which has moved on. The runs
+are stored with the subscription, so the answer survives a deploy — which
+is the whole point of a standing request outliving the process that took
+it.
 
 Monthly is not one of Routines' trigger types and its clock logic is not
 reimplemented here — `_now_local` and `_to_epoch` carry the timezone, and
@@ -49,6 +52,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 
 from compass.businessfunctions import notices, registry
+from compass.common.persistence.catalog import Collection
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import Scope
 from compass.code.routines import TZ_LABEL, _now_local, _to_epoch
@@ -110,10 +114,66 @@ class Subscription:
                 f"{self.time_of_day} {TZ_LABEL}")
 
 
-#: subscription id -> subscription. In memory, like the rest of the section;
-#: a restart loses the standing request, which is recorded here rather than
-#: pretended away and goes when the store lands.
-_subs: dict[str, Subscription] = {}
+#: Where they live. The same small whole-document collection the rest of
+#: Compass uses for configuration-shaped records — JSON on a box, Cosmos on
+#: Azure — rather than a second store written for one feature.
+#:
+#: Partitioned by owner, which for a subscription is the person it reports
+#: to: the only identity it has and the only one allowed to change it.
+_store = Collection("bf_report", "business_function_reports.json", shape="map")
+
+
+def _to_doc(sub: Subscription) -> dict:
+    return {
+        "id": sub.id,
+        # The partition key, and the same value as `user`. Stored under the
+        # name the collection expects rather than teaching the collection
+        # about this feature.
+        "owner": sub.user,
+        "user": sub.user,
+        "function_id": sub.function_id,
+        "feature_id": sub.feature_id,
+        "period": sub.period,
+        "day": sub.day,
+        "time_of_day": sub.time_of_day,
+        "made_at": sub.made_at,
+        "runs": [
+            {"at": r.at, "period": r.period, "notice_id": r.notice_id,
+             "said": r.said, "figures": [list(f) for f in r.figures]}
+            for r in sub.runs
+        ],
+    }
+
+
+def _from_doc(doc: dict) -> Subscription | None:
+    """A stored record, or None when it is not one.
+
+    A row this cannot read is skipped with a warning rather than taken down
+    the whole feature: the same bargain the collection itself strikes with an
+    unreadable file.
+    """
+    try:
+        return Subscription(
+            id=str(doc["id"]),
+            user=str(doc["user"]),
+            function_id=str(doc["function_id"]),
+            feature_id=str(doc["feature_id"]),
+            period=str(doc.get("period", "")),
+            day=int(doc.get("day", 1)),
+            time_of_day=str(doc.get("time_of_day", "08:00")),
+            made_at=float(doc.get("made_at", 0.0)),
+            runs=[
+                Run(at=float(r["at"]), period=str(r.get("period", "")),
+                    figures=[(str(a), str(b)) for a, b in r.get("figures", [])],
+                    notice_id=str(r.get("notice_id", "")),
+                    said=str(r.get("said", "")))
+                for r in doc.get("runs", []) if isinstance(r, dict) and "at" in r
+            ],
+        )
+    except (KeyError, TypeError, ValueError):
+        logger.warning("skipping unreadable report subscription %r",
+                       doc.get("id"))
+        return None
 
 
 def _slot(sub: Subscription, *, now: dt.datetime | None = None) -> float | None:
@@ -212,7 +272,9 @@ def render(sub: Subscription) -> tuple[str, str, list[tuple[str, str]]]:
 
 
 def run(sub: Subscription) -> Subscription:
-    """Generate and queue one report. Does not send — `notices.flush` does."""
+    """Generate and queue one report, with the run recorded on what it
+    returns. Sends nothing — `notices.flush` does — and writes nothing: the
+    caller saves, because rendering is sync and the store is not."""
     subject, body, figures = render(sub)
     if not subject:
         logger.warning("report %s: %s/%s no longer exists",
@@ -228,58 +290,72 @@ def run(sub: Subscription) -> Subscription:
     )
     record = Run(at=_slot(sub) or time.time(), period=sub.period,
                  figures=figures, notice_id=notice.id, said=notice.said)
-    updated = replace(sub, runs=(sub.runs + [record])[-KEEP_RUNS:])
-    _subs[sub.id] = updated
     logger.info("report %s ran for %s: %s", sub.id, sub.user, notice.said)
-    return updated
+    return replace(sub, runs=(sub.runs + [record])[-KEEP_RUNS:])
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # the standing request
 # ──────────────────────────────────────────────────────────────────────────
 
-def for_user(user: str, function_id: str, feature_id: str) -> Subscription | None:
-    """This person's subscription to this screen, if they have one."""
-    return next((s for s in _subs.values()
+async def for_user(user: str, function_id: str,
+                   feature_id: str) -> Subscription | None:
+    """This person's subscription to this screen, if they have one.
+
+    Matched on the user as well as the screen, so this is also the filter
+    that stops one person reading another's: nothing above this looks a
+    subscription up by id alone.
+    """
+    return next((s for s in await all_subscriptions()
                  if s.user == user and s.function_id == function_id
                  and s.feature_id == feature_id), None)
 
 
-def subscribe(*, user: str, function_id: str, feature_id: str, period: str,
-              day: int = 1, time_of_day: str = "08:00") -> Subscription:
+async def save(sub: Subscription) -> Subscription:
+    """Write one down. Used after a run as well as after a change."""
+    await _store.put(_to_doc(sub))
+    return sub
+
+
+async def subscribe(*, user: str, function_id: str, feature_id: str,
+                    period: str, day: int = 1,
+                    time_of_day: str = "08:00") -> Subscription:
     """Start or replace this person's monthly report for one screen.
 
     `user` is the caller, taken from the session by the route and never from
     a body. Replacing rather than adding means clicking twice leaves one
-    subscription, not two reports on the same morning.
+    subscription, not two reports on the same morning — and it keeps the
+    runs, because the history belongs to the standing request rather than to
+    the particular settings it had at the time.
     """
-    existing = for_user(user, function_id, feature_id)
-    sub = Subscription(
+    existing = await for_user(user, function_id, feature_id)
+    return await save(Subscription(
         id=existing.id if existing else uuid.uuid4().hex[:12],
         user=user, function_id=function_id, feature_id=feature_id,
         period=period, day=max(1, min(31, day)),
         time_of_day=time_of_day,
         runs=existing.runs if existing else [],
-    )
-    _subs[sub.id] = sub
-    return sub
+    ))
 
 
-def unsubscribe(user: str, function_id: str, feature_id: str) -> bool:
-    sub = for_user(user, function_id, feature_id)
+async def unsubscribe(user: str, function_id: str, feature_id: str) -> bool:
+    """Stop your own. Looked up by user first, so there is no shape of call
+    here that removes somebody else's."""
+    sub = await for_user(user, function_id, feature_id)
     if sub is None:
         return False
-    _subs.pop(sub.id, None)
-    return True
+    return await _store.remove(sub.id)
 
 
-def all_subscriptions() -> list[Subscription]:
-    return list(_subs.values())
+async def all_subscriptions() -> list[Subscription]:
+    """Every standing request, for the loop. Unreadable rows are skipped."""
+    rows = [_from_doc(doc) for doc in await _store.all()]
+    return [sub for sub in rows if sub is not None]
 
 
-def clear() -> None:
+async def clear() -> None:
     """Forget every subscription. For checks; nothing in the app calls it."""
-    _subs.clear()
+    await _store.replace_all([])
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -297,10 +373,15 @@ async def reports_loop() -> None:
     logger.info("business-function reports started")
     while True:
         try:
-            for sub in all_subscriptions():
+            for sub in await all_subscriptions():
                 if due(sub) is None:
                     continue
-                await asyncio.to_thread(run, sub)
+                # Rendering reads a whole screen, so it goes to a thread;
+                # storing is the collection's own async. The run is written
+                # down before the mail is attempted, so a send that fails
+                # cannot make the same slot fire again on the next tick — a
+                # monthly report retried every minute is a day of mail.
+                await save(await asyncio.to_thread(run, sub))
             if any(n.state == "pending" for n in notices._outbox.values()):
                 await asyncio.to_thread(notices.flush)
         except asyncio.CancelledError:

@@ -19,7 +19,9 @@ output: 520000 − 380000 is 140000, and the comment above each check says so.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import json
 import copy
 import dataclasses
 import logging
@@ -64,6 +66,45 @@ from compass.common.config import (  # noqa: E402
 SHIPPED_DEFAULT = BusinessFunctionSettings.model_fields["enabled"].default
 
 FAILURES: list[str] = []
+
+
+def drive(coro):
+    """Drive one store call from these synchronous checks.
+
+    A fresh loop per call is fine: the collection's lock is per-loop by
+    design, precisely so module-level singletons are not bound to whichever
+    loop happened to touch them first.
+    """
+    return asyncio.run(coro)
+
+
+@contextlib.contextmanager
+def scratch_data():
+    """Point the stores at a throwaway folder, on the LOCAL backend.
+
+    Both halves matter, and the second one was learned the hard way: a
+    temporary directory is no protection at all when the deployment is
+    configured for Cosmos, because the collection never looks at the
+    filesystem. The first version of this wrote test subscriptions into a
+    live Azure account — harmlessly, as it happened, because the kind was
+    new and nothing else shares it, but the next check to be written would
+    not have been so lucky.
+
+    So the backend is forced local for the duration as well as the folder
+    being thrown away. Checks write; the place they write has to be one
+    nobody will miss.
+    """
+    settings = get_settings()
+    was_dir, was_backend = settings.data_dir, settings.storage.backend
+    with tempfile.TemporaryDirectory(prefix="bf-checks-") as tmp:
+        settings.storage.backend = "local"
+        # `workspace_root / data_dir` is how a collection resolves its file,
+        # and an absolute data_dir makes that the absolute path.
+        settings.data_dir = tmp
+        try:
+            yield Path(settings.workspace_root / settings.data_dir)
+        finally:
+            settings.data_dir, settings.storage.backend = was_dir, was_backend
 
 
 @contextlib.contextmanager
@@ -2017,9 +2058,9 @@ def check_a_monthly_slot_lands_on_the_right_day() -> None:
 def check_a_slot_fires_once_and_is_not_missed_by_a_restart() -> None:
     import time as clock
 
-    reports.clear()
-    sub = reports.subscribe(user="compliance", function_id="scs",
-                            feature_id="oversight", period="FY 2026-27")
+    drive(reports.clear())
+    sub = drive(reports.subscribe(user="compliance", function_id="scs",
+                                  feature_id="oversight", period="FY 2026-27"))
     slot = reports._slot(sub)
 
     ok("a slot that has just passed is due",
@@ -2029,7 +2070,7 @@ def check_a_slot_fires_once_and_is_not_missed_by_a_restart() -> None:
     ok("but not one from last month",
        reports.due(sub, now=slot + 40 * 3600) is None)
 
-    ran = reports.run(sub)
+    ran = drive(reports.save(reports.run(sub)))
     ok("running it records the slot", ran.runs and ran.runs[-1].at == slot)
     ok("and the same slot does not fire again",
        reports.due(ran, now=clock.time()) is None)
@@ -2046,13 +2087,13 @@ def check_a_report_cannot_see_more_than_its_reader() -> None:
     a report with nothing in it — not because this checks, but because it is
     the same call that would empty their screen.
     """
-    reports.clear()
+    drive(reports.clear())
     notices.clear()
 
-    boss = reports.subscribe(user="compliance", function_id="scs",
-                             feature_id="oversight", period="FY 2026-27")
-    plain = reports.subscribe(user="enduser", function_id="scs",
-                              feature_id="oversight", period="FY 2026-27")
+    boss = drive(reports.subscribe(user="compliance", function_id="scs",
+                                   feature_id="oversight", period="FY 2026-27"))
+    plain = drive(reports.subscribe(user="enduser", function_id="scs",
+                                    feature_id="oversight", period="FY 2026-27"))
 
     _subject, body, figures = reports.render(boss)
     ok("the compliance role gets the figures", figures and "₹" in body)
@@ -2066,15 +2107,16 @@ def check_a_report_cannot_see_more_than_its_reader() -> None:
 
 
 def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
-    reports.clear()
+    drive(reports.clear())
     notices.clear()
     # `admin` is a reviewer who is also an employee, so there is somewhere to
     # send it. `compliance` is a reviewer with no employee record — a real
     # state, checked below.
     with _Mailbox() as box:
-        sub = reports.subscribe(user="admin", function_id="scs",
-                                feature_id="oversight", period="FY 2026-27")
-        reports.run(sub)
+        sub = drive(reports.subscribe(user="admin", function_id="scs",
+                                      feature_id="oversight",
+                                      period="FY 2026-27"))
+        drive(reports.save(reports.run(sub)))
         notices.flush()
 
     ok("one message", len(box.sent) == 1, str(len(box.sent)))
@@ -2084,46 +2126,39 @@ def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
            and box.sent[0]["to"] == rl_mod._EMAIL["E-1052"],
            str(box.sent[0]["to"]))
 
-    reports.clear()
+    drive(reports.clear())
     notices.clear()
-    held = reports.run(reports.subscribe(
+    held = drive(reports.save(reports.run(drive(reports.subscribe(
         user="compliance", function_id="scs", feature_id="oversight",
-        period="FY 2026-27"))
+        period="FY 2026-27")))))
     ok("a reviewer the directory cannot place is held, and says so",
        "no email address on file" in held.runs[-1].said, held.runs[-1].said)
-
-    # And somebody the directory cannot place is held, not sent somewhere.
-    reports.clear()
-    notices.clear()
-    nobody = reports.subscribe(user="stranger", function_id="scs",
-                               feature_id="oversight", period="FY 2026-27")
-    ran = reports.run(nobody)
-    ok("a subscriber with no address is held, not delivered anywhere",
-       "not emailed" in ran.runs[-1].said, ran.runs[-1].said)
     ok("and nothing was handed to a mail server", notices.flush() == (0, 0))
 
 
 def check_subscribing_is_something_you_do_to_yourself() -> None:
-    reports.clear()
+    drive(reports.clear())
+    drive(reports.subscribe(user="compliance", function_id="scs",
+                            feature_id="oversight", period="FY 2026-27"))
+    drive(reports.subscribe(user="compliance", function_id="scs",
+                            feature_id="oversight", period="FY 2025-26"))
     ok("subscribing twice leaves one subscription",
-       (reports.subscribe(user="compliance", function_id="scs",
-                          feature_id="oversight", period="FY 2026-27"),
-        reports.subscribe(user="compliance", function_id="scs",
-                          feature_id="oversight", period="FY 2025-26"))
-       and len(reports.all_subscriptions()) == 1,
-       str(len(reports.all_subscriptions())))
+       len(drive(reports.all_subscriptions())) == 1,
+       str(len(drive(reports.all_subscriptions()))))
     ok("and the second one replaced the first",
-       reports.for_user("compliance", "scs", "oversight").period == "FY 2025-26")
+       drive(reports.for_user("compliance", "scs", "oversight")).period
+       == "FY 2025-26")
 
-    reports.subscribe(user="enduser", function_id="scs",
-                      feature_id="oversight", period="FY 2026-27")
-    ok("two people have two subscriptions", len(reports.all_subscriptions()) == 2)
+    drive(reports.subscribe(user="enduser", function_id="scs",
+                            feature_id="oversight", period="FY 2026-27"))
+    ok("two people have two subscriptions",
+       len(drive(reports.all_subscriptions())) == 2)
     ok("stopping yours leaves theirs",
-       reports.unsubscribe("compliance", "scs", "oversight")
-       and len(reports.all_subscriptions()) == 1
-       and reports.for_user("enduser", "scs", "oversight") is not None)
+       drive(reports.unsubscribe("compliance", "scs", "oversight"))
+       and len(drive(reports.all_subscriptions())) == 1
+       and drive(reports.for_user("enduser", "scs", "oversight")) is not None)
     ok("stopping one you do not have is not an error",
-       not reports.unsubscribe("compliance", "scs", "oversight"))
+       not drive(reports.unsubscribe("compliance", "scs", "oversight")))
 
     # The shape of the request itself: there is nowhere to name anybody.
     from compass.businessfunctions.routes import ReportBody
@@ -2131,6 +2166,86 @@ def check_subscribing_is_something_you_do_to_yourself() -> None:
        not ({"to", "recipients", "email", "user", "for_user"}
             & set(ReportBody.model_fields)),
        str(sorted(ReportBody.model_fields)))
+
+
+def check_these_checks_write_nowhere_that_matters() -> None:
+    """The guard on the guards.
+
+    Everything below writes subscriptions. A temporary folder is not enough
+    on its own: with the deployment configured for Cosmos, a collection
+    never touches the filesystem, and the throwaway directory protects
+    nothing. So the backend is forced local too, and this is the assertion
+    that it actually was.
+    """
+    settings = get_settings()
+    ok("the checks run against the local backend",
+       settings.storage.backend == "local", settings.storage.backend)
+    folder = Path(settings.workspace_root / settings.data_dir)
+    ok("and write to a throwaway folder, not the data directory",
+       "bf-checks-" in str(folder), str(folder))
+    ok("which is not inside the repository",
+       not str(folder).startswith(str(settings.workspace_root / "data")),
+       str(folder))
+
+
+def check_a_subscription_outlives_the_process() -> None:
+    """The whole point: a standing request that a deploy does not forget.
+
+    Checked by throwing away everything held in memory and reading it back
+    off disk, which is what a restart does.
+    """
+    drive(reports.clear())
+    made = drive(reports.subscribe(user="admin", function_id="scs",
+                                   feature_id="oversight",
+                                   period="FY 2026-27", day=9,
+                                   time_of_day="18:30"))
+    drive(reports.save(reports.run(made)))
+
+    # It is on disk, not in this process. Read the file itself rather than
+    # trusting the layer that wrote it: every `drive` call above already
+    # opens its own loop, so "it came back" could otherwise mean a cache.
+    folder = Path(get_settings().workspace_root / get_settings().data_dir)
+    written = folder / "business_function_reports.json"
+    ok("there is a file to survive a restart", written.is_file(), str(written))
+    raw = json.loads(written.read_text())
+    stored = list(raw.values()) if isinstance(raw, dict) else raw
+    ok("holding the one subscription", len(stored) == 1, str(len(stored)))
+    ok("under the owner it belongs to, which is who it reports to",
+       stored and stored[0].get("owner") == stored[0].get("user") == "admin",
+       str(stored and stored[0].get("owner")))
+
+    back = drive(reports.for_user("admin", "scs", "oversight"))
+    ok("it is still there after the process forgets", back is not None)
+    ok("with the same id", back and back.id == made.id)
+    ok("and the day and time it was asked for",
+       back and back.day == 9 and back.time_of_day == "18:30",
+       str(back and (back.day, back.time_of_day)))
+    ok("and the schedule still reads the same", back and back.summary == made.summary)
+    ok("the run history survived too", back and len(back.runs) == 1)
+    ok("with the figures as they were",
+       back and back.runs[0].figures and back.runs[0].figures[0][1].startswith("₹"),
+       str(back and back.runs[0].figures[:1]))
+    ok("and the slot it already fired, so a restart does not re-send it",
+       back and reports.due(back) is None)
+
+    ok("stopping it removes it from disk as well",
+       drive(reports.unsubscribe("admin", "scs", "oversight")))
+    left = json.loads(written.read_text())
+    ok("so a restart does not bring it back",
+       not (list(left.values()) if isinstance(left, dict) else left),
+       str(left))
+
+
+def check_an_unreadable_subscription_is_skipped_not_fatal() -> None:
+    """One bad row is one bad row, not a section that will not load."""
+    drive(reports.clear())
+    drive(reports.subscribe(user="admin", function_id="scs",
+                            feature_id="oversight", period="FY 2026-27"))
+    drive(reports._store.put({"id": "rubbish", "owner": "admin"}))
+
+    subs = drive(reports.all_subscriptions())
+    ok("the good one still loads", len(subs) == 1, str(len(subs)))
+    ok("and it is the right one", subs and subs[0].user == "admin")
 
 
 def main() -> int:
@@ -2181,14 +2296,22 @@ def main() -> int:
         check_a_row_button_needs_no_plan()
     check_a_selector_is_never_offered_the_wrong_values()
     check_a_monthly_slot_lands_on_the_right_day()
-    with fixtures():
+    # Every one of these writes subscriptions, so they run against a
+    # throwaway folder rather than the real data directory.
+    with scratch_data(), fixtures():
         check_a_slot_fires_once_and_is_not_missed_by_a_restart()
-    with fixtures():
+    with scratch_data(), fixtures():
         check_a_report_cannot_see_more_than_its_reader()
-    with fixtures():
+    with scratch_data(), fixtures():
         check_a_report_goes_to_its_subscriber_and_nobody_else()
-    with fixtures():
+    with scratch_data(), fixtures():
         check_subscribing_is_something_you_do_to_yourself()
+    with scratch_data(), fixtures():
+        check_these_checks_write_nowhere_that_matters()
+    with scratch_data(), fixtures():
+        check_a_subscription_outlives_the_process()
+    with scratch_data(), fixtures():
+        check_an_unreadable_subscription_is_skipped_not_fatal()
     with fixtures():
         check_the_export_is_the_screen()
     with fixtures():
