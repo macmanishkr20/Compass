@@ -2997,10 +2997,17 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
                                    if r["id"] == rid))
         ok(f"{label}: and it moves to {nxt}", now == nxt, now)
         if nxt != "closed":
-            ok(f"{label}: the row says who it is with now",
-               next(r["with"] for r in h.rows(_req("compliance"), "all")
-                    if r["id"] == rid)
-               == people.LABELS[gr_mod.STAGES[nxt]["owner"]])
+            # A persona for a control step, a NAMED PERSON for the two
+            # routed by identity — "with Business Requester" is not who to
+            # chase when the holder is whichever employee raised it.
+            now = next(r["with"] for r in h.rows(_req("compliance"), "all")
+                       if r["id"] == rid)
+            want = ({"distribution": people.find("requester").name,
+                     "acknowledgement": "Vikram Rao"}.get(
+                         nxt, people.LABELS.get(
+                             gr_mod.STAGES[nxt]["owner"], "")))
+            ok(f"{label}: the row says who it is with now", now == want,
+               f"{now!r} wanted {want!r}")
         stage = nxt
 
     ok("the end of the chain is closed, and nothing is waiting on anybody",
@@ -3009,6 +3016,109 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
     ok("a closed request cannot be signed off again",
        not any(h.act(_req(w), "sign_off", [rid], "again").ok
                for w in everybody))
+
+
+def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
+    """A Business Requester raises orders; so does an employee thanking
+    somebody. Both are ordinary, and the chain has to finish for both.
+
+    The failure this catches is not at the start, where it would be
+    obvious, but FIVE DESKS IN: distribution was routed by the `requester`
+    persona, so an order an ordinary employee raised was signed off by the
+    service line, Finance, Payroll, Procurement and Accounts Payable, and
+    then sat there with nobody on earth able to record what was handed
+    over. The step is already pinned to one named person, which is
+    narrower than any role, so the persona gate does not apply to it.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    _, _b, bench = registry.feature_of("scs", "rewardlens")
+
+    # The third raiser also HOLDS the first persona in the chain, so their
+    # own step has to be signed off by the other approver — which is the
+    # not-your-own rule working, not a failure.
+    for who, roles, hand_to in (
+            ("requester", "the persona whose job it is", {}),
+            ("enduser", "an employee who holds no persona at all", {}),
+            ("servicelead", "somebody who also approves",
+             {"service_line": "leadtwo"})):
+        with fixtures():
+            raising = people.scope_for(who, feat, period="FY 2026-27")
+            out = h.submit(raising, "request_gift", {
+                "recipient": "Aisha Khan", "what": "A thank-you hamper",
+                "kind": "gift", "value": "1500", "occasion": "performance",
+                "source": "Service line \u00b7 Advisory"})
+            ok(f"{roles} can raise one", out.ok, out.said)
+            rid = out.touched[0]
+
+            # Distribution is theirs because they raised it, whatever
+            # personas they do or do not hold.
+            trouble = _walk(rid, by=who,
+                            who={"acknowledgement": "admin", **hand_to})
+            ok(f"and the chain they started runs to the end", not trouble,
+               str(trouble))
+            ok("recording the distribution was the raiser's to do",
+               any(e["by"] == who and e.get("stage") == "distribution"
+                   for e in ledger.events(rid)),
+               str([(e["by"], e.get("stage")) for e in ledger.events(rid)]))
+            ok("it closed", gr_mod.stage_of(
+                next(r for r in ledger.requests() if r["id"] == rid))
+               == "closed")
+            item = next(i for i in ledger.items()
+                        if i.get("from_request") == rid)
+            ok("it reached the register", item["recipient"] == "Aisha Khan")
+            ok("and the recipient is the one who confirmed it",
+               item["acknowledged"] and any(
+                   e["kind"] == "acknowledged" and e["by"] == "admin"
+                   for e in ledger.events(item["id"])))
+
+    # "Waiting on you" has to mean a step that is YOURS. The raiser keeps
+    # a withdraw button while it is being checked, and counting that as a
+    # queue told an employee something was waiting on them about a request
+    # sitting with the Service Line Approver.
+    with fixtures():
+        rid = _ask(by="enduser", recipient="Aisha Khan", what="A hamper",
+                   value="1400", occasion="performance")
+        theirs = people.scope_for("enduser", feat, period="FY 2026-27")
+        row = next(r for r in h.rows(theirs, "all") if r["id"] == rid)
+        ok("the raiser can still withdraw it", "cancel_request" in row["can"])
+        ok("but it is not waiting on them \u2014 it is with somebody else",
+           not [r for r in h.rows(theirs, "mine") if r["id"] == rid],
+           str(row["can"]))
+        ok("and the screen does not say it is",
+           "waiting_on_you" not in h.rules(theirs), str(h.rules(theirs)))
+        ok("the figure agrees with the tab",
+           next(f.value for f in h.figures(theirs) if f.key == "mine")
+           == str(len(h.rows(theirs, "mine"))))
+        ok("while it IS waiting on the approver",
+           any(r["id"] == rid for r in h.rows(_req("servicelead"), "mine")))
+
+        # ...and once it reaches them, it is.
+        _walk(rid, upto="distribution", by="enduser")
+        ok("when their own step arrives, it is waiting on them",
+           any(r["id"] == rid for r in h.rows(theirs, "mine")))
+        ok("and the screen says so", "waiting_on_you" in h.rules(theirs))
+
+    # The rule it must NOT have loosened: distribution is the raiser's and
+    # nobody else's, including people who hold the requester persona.
+    with fixtures():
+        rid = _ask(by="enduser", recipient="Aisha Khan",
+                   what="Another hamper", value="1100",
+                   occasion="performance")
+        _walk(rid, upto="distribution", by="enduser")
+        offered = lambda w: next(
+            (r["can"] for r in h.rows(_req(w), "all") if r["id"] == rid), [])
+        ok("and the row names the person holding it, not a persona",
+           next(r["with"] for r in h.rows(_req("compliance"), "all")
+                if r["id"] == rid) == people.find("enduser").name,
+           next(r["with"] for r in h.rows(_req("compliance"), "all")
+                if r["id"] == rid))
+        ok("the raiser may record the distribution",
+           "sign_off" in offered("enduser"), str(offered("enduser")))
+        strangers = [w for w in ("requester", "servicelead", "procurement",
+                                 "payments", "finance", "compliance", "admin")
+                     if "sign_off" in offered(w)]
+        ok("and nobody else may, persona or no persona",
+           not strangers, str(strangers))
 
 
 def check_every_stage_reads_as_a_sentence() -> None:
@@ -3120,9 +3230,9 @@ def check_the_recipient_acknowledges_their_own() -> None:
     ok("it arrives unacknowledged", row["unacknowledged"] >= 1,
        str(row["unacknowledged"]))
     ok("the row knows it is theirs", row["yours"] is True)
-    ok("it is waiting on them and on nobody else",
+    ok("it is waiting on them, by name, and on nobody else",
        next(r["with"] for r in h.rows(_req("compliance"), "all")
-            if r["id"] == rid) == people.LABELS["employee"])
+            if r["id"] == rid) == "Vikram Rao")
     ok("somebody else cannot confirm receipt for them",
        not any(h.act(_req(w), "sign_off", [rid], "on their behalf").ok
                for w in ("procurement", "requester", "compliance", "admin")))
@@ -3522,9 +3632,9 @@ def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
        str(closed(since=before, until=after)))
     ok("and is not in the closed list at all, because it is not closed",
        waiting not in closed())
-    ok("it is still with the recipient",
+    ok("it is still with the recipient, named",
        next(r["with"] for r in h.rows(_req("compliance"), "all")
-            if r["id"] == waiting) == people.LABELS["employee"])
+            if r["id"] == waiting) == "Vikram Rao")
 
     book = export.to_excel(fn, feature, h, people.scope_for(
         "compliance", feature, period="FY 2026-27", since=before, until=after),
@@ -3673,6 +3783,7 @@ def _checks() -> int:
         check_nobody_approves_their_own()
     with fixtures():
         check_each_stage_moves_only_for_its_own_persona()
+    check_anybody_can_raise_one_and_it_still_reaches_the_end()
     with fixtures():
         check_every_stage_reads_as_a_sentence()
     with fixtures():

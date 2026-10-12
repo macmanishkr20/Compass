@@ -394,6 +394,22 @@ def _name_of(employee_id: str) -> str:
     return employee_id
 
 
+def _with(request: dict[str, Any], stage: str) -> str:
+    """Who it is with, as somebody wanting to chase it would say.
+
+    A PERSONA for the six steps that are a control — any of Finance will
+    do. A NAMED PERSON for the two that are routed by identity, because
+    "with Business Requester" is not who to chase when the person holding
+    it is an employee who raised one gift and holds no persona at all.
+    """
+    if stage == "distribution":
+        who = people.find(request["by"])
+        return who.name if who else request["by"]
+    if stage == "acknowledgement":
+        return _name_of(request["for"])
+    return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
+
+
 def _rows(scope: Scope) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for request in ledger.requests():
@@ -421,8 +437,7 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
             "status": stage_label(stage),
             # Who it is WITH — the question everybody asks of a workflow,
             # and the one a status alone never answers.
-            "with": people.LABELS.get(STAGES.get(stage, {}).get("owner", ""),
-                                      "—"),
+            "with": _with(request, stage),
             "policy": verdict["policy"]["said"],
             "tax": verdict["tax"]["said"],
             "budget": verdict["budget"]["said"],
@@ -444,6 +459,18 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
     # oldest first inside that — a queue, not a list.
     out.sort(key=lambda r: (r["stage"] in ENDED, r["steps_done"], -r["value"]))
     return scope.narrow(out, person_key=("employee_id", "by_employee"))
+
+
+def _my_step(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows whose CURRENT STEP is this person's to take.
+
+    Not "rows with a button on them". Anybody who raised a request can
+    withdraw it while it is still being checked, and counting that as a
+    queue told an employee "something is waiting on you" about a request
+    sitting with the Service Line Approver — which is the one sentence
+    this screen most needs to be true.
+    """
+    return [r for r in rows if "sign_off" in r["can"]]
 
 
 def _closed(scope: Scope, rows: list[dict[str, Any]]
@@ -489,29 +516,32 @@ def _day(when: float) -> str:
 def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
     """Whether this request is sitting in THIS person's queue.
 
-    The stage has to be owned by a persona they hold — that is the routing,
-    and it is the whole of it for the six stages that are a CONTROL.
+    The six stages that are a CONTROL are routed by PERSONA: the stage has
+    to be owned by one the person holds, it must not be a request they
+    raised, and it must not be a gift to them.
 
-    Two stages are not controls, and they invert the rule rather than
-    bending it:
+    The two that are not controls are routed by IDENTITY instead, and the
+    persona gate does not apply to them at all — being one named person is
+    already narrower than holding a role:
 
-      * ACKNOWLEDGEMENT is only ever about yourself. Confirming you
-        received something is not deciding your own case.
-      * DISTRIBUTION is only ever the person who raised it. They handed it
-        over, so they are the only one who can say what was actually given
-        and where it differed. Held to the not-your-own rule, this stage
-        was unreachable: the requester was excluded from the one step the
-        persona sheet gives them.
-
-    For the rest: not a request they raised, and not a gift to them.
+      * DISTRIBUTION is whoever RAISED it. They handed it over, so they are
+        the only one who can say what was actually given and where it
+        differed. Anybody may raise a request — a Business Requester whose
+        job it is, or an employee who wants to thank somebody — so gating
+        this on the `requester` persona stranded every request an ordinary
+        employee raised: five desks signed it off and then nobody on earth
+        could record the distribution.
+      * ACKNOWLEDGEMENT is whoever it is FOR. Confirming you received
+        something is not deciding your own case.
     """
+    if stage == "distribution":
+        return request["by"] == scope.user
+    if stage == "acknowledgement":
+        return scope.mine(request["for"])
+
     owner = STAGES.get(stage, {}).get("owner")
     if not owner or owner not in scope.roles:
         return False
-    if stage == "acknowledgement":
-        return scope.mine(request["for"])
-    if stage == "distribution":
-        return request["by"] == scope.user
     if request["by"] == scope.user:
         return False
     return not scope.mine(request["for"])
@@ -564,7 +594,7 @@ class GiftRequests(Feature):
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope)
-        mine = [r for r in rows if r["can"]]
+        mine = _my_step(rows)
         moving = [r for r in rows if r["stage"] not in ENDED]
         blocked = [r for r in moving if r["blocked"]]
         crossing = [r for r in moving if r["warns"]]
@@ -596,7 +626,7 @@ class GiftRequests(Feature):
         return [
             # A queue, not a filter: these are the ones this persona has to
             # do something about, which is the whole point of routing.
-            Tab("mine", "Waiting on you", len([r for r in rows if r["can"]])),
+            Tab("mine", "Waiting on you", len(_my_step(rows))),
             Tab("moving", "In flight",
                 len([r for r in rows if r["stage"] not in ENDED])),
             Tab("closed", "Closed", len(_closed(scope, rows))),
@@ -606,7 +636,7 @@ class GiftRequests(Feature):
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         rows = _rows(scope)
         if tab == "mine":
-            return [r for r in rows if r["can"]]
+            return _my_step(rows)
         if tab == "moving":
             return [r for r in rows if r["stage"] not in ENDED]
         if tab == "closed":
@@ -624,7 +654,7 @@ class GiftRequests(Feature):
         # The reader's own queue first: a screen that leads with the firm's
         # problems when three things are waiting on you has its priorities
         # the wrong way round.
-        if any(r["can"] for r in rows):
+        if _my_step(rows):
             said.append("waiting_on_you")
         if any(r["warns"] for r in moving):
             said.append("would_cross_the_limit")
