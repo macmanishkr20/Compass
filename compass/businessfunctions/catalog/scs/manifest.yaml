@@ -242,11 +242,15 @@ features:
           checked; at distribution this is what puts it on the register,
           and at acknowledgement it is the recipient confirming receipt.
         reversible: false
+      # The five desks whose step is a CHECK. Not the requester and not the
+      # recipient: by the time it reaches them it has been approved, bought
+      # and paid for, and their job is to record what happened rather than
+      # to reopen a decision five other desks already took.
       - id: decline
         label: Send it back
         roles: [service_line, finance, payroll, procurement,
-                accounts_payable, requester]
-        note_label: Why are you declining it?
+                accounts_payable]
+        note_label: Why are you sending it back?
         confirm: >-
           Stops it here, with your reason on the record. Nothing is bought
           and nothing reaches anybody's total.

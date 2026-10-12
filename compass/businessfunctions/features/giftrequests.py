@@ -113,6 +113,14 @@ SEED: list[dict[str, Any]] = [
 #: `owner` is the persona whose queue it sits in. `verb` is what signing off
 #: is called on their screen. `next` is where it goes.
 #:
+#: `back` says whether that desk may REFUSE. The five checks may; the last
+#: two may not, because they are not judgements. By distribution the thing
+#: has been approved, bought and paid for — the requester's job there is to
+#: record what was actually handed over, not to reopen a decision five
+#: other desks already took. The recipient cannot refuse either: an
+#: employee declining their own gift is not a control, it is a way to make
+#: a record disappear.
+#:
 #: `ask` is what that desk is asked to write down, and empty where there is
 #: nothing to write: the question belongs to the STAGE, not to the action.
 #: Hung off the action, the recipient confirming a hamper arrived was asked
@@ -124,6 +132,7 @@ SEED: list[dict[str, Any]] = [
 #: somebody reading it that nobody read it.
 STAGES: dict[str, dict[str, Any]] = {
     "service_line": {
+        "back": True,
         "ask": "",
         "step": "the business need",
         "holder": "the Service Line Approver",
@@ -134,6 +143,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "finance_policy",
     },
     "finance_policy": {
+        "back": True,
         "ask": "What did you check — thresholds, rules, any exception?",
         "step": "policy",
         "holder": "Finance",
@@ -144,6 +154,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "payroll_tax",
     },
     "payroll_tax": {
+        "back": True,
         "ask": "What did you check — the tax logic and the taxable value?",
         "step": "the tax treatment",
         "holder": "Payroll",
@@ -154,6 +165,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "procurement",
     },
     "procurement": {
+        "back": True,
         "ask": "",
         "step": "the purchase",
         "holder": "Procurement",
@@ -164,6 +176,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "accounts_payable",
     },
     "accounts_payable": {
+        "back": True,
         "ask": "",
         "step": "payment",
         "holder": "Accounts Payable",
@@ -178,6 +191,7 @@ STAGES: dict[str, dict[str, Any]] = {
         # they are the ones who handed it over and the only ones who can say
         # it differed from what was asked for. This is the moment it reaches
         # the register and starts counting.
+        "back": False,
         "ask": "What was actually given, and anything different from what "
                "was asked for?",
         "step": "what was actually given",
@@ -189,6 +203,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "acknowledgement",
     },
     "acknowledgement": {
+        "back": False,
         "ask": "",
         "step": "receipt",
         "holder": "the recipient",
@@ -199,6 +214,7 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "closed",
     },
     "closed": {
+        "back": False,
         "ask": "",
         "step": "",
         "holder": "",
@@ -566,10 +582,9 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
         # — it is shown, and whoever signs off does so knowing.
         if not verdict["blocked"]:
             can.append("sign_off")
-        # Anybody it is with can send it back, except the recipient: an
-        # employee declining their own gift is not a control, it is a way
-        # to make a record disappear.
-        if stage != "acknowledgement":
+        # Only the desks whose step is a CHECK. The last two record what
+        # happened; they do not decide it. See `back` on STAGES.
+        if STAGES[stage]["back"]:
             can.append("decline")
     # The person who raised it can withdraw it until it has been bought.
     if request["by"] == scope.user and stage in (

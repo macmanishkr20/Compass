@@ -3166,6 +3166,54 @@ def check_every_stage_reads_as_a_sentence() -> None:
        said)
 
 
+def check_the_last_two_steps_only_go_forward() -> None:
+    """Five desks CHECK; the last two RECORD. Only a check can refuse.
+
+    By distribution the gift has been approved, bought and paid for. The
+    requester's job there is to say what was actually handed over, not to
+    reopen a decision five other desks already took — and a recipient who
+    could decline their own gift would have a way to make a record
+    disappear, which is the opposite of a control.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    rid = _ask(what="A hamper", value="1000", source="People team")
+
+    for stage in [s for s in gr_mod.STAGES if s != "closed"]:
+        theirs = _req(SIGNS[stage])
+        row = next(r for r in h.rows(theirs, "all") if r["id"] == rid)
+        checks = stage not in ("distribution", "acknowledgement")
+
+        ok(f"{stage}: the stage says whether it may refuse",
+           gr_mod.STAGES[stage]["back"] is checks, str(gr_mod.STAGES[stage]))
+        ok(f"{stage}: sending it back is offered only where it is a check",
+           ("decline" in row["can"]) is checks, str(row["can"]))
+        ok(f"{stage}: and signing off always is",
+           "sign_off" in row["can"], str(row["can"]))
+
+        if not checks:
+            out = h.act(theirs, "decline", [rid], "On reflection, no.")
+            ok(f"{stage}: asking anyway is refused", not out.ok, out.said)
+            ok(f"{stage}: and it did not move the request",
+               gr_mod.stage_of(next(r for r in ledger.requests()
+                                    if r["id"] == rid)) == stage)
+            ok(f"{stage}: nor end it",
+               not ledger.happened(rid, "declined"))
+        h.act(theirs, "sign_off", [rid], f"Checked at {stage}.")
+
+    ok("so a bought gift can only go forward",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "closed")
+
+    # And the manifest says the same thing, since that is what the role
+    # gate at the entry of `act` reads.
+    declines = next(a for a in feat.actions if a.id == "decline")
+    ok("the manifest gives sending it back to the five checking desks only",
+       set(declines.roles) == {"service_line", "finance", "payroll",
+                               "procurement", "accounts_payable"},
+       str(sorted(declines.roles)))
+    ok("and the recipient is not among them", "employee" not in declines.roles)
+
+
 def check_the_question_belongs_to_the_step() -> None:
     """What a desk is asked to write down depends on the step, not the button.
 
@@ -3788,6 +3836,8 @@ def _checks() -> int:
         check_every_stage_reads_as_a_sentence()
     with fixtures():
         check_the_question_belongs_to_the_step()
+    with fixtures():
+        check_the_last_two_steps_only_go_forward()
     with fixtures():
         check_the_recipient_acknowledges_their_own()
     with fixtures():
