@@ -46,14 +46,34 @@ from compass.common.config import get_settings
 #: a typo is a function that will not load rather than a rule that silently
 #: applies to nobody.
 ROLES = frozenset({
-    "employee",     # everybody the directory knows
-    "manager",      # a service line lead, for the people who report to them
-    "procurement",  # buys and distributes
-    "compliance",   # reviews, queries, records breaches
-    "finance",      # tax thresholds and what was referred
-    "audit",        # reads everything, changes nothing
-    "leadership",   # the aggregate view
+    # The eight personas the business named, one role each. The names are
+    # theirs, not ours: a role called `manager` where the business says
+    # "Service Line Approver" is a translation somebody has to do in their
+    # head every time they read a screen or a manifest.
+    "employee",          # confirms receipt where the workflow asks for it
+    "requester",         # Business Requester: raises it, records what was given
+    "service_line",      # Service Line Approver: need, budget, recipient list
+    "finance",           # Finance Team: policy thresholds, exceptions, controls
+    "payroll",           # Payroll Team: tax logic and employee-level values
+    "procurement",       # Procurement / SCS: buys through approved channels
+    "accounts_payable",  # Accounts Payable: the payment
+    "compliance",        # Leadership / Compliance: dashboards, alerts, audit
+    "leadership",        # the aggregate view; audit duties sit here too
 })
+
+#: What each persona is called where a person reads it. The manifest says
+#: `payroll`; a screen says "Payroll Team".
+LABELS = {
+    "employee": "Employee",
+    "requester": "Business Requester",
+    "service_line": "Service Line Approver",
+    "finance": "Finance Team",
+    "payroll": "Payroll Team",
+    "procurement": "Procurement / SCS",
+    "accounts_payable": "Accounts Payable",
+    "compliance": "Leadership / Compliance",
+    "leadership": "Leadership",
+}
 
 #: How much of a screen is somebody's to see, narrowest first. Ordered so
 #: that "the widest of their roles" is a `max`.
@@ -98,20 +118,32 @@ DIRECTORY: dict[str, Person] = {
     # employee view worth looking at rather than assuming.
     "enduser": Person("E-1066", "Vikram Rao", "vikram.rao@example.invalid",
                       frozenset()),
-    # A service line lead, for the team breadth.
+    # A service line lead who also raises requests — the common real case,
+    # and the reason the rule is "not the one you raised" rather than "not
+    # your team's".
     "servicelead": Person("E-1033", "Rahul Desai", "rahul.desai@example.invalid",
-                          frozenset({"manager"}),
+                          frozenset({"service_line", "requester"}),
                           frozenset({"E-1007", "E-1019"})),
-    # Roles with no person behind them: compliance, finance and audit review
-    # other people's records and have none of their own in this fixture, so
-    # there is nothing for a conflict rule to trip over.
-    # Buys and hands over. No employee record: Procurement acts on other
-    # people's gifts and receives none in this fixture, so there is nothing
-    # for the "not your own" rules to trip over.
-    "procurement": Person("", "Procurement", "", frozenset({"procurement"})),
-    "compliance": Person("", "Compliance", "", frozenset({"compliance"})),
-    "finance": Person("", "Finance", "", frozenset({"finance"})),
-    "audit": Person("", "Audit", "", frozenset({"audit"})),
+    # A second service line approver. Not padding: with one, a request the
+    # approver raised themselves had nowhere to go — the rule says they
+    # cannot sign off their own, and there was nobody else holding the
+    # persona to sign it off instead, so the chain stalled at step one. A
+    # firm with one approver per service line has this problem in real life
+    # and solves it the same way.
+    "leadtwo": Person("E-1077", "Priya Nair", "priya.nair@example.invalid",
+                      frozenset({"service_line", "requester"})),
+    # The teams in the chain. None of them has an employee record: they act
+    # on other people's gifts and receive none in this fixture, so there is
+    # nothing for the "not your own" rules to trip over.
+    "requester": Person("", "Business Requester", "", frozenset({"requester"})),
+    "finance": Person("", "Finance Team", "", frozenset({"finance"})),
+    "payroll": Person("", "Payroll Team", "", frozenset({"payroll"})),
+    "procurement": Person("", "Procurement / SCS", "",
+                          frozenset({"procurement"})),
+    "payments": Person("", "Accounts Payable", "",
+                       frozenset({"accounts_payable"})),
+    "compliance": Person("", "Leadership / Compliance", "",
+                         frozenset({"compliance", "leadership"})),
 }
 
 
@@ -165,7 +197,7 @@ def address_of(user: str) -> str:
 def team_of(user: str) -> frozenset[str]:
     """The employee ids this person is responsible for. Empty unless a manager."""
     person = find(user)
-    if person is None or "manager" not in person.all_roles:
+    if person is None or "service_line" not in person.all_roles:
         return frozenset()
     return person.manages
 
@@ -194,8 +226,8 @@ def breadth(user: str, visibility: dict[str, list[str]]) -> str:
     return widest
 
 
-def scope_for(user: str, feature, *, entity: str = "",
-              period: str = "") -> "Scope":
+def scope_for(user: str, feature, *, entity: str = "", period: str = "",
+              since: str = "", until: str = "") -> "Scope":
     """The scope for one person on one screen. The ONE place that builds one.
 
     Routes used to assemble this and the monthly report assembled its own,
@@ -211,7 +243,7 @@ def scope_for(user: str, feature, *, entity: str = "",
     from compass.businessfunctions.features.base import Scope
 
     return Scope(
-        user=user, entity=entity, period=period,
+        user=user, entity=entity, period=period, since=since, until=until,
         roles=roles_of(user),
         employee=employee_of(user),
         team=team_of(user),

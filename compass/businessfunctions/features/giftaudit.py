@@ -12,10 +12,15 @@ aggregated would be a fourth opinion about the same facts; the point of
 this one is that it is the facts, and that it is boring.
 
 IT CHANGES NOTHING, and declares no actions at all — which also tells the
-assistant it cannot operate here. An audit function that could alter what
-it audits is not one, and the temptation is real: Audit can see everything,
-so it is the persona most likely to be quietly over-granted by somebody
-being helpful.
+assistant it cannot operate here. A screen that could alter what it audits
+is not an audit, and the temptation is real: the people who read this can
+see everything, which makes them the likeliest to be quietly over-granted
+by somebody being helpful.
+
+There is no separate Audit login. The business's own persona sheet puts
+auditing with Leadership and Compliance, so that is where it sits — a role
+invented here that nobody in the business holds would have been a role
+nobody could be held to.
 
 WHY IT IS NOT A LOG FILE. A server log is a side effect: it rotates, it is
 not a record anybody promised to keep, and it does not survive the thing
@@ -43,28 +48,13 @@ from compass.businessfunctions.features.base import (
 #: Which events are somebody deciding something, as against something
 #: happening. The distinction Audit cares about: a decision has a person
 #: answerable for it.
-DECISIONS = frozenset({"reviewed", "approved", "declined", "referred",
-                       "excepted", "superseded", "cancelled"})
+DECISIONS = frozenset({"reviewed", "signed_off", "declined", "referred",
+                       "excepted", "superseded", "cancelled", "closed",
+                       "approved"})
 
-#: What each kind of event reads as, in the active voice. Written out rather
-#: than generated from the key, because "superseded" and "a record was
-#: replaced" are not the same sentence to somebody reading a trail.
-_SAYS = {
-    "requested": "asked for",
-    "approved": "approved",
-    "declined": "declined",
-    "purchased": "recorded as bought",
-    "given": "handed over",
-    "acknowledged": "confirmed receiving",
-    "cancelled": "withdrew",
-    "reviewed": "decided",
-    "answered": "answered a question about",
-    "superseded": "replaced the record of",
-    "notified": "was told about",
-    "referred": "referred to Finance",
-    "excepted": "recorded a decision on",
-    "chased": "chased an acknowledgement from",
-}
+#: What each event reads as lives on the ledger, with the events themselves
+#: — see `ledger.READS_AS`. Kept here, it was one of two vocabularies for
+#: the same fact, and the workbook was printing the other one.
 
 
 def _subject_of(subject: str) -> str:
@@ -84,6 +74,10 @@ def _subject_of(subject: str) -> str:
 def _detail(event: dict[str, Any]) -> str:
     """The part of an event worth reading on a row."""
     bits = []
+    if event.get("stage"):
+        from compass.businessfunctions.features.giftrequests import stage_label
+
+        bits.append(stage_label(event["stage"]).lower())
     if event.get("state"):
         bits.append(str(event["state"]))
     if event.get("value"):
@@ -109,7 +103,7 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
             "when": dt.datetime.fromtimestamp(event.get("at", 0)).strftime(
                 "%Y-%m-%d %H:%M") if event.get("at") else "—",
             "who": event.get("by") or "—",
-            "did": _SAYS.get(event["kind"], event["kind"]),
+            "did": ledger.reads_as(event["kind"]),
             "what": _subject_of(event["subject"]),
             "detail": _detail(event),
             "kind": event["kind"],
@@ -177,8 +171,8 @@ class GiftAudit(Feature):
         return Outcome(
             ok=False,
             said="Audit reads. Nothing on this screen can be changed from "
-                 "it, including by Audit — a function that could alter what "
-                 "it audits is not one.",
+                 "it by anybody — a screen that could alter what it audits "
+                 "is not an audit.",
         )
 
 

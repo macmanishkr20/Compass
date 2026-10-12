@@ -56,6 +56,13 @@ class Scope:
     employee: str = ""
     #: The employee ids reporting to them. Empty unless they are a manager.
     team: frozenset[str] = field(default_factory=frozenset)
+    #: An optional window, as ISO dates. Only features that declare a date
+    #: range read them, and what the window is ABOUT is the feature's own
+    #: business: here it is the day the recipient acknowledged, because
+    #: "what did we give in October" means what people confirmed receiving,
+    #: not what somebody raised a request for.
+    since: str = ""
+    until: str = ""
     #: How much of this screen is theirs — "firm", "team", "self" or "none".
     #: Decided by the route from the feature's declared visibility, so one
     #: feature can be firm-wide and another self-only for the same person.
@@ -161,6 +168,15 @@ class Feature(ABC):
     #: called "can" containing action ids is this codebase leaking into
     #: somebody's board pack.
     private: ClassVar[frozenset[str]] = frozenset()
+
+    def step_label(self, step: str) -> str:
+        """What a stage on this feature's trail is called, in words.
+
+        Only a feature whose events carry a stage needs to answer. The
+        default tidies the key, so a workbook says "Payroll tax" rather
+        than `payroll_tax` even from a feature that never thought about it.
+        """
+        return step.replace("_", " ").capitalize()
 
     @abstractmethod
     def figures(self, scope: Scope) -> list[Figure]:

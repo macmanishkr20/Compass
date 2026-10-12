@@ -142,6 +142,27 @@
                 </select>
               </label>
             }
+            <!-- The window a consolidated report is cut on. Shown only when
+                 the screen declares one, and labelled with WHICH date it is
+                 about: "acknowledged on" and "requested on" include
+                 different orders at a month boundary, and a report whose
+                 selector did not say so is one nobody can check. -->
+            @if (v.date_range && !v.needs_scope?.length) {
+              <label class="bf-sel bf-win">
+                <span>{{ v.date_range }}</span>
+                <input type="date" [ngModel]="since()"
+                  [attr.aria-label]="'From, ' + v.date_range"
+                  (ngModelChange)="setWindow('since', $event)" />
+                <span class="bf-wto">to</span>
+                <input type="date" [ngModel]="until()"
+                  [attr.aria-label]="'To, ' + v.date_range"
+                  (ngModelChange)="setWindow('until', $event)" />
+                @if (since() || until()) {
+                  <button class="bf-wclear" type="button" title="Show everything"
+                    (click)="clearWindow()">Clear</button>
+                }
+              </label>
+            }
             @for (f of headerForms(); track f.id) {
               <button class="bf-declare" type="button" (click)="startForm(f)"
                 [class.on]="openForm()?.id === f.id">{{ f.label }}</button>
@@ -280,6 +301,19 @@
                                   [class.on]="formOn(row)?.id === f.id"
                                   (click)="startForm(f, row)">{{ f.label }}</button>
                               }
+                              <!-- This one order, with every step that was
+                                   taken on it. The screen has one line per
+                                   order; this has one line per step, which
+                                   is the half somebody asking about an order
+                                   actually wants. -->
+                              @if (v.date_range) {
+                                <button class="bf-btn" type="button"
+                                  [disabled]="exporting()"
+                                  title="This order and everything that happened to it, as a workbook"
+                                  (click)="download(rowId(row))">{{
+                                    exportingRow() === rowId(row)
+                                      ? 'Preparing…' : 'Order report' }}</button>
+                              }
                               @if (!actionsFor(row).length && !formsFor(row).length) {
                                 <span class="bf-none">Nothing to decide on this one.</span>
                               }
@@ -295,7 +329,7 @@
                               @if (isAsking(a, row)) {
                                 <div class="bf-why">
                                   <label>
-                                    <span>{{ a.note_label }}</span>
+                                    <span>{{ asks(a, row) }}</span>
                                     <textarea rows="2" [ngModel]="reason()"
                                       (ngModelChange)="reason.set($event)"></textarea>
                                   </label>

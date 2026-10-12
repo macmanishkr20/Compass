@@ -90,6 +90,14 @@ export class BusinessFunctions {
   readonly entity = signal('');
   readonly period = signal('');
 
+  // -- the date window, for a screen that declares one. Separate from the
+  //    scope selectors because it is a different kind of question: the
+  //    period says which year's limits apply, the window says which orders
+  //    to put in a report. A screen can have both and they are not the same
+  //    dates.
+  readonly since = signal('');
+  readonly until = signal('');
+
   readonly loading = signal(false);
   readonly error = signal('');
 
@@ -228,8 +236,26 @@ export class BusinessFunctions {
     else await this.openFunction(this.current()?.id ?? '');
   }
 
-  private scope(): { entity?: string; period?: string } {
-    return { entity: this.entity(), period: this.period() };
+  private scope(): {
+    entity?: string; period?: string; since?: string; until?: string;
+  } {
+    return {
+      entity: this.entity(), period: this.period(),
+      since: this.since(), until: this.until(),
+    };
+  }
+
+  /** Move one end of the window. Empty means open-ended at that end. */
+  async setWindow(which: 'since' | 'until', value: string): Promise<void> {
+    (which === 'since' ? this.since : this.until).set(value);
+    this.dropPlans('The window changed, so that plan no longer applies.');
+    await this.openFeature(this.featureId(), this.feature()?.tab ?? '');
+  }
+
+  async clearWindow(): Promise<void> {
+    this.since.set('');
+    this.until.set('');
+    await this.openFeature(this.featureId(), this.feature()?.tab ?? '');
   }
 
   // ── the table ───────────────────────────────────────────────────────────
@@ -272,6 +298,19 @@ export class BusinessFunctions {
     this.reason.set('');
   }
 
+  /** What to ask before this action on THIS row, or '' to just do it.
+   *
+   *  The action's own label is the fallback. A row may override it, because
+   *  on a screen with stages the question belongs to the stage and not to
+   *  the button: hung off the action alone, somebody confirming a hamper
+   *  had arrived was asked "What did you check?" and could not get past it.
+   */
+  asks(action: ActionSpec, row: Record<string, unknown>): string {
+    const per = row['ask'] as Record<string, string> | undefined;
+    if (per && action.id in per) return per[action.id];
+    return action.note_label ?? '';
+  }
+
   isAsking(action: ActionSpec, row: Record<string, unknown>): boolean {
     const open = this.asking();
     return !!open && open.action.id === action.id && open.row === this.rowId(row);
@@ -285,7 +324,7 @@ export class BusinessFunctions {
                note = ''): Promise<void> {
     const fn = this.current();
     if (!fn) return;
-    if (action.note_label && !note.trim()) {
+    if (this.asks(action, row) && !note.trim()) {
       this.askReason(action, row);
       return;
     }
@@ -418,13 +457,18 @@ export class BusinessFunctions {
    *  there is nothing to assemble here — which is the point: a spreadsheet
    *  put together in the browser could disagree with the screen it came
    *  from, and the spreadsheet is the thing that gets emailed on. */
-  async download(): Promise<void> {
+  /** Which single order is being downloaded, so one row's button can say so
+   *  without disabling the other rows'. */
+  readonly exportingRow = signal('');
+
+  async download(row = ''): Promise<void> {
     const fn = this.current();
     if (!fn || this.exporting()) return;
     this.exporting.set(true);
+    this.exportingRow.set(row);
     try {
       const { blob, filename } = await this.api.workbook(
-        fn.id, this.featureId(), this.scope(),
+        fn.id, this.featureId(), { ...this.scope(), row },
       );
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -439,6 +483,7 @@ export class BusinessFunctions {
       this.notice.error(`Could not export that: ${err}`);
     } finally {
       this.exporting.set(false);
+      this.exportingRow.set('');
     }
   }
 
@@ -835,6 +880,13 @@ export class BusinessFunctions {
   cell(row: Record<string, unknown>, key: string): string {
     const value = row[key];
     if (value === undefined || value === null || value === '') return '—';
+    // Every rule below is keyed on the column's NAME, which is only safe
+    // while a name means one thing everywhere. It stopped being: `budget`
+    // is a number of rupees on Finance's screen and a sentence — "₹74,000
+    // would be left of ₹80,000" — on the request chain, and every row of
+    // the chain showed ₹NaN. A string has already been formatted by the
+    // handler that wrote it, so there is nothing here left to do to it.
+    if (typeof value === 'string') return value;
     if (key === 'credit' || key === 'ledger' || key === 'difference') {
       return `₹${(Number(value) / 100000).toFixed(1)}L`;
     }
@@ -867,10 +919,15 @@ export class BusinessFunctions {
    *  frontend change. */
   details(row: Record<string, unknown>): { k: string; v: string }[] {
     const shown = new Set(this.columns().map((c) => c.key));
-    const skip = new Set([...shown, 'late', 'initials', 'role', 'id', 'days',
+    // What the handler says is for this screen's machinery rather than for
+    // reading, plus the identifiers every feature carries. The handler's
+    // list is the one the workbook obeys, so the two cannot disagree — kept
+    // by hand here, this list had already drifted and a reader was shown
+    // "stage: payroll_tax".
+    const skip = new Set([...shown, ...(this.feature()?.private ?? []),
+                      'late', 'initials', 'role', 'id', 'days',
                       'employee_id', 'over_limit', 'referred', 'exception',
-                      'disclosed', 'items', 'state', 'can', 'yours',
-                      'by_employee', 'blocked', 'warns']);
+                      'disclosed', 'items', 'state', 'can', 'yours']);
     return Object.entries(row)
       .filter(([k]) => !skip.has(k))
       .map(([k, v]) => ({ k: k.replace(/_/g, ' '), v: this.cell(row, k) }));

@@ -52,14 +52,16 @@ logger = logging.getLogger("compass.businessfunctions")
 router = APIRouter(prefix="/v1/business-functions", tags=["business-functions"])
 
 
-def _scope(user: str, entity: str, period: str, feature=None) -> Scope:
+def _scope(user: str, entity: str, period: str, feature=None, *,
+           since: str = "", until: str = "") -> Scope:
     """What the person has narrowed to, and what they are.
 
     `user` is never one of the inputs, and neither is anything resolved from
     it: the roles come from the directory and the breadth from the feature's
     own manifest. A client that could send either could send any.
     """
-    return people.scope_for(user, feature, entity=entity, period=period)
+    return people.scope_for(user, feature, entity=entity, period=period,
+                            since=since, until=until)
 
 
 def _resolve(function_id: str, feature_id: str):
@@ -205,6 +207,8 @@ async def get_feature(
     entity: str = Query(""),
     period: str = Query(""),
     tab: str = Query("", description="Which view; the first when not given"),
+    since: str = Query(""),
+    until: str = Query(""),
     user: str = Depends(require_user),
 ) -> dict:
     """The workbench: the figures, the tabs, the rows and the rules in force.
@@ -216,7 +220,7 @@ async def get_feature(
     """
     await _ready()
     fn, feature, handler = _resolve(function_id, feature_id)
-    scope = _scope(user, entity, period, feature)
+    scope = _scope(user, entity, period, feature, since=since, until=until)
 
     if missing := scope.missing(feature.scope):
         # Not an error. The person has not chosen an entity yet, and the UI
@@ -247,8 +251,20 @@ async def get_feature(
         # rest of the feature and then it says so.
         "row_key": next((t.key_field for t in tabs
                          if t.key == chosen and t.key_field), handler.row_key),
+        # The fields a row carries for the UI's own use — what may be done to
+        # it, whether it is blocked — rather than for somebody to read. The
+        # handler already names them, because the workbook must not contain
+        # them; the screen was keeping its own hand-written list of the same
+        # thing and had drifted, so a reader saw "stage: payroll_tax".
+        "private": sorted(handler.private),
         "tabs": [{"key": t.key, "label": t.label, "count": t.count} for t in tabs],
         "tab": chosen,
+        # Whether this screen has a date window, and which date it is about.
+        # The UI cannot invent either: "acknowledged on" rather than
+        # "requested on" decides which orders fall inside a month, and a
+        # selector that did not say so would be a report nobody could check.
+        "date_range": feature.date_range,
+        "window": {"since": scope.since, "until": scope.until},
         "rows": handler.rows(scope, chosen),
         "rules": [
             {"id": r.id, "headline": r.headline, "detail": r.detail, "tone": r.tone}
@@ -266,9 +282,12 @@ async def export_feature(
     feature_id: str,
     entity: str = Query(""),
     period: str = Query(""),
+    since: str = Query("", description="Window start, for a feature that has one"),
+    until: str = Query("", description="Window end"),
+    row: str = Query("", description="One row's id — the order report"),
     user: str = Depends(require_user),
 ) -> Response:
-    """This screen, as a workbook.
+    """This screen, as a workbook — or one row of it, with its whole trail.
 
     Deliberately the same resolution, the same scope and the same handler
     the screen uses, so there is no second path to the data: a feature that
@@ -281,15 +300,24 @@ async def export_feature(
     """
     await _ready()
     fn, feature, handler = _resolve(function_id, feature_id)
-    scope = _scope(user, entity, period, feature)
+    scope = _scope(user, entity, period, feature, since=since, until=until)
     if missing := scope.missing(feature.scope):
         # The screen would be asking for a selector; a spreadsheet of
         # nothing-in-particular is worse than being told to choose.
         raise HTTPException(
             422, f"Choose {' and '.join(missing)} before exporting {feature.name}.")
     try:
-        data = await asyncio.to_thread(
-            export.to_excel, fn, feature, handler, scope, asked_by=user)
+        if row:
+            data = await asyncio.to_thread(
+                export.one_row, fn, feature, handler, scope, row,
+                asked_by=user)
+        else:
+            data = await asyncio.to_thread(
+                export.to_excel, fn, feature, handler, scope, asked_by=user)
+    except KeyError:
+        # Not found rather than refused: the row may exist and simply not be
+        # theirs to see, and saying which would answer the question.
+        raise HTTPException(404, "No such row on this screen.") from None
     except ImportError as exc:  # openpyxl absent — say so, do not 500
         raise HTTPException(
             status_code=501,
@@ -301,7 +329,8 @@ async def export_feature(
         media_type="application/vnd.openxmlformats-officedocument."
                    "spreadsheetml.sheet",
         headers={"Content-Disposition":
-                 f'attachment; filename="{export.filename(fn, feature, scope)}"'},
+                 f'attachment; filename='
+                 f'"{export.filename(fn, feature, scope, row)}"'},
     )
 
 

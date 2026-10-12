@@ -42,7 +42,7 @@ features:
     # individual's own record can answer. Everybody else is told why rather
     # than shown an empty screen.
     visibility:
-      firm: [compliance, finance, audit, leadership]
+      firm: [compliance, finance, payroll, leadership]
 
     # No actions, deliberately. This screen reports; the decisions belong
     # to the people whose names go against them, on RewardLens. A feature
@@ -109,14 +109,16 @@ features:
     # to be over-granted by somebody being helpful.
 
     visibility:
-      firm: [audit, compliance, finance, leadership]
+      firm: [compliance, finance, payroll, leadership]
 
     rules:
       - id: audit_is_a_role
-        headline: This one is for Audit.
+        headline: This one is for Leadership and Compliance.
         detail: >-
           It shows every decision anybody has taken about anybody's gifts,
-          which is more than most people have any reason to read.
+          which is more than most people have any reason to read. Audit is
+          not a separate login here — auditing the chain is part of what
+          Leadership and Compliance do with it.
         tone: limit
       - id: nothing_has_happened
         headline: Nothing has been recorded yet.
@@ -150,7 +152,7 @@ features:
       question has an answer.
 
     visibility:
-      firm: [finance, compliance, audit, leadership]
+      firm: [finance, payroll, compliance, leadership]
 
     actions:
       - id: record_tax
@@ -200,12 +202,13 @@ features:
 
   - id: requests
     name: Gift requests
-    short: Ask · check · approve
+    short: Ask · check · sign off · give
     blurb: >-
-      Asking before giving, with the three answers in front of whoever
-      approves: whether it is permitted, what it does to the recipient's
-      year, and whether the team has the money. Nothing reaches the
-      register until it is actually handed over.
+      The chain, from asking to closing. A request sits with exactly one
+      team at a time — Service Line, Finance, Payroll, Procurement,
+      Accounts Payable, then back to the requester to distribute and to the
+      recipient to confirm. Each sees only what is waiting on them, and
+      signing off is what moves it along.
     handler: gift_requests
     scope: [period]
     choices:
@@ -214,53 +217,47 @@ features:
       A limit is annual and so is a budget. The year is what makes "can we
       afford this" and "does this take them over" answerable.
 
-    # Everybody can ask, and sees what they asked for or what is for them.
-    # A lead sees their team's. Procurement, Compliance, Finance, Audit and
-    # Leadership see the firm, because a request nobody can see is the
-    # problem this exists to end.
+    # Cut on the day the recipient confirmed receiving it — not when it was
+    # asked for, approved or bought, which can be months earlier.
+    date_range: acknowledged on
+
+    # Everybody can raise one and sees what they raised or what is for them.
+    # A service line lead sees their team's. The teams in the chain see the
+    # firm, because a request nobody can find is the problem this ends.
     visibility:
-      firm: [procurement, compliance, finance, audit, leadership]
-      team: [manager]
+      firm: [requester, service_line, finance, payroll, procurement,
+             accounts_payable, compliance, leadership]
+      team: [service_line]
       self: [employee]
 
     actions:
-      - id: approve
-        label: Approve
-        roles: [manager, compliance]
+      - id: sign_off
+        label: Sign off
+        roles: [service_line, finance, payroll, procurement,
+                accounts_payable, requester, employee]
+        note_label: What did you check?
         confirm: >-
-          Lets Procurement buy it and commits the budget. If it takes the
-          recipient past the annual limit you will have been told so, and
-          the approval records that you knew.
+          Signs off this stage with your name against it and moves the
+          request to the next team. Finance and Payroll must say what they
+          checked; at distribution this is what puts it on the register,
+          and at acknowledgement it is the recipient confirming receipt.
         reversible: false
       - id: decline
-        label: Decline
-        roles: [manager, compliance]
+        label: Send it back
+        roles: [service_line, finance, payroll, procurement,
+                accounts_payable, requester]
         note_label: Why are you declining it?
         confirm: >-
-          Refuses it, with your reason on the record. Nothing is bought and
-          nothing reaches anybody's total.
+          Stops it here, with your reason on the record. Nothing is bought
+          and nothing reaches anybody's total.
         reversible: false
       - id: cancel_request
         label: Withdraw it
         roles: [employee]
-        confirm: Withdraws your own request. Nothing was bought.
-        reversible: false
-      - id: mark_purchased
-        label: Bought
-        roles: [procurement]
         confirm: >-
-          Records that this has been purchased. It still does not count
-          towards anybody's limit — that happens when it is handed over.
+          Withdraws your own request, while it is still being checked.
+          Nothing was bought.
         reversible: false
-      - id: mark_given
-        label: Handed over
-        roles: [procurement]
-        confirm: >-
-          Puts it on the register against the recipient, from today, and
-          asks them to acknowledge it. This is the moment it starts
-          counting towards their annual limit.
-        reversible: false
-        outward: true
 
     forms:
       - id: request_gift
@@ -272,9 +269,10 @@ features:
           their year, and whether your team has the money — which is
           cheaper to find out now than after it is bought.
         confirm: >-
-          Goes to a manager or compliance to approve, with your name on it.
-          Nothing is bought and nothing counts towards anybody's limit
-          until somebody approves it and it is handed over.
+          Starts the chain with your name on it. It goes to the Service
+          Line Approver first, then Finance, Payroll, Procurement and
+          Accounts Payable. Nothing counts towards anybody's limit until
+          it is actually handed over.
         fields:
           - id: recipient
             label: Who it is for
@@ -310,15 +308,21 @@ features:
             help: The budget it comes out of.
 
     rules:
+      - id: waiting_on_you
+        headline: Something is waiting on you.
+        detail: >-
+          These are at a stage your team owns. Nobody else can move them
+          along, and nothing behind them moves until they do.
+        tone: limit
       - id: would_cross_the_limit
         headline: Something here takes somebody past the limit.
         detail: >-
-          It can still be approved — this is a decision, not a block. What
-          has changed is that whoever approves it knows before they do,
+          It can still be signed off — this is a decision, not a block.
+          What has changed is that whoever signs it knows before they do,
           rather than Finance finding out at the year end.
         tone: limit
       - id: against_policy
-        headline: Something here cannot be approved as asked.
+        headline: Something here cannot proceed as asked.
         detail: >-
           Policy or budget says no. The request stays on the record with
           its reason; changing what is asked for means a new request.
@@ -326,7 +330,7 @@ features:
       - id: nothing_requested
         headline: Nothing has been asked for yet.
         detail: >-
-          Requests raised here are checked before approval and reach
+          Requests raised here are checked by each team in turn and reach
           RewardLens only when they are handed over.
         tone: notice
       - id: not_yours_to_see
@@ -341,8 +345,9 @@ features:
         tone: limit
 
     starters:
-      - What is waiting for approval?
+      - What is waiting on me?
       - What would take somebody over the limit?
+      - Where has something been stuck longest?
 
     tools:
       - read_rows
@@ -369,8 +374,8 @@ features:
     # Leadership see the firm, because answering "who received what" across
     # it is the problem this exists to solve.
     visibility:
-      firm: [compliance, finance, audit, leadership]
-      team: [manager]
+      firm: [compliance, finance, payroll, leadership]
+      team: [service_line]
       self: [employee]
 
     # Financial years, not quarters: the limit this screen exists to watch is

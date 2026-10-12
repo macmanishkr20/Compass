@@ -83,21 +83,6 @@ BUDGETS = {
 #: different question from an accumulation of small ones.
 BIG = 10_000
 
-#: Where a request can be in its life. `given` is the only one that puts
-#: anything on the register.
-STATES = ("requested", "approved", "declined", "purchased", "given",
-          "cancelled")
-
-_WORDS = {
-    "requested": "waiting for approval",
-    "approved": "approved, not yet bought",
-    "declined": "declined",
-    "purchased": "bought, not yet given",
-    "given": "given",
-    "cancelled": "cancelled",
-}
-
-
 #: Two requests waiting on a fresh deployment, written only into an empty
 #: queue. The second is the whole argument of the requirement in one row: a
 #: perfectly ordinary ₹6,000 watch for John, which nobody would question on
@@ -115,17 +100,169 @@ SEED: list[dict[str, Any]] = [
 ]
 
 
+#: THE CHAIN. One stage, one persona, one sign-off — and a request is at
+#: exactly one of them at a time.
+#:
+#: This is what makes the hand-off real rather than implied. Before it, a
+#: request had a state and every action was gated on a role, which produced
+#: a sequence by accident: anybody holding compliance could approve
+#: something that had never been near Finance or Payroll. A stage says who
+#: it is WITH right now, so signing off is not "I am allowed to do this" but
+#: "it is mine, and when I am done it becomes theirs".
+#:
+#: `owner` is the persona whose queue it sits in. `verb` is what signing off
+#: is called on their screen. `next` is where it goes.
+#:
+#: `ask` is what that desk is asked to write down, and empty where there is
+#: nothing to write: the question belongs to the STAGE, not to the action.
+#: Hung off the action, the recipient confirming a hamper arrived was asked
+#: "What did you check?" and could not proceed without answering it.
+#:
+#: `label` is a COLUMN HEADING — "With Finance" — and `step` and `holder` are
+#: the same stage in a SENTENCE. Reusing the heading as prose produced
+#: "Signed off at with finance", which is the kind of sentence that tells
+#: somebody reading it that nobody read it.
+STAGES: dict[str, dict[str, Any]] = {
+    "service_line": {
+        "ask": "",
+        "step": "the business need",
+        "holder": "the Service Line Approver",
+        "owner": "service_line",
+        "label": "With the Service Line Approver",
+        "verb": "Approve the business need",
+        "asks": "business need, appropriateness, budget and the recipient list",
+        "next": "finance_policy",
+    },
+    "finance_policy": {
+        "ask": "What did you check — thresholds, rules, any exception?",
+        "step": "policy",
+        "holder": "Finance",
+        "owner": "finance",
+        "label": "With Finance",
+        "verb": "Confirm it meets policy",
+        "asks": "policy thresholds, compliance rules and any exception",
+        "next": "payroll_tax",
+    },
+    "payroll_tax": {
+        "ask": "What did you check — the tax logic and the taxable value?",
+        "step": "the tax treatment",
+        "holder": "Payroll",
+        "owner": "payroll",
+        "label": "With Payroll",
+        "verb": "Confirm the tax treatment",
+        "asks": "the tax logic and the employee-level taxable value",
+        "next": "procurement",
+    },
+    "procurement": {
+        "ask": "",
+        "step": "the purchase",
+        "holder": "Procurement",
+        "owner": "procurement",
+        "label": "With Procurement",
+        "verb": "Mark it bought",
+        "asks": "purchase through an approved channel",
+        "next": "accounts_payable",
+    },
+    "accounts_payable": {
+        "ask": "",
+        "step": "payment",
+        "holder": "Accounts Payable",
+        "owner": "accounts_payable",
+        "label": "With Accounts Payable",
+        "verb": "Mark it paid",
+        "asks": "financial processing against the approved purchase",
+        "next": "distribution",
+    },
+    "distribution": {
+        # The business requester records what was ACTUALLY given, because
+        # they are the ones who handed it over and the only ones who can say
+        # it differed from what was asked for. This is the moment it reaches
+        # the register and starts counting.
+        "ask": "What was actually given, and anything different from what "
+               "was asked for?",
+        "step": "what was actually given",
+        "holder": "the requester, to hand it over",
+        "owner": "requester",
+        "label": "With the requester to distribute",
+        "verb": "Record what was given",
+        "asks": "the actual distribution, and any deviation from the request",
+        "next": "acknowledgement",
+    },
+    "acknowledgement": {
+        "ask": "",
+        "step": "receipt",
+        "holder": "the recipient",
+        "owner": "employee",
+        "label": "With the recipient",
+        "verb": "Confirm receipt",
+        "asks": "the recipient's confirmation that they received it",
+        "next": "closed",
+    },
+    "closed": {
+        "ask": "",
+        "step": "",
+        "holder": "",
+        "owner": "",
+        "label": "Closed",
+        "verb": "",
+        "asks": "",
+        "next": "",
+    },
+}
+
+#: Where one starts, and the two ways it can end early.
+FIRST_STAGE = "service_line"
+ENDED = ("declined", "cancelled", "closed")
+
+#: What a sign-off is recorded as on the trail. ONE event kind, carrying the
+#: stage it happened at, rather than eight kinds — so an auditor reads
+#: "signed off · with Payroll" and a fold over the trail still has a closed
+#: set of events it understands.
+SIGN_OFF = "signed_off"
+
+
+def stage_of(request: dict[str, Any]) -> str:
+    """Which stage this request is at, folded from what happened to it.
+
+    Not stored: the trail says who signed what off and when, and the stage
+    is where that leaves it. A stored stage could disagree with the events
+    that moved it, which for a compliance workflow is the one thing worth
+    being strict about.
+    """
+    if ledger.happened(request["id"], "cancelled"):
+        return "cancelled"
+    if ledger.happened(request["id"], "declined"):
+        return "declined"
+    done = {e.get("stage") for e in ledger.events(request["id"])
+            if e["kind"] == SIGN_OFF}
+    stage = FIRST_STAGE
+    while stage != "closed" and stage in done:
+        stage = STAGES[stage]["next"]
+    return stage
+
+
+def stage_label(stage: str) -> str:
+    """The column heading: where it is."""
+    if stage == "declined":
+        return "Declined"
+    if stage == "cancelled":
+        return "Withdrawn"
+    return STAGES[stage]["label"]
+
+
+def step_name(stage: str) -> str:
+    """The same stage in a sentence: what was being decided."""
+    return STAGES.get(stage, {}).get("step", "") or "this step"
+
+
 def _state(request: dict[str, Any]) -> str:
-    """Where this request has got to, folded from what happened to it."""
-    for kind in ("cancelled", "given", "purchased", "declined", "approved"):
-        if ledger.happened(request["id"], kind):
-            return kind
-    return "requested"
+    """The stage, under the name the rest of this module already used."""
+    return stage_of(request)
 
 
 def committed(source: str) -> int:
-    """What this team has committed. Public, so a budget screen reads the
-    same figure the approval check uses rather than summing requests again."""
+    """What this team has committed. Public, so the budget screen reads the
+    same figure the sign-off check uses rather than summing requests again."""
     return _spent(source)
 
 
@@ -140,7 +277,11 @@ def _spent(source: str) -> int:
     for request in ledger.requests():
         if request["source"] != source:
             continue
-        if _state(request) in ("approved", "purchased", "given"):
+        stage = stage_of(request)
+        # Committed from the first sign-off: a team that has approved its
+        # way past the line should find out at the next request, not at
+        # distribution.
+        if stage not in ("service_line", "declined", "cancelled"):
             total += request["value"]
     return total
 
@@ -209,11 +350,12 @@ def _budget_check(request: dict[str, Any]) -> dict[str, Any]:
     budget = BUDGETS.get(request["source"])
     if budget is None:
         return {"ok": True, "said": "no budget recorded for this team"}
-    committed = _spent(request["source"])
-    if _state(request) in ("approved", "purchased", "given"):
-        # Already counted in `committed`; do not charge it twice when the
-        # row is redrawn after approval.
-        committed -= request["value"]
+    spent = _spent(request["source"])
+    if stage_of(request) not in ("service_line", "declined", "cancelled"):
+        # Already counted in `spent`; do not charge it twice when the row is
+        # redrawn after the first sign-off.
+        spent -= request["value"]
+    committed = spent
     left = budget - committed
     if request["value"] > left:
         return {"ok": False,
@@ -255,10 +397,15 @@ def _name_of(employee_id: str) -> str:
 def _rows(scope: Scope) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for request in ledger.requests():
-        state = _state(request)
+        stage = stage_of(request)
         verdict = checks(scope, request)
-        decided = (ledger.latest(request["id"], "approved")
-                   or ledger.latest(request["id"], "declined"))
+        trail = ledger.events(request["id"])
+        signed = [e for e in trail if e["kind"] == SIGN_OFF]
+        last = signed[-1] if signed else None
+        ended = next((e for e in trail
+                      if e["kind"] in ("declined", "cancelled")), None)
+        ack = next((e for e in trail if e["kind"] == SIGN_OFF
+                    and e.get("stage") == "acknowledgement"), None)
         out.append({
             "id": request["id"],
             "employee_id": request["for"],
@@ -270,55 +417,146 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
             "occasion": request["occasion"],
             "source": request["source"],
             "requested_by": request["by"],
-            "state": state,
-            "status": _WORDS[state],
+            "stage": stage,
+            "status": stage_label(stage),
+            # Who it is WITH — the question everybody asks of a workflow,
+            # and the one a status alone never answers.
+            "with": people.LABELS.get(STAGES.get(stage, {}).get("owner", ""),
+                                      "—"),
             "policy": verdict["policy"]["said"],
             "tax": verdict["tax"]["said"],
             "budget": verdict["budget"]["said"],
             "blocked": verdict["blocked"],
             "warns": verdict["warns"],
-            "decided_by": decided["by"] if decided else "",
-            "why": (decided.get("note", "") if decided else "") or "—",
-            "can": _allowed(scope, request, state, verdict),
+            "steps_done": len(signed),
+            "last_signed_by": last["by"] if last else "",
+            "last_signed_at": _day(last["at"]) if last else "—",
+            "why": ((ended.get("note") if ended else None)
+                    or (last.get("note") if last else None) or "—"),
+            "acknowledged_on": _day(ack["at"]) if ack else "—",
+            # What to ask this desk before it signs off, per action. The
+            # screen asks it; the server requires an answer to the same
+            # question, so the two cannot disagree about what is needed.
+            "ask": {"sign_off": STAGES.get(stage, {}).get("ask", "")},
+            "can": _allowed(scope, request, stage, verdict),
         })
-    order = {"requested": 0, "approved": 1, "purchased": 2}
-    out.sort(key=lambda r: (order.get(r["state"], 3), -r["value"]))
+    # Whatever is with somebody comes before whatever is finished, and the
+    # oldest first inside that — a queue, not a list.
+    out.sort(key=lambda r: (r["stage"] in ENDED, r["steps_done"], -r["value"]))
     return scope.narrow(out, person_key=("employee_id", "by_employee"))
 
 
-def _allowed(scope: Scope, request: dict[str, Any], state: str,
+def _closed(scope: Scope, rows: list[dict[str, Any]]
+            ) -> list[dict[str, Any]]:
+    """The closed orders a report would contain: ended, and in the window.
+
+    One function, so the tab's count, the figure and the rows it leads to
+    cannot disagree. They did: the tab said "Closed 1" above "Nothing in
+    this view", which teaches somebody that the counts are decorative.
+    """
+    return _in_range(scope, [r for r in rows if r["stage"] == "closed"])
+
+
+def _in_range(scope: Scope, rows: list[dict[str, Any]]
+              ) -> list[dict[str, Any]]:
+    """The closed orders inside the chosen window, by ACKNOWLEDGEMENT date.
+
+    The date a consolidated report should be cut on is the day the person
+    confirmed receiving it — not when it was asked for, approved or bought.
+    Those can be months apart, and a report cut on the wrong one omits
+    exactly the orders that crossed the boundary.
+    """
+    if not scope.since and not scope.until:
+        return rows
+    out = []
+    for row in rows:
+        when = row["acknowledged_on"]
+        if when == "—":
+            continue
+        if scope.since and when < scope.since:
+            continue
+        if scope.until and when > scope.until:
+            continue
+        out.append(row)
+    return out
+
+
+def _day(when: float) -> str:
+    return (dt.datetime.fromtimestamp(when).strftime("%Y-%m-%d")
+            if when else "—")
+
+
+def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
+    """Whether this request is sitting in THIS person's queue.
+
+    The stage has to be owned by a persona they hold — that is the routing,
+    and it is the whole of it for the six stages that are a CONTROL.
+
+    Two stages are not controls, and they invert the rule rather than
+    bending it:
+
+      * ACKNOWLEDGEMENT is only ever about yourself. Confirming you
+        received something is not deciding your own case.
+      * DISTRIBUTION is only ever the person who raised it. They handed it
+        over, so they are the only one who can say what was actually given
+        and where it differed. Held to the not-your-own rule, this stage
+        was unreachable: the requester was excluded from the one step the
+        persona sheet gives them.
+
+    For the rest: not a request they raised, and not a gift to them.
+    """
+    owner = STAGES.get(stage, {}).get("owner")
+    if not owner or owner not in scope.roles:
+        return False
+    if stage == "acknowledgement":
+        return scope.mine(request["for"])
+    if stage == "distribution":
+        return request["by"] == scope.user
+    if request["by"] == scope.user:
+        return False
+    return not scope.mine(request["for"])
+
+
+def _allowed(scope: Scope, request: dict[str, Any], stage: str,
              verdict: dict[str, Any]) -> list[str]:
-    """What this person may do to this request, right now."""
+    """What this person may do to this request, right now.
+
+    Derived from the STAGE rather than from a list of role checks, so
+    adding a step to the chain adds it to everybody's queue without
+    touching this function.
+    """
     if scope.period in rewardlens.closed_periods():
         return []
-
-    mine_to_approve = ("compliance" in scope.roles or "manager" in scope.roles)
-    i_asked = request["by"] == scope.user
-    for_me = scope.mine(request["for"])
+    if stage in ENDED:
+        return []
 
     can: list[str] = []
-    if state == "requested":
-        # Neither your own request nor a gift to you. Both are the same
-        # rule wearing different clothes: nobody signs off their own.
-        if mine_to_approve and not i_asked and not for_me:
-            # Policy and budget block; a tax consequence does not — it is
-            # shown, and somebody decides with it in front of them.
-            if not verdict["blocked"]:
-                can.append("approve")
+    if mine_to_sign(scope, request, stage):
+        # Policy and budget stop it at the gate; a tax consequence does not
+        # — it is shown, and whoever signs off does so knowing.
+        if not verdict["blocked"]:
+            can.append("sign_off")
+        # Anybody it is with can send it back, except the recipient: an
+        # employee declining their own gift is not a control, it is a way
+        # to make a record disappear.
+        if stage != "acknowledgement":
             can.append("decline")
-        if i_asked:
-            can.append("cancel_request")
-    if state == "approved" and "procurement" in scope.roles:
-        can.append("mark_purchased")
-    if state == "purchased" and "procurement" in scope.roles:
-        can.append("mark_given")
+    # The person who raised it can withdraw it until it has been bought.
+    if request["by"] == scope.user and stage in (
+            "service_line", "finance_policy", "payroll_tax"):
+        can.append("cancel_request")
     return can
 
 
 class GiftRequests(Feature):
     key = "gift_requests"
     row_key = "id"
-    private = frozenset({"by_employee", "state", "blocked", "warns", "can"})
+    private = frozenset({"by_employee", "stage", "blocked", "warns", "can",
+                         "steps_done", "ask"})
+
+    def step_label(self, step: str) -> str:
+        """A stage on the trail, in the words the screen uses for it."""
+        return stage_label(step) if step in STAGES else super().step_label(step)
 
     REQUEST_FORM = "request_gift"
     FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",
@@ -326,47 +564,53 @@ class GiftRequests(Feature):
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope)
-        waiting = [r for r in rows if r["state"] == "requested"]
-        blocked = [r for r in waiting if r["blocked"]]
-        crossing = [r for r in waiting if r["warns"]]
-        to_hand_over = [r for r in rows
-                        if r["state"] in ("approved", "purchased")]
+        mine = [r for r in rows if r["can"]]
+        moving = [r for r in rows if r["stage"] not in ENDED]
+        blocked = [r for r in moving if r["blocked"]]
+        crossing = [r for r in moving if r["warns"]]
         return [
-            Figure("waiting", str(len(waiting)),
-                   "waiting for approval" if waiting else "nothing waiting",
-                   "warn" if waiting else "good"),
+            # First, because it is the only figure that is about the reader.
+            Figure("mine", str(len(mine)),
+                   "waiting on you" if mine else "nothing waiting on you",
+                   "warn" if mine else "good"),
+            Figure("moving", str(len(moving)),
+                   "in flight" if moving else "nothing in flight"),
             Figure("blocked", str(len(blocked)),
-                   "cannot be approved as asked" if blocked
-                   else "none blocked", "bad" if blocked else "good"),
-            # The figure the requirement is really about: how much is about
-            # to push somebody past the limit, caught before it is bought.
+                   "cannot proceed as asked" if blocked else "none blocked",
+                   "bad" if blocked else "good"),
             Figure("crossing", str(len(crossing)),
                    "would take somebody over the limit" if crossing
                    else "none would cross the limit",
                    "bad" if crossing else "good"),
-            Figure("to_hand_over", str(len(to_hand_over)),
-                   "approved and not yet given" if to_hand_over
-                   else "nothing outstanding",
-                   "warn" if to_hand_over else "good"),
+            # Inside the chosen window, because that is what "reportable"
+            # means on a screen with one: a count of every order ever
+            # closed, sitting above a table showing the three in March, is
+            # a figure somebody will quote.
+            Figure("closed", str(len(_closed(scope, rows))),
+                   "closed and reportable"
+                   + (" in this window" if scope.since or scope.until else "")),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
         rows = _rows(scope)
-        counts = {state: len([r for r in rows if r["state"] == state])
-                  for state in STATES}
         return [
-            Tab("waiting", "Waiting for approval", counts["requested"]),
-            Tab("moving", "Approved and on the way",
-                counts["approved"] + counts["purchased"]),
+            # A queue, not a filter: these are the ones this persona has to
+            # do something about, which is the whole point of routing.
+            Tab("mine", "Waiting on you", len([r for r in rows if r["can"]])),
+            Tab("moving", "In flight",
+                len([r for r in rows if r["stage"] not in ENDED])),
+            Tab("closed", "Closed", len(_closed(scope, rows))),
             Tab("all", "Everything", len(rows)),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         rows = _rows(scope)
-        if tab == "waiting":
-            return [r for r in rows if r["state"] == "requested"]
+        if tab == "mine":
+            return [r for r in rows if r["can"]]
         if tab == "moving":
-            return [r for r in rows if r["state"] in ("approved", "purchased")]
+            return [r for r in rows if r["stage"] not in ENDED]
+        if tab == "closed":
+            return _closed(scope, rows)
         return rows
 
     def rules(self, scope: Scope) -> list[str]:
@@ -375,10 +619,16 @@ class GiftRequests(Feature):
         if scope.period in rewardlens.closed_periods():
             return ["period_closed"]
         rows = _rows(scope)
+        moving = [r for r in rows if r["stage"] not in ENDED]
         said: list[str] = []
-        if any(r["warns"] and r["state"] == "requested" for r in rows):
+        # The reader's own queue first: a screen that leads with the firm's
+        # problems when three things are waiting on you has its priorities
+        # the wrong way round.
+        if any(r["can"] for r in rows):
+            said.append("waiting_on_you")
+        if any(r["warns"] for r in moving):
             said.append("would_cross_the_limit")
-        if any(r["blocked"] and r["state"] == "requested" for r in rows):
+        if any(r["blocked"] for r in moving):
             said.append("against_policy")
         if not rows:
             said.append("nothing_requested")
@@ -400,56 +650,56 @@ class GiftRequests(Feature):
         row = chosen[0]
 
         if action not in row["can"]:
+            # Say whose it is, not just that it is not theirs — "with
+            # Payroll" tells somebody where to chase; "you cannot do that"
+            # tells them nothing.
             return Outcome(
                 ok=False,
-                said=f"{row['what']} is {row['status']} — that is not "
-                     f"something you can do to it now.",
+                said=f"{row['what']} is {row['status'].lower()} — that is "
+                     f"not something you can do to it now.",
             )
 
         request = next(r for r in ledger.requests() if r["id"] == row["id"])
-
-        if action == "decline" and not note.strip():
-            return Outcome(ok=False, said="Say why. A request declined with "
-                                          "no reason is one nobody can learn "
-                                          "from.")
-
-        if action == "approve":
-            ledger.add_event(subject=row["id"], kind="approved", by=scope.user,
-                             note=note.strip(), value=row["value"],
-                             tax=row["tax"])
-            crossing = (" It takes them over the annual limit, which you have "
-                        "approved knowingly." if row["warns"] else "")
-            return Outcome(
-                ok=True,
-                said=f"Approved: {row['what']} for {row['recipient']}, "
-                     f"{rewardlens.rupees(row['value'])}.{crossing} "
-                     f"Procurement can buy it.",
-                touched=[row["id"]],
-            )
-
-        if action == "decline":
-            ledger.add_event(subject=row["id"], kind="declined", by=scope.user,
-                             note=note.strip())
-            return Outcome(ok=True, said=f"Declined, with your reason on the "
-                                         f"record. Nothing was bought.",
-                           touched=[row["id"]])
+        stage = row["stage"]
 
         if action == "cancel_request":
             ledger.add_event(subject=row["id"], kind="cancelled",
-                             by=scope.user, note=note.strip())
+                             by=scope.user, note=note.strip(), stage=stage)
             return Outcome(ok=True, said="Withdrawn. Nothing was bought.",
                            touched=[row["id"]])
 
-        if action == "mark_purchased":
-            ledger.add_event(subject=row["id"], kind="purchased", by=scope.user)
-            return Outcome(ok=True, said=f"{row['what']} marked as bought. It "
-                                         f"reaches the register when it is "
-                                         f"handed over.",
-                           touched=[row["id"]])
+        if action == "decline":
+            if not note.strip():
+                return Outcome(ok=False, said="Say why. A request declined "
+                                              "with no reason is one nobody "
+                                              "can learn from.")
+            ledger.add_event(subject=row["id"], kind="declined", by=scope.user,
+                             note=note.strip(), stage=stage)
+            return Outcome(
+                ok=True,
+                said=f"Sent back at {step_name(stage)}, with your reason on "
+                     f"the record. Nothing was bought and nothing reaches "
+                     f"anybody's total.",
+                touched=[row["id"]])
 
-        if action == "mark_given":
-            # THE moment: a proposal becomes a record. Nothing before this
-            # is on anybody's total, and nothing after it can be taken off.
+        if action != "sign_off":
+            return Outcome(ok=False, said=f"No action called {action!r}.")
+
+        # ── signing off: the hand-off ────────────────────────────────────
+        if STAGES[stage]["ask"] and not note.strip():
+            # The stages whose whole job is a judgement or a record of what
+            # happened. One of those signed off with nothing written against
+            # it is a name on a form.
+            return Outcome(
+                ok=False,
+                said=f"{STAGES[stage]['ask']} {STAGES[stage]['label']} is "
+                     f"about {STAGES[stage]['asks']}, and a sign-off with "
+                     f"no record of it is one nobody can audit.")
+
+        said_extra = ""
+        if stage == "distribution":
+            # Where a proposal becomes a record. Nothing before this is on
+            # anybody's total, and nothing after it can be taken off.
             item = {
                 "id": f"G-{uuid.uuid4().hex[:6].upper()}",
                 "employee_id": request["for"],
@@ -460,27 +710,48 @@ class GiftRequests(Feature):
                 "given": dt.date.today().isoformat(),
                 "source": request["source"],
                 "channel": "procured",
-                # Not acknowledged: the recipient says so, and until they do
-                # the register says somebody was given something they have
-                # not confirmed.
                 "acknowledged": False,
                 "from_request": row["id"],
             }
             ledger.add_item(item)
-            ledger.add_event(subject=row["id"], kind="given", by=scope.user,
-                             item=item["id"])
             after = next((r["total"] for r in rewardlens.totals(
                 Scope(user=scope.user, period=scope.period, sees="firm"))
                 if r["employee_id"] == request["for"]), request["value"])
+            said_extra = (f" It is on the register against "
+                          f"{row['recipient']}, whose year is now "
+                          f"{rewardlens.rupees(after)}.")
+
+        if stage == "acknowledgement":
+            for item in rewardlens.items(scope):
+                if item.get("from_request") == row["id"]:
+                    item["acknowledged"] = True
+                    ledger.touch_item(item["id"])
+                    ledger.add_event(subject=item["id"], kind="acknowledged",
+                                     by=scope.user)
+            said_extra = (" The record now says you confirmed receiving it, "
+                          "rather than the firm saying you did.")
+
+        ledger.add_event(subject=row["id"], kind=SIGN_OFF, by=scope.user,
+                         stage=stage, note=note.strip(), value=row["value"])
+
+        nxt = STAGES[stage]["next"]
+        if nxt == "closed":
+            ledger.add_event(subject=row["id"], kind="closed", by=scope.user,
+                             stage=stage)
             return Outcome(
                 ok=True,
-                said=f"Given to {row['recipient']} and on the register. Their "
-                     f"year is now {rewardlens.rupees(after)}, and they have "
-                     f"it to acknowledge.",
-                touched=[row["id"], item["id"]],
-            )
+                said=f"{row['what']} is closed \u2014 the last step in the "
+                     f"chain.{said_extra} The order report, with every step "
+                     f"and who took it, is on the row.",
+                touched=[row["id"]])
 
-        return Outcome(ok=False, said=f"No action called {action!r}.")
+        crossing = (" It takes them over the annual limit, which you have "
+                    "signed off knowing." if row["warns"] else "")
+        return Outcome(
+            ok=True,
+            said=f"Signed off: {step_name(stage)}.{crossing}{said_extra} "
+                 f"It is now with {STAGES[nxt]['holder']}.",
+            touched=[row["id"]])
 
     # ── asking ──────────────────────────────────────────────────────────
 

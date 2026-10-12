@@ -103,6 +103,101 @@ def _cell_value(key: str, value: Any) -> Any:
     return value
 
 
+def one_row(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
+            scope: Scope, row_id: str, *, asked_by: str) -> bytes:
+    """One record, with everything that happened to it. The order report.
+
+    A screen-wide export answers "what is the position"; this answers "show
+    me this one", which is what somebody asks for at the end of an order and
+    what they attach to a query about it. Same provenance header, because a
+    single-order report leaves the building exactly as readily.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    from compass.businessfunctions import ledger
+
+    row = None
+    for tab in handler.tabs(scope):
+        row = next((r for r in handler.rows(scope, tab.key)
+                    if str(r.get(handler.row_key, "")) == row_id), None)
+        if row is not None:
+            break
+    if row is None:
+        raise KeyError(row_id)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Order"
+    ws["A1"] = f"{fn.name} · {feature.name}"
+    ws["A1"].font = Font(color="8A6A00", bold=True, size=13)
+    ws["A2"] = f"Order {row_id}"
+
+    taken_at = dt.datetime.now().astimezone()
+    r = 4
+    for label, value in (("Generated", taken_at.strftime("%Y-%m-%d %H:%M %Z").strip()),
+                         ("Generated for", asked_by),
+                         ("Period", scope.period or "not scoped")):
+        ws.cell(row=r, column=1, value=label).font = Font(bold=True)
+        ws.cell(row=r, column=2, value=value)
+        r += 1
+
+    r += 1
+    ws.cell(row=r, column=1, value="The order").font = Font(bold=True)
+    r += 1
+    for key, value in row.items():
+        if key in handler.private:
+            continue
+        ws.cell(row=r, column=1, value=_heading(key))
+        cell = ws.cell(row=r, column=2, value=_cell_value(key, value))
+        if key in MONEY and isinstance(value, (int, float)):
+            cell.number_format = RUPEES
+        elif isinstance(cell.value, dt.date):
+            # A date with no format is a serial number on the reader's
+            # screen. The screen-wide export already did this; the order
+            # report did not, so its one sheet showed 46,003 for a date.
+            cell.number_format = "yyyy-mm-dd"
+        cell.alignment = Alignment(wrap_text=True)
+        r += 1
+
+    # Everything that happened to it, in order. This is the half a screen
+    # cannot show and the half somebody asking about an order wants.
+    trail = ledger.events(row_id)
+    if trail:
+        r += 1
+        ws.cell(row=r, column=1, value="What happened").font = Font(bold=True)
+        r += 1
+        head = ("When", "Who", "What", "Stage", "Note")
+        for c, label in enumerate(head, start=1):
+            cell = ws.cell(row=r, column=c, value=label)
+            cell.fill = PatternFill("solid", fgColor="1D1D1F")
+            cell.font = Font(color="FFFFFF", bold=True, size=11)
+        r += 1
+        for event in trail:
+            when = dt.datetime.fromtimestamp(event.get("at", 0))
+            ws.cell(row=r, column=1, value=when).number_format = "yyyy-mm-dd hh:mm"
+            ws.cell(row=r, column=2, value=event.get("by", ""))
+            # The same words the trail screen uses. Printed raw, this column
+            # said "signed_off" beside a screen saying "signed off", which is
+            # two vocabularies for one fact and makes a reader wonder which
+            # of them is the real record.
+            ws.cell(row=r, column=3, value=ledger.reads_as(event.get("kind", "")))
+            ws.cell(row=r, column=4,
+                    value=handler.step_label(event["stage"])
+                    if event.get("stage") else "")
+            ws.cell(row=r, column=5,
+                    value=event.get("note", "")).alignment = Alignment(
+                        wrap_text=True)
+            r += 1
+
+    for column, width in enumerate((26, 54, 20, 20, 60), start=1):
+        ws.column_dimensions[get_column_letter(column)].width = width
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
 def to_excel(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
              scope: Scope, *, asked_by: str) -> bytes:
     """One workbook: what this screen says, and when it said it."""
@@ -132,6 +227,18 @@ def to_excel(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
         ("Period", chosen or "not scoped"),
         ("Generated", taken_at.strftime("%Y-%m-%d %H:%M %Z").strip()),
         ("Generated for", asked_by),
+    ]
+    if feature.date_range and (scope.since or scope.until):
+        # A consolidated report is defined by its window, and said nothing
+        # about it — two files cut on different months were indistinguishable
+        # once they were off the screen and in somebody's inbox. It also has
+        # to say WHICH date, because "acknowledged on" and "requested on"
+        # include different orders at a boundary.
+        facts.append((
+            "Window",
+            f"{feature.date_range} "
+            f"{scope.since or 'the beginning'} to {scope.until or 'today'}"))
+    facts += [
         # Said on the sheet, not in a footer somebody scrolls past. This file
         # will be read long after the screen has moved on, and nothing else
         # in it admits that.
@@ -228,14 +335,21 @@ def to_excel(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
 
 
 def filename(fn: FunctionManifest, feature: FeatureManifest,
-             scope: Scope) -> str:
+             scope: Scope, row_id: str = "") -> str:
     """What it lands on somebody's disk as.
 
     The period is in the name because two of these in a downloads folder
-    with the same name are two files nobody can tell apart.
+    with the same name are two files nobody can tell apart. So are the
+    ORDER and the WINDOW: a single order's report and a whole screen's
+    export were landing as the same name and overwriting each other, and
+    two months of the same consolidated report still would.
     """
     parts = [slug(fn.name), slug(feature.name)]
+    if row_id:
+        parts.append(slug(row_id))
     if scope.period:
         parts.append(slug(scope.period))
+    if not row_id and (scope.since or scope.until):
+        parts.append(f"{scope.since or 'start'}-to-{scope.until or 'today'}")
     parts.append(dt.date.today().isoformat())
     return "-".join(parts) + ".xlsx"

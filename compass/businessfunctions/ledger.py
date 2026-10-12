@@ -78,9 +78,48 @@ _requests_store = Collection("bf_gift_request",
 #: and when — did not survive a restart.
 EVENTS = ("reviewed", "answered", "superseded", "notified",
           "referred", "excepted", "chased",
-          # the request lifecycle
-          "requested", "approved", "declined", "purchased", "given",
-          "acknowledged", "cancelled")
+          # the request chain. `signed_off` carries the stage it was at,
+          # so one event kind reads as eight different sentences without
+          # eight kinds nobody can fold.
+          "requested", "signed_off", "declined", "cancelled", "closed",
+          "acknowledged",
+          # retired, kept so a trail written before the chain existed still
+          # loads and still reads
+          "approved", "purchased", "given")
+
+#: What each kind of event READS AS, in the active voice. Written out rather
+#: than generated from the key, because "superseded" and "a record was
+#: replaced" are not the same sentence to somebody reading a trail.
+#:
+#: Here rather than on the audit screen because it is a property of the
+#: event, not of one way of looking at it: the workbook kept printing the
+#: raw keys — "signed_off" — beside a screen that said "signed off", which
+#: is two vocabularies for one fact.
+READS_AS = {
+    "requested": "asked for",
+    "signed_off": "signed off",
+    "closed": "closed",
+    "declined": "sent back",
+    "acknowledged": "confirmed receiving",
+    "cancelled": "withdrew",
+    "reviewed": "decided",
+    "answered": "answered a question about",
+    "superseded": "replaced the record of",
+    "notified": "was told about",
+    "referred": "referred to Finance",
+    "excepted": "recorded a decision on",
+    "chased": "chased an acknowledgement from",
+    # retired, kept so an old trail still reads
+    "approved": "approved",
+    "purchased": "recorded as bought",
+    "given": "handed over",
+}
+
+
+def reads_as(kind: str) -> str:
+    """One event kind in words. The key itself if nobody has named it."""
+    return READS_AS.get(kind, kind.replace("_", " "))
+
 
 #: In-process state. Authoritative for reads; see the note above.
 _items: list[dict[str, Any]] = []

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
+import io
 import json
 import copy
 import dataclasses
@@ -39,6 +41,7 @@ logging.disable(logging.WARNING)
 
 from compass.businessfunctions import (  # noqa: E402
     assistant,
+    export,
     features,
     ledger,
     notices,
@@ -51,6 +54,7 @@ from compass.businessfunctions.features import form26 as form26_mod  # noqa: E40
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.features import giftrequests as gr_mod  # noqa: E402
 from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E402
+from compass.businessfunctions.features import giftaudit as au_mod  # noqa: E402
 from compass.businessfunctions.manifest import (  # noqa: E402
     WITHHELD_TOOLS,
     FeatureManifest,
@@ -150,15 +154,23 @@ def stored():
 def fixtures():
     """Run a check against untouched records, whatever ran before it.
 
-    Everything mutable now lives in two places — the ledger's register and
-    its trail — plus the outbox and the two older handlers' own fixtures.
-    Snapshotting the ledger is four lines where it used to be three
-    dictionaries, which is the first dividend of folding state instead of
-    storing it.
+    Everything mutable now lives in three places — the ledger's register,
+    its trail and its requests — plus the outbox and the two older
+    handlers' own fixtures. Snapshotting the ledger is a few lines where it
+    used to be three dictionaries, which is the first dividend of folding
+    state instead of storing it.
+
+    THE REQUESTS WERE MISSING FROM THIS, and it was not harmless: every
+    check that raised one left it behind, so a check's result depended on
+    what had run before it. Adding two reports to the middle of the run
+    broke sixteen checks downstream that had quietly been asserting on a
+    total somebody else's fixture had moved.
     """
     before = (copy.deepcopy(form26_mod._FIXTURE), copy.deepcopy(lms_mod._FIXTURE),
               copy.deepcopy(ledger._items), copy.deepcopy(ledger._events),
+              copy.deepcopy(ledger._requests),
               list(ledger._unsaved_items), list(ledger._unsaved_events),
+              list(ledger._unsaved_requests),
               dict(notices._outbox), set(notices._unsaved))
     try:
         yield
@@ -167,10 +179,32 @@ def fixtures():
         lms_mod._FIXTURE[:] = before[1]
         ledger._items[:] = before[2]
         ledger._events[:] = before[3]
-        ledger._unsaved_items[:] = before[4]
-        ledger._unsaved_events[:] = before[5]
-        notices._outbox.clear(); notices._outbox.update(before[6])
-        notices._unsaved.clear(); notices._unsaved.update(before[7])
+        ledger._requests[:] = before[4]
+        ledger._unsaved_items[:] = before[5]
+        ledger._unsaved_events[:] = before[6]
+        ledger._unsaved_requests[:] = before[7]
+        notices._outbox.clear(); notices._outbox.update(before[8])
+        notices._unsaved.clear(); notices._unsaved.update(before[9])
+
+
+def _refuses(call) -> bool:
+    """Whether a call refuses rather than answering. Any refusal will do —
+    the point is that there is no second path to a row somebody cannot see."""
+    try:
+        call()
+    except Exception:
+        return True
+    return False
+
+
+def _flat(book: bytes) -> str:
+    """Every cell of a workbook as one string, for asking what is in it."""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(book))
+    return " ".join(str(c.value) for ws in wb.worksheets
+                    for row in ws.iter_rows() for c in row
+                    if c.value is not None)
 
 
 def ok(label: str, condition: bool, detail: str = "") -> None:
@@ -665,6 +699,20 @@ def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
        r.status_code == 200 and body.get("needs_scope") == ["entity", "period"],
        str(body)[:140])
     ok("and sends no rows while it waits", "rows" not in body)
+
+    # Which fields are the screen's machinery rather than somebody's to
+    # read. Sent, because the alternative is the UI keeping its own copy of
+    # the list — which it did, and which had drifted far enough that a
+    # reader was shown a row's internal stage key.
+    r = c.get("/v1/business-functions/scs/features/requests",
+              params={"period": "FY 2026-27"})
+    body = r.json()
+    handler = registry.feature_of("scs", "requests")[2]
+    ok("a feature says which of its fields are not for reading",
+       body.get("private") == sorted(handler.private), str(body.get("private")))
+    ok("and the rows really carry them, so the list is not aspirational",
+       not body["rows"] or set(handler.private) <= set(body["rows"][0]),
+       str(set(handler.private) - set(body["rows"][0] if body["rows"] else {})))
 
     r = c.get("/v1/business-functions/finance/features/form26",
               params={"entity": "Contoso India", "period": "Q2 FY25"})
@@ -2306,27 +2354,39 @@ def check_an_unreadable_subscription_is_skipped_not_fatal() -> None:
 
 
 def check_every_persona_sees_its_own_breadth() -> None:
-    """The seven personas, on the two screens, in one place.
+    """Every persona on the business's sheet, on three screens, in one place.
 
     Written as a table because that is what it is: the useful question
     about a persona is not "may they open this" but "how much of it is
     theirs", and reading it down a column is how a mistake gets noticed.
+
+    The shape worth reading off it: the four personas that OWN a step in
+    the chain but have no business reading the firm's register see the
+    requests screen at firm breadth and the register only at self. They
+    need the order in front of them, not everybody's year.
+
+    There is no `audit` row. Auditing is Leadership and Compliance's, per
+    the sheet, and a row for a persona nobody holds proved nothing.
     """
     _, bench, h = registry.feature_of("scs", "rewardlens")
     _, board, board_h = registry.feature_of("scs", "oversight")
+    _, chain, _ch = registry.feature_of("scs", "requests")
     everybody = len(h.rows(as_("compliance"), "all"))
 
     table = [
-        # login          roles                      register   dashboard
-        ("admin",        {"compliance", "leadership"}, "firm",  "firm"),
-        ("compliance",   {"compliance"},               "firm",  "firm"),
-        ("finance",      {"finance"},                  "firm",  "firm"),
-        ("audit",        {"audit"},                    "firm",  "firm"),
-        ("servicelead",  {"manager"},                  "team",  "none"),
-        ("enduser",      set(),                        "self",  "none"),
-        ("stranger",     None,                         "none",  "none"),
+        # login         roles                         register dashboard chain
+        ("admin",       {"compliance", "leadership"},   "firm", "firm", "firm"),
+        ("compliance",  {"compliance", "leadership"},   "firm", "firm", "firm"),
+        ("finance",     {"finance"},                    "firm", "firm", "firm"),
+        ("payroll",     {"payroll"},                    "firm", "firm", "firm"),
+        ("procurement", {"procurement"},                "self", "none", "firm"),
+        ("payments",    {"accounts_payable"},           "self", "none", "firm"),
+        ("requester",   {"requester"},                  "self", "none", "firm"),
+        ("servicelead", {"service_line", "requester"},  "team", "none", "firm"),
+        ("enduser",     set(),                          "self", "none", "self"),
+        ("stranger",    None,                           "none", "none", "none"),
     ]
-    for login, roles, on_register, on_board in table:
+    for login, roles, on_register, on_board, on_chain in table:
         mine = people.roles_of(login)
         if roles is None:
             ok(f"{login}: the directory does not know them", not mine, str(mine))
@@ -2340,13 +2400,22 @@ def check_every_persona_sees_its_own_breadth() -> None:
         ok(f"{login}: sees the dashboard at {on_board}",
            people.breadth(login, board.visibility) == on_board,
            people.breadth(login, board.visibility))
+        ok(f"{login}: sees the chain at {on_chain}",
+           people.breadth(login, chain.visibility) == on_chain,
+           people.breadth(login, chain.visibility))
 
         rows = h.rows(as_(login), "all")
         if on_register == "firm":
             ok(f"{login}: the whole register", len(rows) == everybody, str(len(rows)))
         elif on_register == "self":
-            ok(f"{login}: one row, their own",
-               [r["employee_id"] for r in rows] == [people.employee_of(login)],
+            # A team mailbox has no employee record, so at self breadth it
+            # sees nothing — which is right: Procurement buys gifts, it does
+            # not receive them, and a shared login with somebody's year on
+            # it would be the leak this phase closed.
+            theirs = [people.employee_of(login)] if people.employee_of(login) else []
+            ok(f"{login}: their own row and no more" if theirs
+               else f"{login}: nothing, having no record of their own",
+               [r["employee_id"] for r in rows] == theirs,
                str([r["employee_id"] for r in rows]))
         elif on_register == "team":
             theirs = people.team_of(login) | {people.employee_of(login)}
@@ -2416,15 +2485,20 @@ def check_what_a_feature_declares_is_what_is_enforced() -> None:
     ok("every review action names who may take it",
        set(rl_mod.RewardLens.REVIEW_ACTIONS) <= set(declared), str(sorted(declared)))
 
-    # Audit reads the firm and decides none of it — the persona most likely
-    # to be quietly over-granted, because it can already see everything.
-    audit = as_("audit")
-    ok("audit sees the whole register",
-       len(h.rows(audit, "all")) == len(h.rows(as_("compliance"), "all")))
+    # Payroll reads the whole firm and decides none of ITS record — the
+    # shape most likely to be quietly over-granted, because somebody who
+    # can already see everything looks like somebody who may do anything.
+    # Measured through a persona the business actually holds: signed in as
+    # an invented `audit` login, every row was empty and this passed
+    # without exercising a single refusal.
+    reader = as_("payroll")
+    ok("payroll sees the whole register",
+       len(h.rows(reader, "all")) == len(h.rows(as_("compliance"), "all")),
+       f"{len(h.rows(reader, 'all'))} rows")
     for action, roles in sorted(declared.items()):
-        if "audit" in roles:
+        if "payroll" in roles:
             continue
-        out = h.act(audit, action, ["E-1007"], "a reason")
+        out = h.act(reader, action, ["E-1007"], "a reason")
         ok(f"and is refused {action}, which is for {', '.join(sorted(roles))}",
            not out.ok, out.said)
 
@@ -2631,16 +2705,77 @@ def check_a_notice_outlives_the_process() -> None:
        notices.latest_for(item["id"]).state in ("held", "failed"))
 
 
-def _req(user: str = "servicelead", **over) -> Scope:
+def _req(user: str = "requester", **over) -> Scope:
     return people.scope_for(user, registry.feature_of("scs", "requests")[1],
                             period="FY 2026-27")
+
+
+#: Who signs off each stage of the chain, for a request raised by
+#: `requester`. The sign-off stages are not interchangeable: the login here
+#: is the one whose persona OWNS that step, and every other login is
+#: expected to be refused at it.
+SIGNS = {
+    "service_line": "servicelead",
+    "finance_policy": "finance",
+    "payroll_tax": "payroll",
+    "procurement": "procurement",
+    "accounts_payable": "payments",
+    # Not a persona but a person: whoever raised it handed it over.
+    "distribution": "requester",
+    # Not a persona either: whoever received it.
+    "acknowledgement": "enduser",
+}
+
+
+def _ask(by: str = "requester", **over) -> str:
+    """Raise a request and return its id."""
+    values = {"recipient": "Vikram Rao", "what": "Diwali hamper",
+              "kind": "gift", "value": "3000", "occasion": "festival",
+              "source": "Service line \u00b7 Advisory"}
+    values.update(over)
+    h = registry.feature_of("scs", "requests")[2]
+    out = h.submit(_req(by), "request_gift", values)
+    if not out.ok:
+        raise AssertionError(f"could not raise a request: {out.said}")
+    return out.touched[0]
+
+
+def _walk(rid: str, upto: str = "closed", by: str = "requester",
+          who: dict[str, str] | None = None) -> list[str]:
+    """Sign a request off, stage by stage, until it reaches `upto`.
+
+    Returns what went wrong, so a caller can assert on an empty list. The
+    walk is the point: a chain that only works when every step is driven by
+    the right persona is the thing being measured, so this refuses to fudge
+    a step it could not take.
+    """
+    h = registry.feature_of("scs", "requests")[2]
+    signers = dict(SIGNS, **(who or {}))
+    signers["distribution"] = by
+    trouble: list[str] = []
+    for _ in range(len(gr_mod.STAGES) + 1):
+        request = next(r for r in ledger.requests() if r["id"] == rid)
+        stage = gr_mod.stage_of(request)
+        if stage == upto or stage in gr_mod.ENDED:
+            break
+        out = h.act(_req(signers[stage]), "sign_off", [rid],
+                    f"Checked at {stage}.")
+        if not out.ok:
+            trouble.append(f"{stage}: {out.said}")
+            break
+    return trouble
+
 
 
 def check_nothing_reaches_the_register_until_it_is_given() -> None:
     """A request is a proposal. Most of what goes wrong in systems like
     this is treating it as a record: a declined request on the register is
-    a gift nobody received, and an approved one never handed over is a
-    total that is wrong the other way."""
+    a gift nobody received, and one signed off five times but never handed
+    over is a total that is wrong the other way.
+
+    So the register is touched at exactly ONE stage — distribution — and
+    this walks the chain measuring the total after every step to prove it.
+    """
     _, _f, h = registry.feature_of("scs", "requests")
     _, _f2, bench = registry.feature_of("scs", "rewardlens")
     seen = as_("compliance")
@@ -2648,24 +2783,20 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
                           if r["employee_id"] == "E-1066"), 0)
     before = total()
 
-    out = h.submit(_req(), "request_gift", {
-        "recipient": "Vikram Rao", "what": "Diwali hamper", "kind": "gift",
-        "value": "3000", "occasion": "festival",
-        "source": "Service line · Advisory"})
-    ok("a request can be raised", out.ok, out.said)
-    rid = out.touched[0]
+    rid = _ask()
+    ok("a request can be raised", rid)
     ok("and changes nobody's total", total() == before, str(total()))
 
-    ok("approving changes nobody's total",
-       h.act(_req("admin"), "approve", [rid]).ok and total() == before)
-    ok("buying it changes nobody's total",
-       h.act(_req("procurement"), "mark_purchased", [rid]).ok
-       and total() == before)
+    for stage in ("service_line", "finance_policy", "payroll_tax",
+                  "procurement", "accounts_payable"):
+        out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
+        ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
+        ok(f"and {stage} changed nobody's total", total() == before, str(total()))
 
-    given = h.act(_req("procurement"), "mark_given", [rid])
-    ok("handing it over is what puts it on the register",
+    given = h.act(_req("requester"), "sign_off", [rid], "Handed over at the desk.")
+    ok("recording the distribution is what puts it on the register",
        given.ok and total() == before + 3000, f"{given.said} -> {total()}")
-    ok("and the outcome says their new year", "₹5,500" in given.said, given.said)
+    ok("and the outcome says their new year", "\u20b95,500" in given.said, given.said)
     ok("the item knows which request it came from",
        any(i.get("from_request") == rid for i in ledger.items()))
     ok("and it is not acknowledged yet, because they have not said so",
@@ -2681,56 +2812,60 @@ def check_a_declined_request_never_becomes_a_gift() -> None:
                           if r["employee_id"] == "E-1066"), 0)
     before, items = total(), len(ledger.items())
 
-    rid = h.submit(_req(), "request_gift", {
-        "recipient": "Vikram Rao", "what": "A thing", "kind": "gift",
-        "value": "2000", "occasion": "festival",
-        "source": "Service line · Tax"}).touched[0]
+    rid = _ask(what="A thing", value="2000", source="Service line \u00b7 Tax")
     ok("declining needs a reason",
-       not h.act(_req("admin"), "decline", [rid]).ok)
+       not h.act(_req("servicelead"), "decline", [rid]).ok)
     ok("with one, it is declined",
-       h.act(_req("admin"), "decline", [rid], "Too close to the tender.").ok)
+       h.act(_req("servicelead"), "decline", [rid],
+             "Too close to the tender.").ok)
     ok("nothing was added to the register", len(ledger.items()) == items)
     ok("and nobody's total moved", total() == before)
-    row = next(r for r in h.rows(_req("admin"), "all") if r["id"] == rid)
+    row = next(r for r in h.rows(_req("servicelead"), "all") if r["id"] == rid)
     ok("the reason is on the record", row["why"] == "Too close to the tender.")
-    ok("and it cannot then be approved",
-       not h.act(_req("admin"), "approve", [rid]).ok)
+    ok("and it says where it was turned down", row["status"] == "Declined")
+    ok("it cannot then be signed off",
+       not h.act(_req("servicelead"), "sign_off", [rid], "on reflection").ok)
+    ok("and no later stage can pick it up either",
+       not any(h.act(_req(who), "sign_off", [rid], "mine now").ok
+               for who in ("finance", "payroll", "procurement", "payments")))
 
 
 def check_the_breach_is_caught_before_it_is_bought() -> None:
     """The point of the whole phase.
 
     The requirement's complaint is that the firm finds out afterwards. A
-    ₹6,000 watch for John is unremarkable on its own and takes him to
-    ₹26,000 because of what three other teams already gave him — and that
+    \u20b96,000 watch for John is unremarkable on its own and takes him to
+    \u20b926,000 because of what three other teams already gave him — and that
     sentence is now said while it still costs nothing to say no.
     """
     _, _f, h = registry.feature_of("scs", "requests")
     asking = _req()
+    watch = {"recipient": "John Mathew", "what": "Long service watch",
+             "kind": "gift", "value": "6000", "occasion": "long service",
+             "source": "People team"}
 
-    said = h.preview(asking, "request_gift", {
-        "recipient": "John Mathew", "what": "Long service watch",
-        "kind": "gift", "value": "6000", "occasion": "long service",
-        "source": "People team"}).said
+    said = h.preview(asking, "request_gift", watch).said
     ok("the preview adds it to what he already has",
-       "₹26,000" in said, said)
-    ok("and says how far over that is", "₹11,000 over" in said, said)
+       "\u20b926,000" in said, said)
+    ok("and says how far over that is", "\u20b911,000 over" in said, said)
     ok("but does not refuse it — somebody senior decides knowingly",
        "cannot be approved" not in said, said)
 
-    rid = h.submit(asking, "request_gift", {
-        "recipient": "John Mathew", "what": "Long service watch",
-        "kind": "gift", "value": "6000", "occasion": "long service",
-        "source": "People team"}).touched[0]
-    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == rid)
-    ok("the row carries it to whoever approves", "over" in row["tax"], row["tax"])
+    rid = _ask(**watch)
+    row = next(r for r in h.rows(_req("servicelead"), "waiting")
+               if r["id"] == rid)
+    ok("the row carries it to whoever signs off", "over" in row["tax"],
+       row["tax"])
     ok("and the screen says so out loud",
-       "would_cross_the_limit" in h.rules(_req("admin")),
-       str(h.rules(_req("admin"))))
-    ok("approving is still offered", "approve" in row["can"], str(row["can"]))
-    out = h.act(_req("admin"), "approve", [rid])
-    ok("and the approval records that they knew",
-       out.ok and "knowingly" in out.said, out.said)
+       "would_cross_the_limit" in h.rules(_req("servicelead")),
+       str(h.rules(_req("servicelead"))))
+    ok("signing off is still offered", "sign_off" in row["can"], str(row["can"]))
+    out = h.act(_req("servicelead"), "sign_off", [rid], "Thirty years' service.")
+    ok("and the sign-off records that they knew",
+       out.ok and "knowing" in out.said, out.said)
+    ok("it is still said at every later stage",
+       "over" in next(r["tax"] for r in h.rows(_req("payroll"), "waiting")
+                      if r["id"] == rid))
 
 
 def check_policy_and_budget_block_where_tax_only_warns() -> None:
@@ -2755,48 +2890,51 @@ def check_policy_and_budget_block_where_tax_only_warns() -> None:
     broke = h.preview(asking, "request_gift", {
         "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
         "value": "30000", "occasion": "festival",
-        "source": "Service line · Advisory"}).said
+        "source": "Service line \u00b7 Advisory"}).said
     ok("a team without the budget is told what is left",
        "short by" in broke, broke)
 
-    rid = h.submit(asking, "request_gift", {
-        "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
-        "value": "30000", "occasion": "festival",
-        "source": "Service line · Advisory"}).touched[0]
-    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == rid)
-    ok("a blocked request offers no approval", "approve" not in row["can"],
+    rid = _ask(what="Big hamper", value="30000",
+               source="Service line \u00b7 Advisory")
+    row = next(r for r in h.rows(_req("servicelead"), "waiting")
+               if r["id"] == rid)
+    ok("a blocked request offers no sign-off", "sign_off" not in row["can"],
        str(row["can"]))
     ok("but can still be declined", "decline" in row["can"])
     ok("and asking anyway is refused",
-       not h.act(_req("admin"), "approve", [rid]).ok)
+       not h.act(_req("servicelead"), "sign_off", [rid], "go on").ok)
+    ok("so it never reaches the next desk",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "service_line")
 
 
 def check_nobody_approves_their_own() -> None:
-    """Two shapes of the same rule: not your request, not your gift."""
+    """Two shapes of the same rule: not your request, not your gift.
+
+    With one exception that is not a loophole, and is measured below: the
+    stage where the requester records what they actually handed over.
+    """
     _, _f, h = registry.feature_of("scs", "requests")
 
-    mine = h.submit(_req("admin"), "request_gift", {
-        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
-        "value": "2000", "occasion": "festival",
-        "source": "People team"}).touched[0]
-    row = next(r for r in h.rows(_req("admin"), "waiting") if r["id"] == mine)
-    ok("the person who asked cannot approve it",
-       "approve" not in row["can"] and "cancel_request" in row["can"],
+    mine = _ask(by="servicelead", what="A hamper", value="2000",
+                source="People team")
+    row = next(r for r in h.rows(_req("servicelead"), "waiting")
+               if r["id"] == mine)
+    ok("the person who asked cannot sign it off",
+       "sign_off" not in row["can"] and "cancel_request" in row["can"],
        str(row["can"]))
-    ok("somebody else can", "approve" in next(
-        r for r in h.rows(_req("compliance"), "waiting")
+    ok("the other approver for that persona can", "sign_off" in next(
+        r for r in h.rows(_req("leadtwo"), "waiting")
         if r["id"] == mine)["can"])
+    ok("and somebody from a later stage still cannot — it is not their step",
+       "sign_off" not in next(r for r in h.rows(_req("payroll"), "waiting")
+                              if r["id"] == mine)["can"])
 
-    for_me = h.submit(_req("servicelead"), "request_gift", {
-        "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
-        "value": "2000", "occasion": "performance",
-        "source": "People team"}).touched[0]
-    ok("and a gift to you is not yours to approve either",
-       "approve" not in next(r for r in h.rows(_req("admin"), "waiting")
-                             if r["id"] == for_me)["can"])
-    ok("though somebody else may",
-       "approve" in next(r for r in h.rows(_req("compliance"), "waiting")
-                         if r["id"] == for_me)["can"])
+    for_me = _ask(by="servicelead", recipient="Aisha Khan", what="A watch",
+                  value="2000", occasion="performance", source="People team")
+    ok("a gift to you is not yours to sign off either",
+       "sign_off" not in next(r for r in h.rows(_req("admin"), "waiting")
+                              if r["id"] == for_me)["can"])
     ok("you cannot even ask for one for yourself",
        "cannot be approved" in h.preview(_req("admin"), "request_gift", {
            "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
@@ -2804,40 +2942,177 @@ def check_nobody_approves_their_own() -> None:
            "source": "People team"}).said)
 
 
-def check_only_procurement_moves_it_along() -> None:
-    _, _f, h = registry.feature_of("scs", "requests")
-    rid = h.submit(_req(), "request_gift", {
-        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
-        "value": "1000", "occasion": "festival",
-        "source": "People team"}).touched[0]
-    h.act(_req("admin"), "approve", [rid])
+def check_each_stage_moves_only_for_its_own_persona() -> None:
+    """The routing question, measured at every step rather than asserted.
 
-    for who in ("admin", "compliance", "servicelead", "enduser"):
-        ok(f"{who} cannot mark it bought",
-           not h.act(_req(who), "mark_purchased", [rid]).ok)
-    ok("procurement can", h.act(_req("procurement"), "mark_purchased", [rid]).ok)
-    ok("and only then can it be handed over",
-       h.act(_req("procurement"), "mark_given", [rid]).ok)
-    ok("a request cannot be handed over twice",
-       not h.act(_req("procurement"), "mark_given", [rid]).ok)
+    This is the behaviour the chain exists for: a request signed off by
+    Payroll lands in Procurement's queue, and in nobody else's. So at each
+    stage, every login that is NOT that stage's persona is refused, the one
+    that is succeeds, and the stage then moves on by itself.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    everybody = ("servicelead", "finance", "payroll", "procurement",
+                 "payments", "requester", "enduser", "compliance", "admin")
+    rid = _ask(what="A hamper", value="1000", source="People team")
+
+    stage = gr_mod.FIRST_STAGE
+    while stage != "closed":
+        owner = gr_mod.STAGES[stage]["owner"]
+        theirs = SIGNS[stage]
+        label = gr_mod.stage_label(stage).lower()
+
+        outsiders = [w for w in everybody if w != theirs]
+        refused = [w for w in outsiders
+                   if not h.act(_req(w), "sign_off", [rid], "mine, surely").ok]
+        ok(f"{label}: nobody else can sign it off",
+           len(refused) == len(outsiders),
+           str([w for w in outsiders if w not in refused]))
+        ok(f"{label}: and the refusal says whose it is",
+           all(label in h.act(_req(w), "sign_off", [rid], "x").said.lower()
+               for w in outsiders[:3]),
+           h.act(_req(outsiders[0]), "sign_off", [rid], "x").said)
+        # Only the sign-off, because the person who RAISED it keeps a
+        # withdraw button at the early stages and that is not a step in the
+        # chain. Asserting "no outsider has any button" said that it was
+        # broken when it was the requester's own withdraw.
+        offered = lambda w: next(
+            (r["can"] for r in h.rows(_req(w), "waiting") if r["id"] == rid),
+            [])
+        ok(f"{label}: the step is in the owner's queue and no outsider's",
+           all("sign_off" not in offered(w) for w in outsiders),
+           str([w for w in outsiders if "sign_off" in offered(w)]))
+        ok(f"{label}: and it is in the owner's",
+           "sign_off" in offered(theirs), str(offered(theirs)))
+        withdraw = "cancel_request" in offered("requester")
+        ok(f"{label}: the requester can withdraw it only before it is bought",
+           withdraw == (stage in ("service_line", "finance_policy",
+                                  "payroll_tax")),
+           f"{stage}: {offered('requester')}")
+
+        out = h.act(_req(theirs), "sign_off", [rid], f"Checked at {stage}.")
+        ok(f"{label}: {people.LABELS.get(owner, owner)} can", out.ok, out.said)
+
+        nxt = gr_mod.STAGES[stage]["next"]
+        now = gr_mod.stage_of(next(r for r in ledger.requests()
+                                   if r["id"] == rid))
+        ok(f"{label}: and it moves to {nxt}", now == nxt, now)
+        if nxt != "closed":
+            ok(f"{label}: the row says who it is with now",
+               next(r["with"] for r in h.rows(_req("compliance"), "all")
+                    if r["id"] == rid)
+               == people.LABELS[gr_mod.STAGES[nxt]["owner"]])
+        stage = nxt
+
+    ok("the end of the chain is closed, and nothing is waiting on anybody",
+       next(r["stage"] for r in h.rows(_req("compliance"), "all")
+            if r["id"] == rid) == "closed")
+    ok("a closed request cannot be signed off again",
+       not any(h.act(_req(w), "sign_off", [rid], "again").ok
+               for w in everybody))
+
+
+def check_every_stage_reads_as_a_sentence() -> None:
+    """A column heading and a sentence are not the same words.
+
+    `label` is "With Finance", which is right above a table and wrong in
+    prose: reused, it produced "Signed off at with finance". Measured for
+    every stage rather than spot-checked, because the next stage somebody
+    adds will be written by copying one of these.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    rid = _ask(what="A hamper", value="1000", source="People team")
+
+    for stage, nxt in [(s, gr_mod.STAGES[s]["next"])
+                       for s in gr_mod.STAGES if s != "closed"]:
+        ok(f"{stage}: has a name for a column and one for a sentence",
+           gr_mod.STAGES[stage]["label"] and gr_mod.STAGES[stage]["step"]
+           and gr_mod.STAGES[stage]["holder"], str(gr_mod.STAGES[stage]))
+        ok(f"{stage}: and they are not the same words",
+           gr_mod.step_name(stage).lower()
+           != gr_mod.stage_label(stage).lower())
+
+        out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked {stage}.")
+        ok(f"{stage}: it can be signed off", out.ok, out.said)
+        ok(f"{stage}: and reads as English, not as a heading",
+           " at with " not in out.said and "with with" not in out.said,
+           out.said)
+        if nxt != "closed":
+            ok(f"{stage}: signing off says which step it was",
+               gr_mod.step_name(stage) in out.said, out.said)
+            ok(f"{stage}: and names who has it now",
+               gr_mod.STAGES[nxt]["holder"] in out.said, out.said)
+        else:
+            # The last step says the order is closed rather than naming its
+            # own step and a next desk there is none of.
+            ok(f"{stage}: the last one says it is the end of the chain",
+               "closed" in out.said and "last step" in out.said, out.said)
+            ok(f"{stage}: and that the recipient is the one who said so",
+               "you confirmed" in out.said, out.said)
+
+    back = _ask(what="Another hamper", value="1000", source="People team")
+    said = h.act(_req("servicelead"), "decline", [back], "Not this year.").said
+    ok("sending one back reads as a sentence too",
+       gr_mod.step_name("service_line") in said and " at with " not in said,
+       said)
+
+
+def check_the_question_belongs_to_the_step() -> None:
+    """What a desk is asked to write down depends on the step, not the button.
+
+    Hung off the action, one `note_label` covered all seven steps — so the
+    recipient confirming a hamper had arrived was asked "What did you
+    check?" and could not get past it without answering. The screen asks
+    what the row says to ask, and the server requires an answer to exactly
+    the same question, so the two cannot drift apart.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    rid = _ask(what="A hamper", value="1200", source="People team")
+
+    needs = {"finance_policy", "payroll_tax", "distribution"}
+    for stage in [s for s in gr_mod.STAGES if s != "closed"]:
+        row = next(r for r in h.rows(_req(SIGNS[stage]), "all")
+                   if r["id"] == rid)
+        asked = row["ask"]["sign_off"]
+        ok(f"{stage}: asks for a note only where one is needed",
+           bool(asked) == (stage in needs), f"{stage}: {asked!r}")
+
+        if stage in needs:
+            refused = h.act(_req(SIGNS[stage]), "sign_off", [rid], "   ")
+            ok(f"{stage}: and signing off without one is refused",
+               not refused.ok, refused.said)
+            ok(f"{stage}: in the same words the screen asked in",
+               asked in refused.said, f"{asked!r} vs {refused.said!r}")
+        else:
+            # No question, so the click is the act. A screen that asked
+            # anyway would be stricter than the rule it is enforcing.
+            out = h.act(_req(SIGNS[stage]), "sign_off", [rid], "")
+            ok(f"{stage}: and a bare sign-off goes through", out.ok, out.said)
+            continue
+        h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
+
+    ok("the recipient is never asked what they checked",
+       not gr_mod.STAGES["acknowledgement"]["ask"])
+    ok("declining still has its own question, from the manifest",
+       next(a.note_label for a in feat.actions if a.id == "decline"))
 
 
 def check_the_recipient_acknowledges_their_own() -> None:
-    """The one act on the register that belongs to the person it is about.
+    """The one step in the chain that belongs to the person it is about.
 
     It is exempt from the rule that nobody acts on their own record, and
     that is not a loophole: the rule says nobody DECIDES their own case,
     and confirming you received something is not a decision about a case.
+
+    There are two doors onto the same fact — the last stage of the chain,
+    and the acknowledge button on the recipient's own register — and both
+    are checked here, because a fact with two doors is a fact that can end
+    up true through one and false through the other.
     """
     _, _f, h = registry.feature_of("scs", "requests")
     _, _f2, bench = registry.feature_of("scs", "rewardlens")
-    rid = h.submit(_req(), "request_gift", {
-        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
-        "value": "1000", "occasion": "festival",
-        "source": "People team"}).touched[0]
-    h.act(_req("admin"), "approve", [rid])
-    h.act(_req("procurement"), "mark_purchased", [rid])
-    h.act(_req("procurement"), "mark_given", [rid])
+    rid = _ask(what="A hamper", value="1000", source="People team")
+    trouble = _walk(rid, upto="acknowledgement")
+    ok("the chain reaches the recipient", not trouble, str(trouble))
 
     them = as_("enduser")
     row = next(r for r in bench.rows(them, "all")
@@ -2845,27 +3120,49 @@ def check_the_recipient_acknowledges_their_own() -> None:
     ok("it arrives unacknowledged", row["unacknowledged"] >= 1,
        str(row["unacknowledged"]))
     ok("the row knows it is theirs", row["yours"] is True)
+    ok("it is waiting on them and on nobody else",
+       next(r["with"] for r in h.rows(_req("compliance"), "all")
+            if r["id"] == rid) == people.LABELS["employee"])
+    ok("somebody else cannot confirm receipt for them",
+       not any(h.act(_req(w), "sign_off", [rid], "on their behalf").ok
+               for w in ("procurement", "requester", "compliance", "admin")))
 
-    ok("somebody else cannot acknowledge it for them",
-       not bench.act(as_("compliance"), "acknowledge", ["E-1066"]).ok)
-    out = bench.act(them, "acknowledge", ["E-1066"])
+    ok("and nobody can decline on the recipient's behalf either",
+       not h.act(_req("compliance"), "decline", [rid], "no").ok)
+    out = h.act(_req("enduser"), "sign_off", [rid], "")
     ok("they can", out.ok, out.said)
-    ok("and the register says they confirmed it",
+    ok("and the outcome says it is theirs, not the firm's assertion",
+       "you confirmed" in out.said, out.said)
+    ok("which closes the order", next(
+        r["stage"] for r in h.rows(_req("compliance"), "all")
+        if r["id"] == rid) == "closed")
+    ok("the register agrees",
        next(r["unacknowledged"] for r in bench.rows(them, "all")
             if r["employee_id"] == "E-1066") == 0)
     ok("it is on the trail under the item, with their name",
        any(e["kind"] == "acknowledged" and e["by"] == "enduser"
            for e in ledger.events()))
-    ok("and there is nothing left to acknowledge",
-       not bench.act(them, "acknowledge", ["E-1066"]).ok)
 
+    # The other door: a gift that never came through a request.
+    ok("somebody else cannot acknowledge a declared gift for them",
+       not bench.act(as_("compliance"), "acknowledge", ["E-1066"]).ok)
+    ok("and there is nothing left for them to acknowledge either",
+       not bench.act(them, "acknowledge", ["E-1066"]).ok)
 
 def _fin(user: str = "finance") -> Scope:
     return people.scope_for(user, registry.feature_of("scs", "finance")[1],
                             period="FY 2026-27")
 
 
-def _aud(user: str = "audit") -> Scope:
+def _aud(user: str = "compliance") -> Scope:
+    """Whoever reads the trail.
+
+    There is no `audit` login, deliberately: the business's own persona
+    sheet puts auditing with Leadership and Compliance, and inventing a
+    persona nobody in the firm holds would have been a role nobody could
+    be held to. Signed in as one, every row on this screen was empty and
+    the checks below passed for the wrong reason.
+    """
     return people.scope_for(user, registry.feature_of("scs", "audit")[1],
                             period="FY 2026-27")
 
@@ -2957,11 +3254,12 @@ def check_only_finance_records_the_treatment() -> None:
        not h.act(_fin(), "record_tax", ["E-1007"], "again").ok)
 
 
+
 def check_a_budget_counts_everything_that_left() -> None:
     """Committed, not approved — and not only what came through a request.
 
     The register predates the request flow and a declaration never had one.
-    Counting approvals alone showed a team ₹13,000 given against ₹0
+    Counting approvals alone showed a team \u20b913,000 given against \u20b90
     committed and a full budget remaining, which is a budget screen
     understating spend by every gift given before it existed.
     """
@@ -2976,27 +3274,26 @@ def check_a_budget_counts_everything_that_left() -> None:
         ok(f"{row['source']}: gifts given without a request are counted",
            row["committed"] >= row["not_requested"])
 
-    bengaluru = rows["Procurement · Bengaluru"]
+    bengaluru = rows["Procurement \u00b7 Bengaluru"]
     ok("a team that gave before the request flow existed shows that spend",
        bengaluru["not_requested"] > 0 and bengaluru["left"] < bengaluru["budget"],
        f"{bengaluru['not_requested']} / {bengaluru['left']}")
 
-    # Approving a request commits the money before it is handed over.
+    # Raising a request commits nothing; the first sign-off commits the money,
+    # which is the whole reason a budget holder reads this screen before the
+    # thing has been bought.
     req = registry.feature_of("scs", "requests")[2]
-    rid = req.submit(_req(), "request_gift", {
-        "recipient": "Vikram Rao", "what": "A hamper", "kind": "gift",
-        "value": "2000", "occasion": "festival",
-        "source": "Service line · Tax"}).touched[0]
-    before = next(r["left"] for r in h.rows(_fin(), "budgets")
-                  if r["source"] == "Service line · Tax")
-    ok("asking does not commit anything", before == next(
-        r["left"] for r in h.rows(_fin(), "budgets")
-        if r["source"] == "Service line · Tax"))
-    req.act(_req("admin"), "approve", [rid])
-    after = next(r["left"] for r in h.rows(_fin(), "budgets")
-                 if r["source"] == "Service line · Tax")
-    ok("approving it does", after == before - 2000, f"{before} -> {after}")
-
+    left = lambda: next(r["left"] for r in h.rows(_fin(), "budgets")
+                        if r["source"] == "Service line \u00b7 Tax")
+    before = left()
+    rid = _ask(what="A hamper", value="2000", source="Service line \u00b7 Tax")
+    ok("asking does not commit anything", left() == before, str(left()))
+    out = req.act(_req("servicelead"), "sign_off", [rid], "Fine by me.")
+    ok("the service line signing off does", out.ok and left() == before - 2000,
+       f"{out.said} {before} -> {left()}")
+    ok("and it stays committed once it is bought, not double counted",
+       not _walk(rid, upto="distribution") and left() == before - 2000,
+       str(left()))
 
 def check_audit_reads_and_cannot_write() -> None:
     """A function that could alter what it audits is not one."""
@@ -3016,13 +3313,15 @@ def check_audit_reads_and_cannot_write() -> None:
                       assistant.Proposal))
 
 
+
 def check_the_trail_reads_as_what_happened() -> None:
     _, _f, h = registry.feature_of("scs", "audit")
     bench = registry.feature_of("scs", "rewardlens")[2]
     req = registry.feature_of("scs", "requests")[2]
 
     bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
-    req.act(_req("admin"), "approve", ["R-SEED01"])
+    rid = _ask(what="Diwali hamper", value="3000")
+    req.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
 
     rows = h.rows(_aud(), "everything")
     ok("the newest is first",
@@ -3033,11 +3332,15 @@ def check_the_trail_reads_as_what_happened() -> None:
         ok(f"{row['id']}: and what they did", row["did"])
         break
 
-    approval = next(r for r in rows if r["did"] == "approved")
-    ok("an approval names what was approved",
-       "Diwali" in approval["what"], approval["what"])
-    ok("and carries the figure", "₹3,000" in approval["detail"],
-       approval["detail"])
+    signing = next(r for r in rows if r["did"] == "signed off")
+    ok("a sign-off names what was signed off",
+       "Diwali" in signing["what"], signing["what"])
+    ok("and says at which step, so one event kind reads as eight sentences",
+       "service line" in signing["detail"].lower(), signing["detail"])
+    ok("and carries the figure", "\u20b93,000" in signing["detail"],
+       signing["detail"])
+    ok("with the note the signer wrote",
+       "Business need" in signing["detail"], signing["detail"])
 
     referral = next(r for r in rows if r["did"] == "referred to Finance")
     ok("a referral names the person, not an id",
@@ -3045,10 +3348,191 @@ def check_the_trail_reads_as_what_happened() -> None:
 
     decisions = h.rows(_aud(), "decisions")
     ok("the decisions tab is only things somebody is answerable for",
-       all(r["kind"] in h.DECISIONS if hasattr(h, "DECISIONS") else True
-           for r in decisions) and len(decisions) <= len(rows))
-    ok("and it includes the approval and the referral",
-       {"approved", "referred to Finance"} <= {r["did"] for r in decisions})
+       all(r["kind"] in au_mod.DECISIONS for r in decisions)
+       and len(decisions) <= len(rows),
+       str({r["kind"] for r in decisions} - set(au_mod.DECISIONS)))
+    ok("and it includes the sign-off and the referral",
+       {"signed off", "referred to Finance"} <= {r["did"] for r in decisions})
+
+    trouble = _walk(rid)
+    ok("the rest of the chain runs", not trouble, str(trouble))
+    mine = [r for r in h.rows(_aud(), "everything") if rid in str(r["subject"])]
+    ok("every step of one order is on the trail, in order",
+       len([r for r in mine if r["did"] == "signed off"]) == 7,
+       str([r["detail"] for r in mine]))
+    ok("and the last thing that happened to it is that it closed",
+       any(r["did"] == "closed" for r in mine),
+       str([r["did"] for r in mine]))
+
+def check_an_order_has_its_own_report() -> None:
+    """The last thing the chain owes somebody: this one order, in full.
+
+    A screen-wide export answers "what is the position". At the end of an
+    order the question is "show me THIS one, and everything that happened
+    to it" — which is the half a screen cannot show, because a screen has
+    one row per order and this has one row per step.
+    """
+    from openpyxl import load_workbook
+
+    fn, feature, h = registry.feature_of("scs", "requests")
+    rid = _ask(what="Long service award", value="2500",
+               source="Service line \u00b7 Advisory")
+    trouble = _walk(rid)
+    ok("an order can be walked to the end", not trouble, str(trouble))
+
+    reader = _req("compliance")
+    book = export.one_row(fn, feature, h, reader, rid, asked_by="compliance")
+    ws = load_workbook(io.BytesIO(book))["Order"]
+    text = [[c.value for c in row] for row in ws.iter_rows()]
+    flat = " ".join(str(c) for row in text for c in row if c is not None)
+
+    ok("the report names the order", f"Order {rid}" in flat, flat[:120])
+    ok("and says who asked for it and when",
+       "Generated for" in flat and "compliance" in flat)
+    ok("it carries what was given", "Long service award" in flat)
+    ok("and to whom", "Vikram Rao" in flat)
+    ok("the value is a number, not a string, so a spreadsheet can total it",
+       any(c == 2500 for row in text for c in row), flat[:200])
+    ok("nothing internal to the handler leaks into it",
+       not any(str(c) in h.private for row in text for c in row),
+       str(h.private))
+
+    where = next(i for i, row in enumerate(text)
+                 if row and row[0] == "What happened")
+    steps = [r for r in text[where + 2:] if r[0] is not None]
+    # In the words the screen uses, not the keys the code uses. A workbook
+    # that says "signed_off" next to a screen that says "signed off" makes
+    # a reader wonder which of the two is the real record.
+    signed = [r for r in steps if r[2] == ledger.reads_as("signed_off")]
+    ok("every step of the chain is in it", len(signed) == 7, str(len(signed)))
+    ok("each one names who took it", all(r[1] for r in signed), str(signed[:2]))
+    ok("none of it is written in the code's own vocabulary",
+       not any("_" in str(c) for r in steps for c in r[2:4]),
+       str([r[2:4] for r in steps]))
+    ok("and which step it was, as the screen names it", [r[3] for r in signed]
+       == [gr_mod.stage_label(st) for st in
+           ("service_line", "finance_policy", "payroll_tax", "procurement",
+            "accounts_payable", "distribution", "acknowledgement")],
+       str([r[3] for r in signed]))
+    ok("in the order they happened",
+       [r[0] for r in signed] == sorted(r[0] for r in signed))
+    ok("and it ends with the order closing",
+       any(r[2] == ledger.reads_as("closed") for r in steps),
+       str([r[2] for r in steps]))
+
+    ok("every date in it is formatted as a date, not left as a serial",
+       all(c.number_format == "yyyy-mm-dd"
+           for row in ws.iter_rows() for c in row
+           if isinstance(c.value, dt.date) and not isinstance(c.value, dt.datetime)),
+       str([(c.coordinate, c.number_format) for row in ws.iter_rows()
+            for c in row if isinstance(c.value, dt.date)
+            and not isinstance(c.value, dt.datetime)
+            and c.number_format != "yyyy-mm-dd"]))
+
+    # Two reports from one screen landing on a disk as the same name is one
+    # report. So is this month's consolidated report and last month's.
+    one = export.filename(fn, feature, reader, rid)
+    whole = export.filename(fn, feature, reader)
+    march = export.filename(fn, feature, people.scope_for(
+        "compliance", feature, period="FY 2026-27",
+        since="2027-03-01", until="2027-03-31"))
+    april = export.filename(fn, feature, people.scope_for(
+        "compliance", feature, period="FY 2026-27",
+        since="2027-04-01", until="2027-04-30"))
+    ok("an order's report is not named like the whole screen's", one != whole,
+       f"{one} vs {whole}")
+    ok("and names the order it is about", rid.lower() in one, one)
+    ok("two windows of the same report are two files", march != april,
+       f"{march} vs {april}")
+    ok("and each says which window it is", "2027-03-01" in march, march)
+
+    ok("an order nobody can see has no report either",
+       _refuses(lambda: export.one_row(fn, feature, h, _req("enduser"),
+                                       "R-NOSUCH", asked_by="enduser")))
+
+
+def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
+    """The date a report is cut on is the day the recipient confirmed it.
+
+    Not when it was asked for, approved or bought. Those can be months
+    apart, and a report cut on the wrong one omits exactly the orders that
+    crossed the boundary — which is the report somebody takes to a board.
+    """
+    fn, feature, h = registry.feature_of("scs", "requests")
+    ok("the screen says which date its window is about",
+       feature.date_range == "acknowledged on", str(feature.date_range))
+
+    rid = _ask(what="Festival hamper", value="1200",
+               source="Service line \u00b7 Advisory")
+    ok("walking it to the end", not _walk(rid), "")
+
+    today = dt.date.today().isoformat()
+    before = (dt.date.today() - dt.timedelta(days=2)).isoformat()
+    after = (dt.date.today() + dt.timedelta(days=2)).isoformat()
+    closed = lambda **w: [r["id"] for r in h.rows(
+        people.scope_for("compliance", feature, period="FY 2026-27", **w),
+        "closed")]
+
+    ok("with no window, every closed order is there", rid in closed())
+    ok("a window that contains today contains it",
+       rid in closed(since=before, until=after))
+    ok("one that ends before today does not",
+       rid not in closed(since=before, until=before))
+    ok("nor one that starts after it",
+       rid not in closed(since=after, until=after))
+    ok("a window of exactly today does",
+       rid in closed(since=today, until=today))
+
+    row = next(r for r in h.rows(_req("compliance"), "closed")
+               if r["id"] == rid)
+    ok("and the row says the date it was cut on", row["acknowledged_on"] == today,
+       row["acknowledged_on"])
+
+    # The count above the table has to mean the table. It did not: the tab
+    # said "Closed 1" over "Nothing in this view", which teaches a reader
+    # that the counts on this screen are decorative.
+    def counted(**w):
+        inside = people.scope_for("compliance", feature, period="FY 2026-27", **w)
+        tab = next(t for t in h.tabs(inside) if t.key == "closed")
+        figure = next(f for f in h.figures(inside) if f.key == "closed")
+        return tab.count, int(figure.value), len(h.rows(inside, "closed"))
+
+    for label, window in (("with no window", {}),
+                          ("in a window that contains it",
+                           {"since": before, "until": after}),
+                          ("in one that does not", {"since": before,
+                                                    "until": before})):
+        tab, figure, rows = counted(**window)
+        ok(f"the tab, the figure and the rows agree {label}",
+           tab == figure == rows, f"tab {tab}, figure {figure}, rows {rows}")
+    ok("and the figure says so when it is counting a window",
+       "in this window" in next(
+           f.caption for f in h.figures(people.scope_for(
+               "compliance", feature, period="FY 2026-27",
+               since=before, until=after)) if f.key == "closed"))
+
+    # The thing being distinguished: an order waiting at the last step has
+    # no acknowledgement date, so it is in no window at all rather than
+    # silently falling in under the day it was requested.
+    waiting = _ask(what="Another hamper", value="1100",
+                   source="Service line \u00b7 Advisory")
+    _walk(waiting, upto="acknowledgement")
+    ok("an unacknowledged order is in no window",
+       waiting not in closed(since=before, until=after),
+       str(closed(since=before, until=after)))
+    ok("and is not in the closed list at all, because it is not closed",
+       waiting not in closed())
+    ok("it is still with the recipient",
+       next(r["with"] for r in h.rows(_req("compliance"), "all")
+            if r["id"] == waiting) == people.LABELS["employee"])
+
+    book = export.to_excel(fn, feature, h, people.scope_for(
+        "compliance", feature, period="FY 2026-27", since=before, until=after),
+        asked_by="compliance")
+    ok("the consolidated workbook builds for a window", len(book) > 4000,
+       str(len(book)))
+    ok("and says which window it was",
+       before in _flat(book) and after in _flat(book), _flat(book)[:200])
 
 
 def check_the_new_screens_are_for_their_people() -> None:
@@ -3057,12 +3541,14 @@ def check_the_new_screens_are_for_their_people() -> None:
 
     table = [
         ("finance", "firm", "firm"),
-        ("audit", "firm", "firm"),
-        ("compliance", "firm", "firm"),
+        ("payroll", "firm", "firm"),     # the tax logic is theirs to defend
+        ("compliance", "firm", "firm"),  # and the trail, per the sheet
         ("admin", "firm", "firm"),       # compliance + leadership
         ("servicelead", "none", "none"),
         ("enduser", "none", "none"),
         ("procurement", "none", "none"),
+        ("payments", "none", "none"),
+        ("requester", "none", "none"),
     ]
     for who, on_finance, on_audit in table:
         ok(f"{who}: sees Tax & budget at {on_finance}",
@@ -3171,7 +3657,10 @@ def _checks() -> int:
     with fixtures():
         check_the_trail_reads_as_what_happened()
     with fixtures():
-        check_the_new_screens_are_for_their_people()
+        check_an_order_has_its_own_report()
+    with fixtures():
+        check_the_consolidated_report_cuts_on_acknowledgement()
+    check_the_new_screens_are_for_their_people()
     with fixtures():
         check_nothing_reaches_the_register_until_it_is_given()
     with fixtures():
@@ -3183,7 +3672,11 @@ def _checks() -> int:
     with fixtures():
         check_nobody_approves_their_own()
     with fixtures():
-        check_only_procurement_moves_it_along()
+        check_each_stage_moves_only_for_its_own_persona()
+    with fixtures():
+        check_every_stage_reads_as_a_sentence()
+    with fixtures():
+        check_the_question_belongs_to_the_step()
     with fixtures():
         check_the_recipient_acknowledges_their_own()
     with fixtures():

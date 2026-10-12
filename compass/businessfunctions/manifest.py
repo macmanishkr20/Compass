@@ -317,6 +317,12 @@ class FeatureManifest(BaseModel):
     #: The sentence shown while a scope is still unchosen. Says why the screen
     #: is empty in this feature's own terms.
     scope_why: str = ""
+    #: When set, the screen offers a from/to date window and this is what
+    #: it is about — "acknowledged on". Declared rather than assumed,
+    #: because a date range over the wrong date is worse than none: a
+    #: consolidated report filtered by request date would quietly omit
+    #: everything requested in September and received in October.
+    date_range: str = ""
     #: How much of this screen each persona may see — {"firm": [...], ...}.
     #:
     #: Declared rather than coded because it is a claim about the firm: who

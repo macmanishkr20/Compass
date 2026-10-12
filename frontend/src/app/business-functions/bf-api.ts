@@ -153,10 +153,17 @@ export interface FeatureView {
   scope_why?: string;
   /** Which field in a row identifies it. The handler's answer, not a guess. */
   row_key?: string;
+  /** Fields a row carries for this screen to use, not for anybody to read.
+   *  The handler's list, so it cannot drift from the one the export uses. */
+  private?: string[];
   scope?: { entity: string; period: string };
   figures?: Figure[];
   tabs?: TabSpec[];
   tab?: string;
+  /** Which date this screen's window is about — "acknowledged on". Absent
+   *  when the screen has no window, which is most of them. */
+  date_range?: string;
+  window?: { since: string; until: string };
   rows?: Record<string, unknown>[];
   rules?: RuleSpec[];
   actions?: ActionSpec[];
@@ -213,7 +220,10 @@ export class BusinessFunctionsApi {
   feature(
     fnId: string,
     featureId: string,
-    scope: { entity?: string; period?: string; tab?: string } = {},
+    scope: {
+      entity?: string; period?: string; tab?: string;
+      since?: string; until?: string;
+    } = {},
   ): Promise<FeatureView> {
     return firstValueFrom(
       this.http.get<FeatureView>(
@@ -278,7 +288,12 @@ export class BusinessFunctionsApi {
   async workbook(
     fnId: string,
     featureId: string,
-    scope: { entity?: string; period?: string } = {},
+    scope: {
+      entity?: string; period?: string; since?: string; until?: string;
+      /** One row's id: this order and everything that happened to it,
+       *  rather than the screen. */
+      row?: string;
+    } = {},
   ): Promise<{ blob: Blob; filename: string }> {
     const response = await firstValueFrom(
       this.http.get(`${ROOT}/${fnId}/features/${featureId}/export.xlsx`, {

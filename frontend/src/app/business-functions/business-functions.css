@@ -318,6 +318,45 @@
   cursor: pointer;
 }
 
+/* The date window. Same shell as a scope selector, because it belongs in
+   the same row of controls — but its own inputs, since a native date field
+   brings a border and a background of its own that would sit inside another
+   one. Nothing here sets a colour the rest of the section does not already
+   use. */
+.bf-win { gap: 6px; }
+.bf-win input[type="date"] {
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-family: inherit;
+  font-size: 12.2px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+  min-width: 108px;
+}
+.bf-win .bf-wto {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+.bf-wclear {
+  border: 0;
+  background: transparent;
+  padding: 0 0 0 2px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+.bf-wclear:hover { color: var(--ink); }
+
 .bf-wait {
   margin: 18px 22px;
   padding: 15px 17px;
