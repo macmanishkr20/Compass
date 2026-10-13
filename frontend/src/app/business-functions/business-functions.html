@@ -265,89 +265,29 @@
                 <tbody>
                   @for (row of v.rows ?? []; track rowId(row)) {
                     <tr class="bf-row" [class.aimed]="isAimed(row)"
-                      [class.open]="expanded() === rowId(row)">
+                      [class.open]="viewing() === rowId(row)">
                       @for (c of columns(); track c.key) {
                         <td [class.num]="c.numeric">{{ cell(row, c.key) }}</td>
                       }
                       <td class="bf-actcol">
+                        <!-- One way in. The row is a summary; everything
+                             else about it \u2014 the rest of the record, what
+                             may be done to it, why \u2014 opens in a panel,
+                             rather than pushing the table apart under the
+                             line somebody was reading. -->
                         <button class="bf-more" type="button"
-                          [attr.aria-label]="expanded() === rowId(row) ? 'Hide detail' : 'Show detail'"
-                          (click)="toggleRow(rowId(row))">
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="2.2" aria-hidden="true"
-                            [style.transform]="expanded() === rowId(row) ? 'rotate(180deg)' : null"><path d="M6 9l6 6 6-6" stroke-linecap="round"/></svg>
+                          [attr.aria-label]="'Open ' + rowTitle(row)"
+                          [title]="'Open ' + rowTitle(row)"
+                          (click)="openRow(row)">
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                            <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                            <circle cx="12" cy="12" r="2.6"/>
+                          </svg>
                         </button>
                       </td>
                     </tr>
-                    @if (expanded() === rowId(row)) {
-                      <tr class="bf-detail">
-                        <td [attr.colspan]="columns().length + 1">
-                          <div class="bf-dwrap">
-                            <dl class="bf-kv">
-                              @for (d of details(row); track d.k) {
-                                <div><dt>{{ d.k }}</dt><dd>{{ d.v }}</dd></div>
-                              }
-                            </dl>
-                            <div class="bf-acts">
-                              @for (a of actionsFor(row); track a.id) {
-                                <button class="bf-btn" type="button"
-                                  [class.danger]="!a.reversible" [title]="a.confirm"
-                                  (click)="rowAct(a, row)">{{ a.label }}</button>
-                              }
-                              <!-- A form opened from the row: answering what
-                                   somebody asked about it. -->
-                              @for (f of formsFor(row); track f.id) {
-                                <button class="bf-btn" type="button"
-                                  [class.on]="formOn(row)?.id === f.id"
-                                  (click)="startForm(f, row)">{{ f.label }}</button>
-                              }
-                              <!-- This one order, with every step that was
-                                   taken on it. The screen has one line per
-                                   order; this has one line per step, which
-                                   is the half somebody asking about an order
-                                   actually wants. -->
-                              @if (v.date_range) {
-                                <button class="bf-btn" type="button"
-                                  [disabled]="exporting()"
-                                  title="This order and everything that happened to it, as a workbook"
-                                  (click)="download(rowId(row))">{{
-                                    exportingRow() === rowId(row)
-                                      ? 'Preparing…' : 'Order report' }}</button>
-                              }
-                              @if (!actionsFor(row).length && !formsFor(row).length) {
-                                <span class="bf-none">Nothing to decide on this one.</span>
-                              }
-                            </div>
-                            @if (formOn(row); as form) {
-                              <ng-container
-                                *ngTemplateOutlet="formPanel; context: {$implicit: form}" />
-                            }
-                            <!-- A decision that goes on an audit trail says
-                                 why. Asked here, where the decision is made,
-                                 and written by the person making it. -->
-                            @for (a of actionsFor(row); track a.id) {
-                              @if (isAsking(a, row)) {
-                                <div class="bf-why">
-                                  <label>
-                                    <span>{{ asks(a, row) }}</span>
-                                    <textarea rows="2" [ngModel]="reason()"
-                                      (ngModelChange)="reason.set($event)"></textarea>
-                                  </label>
-                                  <div class="bf-acts">
-                                    <button class="bf-btn" type="button"
-                                      [class.danger]="!a.reversible"
-                                      [disabled]="!reason().trim()"
-                                      (click)="rowAct(a, row, reason())">{{ a.label }}</button>
-                                    <button class="bf-btn quiet" type="button"
-                                      (click)="dropReason()">Cancel</button>
-                                  </div>
-                                </div>
-                              }
-                            }
-                          </div>
-                        </td>
-                      </tr>
-                    }
                   }
                 </tbody>
               </table>
@@ -355,6 +295,103 @@
               <p class="bf-clear">Nothing in this view.</p>
             }
           </div>
+
+          <!-- ── one row, opened ──────────────────────────────────────
+               The whole record, what may be done to it, and the reason
+               a decision needs \u2014 in one place, over the table rather
+               than inside it. The backdrop closes it, so does Escape,
+               and so does a decision going through. -->
+          @if (viewed(); as row) {
+            <div class="bf-sheetwrap" (click)="closeRow()">
+              <section class="bf-sheet" role="dialog" aria-modal="true"
+                [attr.aria-label]="rowTitle(row)" (click)="$event.stopPropagation()">
+                <header class="bf-sheethd">
+                  <div>
+                    <h3>{{ rowTitle(row) }}</h3>
+                    @if (row['status']) {
+                      <span class="bf-sheetst">{{ row['status'] }}</span>
+                    }
+                  </div>
+                  <button class="bf-sheetx" type="button" aria-label="Close"
+                    (click)="closeRow()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                </header>
+
+                <div class="bf-sheetbd">
+                  <dl class="bf-kv">
+                    @for (d of fullDetails(row); track d.k) {
+                      <div><dt>{{ d.k }}</dt><dd>{{ d.v }}</dd></div>
+                    }
+                  </dl>
+
+                  <!-- A decision that goes on an audit trail says why, and
+                       the question is the one this step asks. -->
+                  @for (a of actionsFor(row); track a.id) {
+                    @if (isAsking(a, row)) {
+                      <div class="bf-why">
+                        <label>
+                          <span>{{ asks(a, row) }}</span>
+                          <textarea rows="3" [ngModel]="reason()"
+                            (ngModelChange)="reason.set($event)"></textarea>
+                        </label>
+                      </div>
+                    }
+                  }
+
+                  @if (formOn(row); as form) {
+                    <ng-container
+                      *ngTemplateOutlet="formPanel; context: {$implicit: form}" />
+                  }
+                </div>
+
+                <footer class="bf-sheetft">
+                  @if (asking(); as ask) {
+                    <button class="bf-btn quiet" type="button"
+                      (click)="dropReason()">Cancel</button>
+                    <button class="bf-btn primary" type="button"
+                      [disabled]="!reason().trim()"
+                      (click)="rowAct(ask.action, row, reason())">{{
+                        ask.action.label }}</button>
+                  } @else {
+                    @if (v.date_range) {
+                      <button class="bf-btn quiet" type="button"
+                        [disabled]="exporting()"
+                        title="This one order and everything that happened to it, as a workbook"
+                        (click)="download(rowId(row))">{{
+                          exportingRow() === rowId(row)
+                            ? 'Preparing\u2026' : 'Order report' }}</button>
+                    }
+                    @for (f of formsFor(row); track f.id) {
+                      <button class="bf-btn quiet" type="button"
+                        [class.on]="formOn(row)?.id === f.id"
+                        (click)="startForm(f, row)">{{ f.label }}</button>
+                    }
+                    <span class="bf-sheetgap"></span>
+                    <!-- The first action a feature declares for a row is
+                         the one it is FOR \u2014 signing off, accepting,
+                         approving. It reads as the primary; the rest keep
+                         the irreversible marking and sit beside it, so the
+                         forward move and the one that stops it are not two
+                         identical red buttons. -->
+                    @for (a of actionsFor(row); track a.id; let first = $first) {
+                      <button class="bf-btn" type="button"
+                        [class.primary]="first"
+                        [class.danger]="!first && !a.reversible"
+                        [title]="a.confirm"
+                        (click)="rowAct(a, row)">{{ a.label }}</button>
+                    }
+                    @if (!actionsFor(row).length) {
+                      <span class="bf-none">Nothing to decide on this one.</span>
+                    }
+                  }
+                </footer>
+              </section>
+            </div>
+          }
         }
       </div>
     }

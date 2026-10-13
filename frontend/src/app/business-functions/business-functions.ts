@@ -69,6 +69,10 @@ interface RailTurn {
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './business-functions.html',
   styleUrl: './business-functions.css',
+  // Escape closes the open row wherever focus has got to inside it. Bound
+  // on the host rather than the dialog, because the dialog's own children
+  // take focus and a keydown on a textarea would otherwise never reach it.
+  host: { '(document:keydown.escape)': 'closeRow()' },
 })
 export class BusinessFunctions {
   private readonly api = inject(BusinessFunctionsApi);
@@ -260,10 +264,27 @@ export class BusinessFunctions {
 
   // ── the table ───────────────────────────────────────────────────────────
 
-  readonly expanded = signal<string | null>(null);
+  // -- the row somebody has opened, by id rather than by value. Holding the
+  //    id means the panel re-reads the row after every refresh, so a stage
+  //    that moved while the panel was open shows its new state instead of
+  //    the copy that was captured when it opened.
+  readonly viewing = signal<string | null>(null);
 
-  toggleRow(id: string): void {
-    this.expanded.update((open) => (open === id ? null : id));
+  /** The row being looked at, as it stands now, or null. */
+  readonly viewed = computed(() => {
+    const id = this.viewing();
+    if (!id) return null;
+    return (this.feature()?.rows ?? []).find((r) => this.rowId(r) === id) ?? null;
+  });
+
+  openRow(row: Record<string, unknown>): void {
+    this.dropReason();
+    this.viewing.set(this.rowId(row));
+  }
+
+  closeRow(): void {
+    this.dropReason();
+    this.viewing.set(null);
   }
 
   /** The id a row is known by, which differs per feature. */
@@ -334,8 +355,15 @@ export class BusinessFunctions {
         action: action.id, targets: [id], note, ...this.scope(),
       });
       this.dropReason();
-      if (out.ok) this.notice.ok(out.said);
-      else this.notice.error(out.said);
+      // A decision that went through is finished with: the panel closes and
+      // the table behind it is what answers "did that work". One that was
+      // refused leaves the panel open, because the person is not done.
+      if (out.ok) {
+        this.viewing.set(null);
+        this.notice.ok(out.said);
+      } else {
+        this.notice.error(out.said);
+      }
       await this.refresh();
       this.say(out.said);
     } catch (err) {
@@ -822,7 +850,7 @@ export class BusinessFunctions {
         { key: 'recipient', label: 'For' },
         { key: 'what', label: 'What' },
         { key: 'value', label: 'Value', numeric: true },
-        { key: 'occasion', label: 'Why' },
+        { key: 'occasion', label: 'Occasion' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
         { key: 'budget', label: 'Budget' },
@@ -917,6 +945,40 @@ export class BusinessFunctions {
   /** The detail rows under an expanded line. Whatever the row carries that the
    *  table did not show — so a new field on the server appears without a
    *  frontend change. */
+  /** Everything worth reading about one row, for the panel.
+   *
+   *  The table's own columns first — the panel covers the table, so a
+   *  reader who opened a row should not have to close it to see the value
+   *  they were looking at — then whatever else the row carries. */
+  fullDetails(row: Record<string, unknown>): { k: string; v: string }[] {
+    // Not what the heading already says, not the status (it is the chip),
+    // and nothing empty — a panel listing six fields as "—" buries the two
+    // that have an answer.
+    const said = new Set([...this.titleKeys(row), 'status']);
+    const shown = this.columns()
+      .filter((c) => !said.has(c.key) && this.cell(row, c.key) !== '\u2014')
+      .map((c) => ({ k: c.label, v: this.cell(row, c.key) }));
+    return [...shown, ...this.details(row)]
+      .filter((d) => d.v && d.v !== '\u2014');
+  }
+
+  /** The heading of the panel: the row under the first column that has one. */
+  rowTitle(row: Record<string, unknown>): string {
+    const named = this.titleKeys(row).map((k) => this.cell(row, k));
+    return named.join(' \u00b7 ') || this.rowId(row);
+  }
+
+  /** The columns the panel's heading already says, so the body can skip
+   *  them. Two at most: one is often just a name, and a heading that reads
+   *  "Vikram Rao" does not say which of his four orders you opened. */
+  private titleKeys(row: Record<string, unknown>): string[] {
+    return this.columns()
+      .filter((c) => !c.numeric && c.key !== 'status'
+        && this.cell(row, c.key) !== '\u2014')
+      .slice(0, 2)
+      .map((c) => c.key);
+  }
+
   details(row: Record<string, unknown>): { k: string; v: string }[] {
     const shown = new Set(this.columns().map((c) => c.key));
     // What the handler says is for this screen's machinery rather than for

@@ -963,9 +963,14 @@ def check_every_feature_can_be_named() -> None:
     for fn in registry.all_functions():
         for feat in fn.features:
             h = features.get(feat.handler)
-            s = Scope(user="compliance",
-                      entity="Acme Manufacturing" if "entity" in feat.scope else None,
-                      period="FY 2026-27" if "period" in feat.scope else None)
+            # Built the way a route builds it, so the scope carries real
+            # roles. A bare `Scope(user=...)` has none, and a feature that
+            # narrows by what concerns the reader then returns nothing —
+            # the check would be measuring an empty screen.
+            s = people.scope_for(
+                "compliance", feat,
+                entity="Acme Manufacturing" if "entity" in feat.scope else "",
+                period="FY 2026-27" if "period" in feat.scope else "")
             tabs = h.tabs(s)
             rows = h.rows(s, tabs[0].key) if tabs else []
             # Every tab, not only the first: one feature here has three
@@ -2863,7 +2868,14 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
     out = h.act(_req("servicelead"), "sign_off", [rid], "Thirty years' service.")
     ok("and the sign-off records that they knew",
        out.ok and "knowing" in out.said, out.said)
-    ok("it is still said at every later stage",
+    # The warning travels with the request, so the desk holding it sees it
+    # whichever desk that is. Payroll cannot see it yet — it is not theirs
+    # until Finance has passed it on, which is the point of the queue.
+    ok("a later desk cannot see it while it is not theirs",
+       not any(r["id"] == rid for r in h.rows(_req("payroll"), "all")),
+       "payroll can see an order still at the service line")
+    h.act(_req("finance"), "sign_off", [rid], "Within policy.")
+    ok("and sees it, warning and all, once it reaches them",
        "over" in next(r["tax"] for r in h.rows(_req("payroll"), "waiting")
                       if r["id"] == rid))
 
@@ -2926,14 +2938,15 @@ def check_nobody_approves_their_own() -> None:
     ok("the other approver for that persona can", "sign_off" in next(
         r for r in h.rows(_req("leadtwo"), "waiting")
         if r["id"] == mine)["can"])
-    ok("and somebody from a later stage still cannot — it is not their step",
-       "sign_off" not in next(r for r in h.rows(_req("payroll"), "waiting")
-                              if r["id"] == mine)["can"])
+    # Stronger than "no button": a later desk does not have the row at all
+    # while it is not theirs.
+    ok("and a later stage cannot even see it yet",
+       not any(r["id"] == mine for r in h.rows(_req("payroll"), "all")))
 
     for_me = _ask(by="servicelead", recipient="Aisha Khan", what="A watch",
                   value="2000", occasion="performance", source="People team")
     ok("a gift to you is not yours to sign off either",
-       "sign_off" not in next(r for r in h.rows(_req("admin"), "waiting")
+       "sign_off" not in next(r for r in h.rows(_req("admin"), "all")
                               if r["id"] == for_me)["can"])
     ok("you cannot even ask for one for yourself",
        "cannot be approved" in h.preview(_req("admin"), "request_gift", {
@@ -2967,10 +2980,19 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
         ok(f"{label}: nobody else can sign it off",
            len(refused) == len(outsiders),
            str([w for w in outsiders if w not in refused]))
-        ok(f"{label}: and the refusal says whose it is",
-           all(label in h.act(_req(w), "sign_off", [rid], "x").said.lower()
-               for w in outsiders[:3]),
-           h.act(_req(outsiders[0]), "sign_off", [rid], "x").said)
+        # Two shapes of refusal, and which one you get is itself the rule.
+        # A desk that has already acted on this order still sees it, so it
+        # is told whose desk it is on now. One that has never touched it
+        # does not have the row at all, and is told only that — nothing
+        # about an order that is none of their business.
+        for w in outsiders[:4]:
+            said = h.act(_req(w), "sign_off", [rid], "x").said
+            involved = any(r["id"] == rid for r in h.rows(_req(w), "all"))
+            ok(f"{label}: {w} is refused, "
+               + ("and told whose it is" if involved
+                  else "without being told about it"),
+               (label in said.lower()) if involved else ("in this view" in said),
+               said)
         # Only the sign-off, because the person who RAISED it keeps a
         # withdraw button at the early stages and that is not a step in the
         # chain. Asserting "no outsider has any button" said that it was
@@ -3212,6 +3234,108 @@ def check_the_last_two_steps_only_go_forward() -> None:
                                "procurement", "accounts_payable"},
        str(sorted(declines.roles)))
     ok("and the recipient is not among them", "employee" not in declines.roles)
+
+
+def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
+    """A full stop is not a different person.
+
+    The directory holds "Manish K."; somebody types "Manish K" and the whole
+    form was refused with "Compass does not know anybody called that" — a
+    dead end that also did not say who it DID know, turning a typed name
+    into a guessing game.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    asking = _req()
+    base = {"what": "A hamper", "kind": "gift", "value": "1500",
+            "occasion": "performance", "source": "Service line \u00b7 Advisory"}
+
+    for typed in ("Manish K.", "Manish K", "manish k", "MANISH  K",
+                  "  Manish K.  "):
+        ok(f"{typed!r} finds the same person",
+           gr_mod._employee_named(typed) == "E-1041",
+           gr_mod._employee_named(typed))
+    ok("and so does a name the register holds but the directory does not",
+       gr_mod._employee_named("John Mathew") == "E-1007",
+       gr_mod._employee_named("John Mathew"))
+    ok("a name nobody has still finds nobody",
+       not gr_mod._employee_named("Jon Smith"))
+    ok("and neither does an empty one", not gr_mod._employee_named("   "))
+
+    said = h.preview(asking, "request_gift",
+                     dict(base, recipient="Manish K")).said
+    ok("the form accepts the name as typed", "does not know" not in said, said)
+
+    said = h.preview(asking, "request_gift",
+                     dict(base, recipient="Jon Smith")).said
+    ok("an unknown name is still refused", "does not know" in said, said)
+    ok("but the refusal says who Compass does know",
+       all(n in said for n in ("Manish K.", "Vikram Rao", "Aisha Khan")), said)
+
+    said = h.preview(asking, "request_gift",
+                     dict(base, recipient="Vikr")).said
+    ok("a near miss is offered as a suggestion",
+       "Did you mean" in said and "Vikram Rao" in said, said)
+
+    said = h.preview(asking, "request_gift", dict(base, recipient="  ")).said
+    ok("a blank one asks for a name rather than quoting nothing back",
+       "Say who it is for" in said and "''" not in said, said)
+
+
+def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
+    """An order at the service line is not Finance's business yet.
+
+    Every chain persona had firm breadth, so each one opened the screen
+    onto every request in the company — a queue nobody could read. Breadth
+    says how much of the firm somebody MAY see; this says which of it is
+    theirs.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    sees = lambda u: {r["id"] for r in h.rows(_req(u), "all")}
+
+    rid = _ask(what="A hamper", value="1200", source="People team")
+
+    ok("the desk it is with sees it", rid in sees("servicelead"))
+    for later in ("finance", "payroll", "procurement", "payments"):
+        ok(f"{later} cannot see it while it is not theirs",
+           rid not in sees(later))
+    ok("the person who raised it keeps sight of it", rid in sees("requester"))
+    ok("the recipient sees their own", rid in sees("enduser"))
+    ok("leadership sees all of it, which is their job",
+       rid in sees("compliance") and rid in sees("admin"))
+
+    # It moves on. The desk that signed it off keeps it; the one it has
+    # now gains it; the ones still ahead of it do not have it yet.
+    h.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
+    ok("once signed off, the desk that acted keeps it",
+       rid in sees("servicelead"))
+    ok("and the desk it moved to now has it", rid in sees("finance"))
+    for ahead in ("payroll", "procurement", "payments"):
+        ok(f"{ahead} still cannot see it", rid not in sees(ahead))
+
+    # ...all the way to the end, and what each desk is left holding.
+    trouble = _walk(rid)
+    ok("the chain still runs end to end", not trouble, str(trouble))
+    for touched in ("servicelead", "finance", "payroll", "procurement",
+                    "payments", "requester"):
+        ok(f"{touched} can still see the closed order it worked on",
+           rid in sees(touched))
+        ok(f"and it is on {touched}'s closed tab",
+           any(r["id"] == rid for r in h.rows(_req(touched), "closed")))
+    ok("so the order report is reachable by every desk that touched it",
+       all(rid in sees(u) for u in ("finance", "payroll", "procurement")))
+
+    # A second order nobody but the first desk has touched stays invisible.
+    other = _ask(what="Another hamper", value="1100", source="People team")
+    ok("a desk is not shown an order it has never been near",
+       other not in sees("payroll") and other not in sees("payments"))
+    ok("while its own queue still holds what is waiting on it",
+       other in sees("servicelead"))
+
+    # The queue a person opens on is their own work, not the firm's.
+    firm = len(sees("compliance"))
+    desk = len(sees("payments"))
+    ok("so a desk's screen is shorter than leadership's", desk < firm,
+       f"payments {desk} vs compliance {firm}")
 
 
 def check_the_question_belongs_to_the_step() -> None:
@@ -3834,6 +3958,10 @@ def _checks() -> int:
     check_anybody_can_raise_one_and_it_still_reaches_the_end()
     with fixtures():
         check_every_stage_reads_as_a_sentence()
+    with fixtures():
+        check_a_desk_sees_its_own_work_and_not_the_firms()
+    with fixtures():
+        check_a_recipient_is_found_by_the_name_a_person_types()
     with fixtures():
         check_the_question_belongs_to_the_step()
     with fixtures():

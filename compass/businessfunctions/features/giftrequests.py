@@ -400,6 +400,46 @@ def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
 # rows
 # ──────────────────────────────────────────────────────────────────────────
 
+def _plain(name: str) -> str:
+    """A name reduced to what somebody typing it would get right.
+
+    Case, punctuation and runs of spaces all go. The directory holds
+    "Manish K." and a person types "Manish K", which matched nothing and
+    refused the whole form — a full stop is not a different person.
+    """
+    return " ".join("".join(c for c in name if c.isalnum() or c.isspace()).split()).lower()
+
+
+def _employee_named(name: str) -> str:
+    """The employee id for a name as somebody typed it, or "".
+
+    The directory first, then the register — somebody may have declared a
+    gift for a person the directory does not carry, and they are still a
+    person a later gift can be recorded against.
+    """
+    wanted = _plain(name)
+    if not wanted:
+        return ""
+    for person in people.DIRECTORY.values():
+        if person.employee_id and _plain(person.name) == wanted:
+            return person.employee_id
+    for item in ledger.items():
+        if _plain(item["recipient"]) == wanted:
+            return item["employee_id"]
+    return ""
+
+
+def _known_names() -> list[str]:
+    """Everybody a gift can be recorded against, as they are spelled."""
+    seen: dict[str, str] = {}
+    for person in people.DIRECTORY.values():
+        if person.employee_id:
+            seen.setdefault(_plain(person.name), person.name)
+    for item in ledger.items():
+        seen.setdefault(_plain(item["recipient"]), item["recipient"])
+    return sorted(seen.values())
+
+
 def _name_of(employee_id: str) -> str:
     for person in people.DIRECTORY.values():
         if person.employee_id == employee_id:
@@ -474,7 +514,47 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
     # Whatever is with somebody comes before whatever is finished, and the
     # oldest first inside that — a queue, not a list.
     out.sort(key=lambda r: (r["stage"] in ENDED, r["steps_done"], -r["value"]))
-    return scope.narrow(out, person_key=("employee_id", "by_employee"))
+    out = scope.narrow(out, person_key=("employee_id", "by_employee"))
+    return [r for r in out if _concerns(scope, r)]
+
+
+#: Who reads this screen as a POSITION rather than as a queue. Everybody
+#: else is a desk in the chain and sees their own work; these two personas
+#: exist to see all of it, which is what the dashboard and the trail are.
+SEES_EVERYTHING = frozenset({"compliance", "leadership"})
+
+
+def _concerns(scope: Scope, row: dict[str, Any]) -> bool:
+    """Whether this request is any of this person's business.
+
+    Breadth says how much of the firm somebody may see; this says which of
+    it is theirs. Every desk in the chain had firm breadth, so Finance
+    opened the screen onto every request in the company including the ones
+    sitting untouched at the service line — a queue nobody could read.
+
+    A desk sees a request when:
+
+      * it is AT a stage they own — their queue;
+      * they RAISED it — you do not lose sight of your own request because
+        it moved to somebody else's desk;
+      * it is FOR them — the recipient's own gift;
+      * they have ALREADY ACTED on it — so what a desk approved last month
+        stays on its Closed tab, in its consolidated report and in the
+        order report, and a sign-off is not a thing that vanishes.
+
+    Leadership and Compliance see all of it: reading the whole position is
+    the job, not an accident of breadth.
+    """
+    if SEES_EVERYTHING & scope.roles:
+        return True
+    owner = STAGES.get(row["stage"], {}).get("owner")
+    if owner and owner in scope.roles:
+        return True
+    if row["requested_by"] == scope.user:
+        return True
+    if scope.mine(row["employee_id"]):
+        return True
+    return any(e.get("by") == scope.user for e in ledger.events(row["id"]))
 
 
 def _my_step(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -810,17 +890,23 @@ class GiftRequests(Feature):
             return None, Outcome(ok=False, said=f"{scope.period} has been "
                                                 f"signed off.")
         recipient = values.get("recipient", "").strip()
-        employee = next((p.employee_id for p in people.DIRECTORY.values()
-                         if p.name.lower() == recipient.lower()
-                         and p.employee_id), "")
+        employee = _employee_named(recipient)
         if not employee:
-            employee = next((i["employee_id"] for i in ledger.items()
-                             if i["recipient"].lower() == recipient.lower()), "")
-        if not employee:
+            # Say who it DOES know. A refusal that only says no turns a
+            # typed name into a guessing game, and the thing it most often
+            # catches is punctuation: "Manish K" against "Manish K.".
+            known = _known_names()
+            near = [n for n in known if _plain(n).startswith(_plain(recipient)[:3])
+                    and _plain(recipient)] if recipient else []
             return None, Outcome(
                 ok=False,
-                said=f"Compass does not know anybody called {recipient!r}. "
-                     f"A gift has to be recorded against somebody.")
+                said=(f"Compass does not know anybody called {recipient!r}. "
+                      + (f"Did you mean {' or '.join(repr(n) for n in near[:3])}? "
+                         if near else "")
+                      + f"A gift has to be recorded against somebody, and "
+                        f"Compass knows: {', '.join(known)}.")
+                if recipient else
+                "Say who it is for. A gift has to be recorded against somebody.")
 
         kind = values.get("kind", "").strip().lower()
         if kind not in KINDS:
