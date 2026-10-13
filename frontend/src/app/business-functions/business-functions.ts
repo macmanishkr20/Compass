@@ -654,20 +654,20 @@ export class BusinessFunctions {
     this.draft.set('');
     this.turns.update((t) => [...t, { who: 'you', text: question }]);
 
-    // At the overview there is no feature to ask about yet. Said plainly
-    // rather than silently doing nothing, because the composer is there.
-    if (!this.featureId()) {
-      this.say(`Open a feature and I will follow you in — then I can read what is on screen and act on it.`);
-      return;
-    }
-
     this.thinking.set(true);
     try {
-      const result = await this.api.ask(fn.id, this.featureId(), {
-        // The tab too: "that one" means a row they can see, and which rows
-        // those are depends on which view is open.
-        text: question, tab: this.feature()?.tab ?? '', ...this.scope(),
-      });
+      // At the overview the question is about the whole function, so it is
+      // answered from every screen the asker can see. Inside one, it is
+      // answered from that screen and can still become a plan. Telling
+      // somebody to go somewhere else was a true description of what this
+      // could do and a useless answer to "how many people received a gift".
+      const result = this.featureId()
+        ? await this.api.ask(fn.id, this.featureId(), {
+            // The tab too: "that one" means a row they can see, and which
+            // rows those are depends on which view is open.
+            text: question, tab: this.feature()?.tab ?? '', ...this.scope(),
+          })
+        : await this.api.askFunction(fn.id, { text: question, ...this.scope() });
       this.render(result);
     } catch (err) {
       this.say(`I could not read that: ${err}`);

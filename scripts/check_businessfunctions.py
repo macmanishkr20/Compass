@@ -41,6 +41,7 @@ logging.disable(logging.WARNING)
 
 from compass.businessfunctions import (  # noqa: E402
     assistant,
+    chat,
     policy,
     export,
     features,
@@ -639,6 +640,7 @@ def check_the_routes_are_mounted_only_when_switched_on() -> None:
            feature,
            f"{feature}/act",
            f"{feature}/ask",
+           f"{root}/{{function_id}}/ask",
            f"{feature}/export.xlsx",
            f"{feature}/report",
            f"{feature}/report/send",
@@ -3309,6 +3311,88 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
        "Say who it is for" in said and "''" not in said, said)
 
 
+def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
+    """A model may phrase, and may not see past the person asking.
+
+    The brief is the ONLY thing the model is given, so whatever it can say
+    is bounded by what is in there. That makes the brief the security
+    boundary, and it is built through each reader's own scope.
+    """
+    everything = chat.brief("scs", "compliance", period="FY 2026-27")
+    ok("leadership's brief carries every screen",
+       {s["screen"] for s in everything["screens"]}
+       == {"Gift oversight", "Audit trail", "Tax & budget", "Gift requests",
+           "RewardLens"},
+       str([s["screen"] for s in everything["screens"]]))
+
+    theirs = chat.brief("scs", "enduser", period="FY 2026-27")
+    shown = {s["screen"] for s in theirs["screens"]}
+    ok("an employee's brief carries only their own screens",
+       shown == {"Gift requests", "RewardLens"}, str(sorted(shown)))
+    ok("so the oversight screens are not in it",
+       not {"Gift oversight", "Tax & budget", "Audit trail"} & shown)
+
+    # The sharper test: the register at self breadth is one row, so a
+    # question about colleagues has nothing to answer from.
+    register = next(s for s in theirs["screens"] if s["screen"] == "RewardLens")
+    rows = [r for v in register["views"] for r in v["rows"]]
+    mine = people.employee_of("enduser")
+    ok("and that screen holds only their own row",
+       all(r.get("employee_id", mine) == mine for r in rows),
+       str({r.get("employee_id") for r in rows}))
+
+    everybody = next(s for s in everything["screens"]
+                     if s["screen"] == "RewardLens")
+    ok("while leadership's holds the firm's",
+       len([r for v in everybody["views"] for r in v["rows"]]) > len(rows))
+
+    ok("a stranger gets nothing to answer from",
+       not chat.brief("scs", "stranger", period="FY 2026-27")["screens"])
+
+    # Nothing in the brief is the handler's own machinery.
+    for screen in everything["screens"]:
+        for view in screen.get("views", []):
+            for row in view["rows"]:
+                ok(f"{screen['screen']}: no private field reaches the model",
+                   not ({"can", "blocked", "warns", "stage", "ask"} & set(row)),
+                   str(sorted(set(row) & {"can", "blocked", "warns", "stage"})))
+                break
+            break
+
+
+def check_the_assistant_cannot_act() -> None:
+    """The answering agent reads. Acting stays with the proposal path.
+
+    Two agents on purpose: `assistant.interpret` turns a sentence into a
+    PROPOSAL somebody confirms, and its safety argument is that a model
+    never picks rows and never performs. `chat` was added beside it rather
+    than inside it, so that argument is untouched.
+    """
+    import inspect
+
+    source = inspect.getsource(chat)
+    for forbidden in (".act(", ".submit(", "confirm(", "ledger.add_",
+                      "replace_all", ".flush("):
+        ok(f"the answering agent never calls {forbidden}",
+           forbidden not in source, forbidden)
+
+    ok("and it holds no proposals",
+       not hasattr(chat, "Proposal") and not hasattr(chat, "confirm"))
+    ok("while the rail still does",
+       hasattr(assistant, "Proposal") and hasattr(assistant, "confirm"))
+
+    # The function-level route answers; it never returns a plan.
+    c = _client()
+    r = c.post("/v1/business-functions/scs/ask",
+               json={"text": "approve everything", "period": "FY 2026-27"})
+    ok("the overview route answers rather than proposing",
+       r.status_code == 200 and r.json()["kind"] == "answer",
+       f"{r.status_code} {r.text[:120]}")
+    ok("an unknown function is still a 404",
+       c.post("/v1/business-functions/nope/ask",
+              json={"text": "hello"}).status_code == 404)
+
+
 def check_only_the_administrator_moves_a_threshold() -> None:
     """The rule every other persona is judged by is not theirs to move."""
     _, feat, h = registry.feature_of("scs", "finance")
@@ -4203,6 +4287,10 @@ def _checks() -> int:
     check_anybody_can_raise_one_and_it_still_reaches_the_end()
     with fixtures():
         check_every_stage_reads_as_a_sentence()
+    with fixtures():
+        check_the_assistant_answers_from_what_the_reader_may_see()
+    with fixtures():
+        check_the_assistant_cannot_act()
     with fixtures():
         check_only_the_administrator_moves_a_threshold()
     with fixtures():

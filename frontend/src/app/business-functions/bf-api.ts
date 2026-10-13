@@ -232,6 +232,18 @@ export class BusinessFunctionsApi {
     );
   }
 
+  /** A question about the whole function, answered from every screen the
+   *  asker can see. Reads only: there is no plan from here, because an
+   *  action belongs to the row it is about. */
+  askFunction(
+    fnId: string,
+    body: { text: string; entity?: string; period?: string },
+  ): Promise<AskResult> {
+    return firstValueFrom(
+      this.http.post<AskResult>(`${ROOT}/${fnId}/ask`, body),
+    );
+  }
+
   /** A row button. The click was the confirmation, so there is no plan. */
   act(
     fnId: string,

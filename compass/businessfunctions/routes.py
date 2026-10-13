@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from compass.businessfunctions import (
     assistant,
+    chat,
     export,
     ledger,
     notices,
@@ -706,7 +707,41 @@ async def ask(
             "text": result.text,
             "options": [{"id": t.id, "label": t.label} for t in result.options],
         }
-    return {"kind": "answer", "text": result.text, "facts": result.facts}
+    # The rail resolved it without changing anything; a model turns the
+    # facts into a sentence. The facts are gathered BEFORE the model sees
+    # them and are carried back unchanged, so phrasing cannot invent a
+    # figure that was never in the data.
+    said = await chat.answer(fn.id, user, body.text, entity=body.entity,
+                             period=body.period, only=feature.id)
+    return {"kind": "answer", "text": said or result.text,
+            "facts": result.facts}
+
+
+@router.post("/{function_id}/ask")
+async def ask_function(
+    function_id: str,
+    body: AskBody,
+    user: str = Depends(require_user),
+) -> dict:
+    """A question about the whole function. Reads; never changes anything.
+
+    The rail at the overview used to answer every sentence with "open a
+    feature and I will follow you in", which is a true description of what
+    it could do and a useless answer to "how many people received a gift".
+    A question that spans the screens is answered from the screens, through
+    the asker's own scope.
+
+    Deliberately NOT the proposal path: there is no plan and no confirm
+    here, because an action belongs to the row it is about. Asking for one
+    from the overview gets a sentence saying so.
+    """
+    await _ready()
+    fn = registry.get(function_id)
+    if fn is None:
+        raise HTTPException(404, f"No business function called {function_id!r}.")
+    said = await chat.answer(fn.id, user, body.text, entity=body.entity,
+                             period=body.period)
+    return {"kind": "answer", "text": said, "facts": {}}
 
 
 class PlanBody(BaseModel):
