@@ -29,15 +29,18 @@ from typing import Any
 
 from compass.businessfunctions import people, registry
 from compass.businessfunctions import features as _features
+from compass.businessfunctions.features.base import Feature, Scope
 from compass.businessfunctions.manifest import FeatureManifest
 
 logger = logging.getLogger("compass.businessfunctions")
 
-#: How much of each feature to put in front of the model. A brief that
-#: carried every row of a large register would cost more and answer worse:
-#: the figures are what most questions are actually about, and the rows are
-#: there for "which ones" and "who".
-MOST_ROWS = 40
+#: How many rows of one screen to put in front of the model, and how much
+#: of the whole brief to build before trimming. A register of ten thousand
+#: items cannot go into a prompt; what matters is that the cap is said OUT
+#: LOUD in the brief when it bites, so the model answers "the first 200 of
+#: 10,000" rather than treating a truncated list as the whole firm.
+MOST_ROWS = 300
+MOST_CHARS = 90_000
 
 PROMPT = """You answer questions about one business function inside Compass, \
 a workspace used by a firm's own staff. You are given a BRIEF: the figures \
@@ -48,6 +51,13 @@ Answer from the brief and from nothing else.
 
 - Use the figures as given. Do not compute totals, averages or percentages \
 that are not in the brief, and never estimate one.
+- The brief covers EVERY period these screens hold, not just the one the \
+person has selected. Each screen is given per period. Say which period a \
+figure belongs to whenever more than one could be meant, and when asked \
+about "this year" use the period shown as on_screen_now.
+- A row list marked `only_the_first` is CUT: there are `rows_in_all` of \
+them. Answer from the counts and figures in that case and say the list is \
+partial. Never present a cut list as everything there is.
 - If the brief does not contain the answer, say so plainly, and say whether \
 nobody has recorded it yet or it is simply not something you can see. Do not \
 guess, and do not describe how the feature works instead of answering.
@@ -64,39 +74,85 @@ preamble, no bullet lists unless you are naming several things, no headings.
 - Indian rupee amounts as they appear in the brief."""
 
 
-def _one_feature(fn_id: str, feature: FeatureManifest, user: str,
-                 entity: str, period: str) -> dict[str, Any] | None:
-    """What one screen says, for this reader, or None when it says nothing."""
-    handler = _features.get(feature.handler)
-    if handler is None:
-        return None
-    scope = people.scope_for(user, feature, entity=entity, period=period)
-    if scope.sees == "none":
-        return None
-    if scope.missing(feature.scope):
-        # A screen still waiting for a selector has no figures to give, and
-        # saying so is better than an empty section the model reads as "none".
-        return {"screen": feature.name, "waiting_for": scope.missing(feature.scope)}
+def _periods(feature: FeatureManifest) -> list[str]:
+    """Every period this screen can be read at, not only the one on screen.
 
+    "How many gifts has John had" is not a question about the year somebody
+    happens to have selected, and an assistant that silently answered for
+    one year would be wrong in the most convincing possible way.
+    """
+    if "period" not in feature.scope:
+        return [""]
+    return list(feature.choices.get("period", [])) or [""]
+
+
+def _one_period(feature: FeatureManifest, handler: Feature, scope: Scope
+                ) -> dict[str, Any] | None:
+    """One screen at one period, for this reader."""
+    if scope.missing(feature.scope):
+        return None
     try:
         tabs = handler.tabs(scope)
-        figures = [{"says": f.caption, "value": f.value} for f in handler.figures(scope)]
-        views = []
-        for tab in tabs:
-            rows = handler.rows(scope, tab.key)
-            views.append({
-                "view": tab.label,
-                "count": len(rows),
-                "rows": [{k: v for k, v in r.items() if k not in handler.private}
-                         for r in rows[:MOST_ROWS]],
-            })
+        if not tabs:
+            return None
+        figures = [{"says": f.caption, "value": f.value}
+                   for f in handler.figures(scope)]
+        # Every view's COUNT, because the counts are themselves answers —
+        # but the rows only once, off the widest view. The narrow tabs are
+        # subsets of it, and sending the same row four times spends the
+        # budget that a second year of data should have had.
+        counted = [(t, handler.rows(scope, t.key)) for t in tabs]
+        widest = max(counted, key=lambda pair: len(pair[1]))
+        rows = widest[1]
+        return {
+            "period": scope.period or "not scoped",
+            "figures": figures,
+            "views": [{"view": t.label, "count": len(r)} for t, r in counted],
+            "rows_are_from": widest[0].label,
+            "rows_in_all": len(rows),
+            "rows": [{k: v for k, v in r.items() if k not in handler.private}
+                     for r in rows[:MOST_ROWS]],
+            **({"only_the_first": MOST_ROWS} if len(rows) > MOST_ROWS else {}),
+        }
     except Exception:  # noqa: BLE001 — one unhappy screen is not the answer
         logger.warning("business functions: %s could not be read for the "
                        "assistant", feature.id, exc_info=True)
         return None
 
-    return {"screen": feature.name, "about": feature.short,
-            "figures": figures, "views": views}
+
+def _one_feature(fn_id: str, feature: FeatureManifest, user: str,
+                 entity: str, period: str) -> dict[str, Any] | None:
+    """What one screen says ACROSS EVERY PERIOD, for this reader.
+
+    The scope is built per period through `people.scope_for`, so the
+    narrowing is still the handler's and this module never re-derives who
+    may see what. That matters more than it looks: a second path to the
+    rows would be a second place for a privacy rule to be wrong.
+    """
+    handler = _features.get(feature.handler)
+    if handler is None:
+        return None
+    if people.breadth(user, feature.visibility) == "none":
+        return None
+
+    years = [period] if period else []
+    for year in _periods(feature):
+        if year not in years:
+            years.append(year)
+
+    read = []
+    for year in years:
+        scope = people.scope_for(user, feature, entity=entity, period=year)
+        if scope.sees == "none":
+            return None
+        said = _one_period(feature, handler, scope)
+        if said is not None:
+            read.append(said)
+    if not read:
+        return {"screen": feature.name,
+                "waiting_for": list(people.scope_for(
+                    user, feature, entity=entity).missing(feature.scope))}
+    return {"screen": feature.name, "about": feature.short, "periods": read}
 
 
 def brief(fn_id: str, user: str, *, entity: str = "", period: str = "",
@@ -116,9 +172,37 @@ def brief(fn_id: str, user: str, *, entity: str = "", period: str = "",
         said = _one_feature(fn_id, feature, user, entity, period)
         if said is not None:
             screens.append(said)
-    return {"function": fn.name, "what_it_is": fn.blurb,
-            "period": period or "not chosen", "entity": entity or "not chosen",
+    said = {"function": fn.name, "what_it_is": fn.blurb,
+            "covers": "every period these screens hold, not only the one on "
+                      "screen",
+            "on_screen_now": period or "no period chosen",
+            "entity": entity or "not chosen",
             "screens": screens}
+    return _within_budget(said)
+
+
+def _within_budget(said: dict[str, Any]) -> dict[str, Any]:
+    """Trim the brief to something a prompt can hold, and SAY that it was.
+
+    Rows go before figures and counts, because a count survives trimming
+    and answers most questions; and the trimming is recorded in the brief
+    so the model can say "the first 40 of 900" instead of reading a cut
+    list as the whole firm.
+    """
+    if len(json.dumps(_flatten(said), ensure_ascii=False)) <= MOST_CHARS:
+        return said
+    for keep in (120, 60, 25, 10, 0):
+        for screen in said.get("screens", []):
+            for era in screen.get("periods", []):
+                if era.get("rows_in_all", 0) > keep:
+                    era["rows"] = era["rows"][:keep]
+                    era["only_the_first"] = keep
+        said["trimmed"] = ("Too much to send whole. The counts and figures "
+                           "are complete; the row lists are cut, and each "
+                           "says how many it is showing of how many.")
+        if len(json.dumps(_flatten(said), ensure_ascii=False)) <= MOST_CHARS:
+            break
+    return said
 
 
 def _flatten(value: Any) -> Any:

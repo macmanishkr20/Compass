@@ -273,22 +273,30 @@ def _state(request: dict[str, Any]) -> str:
     return stage_of(request)
 
 
-def committed(source: str) -> int:
-    """What this team has committed. Public, so the budget screen reads the
-    same figure the sign-off check uses rather than summing requests again."""
-    return _spent(source)
+def committed(source: str, period: str = "") -> int:
+    """What this team has committed IN THAT YEAR. Public, so the budget
+    screen reads the same figure the sign-off check uses rather than summing
+    requests again."""
+    return _spent(source, period)
 
 
-def _spent(source: str) -> int:
-    """What this team has committed: approved requests and what it has given.
+def _spent(source: str, period: str = "") -> int:
+    """What this team has committed in a year: approved requests and given.
 
     Committed rather than spent, because a budget that only counted what had
     already been handed over would let a team approve its way past the line
     and find out at distribution.
+
+    PER YEAR, because a budget is. Summed across all time, a team's budget
+    never reset: every approval since the register began counted against
+    this April's allowance, and a team would be told it was out of money
+    for things it paid for two years ago.
     """
     total = 0
     for request in ledger.requests():
         if request["source"] != source:
+            continue
+        if not rewardlens.within(period, request.get("at")):
             continue
         stage = stage_of(request)
         # Committed from the first sign-off: a team that has approved its
@@ -378,8 +386,8 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "said": "within policy"}
 
 
-def _budget_check(request: dict[str, Any],
-                  figures: bool = True) -> dict[str, Any]:
+def _budget_check(request: dict[str, Any], figures: bool = True,
+                  period: str = "") -> dict[str, Any]:
     """Whether the team asking still has the money.
 
     `figures` carries whether the reader may be told HOW MUCH. A team's
@@ -389,7 +397,7 @@ def _budget_check(request: dict[str, Any],
     budget = BUDGETS_now().get(request["source"])
     if budget is None:
         return {"ok": True, "said": "no budget recorded for this team"}
-    spent = _spent(request["source"])
+    spent = _spent(request["source"], period)
     if stage_of(request) not in ("service_line", "declined", "cancelled"):
         # Already counted in `spent`; do not charge it twice when the row is
         # redrawn after the first sign-off.
@@ -419,7 +427,8 @@ def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
     """
     policy = _policy_check(request)
     tax = _tax_check(scope, request["for"], request["value"], request["kind"])
-    budget = _budget_check(request, _may_read_totals(scope, request["for"]))
+    budget = _budget_check(request, _may_read_totals(scope, request["for"]),
+                           scope.period)
     return {"policy": policy, "tax": tax, "budget": budget,
             "blocked": not (policy["ok"] and budget["ok"]),
             # A tax consequence is not a reason to refuse — it is a reason
@@ -502,6 +511,13 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for request in ledger.requests():
         stage = stage_of(request)
+        # Filed under the year it was raised — but LIVE WORK IS NEVER
+        # HIDDEN BY A SELECTOR. A request raised in March and still with
+        # Payroll in April is somebody's job today, and a year filter that
+        # made it vanish would strand it where nobody is looking.
+        if stage in ENDED and not rewardlens.within(scope.period,
+                                                    request.get("at")):
+            continue
         verdict = checks(scope, request)
         trail = ledger.events(request["id"])
         signed = [e for e in trail if e["kind"] == SIGN_OFF]

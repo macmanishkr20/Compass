@@ -140,7 +140,7 @@ def _budgets(scope: Scope) -> list[dict[str, Any]]:
 
     out = []
     for source, budget in giftrequests.BUDGETS_now().items():
-        approved = giftrequests.committed(source)
+        approved = giftrequests.committed(source, scope.period)
         outside = unrequested.get(source, 0)
         committed = approved + outside
         out.append({

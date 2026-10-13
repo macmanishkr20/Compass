@@ -252,8 +252,16 @@ ANSWERS = {
 
 
 def _items_for(scope: Scope) -> list[dict[str, Any]]:
-    """Every recorded item in the period, from the register."""
-    return ledger.items()
+    """Every recorded item in the period, from the register.
+
+    The period is the whole point and this ignored it: every gift ever
+    given showed under whichever year was selected, so the ANNUAL limit was
+    being checked against the sum of all time. One gift given in 2024 and
+    one in 2026 made a person look ₹6,000 into their year in both. Invisible
+    with a few records and a wrong compliance judgement with a real
+    register.
+    """
+    return [i for i in ledger.items() if within(scope.period, i.get("given"))]
 
 
 def rupees(amount: int) -> str:
@@ -587,6 +595,40 @@ def limit(when: float | None = None) -> int:
 def counts_towards_limit(when: float | None = None) -> frozenset[str]:
     """Which kinds count towards the limit, under the rule in force."""
     return policy.counts(when)
+
+
+#: An Indian financial year runs April to March, so "FY 2026-27" is
+#: 1 April 2026 to 31 March 2027. Written out because the limit is ANNUAL:
+#: a screen that showed every gift ever under whichever year was selected
+#: was not reporting a year at all, and the limit it checked against was
+#: the sum of all time.
+def _fy(period: str) -> tuple[dt.date, dt.date] | None:
+    """The first and last day of a financial year, or None if unparseable."""
+    try:
+        head = period.replace("FY", "").strip()
+        start = int(head.split("-")[0])
+    except (ValueError, IndexError):
+        return None
+    return dt.date(start, 4, 1), dt.date(start + 1, 3, 31)
+
+
+def within(period: str, when: str | float | None) -> bool:
+    """Whether a date or a timestamp falls in that financial year.
+
+    No period, or one nobody can parse, means no filtering — a screen that
+    silently showed nothing because it could not read its own selector
+    would be worse than one that shows everything.
+    """
+    bounds = _fy(period) if period else None
+    if bounds is None or when in (None, "", 0):
+        return True
+    try:
+        day = (dt.date.fromisoformat(str(when)[:10])
+               if isinstance(when, str)
+               else dt.datetime.fromtimestamp(float(when)).date())
+    except (ValueError, OSError, TypeError):
+        return True
+    return bounds[0] <= day <= bounds[1]
 
 
 def closed_periods() -> frozenset[str]:

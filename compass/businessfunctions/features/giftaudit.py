@@ -96,8 +96,16 @@ def _detail(event: dict[str, Any]) -> str:
 
 
 def _rows(scope: Scope) -> list[dict[str, Any]]:
+    """The trail for the period being read.
+
+    A history that showed every event ever under whichever year was chosen
+    is not a history of that year, and "what happened in FY 2024-25" had
+    the same thirteen rows as this year.
+    """
     out = []
     for event in ledger.events():
+        if not rewardlens.within(scope.period, event.get("at")):
+            continue
         out.append({
             "id": event["id"],
             "when": dt.datetime.fromtimestamp(event.get("at", 0)).strftime(

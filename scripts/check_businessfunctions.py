@@ -3311,6 +3311,92 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
        "Say who it is for" in said and "''" not in said, said)
 
 
+def check_a_year_shows_that_year() -> None:
+    """The limit is ANNUAL, so a year has to mean a year.
+
+    Every screen ignored its own period selector: one gift given in 2026
+    appeared under FY 2024-25, FY 2025-26 and FY 2026-27 alike, so the
+    annual limit was being checked against the sum of all time and a team's
+    budget never reset. Nobody saw it because a screen only ever showed one
+    year at a time, and they all looked the same.
+    """
+    ok("an Indian financial year runs April to March",
+       rl_mod.within("FY 2026-27", "2026-04-01")
+       and rl_mod.within("FY 2026-27", "2027-03-31")
+       and not rl_mod.within("FY 2026-27", "2026-03-31")
+       and not rl_mod.within("FY 2026-27", "2027-04-01"))
+    ok("a timestamp works as well as a date",
+       rl_mod.within("FY 2026-27", time.mktime((2026, 6, 1, 12, 0, 0, 0, 0, -1))))
+    ok("no period means no filtering, rather than an empty screen",
+       rl_mod.within("", "2020-01-01"))
+    ok("and neither does one nobody can parse",
+       rl_mod.within("last Tuesday", "2020-01-01"))
+
+    _, bench, h = registry.feature_of("scs", "rewardlens")
+    _, _a, audit = registry.feature_of("scs", "audit")
+    _, _r, req = registry.feature_of("scs", "requests")
+
+    seen = lambda handler, feature, year, tab: len(handler.rows(
+        people.scope_for("compliance", feature, period=year), tab))
+
+    this_year = seen(h, bench, "FY 2026-27", "all")
+    ok("the seeded register has rows in the year it was given", this_year)
+    ok("and none of them in a year they were not",
+       seen(h, bench, "FY 2022-23", "all") == 0,
+       str(seen(h, bench, "FY 2022-23", "all")))
+    ok("the trail is the trail of that year too",
+       seen(audit, _a, "FY 2022-23", "everything") == 0)
+
+    # A gift given in a different year is not in this year's total, which
+    # is the whole reason the limit is annual.
+    with fixtures():
+        them = "E-1066"
+        before = next(r["total"] for r in h.rows(
+            people.scope_for("compliance", bench, period="FY 2026-27"), "all")
+            if r["employee_id"] == them)
+        ledger.add_item({"id": "G-OLD001", "employee_id": them,
+                         "recipient": "Vikram Rao", "kind": "gift",
+                         "what": "A hamper two years ago", "value": 9_000,
+                         "given": "2024-06-01", "source": "People team",
+                         "channel": "procured", "acknowledged": True})
+        after = next(r["total"] for r in h.rows(
+            people.scope_for("compliance", bench, period="FY 2026-27"), "all")
+            if r["employee_id"] == them)
+        ok("a gift from two years ago does not count towards this year",
+           after == before, f"{before} -> {after}")
+        older = next((r["total"] for r in h.rows(
+            people.scope_for("compliance", bench, period="FY 2024-25"), "all")
+            if r["employee_id"] == them), 0)
+        ok("but it does count towards the year it was given",
+           older == 9_000, str(older))
+
+    # A team's budget is annual, so last year's approvals do not spend it.
+    with fixtures():
+        team = "Service line \u00b7 Tax"
+        spent_now = gr_mod.committed(team, "FY 2026-27")
+        ledger.add_request({"id": "R-OLD001", "for": "E-1066", "kind": "gift",
+                            "what": "An old hamper", "value": 5_000,
+                            "occasion": "festival", "source": team,
+                            "by": "requester", "by_employee": "",
+                            "at": time.mktime((2024, 6, 1, 12, 0, 0, 0, 0, -1))})
+        ledger.add_event(subject="R-OLD001", kind="signed_off", by="servicelead",
+                         stage="service_line", note="x", value=5_000)
+        ok("last year's commitment does not spend this year's budget",
+           gr_mod.committed(team, "FY 2026-27") == spent_now,
+           str(gr_mod.committed(team, "FY 2026-27")))
+        ok("while it does spend the year it was committed in",
+           gr_mod.committed(team, "FY 2024-25") >= 5_000,
+           str(gr_mod.committed(team, "FY 2024-25")))
+
+    # Live work is never hidden by a year selector.
+    with fixtures():
+        rid = _ask(what="A hamper", value="1000", source="People team")
+        here = {r["id"] for r in req.rows(
+            people.scope_for("compliance", _r, period="FY 2024-25"), "all")}
+        ok("an in-flight request shows whatever year is selected",
+           rid in here, "a live request vanished behind a year filter")
+
+
 def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
     """A model may phrase, and may not see past the person asking.
 
@@ -3334,30 +3420,42 @@ def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
 
     # The sharper test: the register at self breadth is one row, so a
     # question about colleagues has nothing to answer from.
-    register = next(s for s in theirs["screens"] if s["screen"] == "RewardLens")
-    rows = [r for v in register["views"] for r in v["rows"]]
+    all_rows = lambda brief, screen: [
+        r for s in brief["screens"] if s["screen"] == screen
+        for era in s.get("periods", []) for r in era["rows"]]
+    rows = all_rows(theirs, "RewardLens")
     mine = people.employee_of("enduser")
     ok("and that screen holds only their own row",
        all(r.get("employee_id", mine) == mine for r in rows),
        str({r.get("employee_id") for r in rows}))
-
-    everybody = next(s for s in everything["screens"]
-                     if s["screen"] == "RewardLens")
     ok("while leadership's holds the firm's",
-       len([r for v in everybody["views"] for r in v["rows"]]) > len(rows))
+       len(all_rows(everything, "RewardLens")) > len(rows))
+
+    # The brief is not one period: a question about last year has to have
+    # something to answer from, and the year on screen is not the question.
+    years = {era["period"] for s in everything["screens"]
+             for era in s.get("periods", [])}
+    ok("and it covers every period the screens hold, not just the one open",
+       years == {"FY 2026-27", "FY 2025-26", "FY 2024-25"}, str(sorted(years)))
+    ok("while saying which one is on screen",
+       everything["on_screen_now"] == "FY 2026-27")
+    ok("a cut row list says how many it is showing of how many",
+       all("rows_in_all" in era for s in everything["screens"]
+           for era in s.get("periods", [])))
 
     ok("a stranger gets nothing to answer from",
        not chat.brief("scs", "stranger", period="FY 2026-27")["screens"])
 
     # Nothing in the brief is the handler's own machinery.
     for screen in everything["screens"]:
-        for view in screen.get("views", []):
-            for row in view["rows"]:
-                ok(f"{screen['screen']}: no private field reaches the model",
-                   not ({"can", "blocked", "warns", "stage", "ask"} & set(row)),
-                   str(sorted(set(row) & {"can", "blocked", "warns", "stage"})))
-                break
-            break
+        rows = [r for era in screen.get("periods", []) for r in era["rows"]]
+        if not rows:
+            continue
+        ok(f"{screen['screen']}: no private field reaches the model",
+           not any({"can", "blocked", "warns", "stage", "ask"} & set(r)
+                   for r in rows),
+           str(sorted({k for r in rows for k in r}
+                      & {"can", "blocked", "warns", "stage", "ask"})))
 
 
 def check_the_assistant_cannot_act() -> None:
@@ -4287,6 +4385,8 @@ def _checks() -> int:
     check_anybody_can_raise_one_and_it_still_reaches_the_end()
     with fixtures():
         check_every_stage_reads_as_a_sentence()
+    with fixtures():
+        check_a_year_shows_that_year()
     with fixtures():
         check_the_assistant_answers_from_what_the_reader_may_see()
     with fixtures():
