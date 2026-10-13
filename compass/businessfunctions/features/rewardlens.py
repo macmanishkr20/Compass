@@ -827,9 +827,16 @@ class RewardLens(Feature):
             if row is None:
                 return Outcome(ok=False, said="Acknowledge your own record.")
             if not scope.mine(row["employee_id"]):
+                # Name them. "You can only acknowledge what you were given"
+                # is true and leaves somebody looking at an unacknowledged
+                # row with nowhere to go — the useful half of the sentence
+                # is WHOSE it is, which is the row they are already on.
                 return Outcome(
                     ok=False,
-                    said="You can only acknowledge what you were given.")
+                    said=f"Only {row['recipient']} can confirm this — a "
+                         f"record the firm ticks off on somebody's behalf "
+                         f"is the firm asserting it, not them agreeing to "
+                         f"it. It stays waiting until they sign in.")
             outstanding = [i for i in _items_for(scope)
                            if i["employee_id"] == row["employee_id"]
                            and not i["acknowledged"]
