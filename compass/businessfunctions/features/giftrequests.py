@@ -46,7 +46,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from compass.businessfunctions import ledger, people
+from compass.businessfunctions import ledger, policy, people
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import (
     Feature,
@@ -69,19 +69,16 @@ OCCASIONS = ("festival", "long service", "performance", "client courtesy",
 #: What each team may spend in a year, in whole rupees. A stand-in for the
 #: finance system: one number per source, consumed by what has actually been
 #: approved. Enough to make the check real, and not a model of a budget.
-BUDGETS = {
-    "Procurement · Chennai": 60_000,
-    "Procurement · Bengaluru": 45_000,
-    "People team": 80_000,
-    "Service line · Advisory": 25_000,
-    "Service line · Tax": 25_000,
-    "Service line · Assurance": 25_000,
-}
+#: The teams that pay and what each has, and the single-gift threshold —
+#: both now versioned in `policy`. A budget changed today does not make
+#: last quarter's approvals retrospectively unaffordable, which is the same
+#: argument as the annual limit.
+def BUDGETS_now() -> dict[str, int]:
+    return policy.budgets()
 
-#: Above this, one gift needs compliance rather than a line manager —
-#: whatever the recipient's running total says. A single large gift is a
-#: different question from an accumulation of small ones.
-BIG = 10_000
+
+def BIG_now() -> int:
+    return policy.big()
 
 #: Two requests waiting on a fresh deployment, written only into an empty
 #: queue. The second is the whole argument of the requirement in one row: a
@@ -306,6 +303,23 @@ def _spent(source: str) -> int:
 # the three checks
 # ──────────────────────────────────────────────────────────────────────────
 
+def _may_read_totals(scope: Scope, employee_id: str) -> bool:
+    """Whether this reader may be told another person's running total.
+
+    The check itself always runs at firm breadth — it has to, or it would
+    clear a gift merely because the person asking cannot see the
+    recipient's year. What this decides is whether the ANSWER may carry the
+    figures, which is a different question and was not being asked at all.
+
+    Anybody may now raise a request, including an employee thanking a
+    colleague. The sentence that helps an approver decide — "takes them to
+    ₹2,17,000 of ₹15,000" — hands that colleague's whole year to somebody
+    whose own register view is one row. The warning is theirs to see; the
+    arithmetic behind it is not.
+    """
+    return scope.sees in ("firm", "team") or scope.mine(employee_id)
+
+
 def _tax_check(scope: Scope, employee_id: str, value: int,
                kind: str) -> dict[str, Any]:
     """What approving this would do to the recipient's year.
@@ -314,7 +328,7 @@ def _tax_check(scope: Scope, employee_id: str, value: int,
     arithmetic is RewardLens's — this does not add anything up itself, so
     the figure the approver sees is the figure the register will show.
     """
-    if kind not in rewardlens.COUNTS_TOWARDS_LIMIT:
+    if kind not in rewardlens.counts_towards_limit():
         return {"ok": True, "said": f"{kind} is recorded and not counted yet"}
 
     # Read at firm breadth: a check that could only see the approver's own
@@ -326,16 +340,19 @@ def _tax_check(scope: Scope, employee_id: str, value: int,
     before = row["total"] if row else 0
     after = before + value
     limit = rewardlens.limit()
+    figures = _may_read_totals(scope, employee_id)
     if after > limit:
         return {
             "ok": False,
-            "said": f"takes them to {rewardlens.rupees(after)} of "
-                    f"{rewardlens.rupees(limit)} — "
-                    f"{rewardlens.rupees(after - limit)} over",
+            "said": (f"takes them to {rewardlens.rupees(after)} of "
+                     f"{rewardlens.rupees(limit)} — "
+                     f"{rewardlens.rupees(after - limit)} over") if figures else
+                    "this would take them over the annual limit",
         }
     return {"ok": True,
-            "said": f"{rewardlens.rupees(after)} of {rewardlens.rupees(limit)}, "
-                    f"{rewardlens.rupees(limit - after)} still inside"}
+            "said": (f"{rewardlens.rupees(after)} of {rewardlens.rupees(limit)}, "
+                     f"{rewardlens.rupees(limit - after)} still inside") if figures
+                    else "within the annual limit"}
 
 
 def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
@@ -348,22 +365,28 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     if request["kind"] == "hospitality":
         return {"ok": False,
                 "said": "hospitality is not requested through this yet"}
-    if request["occasion"] == "client courtesy" and request["value"] > BIG:
+    if request["occasion"] == "client courtesy" and request["value"] > BIG_now():
         return {"ok": False,
-                "said": f"client courtesy above {rewardlens.rupees(BIG)} "
+                "said": f"client courtesy above {rewardlens.rupees(BIG_now())} "
                         f"needs a conversation, not a form"}
     if request["for"] == request["by_employee"] and request["by_employee"]:
         return {"ok": False, "said": "you cannot request a gift for yourself"}
-    if request["value"] > BIG:
+    if request["value"] > BIG_now():
         return {"ok": True,
-                "said": f"over {rewardlens.rupees(BIG)}, so compliance "
+                "said": f"over {rewardlens.rupees(BIG_now())}, so compliance "
                         f"approves rather than a line manager"}
     return {"ok": True, "said": "within policy"}
 
 
-def _budget_check(request: dict[str, Any]) -> dict[str, Any]:
-    """Whether the team asking still has the money."""
-    budget = BUDGETS.get(request["source"])
+def _budget_check(request: dict[str, Any],
+                  figures: bool = True) -> dict[str, Any]:
+    """Whether the team asking still has the money.
+
+    `figures` carries whether the reader may be told HOW MUCH. A team's
+    remaining budget is the team's business; somebody raising one request
+    needs to know it will not clear, not what the department has left.
+    """
+    budget = BUDGETS_now().get(request["source"])
     if budget is None:
         return {"ok": True, "said": "no budget recorded for this team"}
     spent = _spent(request["source"])
@@ -375,19 +398,28 @@ def _budget_check(request: dict[str, Any]) -> dict[str, Any]:
     left = budget - committed
     if request["value"] > left:
         return {"ok": False,
-                "said": f"{rewardlens.rupees(left)} left of "
-                        f"{rewardlens.rupees(budget)} — short by "
-                        f"{rewardlens.rupees(request['value'] - left)}"}
+                "said": (f"{rewardlens.rupees(left)} left of "
+                         f"{rewardlens.rupees(budget)} — short by "
+                         f"{rewardlens.rupees(request['value'] - left)}")
+                        if figures else
+                        "the team paying does not have this left"}
     return {"ok": True,
-            "said": f"{rewardlens.rupees(left - request['value'])} would be "
-                    f"left of {rewardlens.rupees(budget)}"}
+            "said": (f"{rewardlens.rupees(left - request['value'])} would be "
+                     f"left of {rewardlens.rupees(budget)}") if figures
+                    else "the team paying has the budget"}
 
 
 def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
-    """All three, as the approver sees them."""
+    """All three, in the words this reader may have them in.
+
+    The VERDICTS are the same for everybody — blocked is blocked whoever is
+    looking. What changes is whether the sentence carries the figures
+    behind it, because a colleague's year and a team's budget are not an
+    ordinary employee's to read just because they asked for a hamper.
+    """
     policy = _policy_check(request)
     tax = _tax_check(scope, request["for"], request["value"], request["kind"])
-    budget = _budget_check(request)
+    budget = _budget_check(request, _may_read_totals(scope, request["for"]))
     return {"policy": policy, "tax": tax, "budget": budget,
             "blocked": not (policy["ok"] and budget["ok"]),
             # A tax consequence is not a reason to refuse — it is a reason
@@ -920,9 +952,9 @@ class GiftRequests(Feature):
         if not what:
             return None, Outcome(ok=False, said="Say what it is.")
         source = values.get("source", "").strip()
-        if source not in BUDGETS:
+        if source not in BUDGETS_now():
             return None, Outcome(ok=False, said=f"Which team is paying? One "
-                                                f"of: {', '.join(BUDGETS)}.")
+                                                f"of: {', '.join(BUDGETS_now())}.")
         value = rewardlens.whole_rupees(values.get("value", ""))
         if value is None or value <= 0:
             return None, Outcome(ok=False, said="Give the value in whole "

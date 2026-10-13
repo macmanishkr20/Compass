@@ -43,7 +43,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from compass.businessfunctions import ledger, notices, people, registry
+from compass.businessfunctions import ledger, policy, notices, people, registry
 from compass.common.config import get_settings
 
 from compass.businessfunctions.features.base import (
@@ -55,14 +55,12 @@ from compass.businessfunctions.features.base import (
     register,
 )
 
-#: The annual limit per person, in whole rupees. Past it, Finance decides the
-#: tax treatment. The figure is the firm's, not this module's — it lives here
-#: only until there is somewhere to configure it.
-ANNUAL_LIMIT = 15_000
-
-#: What counts towards the limit today. Hospitality and reimbursements are
-#: recorded by the business but not yet aggregated here; see PHASE above.
-COUNTS_TOWARDS_LIMIT = frozenset({"gift", "award", "voucher"})
+#: The annual limit and what counts towards it now live in `policy`, which
+#: VERSIONS them: setting a new limit adds a version with a time it takes
+#: effect from rather than editing the old one, so a gift that was inside
+#: the limit on the day it was given stays inside it. These two names are
+#: kept as the module's own readers because everything already asks through
+#: them — see `limit()` and `counts_towards_limit()` below.
 
 #: What a person may declare. Wider than what counts: hospitality is recorded
 #: in this phase and aggregated in a later one, and a form that refused to
@@ -412,7 +410,7 @@ def _disclosed_rows(scope: Scope) -> list[dict[str, Any]]:
             "source": item["source"],
             # Said on every row, in every state, because the one thing people
             # will assume is that a queried item stops counting.
-            "counts": ("yes" if item["kind"] in COUNTS_TOWARDS_LIMIT
+            "counts": ("yes" if item["kind"] in counts_towards_limit()
                        else "later phase"),
             "state": state,
             "status": _STATE_WORDS[state],
@@ -478,7 +476,7 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for row in people.values():
-        counted = [i for i in row["items"] if i["kind"] in COUNTS_TOWARDS_LIMIT]
+        counted = [i for i in row["items"] if i["kind"] in counts_towards_limit()]
         total = sum(i["value"] for i in counted)
         # The date the running total first went past the limit — a fact, and
         # not a number of days: several of these are dated later in the
@@ -487,22 +485,22 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
         crossed, running = "", 0
         for item in sorted(counted, key=lambda i: i["given"]):
             running += item["value"]
-            if running > ANNUAL_LIMIT:
+            if running > limit():
                 crossed = item["given"]
                 break
         unack = [i for i in row["items"] if not i["acknowledged"]]
         disclosed = [i for i in row["items"] if i["channel"] == "disclosed"]
-        over = total > ANNUAL_LIMIT
+        over = total > limit()
         out.append({
             "employee_id": row["employee_id"],
             "recipient": row["recipient"],
             "items_counted": len(counted),
             "total": total,
-            "limit": ANNUAL_LIMIT,
+            "limit": limit(),
             # Positive when over, so a reader does not have to work out the
             # sign of a "headroom" that has gone negative.
-            "excess": max(0, total - ANNUAL_LIMIT),
-            "headroom": max(0, ANNUAL_LIMIT - total),
+            "excess": max(0, total - limit()),
+            "headroom": max(0, limit() - total),
             "over_limit": over,
             "crossed_on": crossed or "—",
             # Whether this row is the reader's own. On the row because the
@@ -523,7 +521,7 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             ),
             "not_counted": " · ".join(
                 f"{i['what']} {rupees(i['value'])} ({i['kind']}, later phase)"
-                for i in row["items"] if i["kind"] not in COUNTS_TOWARDS_LIMIT
+                for i in row["items"] if i["kind"] not in counts_towards_limit()
             ) or "—",
         })
     # Worst first: the people a reviewer has to deal with are at the top.
@@ -577,8 +575,18 @@ def is_reviewer(user: str) -> bool:
     return _is_reviewer(user)
 
 
-def limit() -> int:
-    return ANNUAL_LIMIT
+def limit(when: float | None = None) -> int:
+    """The annual limit a record made at `when` is judged against.
+
+    No argument means now, which is what a NEW record is checked against.
+    An old record passes the moment it was made, because the rule it was
+    judged by is the one that was in force then."""
+    return policy.limit(when)
+
+
+def counts_towards_limit(when: float | None = None) -> frozenset[str]:
+    """Which kinds count towards the limit, under the rule in force."""
+    return policy.counts(when)
 
 
 def closed_periods() -> frozenset[str]:
@@ -615,11 +623,11 @@ class RewardLens(Feature):
             # somebody reading their own record they are at best odd and at
             # worst suggest the screen is about somebody else.
             me = rows[0] if rows else None
-            headroom = me["headroom"] if me else ANNUAL_LIMIT
+            headroom = me["headroom"] if me else limit()
             return [
                 Figure("recorded", rupees(me["total"] if me else 0),
                        "counting towards your limit"),
-                Figure("limit", rupees(ANNUAL_LIMIT), "the annual limit"),
+                Figure("limit", rupees(limit()), "the annual limit"),
                 Figure("headroom", rupees(headroom) if headroom
                        else rupees(me["excess"]) if me else rupees(0),
                        "left before the limit" if headroom
@@ -806,7 +814,7 @@ class RewardLens(Feature):
             return Outcome(
                 ok=True,
                 said=f"{row['recipient']} referred to Finance — "
-                     f"{rupees(row['total'])} against a {rupees(ANNUAL_LIMIT)} "
+                     f"{rupees(row['total'])} against a {rupees(limit())} "
                      f"limit, {rupees(row['excess'])} over.",
                 touched=[row["employee_id"]],
             )
@@ -1169,21 +1177,21 @@ class RewardLens(Feature):
         row = next((r for r in _totals(scope)
                     if r["employee_id"] == item["employee_id"]), None)
         before = row["total"] if row else 0
-        if item["kind"] not in COUNTS_TOWARDS_LIMIT:
+        if item["kind"] not in counts_towards_limit():
             return (f"Recorded, and not counted towards your limit — "
                     f"{item['kind']} is not aggregated yet. You stay at "
-                    f"{rupees(before)} of {rupees(ANNUAL_LIMIT)}.")
+                    f"{rupees(before)} of {rupees(limit())}.")
         after = before + item["value"]
-        if after > ANNUAL_LIMIT:
+        if after > limit():
             crossing = (" This is the one that takes you over."
-                        if before <= ANNUAL_LIMIT else "")
+                        if before <= limit() else "")
             return (f"That puts you at {rupees(after)} of "
-                    f"{rupees(ANNUAL_LIMIT)} — {rupees(after - ANNUAL_LIMIT)} "
+                    f"{rupees(limit())} — {rupees(after - limit())} "
                     f"over.{crossing} Compliance sees it and Finance decides "
                     f"the tax treatment. Declaring it is not the problem; not "
                     f"declaring it would have been.")
-        return (f"That puts you at {rupees(after)} of {rupees(ANNUAL_LIMIT)}, "
-                f"{rupees(ANNUAL_LIMIT - after)} still inside the limit.")
+        return (f"That puts you at {rupees(after)} of {rupees(limit())}, "
+                f"{rupees(limit() - after)} still inside the limit.")
 
     def _ask_by_email(self, row: dict[str, Any], question: str,
                       asked_by: str) -> notices.Notice:

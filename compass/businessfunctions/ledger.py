@@ -83,6 +83,9 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # eight kinds nobody can fold.
           "requested", "signed_off", "declined", "cancelled", "closed",
           "acknowledged",
+          # the rulebook itself. The highest-leverage change in the module,
+          # so it lands on the same trail as every gift it will judge.
+          "threshold_set",
           # retired, kept so a trail written before the chain existed still
           # loads and still reads
           "approved", "purchased", "given")
@@ -97,6 +100,7 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
 #: is two vocabularies for one fact.
 READS_AS = {
     "requested": "asked for",
+    "threshold_set": "moved a threshold",
     "signed_off": "signed off",
     "closed": "closed",
     "declined": "sent back",

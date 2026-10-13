@@ -40,11 +40,13 @@ from compass.businessfunctions import (
     ledger,
     notices,
     people,
+    policy,
     registry,
     reports,
 )
 from compass.businessfunctions.features import giftrequests, rewardlens
 from compass.businessfunctions.features.base import Scope
+from compass.common.config import get_settings
 from compass.common.auth import require_user
 
 logger = logging.getLogger("compass.businessfunctions")
@@ -141,6 +143,25 @@ async def list_functions(user: str = Depends(require_user)) -> dict:
     }
 
 
+def _may_open(user: str, feature) -> bool:
+    """Whether this screen is listed for this person at all.
+
+    Listing every screen and refusing on arrival advertised the firm's
+    oversight machinery to an employee who has no part in it: an ordinary
+    employee was offered Gift oversight, Tax & budget and the Audit trail,
+    and learned what Compass watches by being told they may not look.
+
+    WITH AUTH OFF there is no identity to narrow by — `require_user` hands
+    back "guest", who holds no roles — and every route is open anyway, so
+    hiding the screens would leave a local deployment with an empty
+    section and no way to develop against it. The filter is a privacy
+    boundary, and a deployment with no sign-in has not drawn one.
+    """
+    if not get_settings().auth.enabled:
+        return True
+    return people.breadth(user, feature.visibility) != "none"
+
+
 @router.get("/{function_id}")
 async def get_function(
     function_id: str,
@@ -194,7 +215,13 @@ async def get_function(
         "subtitle": fn.subtitle,
         "blurb": fn.blurb,
         "empty": fn.empty,
-        "features": [_feature_card(fn.id, f) for f in fn.features],
+        # Only the screens this person can actually open. Listing the rest
+        # and refusing on arrival advertised the firm's oversight machinery
+        # to an employee who has no part in it: an ordinary employee was
+        # offered Gift oversight, Tax & budget and the Audit trail, and
+        # learned what Compass watches by being told they may not look.
+        "features": [_feature_card(fn.id, f) for f in fn.features
+                     if _may_open(user, f)],
         "queue": queue,
         "rail": _rail(fn, None, _scope(user, entity, period)),
     }
@@ -461,9 +488,15 @@ async def _ready() -> None:
     """
     from compass.businessfunctions.features import rewardlens
 
-    await ledger.ready(seed=rewardlens.SEED,
-                       requests_seed=giftrequests.SEED)
+    # A register emptied on purpose stays empty. Seeding only ever fills an
+    # EMPTY store, which is the right default for a fresh deployment and
+    # exactly wrong once somebody has cleared the real records and expects
+    # to start from nothing.
+    sample = get_settings().business_functions.seed_sample
+    await ledger.ready(seed=rewardlens.SEED if sample else None,
+                       requests_seed=giftrequests.SEED if sample else None)
     await notices.ready()
+    await policy.ready()
 
 
 async def _save() -> None:
@@ -475,6 +508,7 @@ async def _save() -> None:
     """
     try:
         await ledger.flush()
+        await policy.flush()
         await notices.save()
     except Exception:  # noqa: BLE001 — a decision is not undone by a slow store
         logger.warning("business functions: could not store what just "

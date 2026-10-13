@@ -113,7 +113,7 @@ DIRECTORY: dict[str, Person] = {
     # The signed-in administrator on a local deployment: compliance and
     # leadership, and ₹12,000 of their own, one ordinary gift from the limit.
     "admin": Person("E-1052", "Aisha Khan", "aisha.khan@example.invalid",
-                    frozenset({"compliance", "leadership"})),
+                    frozenset({"compliance", "leadership", "admin"})),
     # An ordinary employee. Holds nothing else, which is what makes the
     # employee view worth looking at rather than assuming.
     "enduser": Person("E-1066", "Vikram Rao", "vikram.rao@example.invalid",

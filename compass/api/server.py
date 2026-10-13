@@ -110,15 +110,21 @@ async def lifespan(app: FastAPI):
     if get_settings().business_functions.enabled:
         import asyncio
 
-        from compass.businessfunctions import ledger, notices
+        from compass.businessfunctions import ledger, notices, policy
         from compass.businessfunctions.features import giftrequests, rewardlens
         from compass.businessfunctions.reports import reports_loop
 
         # Loaded here so the first request does not pay for it, and so a
         # deployment that has never run gets the sample register once.
-        await ledger.ready(seed=rewardlens.SEED,
-                           requests_seed=giftrequests.SEED)
+        # `seed_sample` off means a register emptied on purpose stays
+        # empty. Both call sites obey it: the route's `_ready` is a no-op
+        # after this one has run, so a flag honoured in only one of them is
+        # a flag that does nothing on a real start.
+        sample = get_settings().business_functions.seed_sample
+        await ledger.ready(seed=rewardlens.SEED if sample else None,
+                           requests_seed=giftrequests.SEED if sample else None)
         await notices.ready()
+        await policy.ready()
         report_sender = asyncio.create_task(reports_loop())
     yield
     if report_sender is not None:

@@ -196,6 +196,39 @@ features:
       - What has been referred to Finance?
       - Which teams are near their budget?
 
+    forms:
+      - id: set_thresholds
+        label: Set thresholds
+        submit_label: Put it in force
+        blurb: >-
+          The annual limit and the single-gift threshold every request is
+          judged against. Leave a field empty to keep it as it is. "What
+          would this do?" shows the change before anything moves.
+        confirm: >-
+          Puts a NEW VERSION in force from this moment. Nothing already
+          recorded changes: a gift inside the limit on the day it was given
+          stays inside it, and a breach stays a breach. The change goes on
+          the audit trail with your name and your reason.
+        fields:
+          - id: annual_limit
+            label: Annual limit per person
+            kind: money
+            required: false
+            help: Past this, Finance decides the tax treatment.
+          - id: big
+            label: Single-gift threshold
+            kind: money
+            required: false
+            help: >-
+              Above this, one gift needs compliance rather than a line
+              manager, whatever the running total says.
+          - id: why
+            label: Why are you changing it?
+            kind: text
+            help: >-
+              Goes on the trail against the version. A threshold moved with
+              no reason is one nobody can account for later.
+
     tools:
       - read_rows
       - explain_row

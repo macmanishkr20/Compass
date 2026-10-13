@@ -160,7 +160,7 @@ def _sources(scope: Scope) -> list[dict[str, Any]]:
 
     rows: dict[str, dict[str, Any]] = {}
     for item in rewardlens.items(scope):
-        if item["id"] in gone or item["kind"] not in rewardlens.COUNTS_TOWARDS_LIMIT:
+        if item["id"] in gone or item["kind"] not in rewardlens.counts_towards_limit():
             continue
         row = rows.setdefault(item["source"], {
             "source": item["source"], "items": 0, "people": set(),

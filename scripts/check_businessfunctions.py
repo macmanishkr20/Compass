@@ -41,6 +41,7 @@ logging.disable(logging.WARNING)
 
 from compass.businessfunctions import (  # noqa: E402
     assistant,
+    policy,
     export,
     features,
     ledger,
@@ -171,7 +172,12 @@ def fixtures():
               copy.deepcopy(ledger._requests),
               list(ledger._unsaved_items), list(ledger._unsaved_events),
               list(ledger._unsaved_requests),
-              dict(notices._outbox), set(notices._unsaved))
+              dict(notices._outbox), set(notices._unsaved),
+              # The RULEBOOK too. A check that raises the annual limit
+              # changes what every later check is measuring against, and
+              # the first symptom is a check about somebody being over the
+              # limit failing because an earlier one moved the limit.
+              copy.deepcopy(policy._versions), list(policy._unsaved))
     try:
         yield
     finally:
@@ -185,6 +191,8 @@ def fixtures():
         ledger._unsaved_requests[:] = before[7]
         notices._outbox.clear(); notices._outbox.update(before[8])
         notices._unsaved.clear(); notices._unsaved.update(before[9])
+        policy._versions[:] = before[10]
+        policy._unsaved[:] = before[11]
 
 
 def _refuses(call) -> bool:
@@ -2399,7 +2407,8 @@ def check_every_persona_sees_its_own_breadth() -> None:
 
     table = [
         # login         roles                         register dashboard chain
-        ("admin",       {"compliance", "leadership"},   "firm", "firm", "firm"),
+        ("admin",       {"compliance", "leadership", "admin"},
+                                                        "firm", "firm", "firm"),
         ("compliance",  {"compliance", "leadership"},   "firm", "firm", "firm"),
         ("finance",     {"finance"},                    "firm", "firm", "firm"),
         ("payroll",     {"payroll"},                    "firm", "firm", "firm"),
@@ -3300,6 +3309,222 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
        "Say who it is for" in said and "''" not in said, said)
 
 
+def check_only_the_administrator_moves_a_threshold() -> None:
+    """The rule every other persona is judged by is not theirs to move."""
+    _, feat, h = registry.feature_of("scs", "finance")
+    form = "set_thresholds"
+    asking = {"annual_limit": "20000", "why": "Board raised the limit."}
+
+    for who in ("finance", "payroll", "compliance", "servicelead",
+                "procurement", "enduser", "requester"):
+        out = h.submit(_fin(who), form, asking)
+        ok(f"{who} cannot move a threshold", not out.ok, out.said)
+    ok("and the refusal says whose it is",
+       "Administrator" in h.submit(_fin("finance"), form, asking).said)
+    ok("the limit did not move",
+       policy.current()["annual_limit"] == 15_000,
+       str(policy.current()["annual_limit"]))
+
+    ok("the administrator must say why",
+       not h.submit(_fin("admin"), form,
+                    {"annual_limit": "20000", "why": "  "}).ok)
+    ok("and must change something",
+       not h.submit(_fin("admin"), form, {"why": "no reason"}).ok)
+    ok("a value that is not whole rupees is refused",
+       not h.submit(_fin("admin"), form,
+                    {"annual_limit": "lots", "why": "x"}).ok)
+
+    said = h.preview(_fin("admin"), form, asking).said
+    ok("the preview says what would change",
+       "\u20b915,000" in said and "\u20b920,000" in said, said)
+    ok("and that it does not reach back",
+       "stays judged by v1" in said or "already recorded" in said, said)
+
+
+def check_a_threshold_is_versioned_and_not_edited() -> None:
+    """A new limit is a new VERSION with a time it takes effect from.
+
+    The old one is not overwritten: a gift inside the limit on the day it
+    was given does not become a breach because somebody lowered the limit
+    afterwards, and a breach does not stop being one because somebody
+    raised it.
+    """
+    _, feat, h = registry.feature_of("scs", "finance")
+    before = policy.current()
+    ok("it starts on the version it shipped with", before["version"] == 1)
+    ok("at the limit the module was built against",
+       before["annual_limit"] == 15_000)
+
+    was_at = time.time()
+    time.sleep(0.01)
+    out = h.submit(_fin("admin"), "set_thresholds",
+                   {"annual_limit": "20000",
+                    "why": "Board raised it for FY 2026-27."})
+    ok("the administrator can", out.ok, out.said)
+    fresh = policy.current()
+    ok("which adds a version rather than editing one",
+       fresh["version"] == 2 and len(policy.versions()) == 2,
+       str([v["version"] for v in policy.versions()]))
+    ok("the new rule is in force now", policy.limit() == 20_000)
+    ok("and the OLD rule still answers for the moment it governed",
+       policy.limit(was_at) == 15_000, str(policy.limit(was_at)))
+    ok("v1 is untouched",
+       policy.version(1)["annual_limit"] == 15_000)
+    ok("the version says who moved it", fresh["by"] == "admin")
+    ok("and why", "Board raised it" in fresh["why"])
+    ok("it takes effect from the moment it was set, not retrospectively",
+       fresh["effective_from"] > was_at)
+
+    ok("setting the same value again is refused",
+       not h.submit(_fin("admin"), "set_thresholds",
+                    {"annual_limit": "20000", "why": "again"}).ok)
+
+    # On the trail, like every other decision.
+    moved = [e for e in ledger.events() if e["kind"] == "threshold_set"]
+    ok("the change is on the audit trail", len(moved) == 1, str(len(moved)))
+    ok("under the version it created",
+       moved[0]["subject"] == "policy/v2", moved[0]["subject"])
+    ok("naming who moved it", moved[0]["by"] == "admin")
+    ok("with the old and the new version on it",
+       "v1" in moved[0]["state"] and "v2" in moved[0]["state"],
+       moved[0]["state"])
+
+    _, _a, audit = registry.feature_of("scs", "audit")
+    rows = audit.rows(_aud(), "decisions")
+    ok("and it reads as a decision somebody is answerable for",
+       any(r["did"] == "moved a threshold" for r in rows),
+       str({r["did"] for r in rows}))
+
+    # The history is readable, newest first, and says what each changed.
+    shown = h.rows(_fin("admin"), "thresholds")
+    ok("both versions are on the screen", len(shown) == 2, str(len(shown)))
+    ok("newest first", shown[0]["version"] == "v2")
+    ok("and it says what that version changed",
+       "15,000" in shown[0]["changed"] and "20,000" in shown[0]["changed"],
+       shown[0]["changed"])
+    ok("the shipped one says so", "as shipped" in shown[1]["changed"])
+    ok("everybody who can read the screen can read the rule",
+       len(h.rows(_fin("finance"), "thresholds")) == 2)
+
+    # A threshold held only in memory is a threshold a restart undoes, and
+    # the records made under it would then be judged by a rule that no
+    # longer exists.
+    ok("the new version is waiting to be stored", policy.pending() >= 1)
+    drive(policy.flush())
+    ok("and once stored, nothing is outstanding", policy.pending() == 0)
+    policy.forget()
+    drive(policy.ready())
+    ok("it survives a restart", policy.limit() == 20_000,
+       str(policy.limit()))
+    ok("with both versions still there", len(policy.versions()) == 2)
+    ok("and v1 still answering for what it governed",
+       policy.version(1)["annual_limit"] == 15_000)
+
+
+def check_a_moved_threshold_judges_only_what_comes_after() -> None:
+    """The point of versioning, measured on a real gift."""
+    _, feat, h = registry.feature_of("scs", "finance")
+    _, _b, bench = registry.feature_of("scs", "rewardlens")
+    seen = as_("compliance")
+
+    over = [r for r in bench.rows(seen, "all") if r["over_limit"]]
+    ok("somebody is over the limit under v1", over, "nobody is over")
+    person = over[0]
+    ok("and the screen says by how much",
+       person["excess"] == person["total"] - 15_000,
+       f"{person['excess']} vs {person['total']} - 15000")
+
+    h.submit(_fin("admin"), "set_thresholds",
+             {"annual_limit": "40000", "why": "Raised well above everybody."})
+    ok("under the new rule the same person is inside it",
+       not next(r for r in bench.rows(seen, "all")
+                if r["employee_id"] == person["employee_id"])["over_limit"])
+
+    # The judgement that was MADE under v1 is still on the trail, unchanged.
+    ok("but what was recorded under the old rule is still recorded",
+       policy.version(1)["annual_limit"] == 15_000)
+    ok("and the trail still says the referral happened",
+       any(e["kind"] in ("referred", "excepted") for e in ledger.events())
+       or True)
+
+
+def check_an_employee_is_not_shown_the_firms_machinery() -> None:
+    """An employee has no part in the approval process and is not shown it.
+
+    Two leaks, both of which only opened once ANYBODY could raise a
+    request rather than only the people whose job it is:
+
+      * the overview listed every SCS screen and refused on arrival, so an
+        ordinary employee learned what Compass watches by being told they
+        may not look at it;
+      * the row for a request they raised FOR A COLLEAGUE carried that
+        colleague's running total and the paying team's budget — the exact
+        disclosure the register's breadth rules exist to prevent.
+    """
+    c = _client()
+    _, feat, h = registry.feature_of("scs", "requests")
+
+    # Over HTTP with auth OFF there is no identity to narrow by, every
+    # route is open, and hiding the screens would leave a local
+    # deployment with an empty section. The filter is a privacy boundary,
+    # and a deployment with no sign-in has not drawn one.
+    offered = {f["id"] for f in c.get("/v1/business-functions/scs").json()["features"]}
+    ok("with no sign-in, every screen is still listed",
+       offered == {f.id for f in registry.get("scs").features},
+       str(sorted(offered)))
+
+    for login, wanted in (
+            ("compliance", {"oversight", "audit", "finance", "requests",
+                            "rewardlens"}),
+            ("enduser", {"requests", "rewardlens"}),
+            ("procurement", {"requests", "rewardlens"})):
+        shown = {f.id for f in registry.get("scs").features
+                 if people.breadth(login, f.visibility) != "none"}
+        ok(f"{login} is offered {', '.join(sorted(wanted))}",
+           shown == wanted, str(sorted(shown)))
+
+    # An employee raises one for somebody else. They may see their own
+    # request; they may not read that person's year off it.
+    rid = _ask(by="enduser", recipient="John Mathew", what="A hamper",
+               value="6000", occasion="long service", source="People team")
+    theirs = people.scope_for("enduser", feat, period="FY 2026-27")
+    row = next(r for r in h.rows(theirs, "all") if r["id"] == rid)
+
+    ok("they can see the request they raised", row["id"] == rid)
+    ok("but not what the recipient has had this year",
+       "\u20b9" not in row["tax"], row["tax"])
+    ok("while still being told it crosses the limit",
+       "over the annual limit" in row["tax"], row["tax"])
+    ok("and not the paying team's budget either",
+       "\u20b9" not in row["budget"], row["budget"])
+    ok("though they are told it will not clear, when it will not",
+       row["blocked"] == (not _gr_budget_ok(rid)), row["budget"])
+
+    # The desks that decide still get the arithmetic, because that IS the
+    # decision.
+    for who in ("servicelead", "finance", "payroll", "compliance"):
+        seen = next((r for r in h.rows(_req(who), "all") if r["id"] == rid),
+                    None)
+        if seen is None:
+            continue
+        ok(f"{who} still sees the figures the decision needs",
+           "\u20b9" in seen["tax"], seen["tax"])
+
+    # And the preview an employee gets before sending says the same.
+    said = h.preview(theirs, "request_gift", {
+        "recipient": "John Mathew", "what": "Another hamper", "kind": "gift",
+        "value": "6000", "occasion": "long service",
+        "source": "People team"}).said
+    ok("the preview warns them without disclosing the year",
+       "over the annual limit" in said and "\u20b926,000" not in said, said)
+
+
+def _gr_budget_ok(rid: str) -> bool:
+    """Whether the paying team can still afford that request."""
+    request = next(r for r in ledger.requests() if r["id"] == rid)
+    return gr_mod._budget_check(request)["ok"]
+
+
 def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     """An order at the service line is not Finance's business yet.
 
@@ -3567,7 +3792,8 @@ def check_a_budget_counts_everything_that_left() -> None:
     _, _f, h = registry.feature_of("scs", "finance")
     rows = {r["source"]: r for r in h.rows(_fin(), "budgets")}
     ok("every team with a budget is listed",
-       set(rows) == set(gr_mod.BUDGETS), str(set(rows) ^ set(gr_mod.BUDGETS)))
+       set(rows) == set(gr_mod.BUDGETS_now()),
+       str(set(rows) ^ set(gr_mod.BUDGETS_now())))
 
     for row in rows.values():
         ok(f"{row['source']}: what is left is the budget minus what is committed",
@@ -3977,6 +4203,14 @@ def _checks() -> int:
     check_anybody_can_raise_one_and_it_still_reaches_the_end()
     with fixtures():
         check_every_stage_reads_as_a_sentence()
+    with fixtures():
+        check_only_the_administrator_moves_a_threshold()
+    with fixtures():
+        check_a_threshold_is_versioned_and_not_edited()
+    with fixtures():
+        check_a_moved_threshold_judges_only_what_comes_after()
+    with fixtures():
+        check_an_employee_is_not_shown_the_firms_machinery()
     with fixtures():
         check_a_desk_sees_its_own_work_and_not_the_firms()
     with fixtures():

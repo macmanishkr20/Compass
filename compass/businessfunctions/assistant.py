@@ -208,6 +208,10 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
     if feature_id == "finance":
         # Three shapes again, told apart by what the row carries: a team's
         # budget is not a person, and neither is a referral a threshold.
+        if "version" in row:
+            return row["version"], (f"{row['version']} · limit "
+                                    f"{rupees(row['annual_limit'])} · "
+                                    f"from {row['in_force_from']}")
         if "source" in row:
             return row["source"], (f"{row['source']} · "
                                    f"{rupees(row['left'])} left")

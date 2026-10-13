@@ -756,10 +756,19 @@ class BusinessFunctionSettings(BaseModel):
     On, the server refuses to start, which is what a deployment pipeline
     wants: a silently-missing function becomes a failed deploy rather than a
     support ticket three weeks later.
+
+    `seed_sample` decides whether an EMPTY gift register is filled with the
+    sample the screens were built against. On by default, so a fresh
+    deployment has something to look at. Turned off by
+    `COMPASS_BUSINESS_FUNCTIONS_SEED=0`, which is what a deployment wants
+    once its own records are the real ones: a register emptied on purpose
+    stays empty instead of refilling itself with fixtures on the next
+    restart.
     """
 
     enabled: bool = False
     strict_catalog: bool = False
+    seed_sample: bool = True
 
 
 class PermissionRule(BaseModel):
@@ -1137,6 +1146,8 @@ def get_settings() -> Settings:
         bf.enabled = flag in ("1", "true", "yes", "on")
     if (flag := os.environ.get("COMPASS_BUSINESS_FUNCTIONS_STRICT", "").strip().lower()):
         bf.strict_catalog = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_BUSINESS_FUNCTIONS_SEED", "").strip().lower()):
+        bf.seed_sample = flag in ("1", "true", "yes", "on")
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

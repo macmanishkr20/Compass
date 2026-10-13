@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from compass.businessfunctions import ledger
+from compass.businessfunctions import ledger, people, policy
 from compass.businessfunctions.features import giftrequests, rewardlens
 from compass.businessfunctions.features.base import (
     Feature,
@@ -118,7 +118,7 @@ def _budgets(scope: Scope) -> list[dict[str, Any]]:
     for item in rewardlens.items(_firm(scope)):
         if item["id"] in rewardlens.superseded():
             continue
-        if item["kind"] not in rewardlens.COUNTS_TOWARDS_LIMIT:
+        if item["kind"] not in rewardlens.counts_towards_limit():
             continue
         given[item["source"]] = given.get(item["source"], 0) + item["value"]
 
@@ -132,14 +132,14 @@ def _budgets(scope: Scope) -> list[dict[str, Any]]:
     for item in rewardlens.items(_firm(scope)):
         if item["id"] in rewardlens.superseded():
             continue
-        if item["kind"] not in rewardlens.COUNTS_TOWARDS_LIMIT:
+        if item["kind"] not in rewardlens.counts_towards_limit():
             continue
         if not item.get("from_request"):
             unrequested[item["source"]] = (
                 unrequested.get(item["source"], 0) + item["value"])
 
     out = []
-    for source, budget in giftrequests.BUDGETS.items():
+    for source, budget in giftrequests.BUDGETS_now().items():
         approved = giftrequests.committed(source)
         outside = unrequested.get(source, 0)
         committed = approved + outside
@@ -161,6 +161,34 @@ def _budgets(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: r["left"])
 
 
+def _thresholds(scope: Scope) -> list[dict[str, Any]]:
+    """Every version of the rules, newest first.
+
+    A threshold is not a setting with a current value; it is a run of
+    versions, each with the moment it took effect. A record is judged by
+    the one in force when it was made, so the old rows are not history
+    nobody needs — they are the rule something is still being measured by.
+    """
+    out = []
+    every = policy.versions()
+    for i, v in enumerate(reversed(every)):
+        earlier = every[len(every) - i - 2] if len(every) - i - 2 >= 0 else None
+        out.append({
+            "version": f"v{v['version']}",
+            "annual_limit": v["annual_limit"],
+            "big": v["big"],
+            "counts": ", ".join(sorted(v["counts"])),
+            "in_force_from": (_day(v["effective_from"])
+                              if v["effective_from"] else "the beginning"),
+            "set_by": v["by"],
+            "why": v["why"],
+            "changed": "; ".join(policy.describe(earlier, v)) if earlier
+                       else "the rules as shipped",
+            "current": v is every[-1],
+        })
+    return out
+
+
 def _day(when: float) -> str:
     import datetime as dt
 
@@ -170,7 +198,90 @@ def _day(when: float) -> str:
 class GiftFinance(Feature):
     key = "gift_finance"
     row_key = "employee_id"
-    private = frozenset({"done", "can", "referred"})
+    private = frozenset({"done", "can", "referred", "current"})
+
+    THRESHOLD_FORM = "set_thresholds"
+    THRESHOLD_FIELDS = frozenset({"annual_limit", "big", "why"})
+
+    def accepts(self, form_id: str) -> set[str]:
+        return (set(self.THRESHOLD_FIELDS)
+                if form_id == self.THRESHOLD_FORM else set())
+
+    def _proposed(self, scope: Scope, values: dict[str, str]
+                  ) -> tuple[dict[str, Any] | None, Outcome | None]:
+        """The version these values describe, or why they describe none."""
+        if "admin" not in scope.roles:
+            return None, Outcome(
+                ok=False,
+                said="Thresholds are the Administrator's. They are the rule "
+                     "every other team is judged by, so they are not in the "
+                     "hands of the teams whose work they judge.")
+        why = values.get("why", "").strip()
+        if not why:
+            return None, Outcome(
+                ok=False,
+                said="Say why. Moving a threshold silently reclassifies "
+                     "every gift that comes after it, which is the one "
+                     "change nobody should be able to make quietly.")
+        changes: dict[str, Any] = {}
+        for field, label in (("annual_limit", "the annual limit"),
+                             ("big", "the single-gift threshold")):
+            raw = values.get(field, "").strip()
+            if not raw:
+                continue
+            amount = rewardlens.whole_rupees(raw)
+            if amount is None or amount <= 0:
+                return None, Outcome(
+                    ok=False,
+                    said=f"Give {label} in whole rupees — 20000, or 20,000.")
+            changes[field] = amount
+        if not changes:
+            return None, Outcome(ok=False, said="Nothing to change.")
+        return {"changes": changes, "why": why}, None
+
+    def preview(self, scope: Scope, form_id: str, values: dict[str, str],
+                about: str = "") -> Outcome:
+        asked, refusal = self._proposed(scope, values)
+        if refusal is not None:
+            return refusal
+        was = policy.current()
+        would = dict(was, **asked["changes"])
+        said = policy.describe(was, would)
+        if not said:
+            return Outcome(ok=False, said="That is what the thresholds "
+                                          "already say.")
+        return Outcome(
+            ok=True,
+            said=f"Would become v{was['version'] + 1}: {'; '.join(said)}. "
+                 f"It applies from the moment you set it. Everything "
+                 f"already recorded stays judged by v{was['version']} — a "
+                 f"gift inside the limit on the day it was given does not "
+                 f"become a breach because the limit moved.")
+
+    def submit(self, scope: Scope, form_id: str, values: dict[str, str],
+               about: str = "") -> Outcome:
+        asked, refusal = self._proposed(scope, values)
+        if refusal is not None:
+            return refusal
+        was = policy.current()
+        try:
+            fresh = policy.add(by=scope.user, why=asked["why"],
+                               **asked["changes"])
+        except ValueError as exc:
+            return Outcome(ok=False, said=str(exc))
+        said = "; ".join(policy.describe(was, fresh))
+        # On the same trail as every other decision, under the version it
+        # created, so "when did the limit change and who moved it" has an
+        # answer that is not a deploy log.
+        ledger.add_event(subject=f"policy/v{fresh['version']}",
+                         kind="threshold_set", by=scope.user,
+                         note=asked["why"], why=said,
+                         state=f"v{was['version']} \u2192 v{fresh['version']}")
+        return Outcome(
+            ok=True,
+            said=f"v{fresh['version']} is in force from now: {said}. "
+                 f"Records made before this moment keep v{was['version']}.",
+            touched=[f"v{fresh['version']}"])
 
     def figures(self, scope: Scope) -> list[Figure]:
         if scope.sees != "firm":
@@ -208,6 +319,10 @@ class GiftFinance(Feature):
                 len([r for r in _referrals(scope) if not r["done"]])),
             Tab("taxable", "Past the limit", len(_taxable(scope))),
             Tab("budgets", "Budgets", len(_budgets(scope)), key_field="source"),
+            # Visible to everybody who can read this screen: the rule you
+            # are judged by is not a secret. Only `admin` can add to it.
+            Tab("thresholds", "Thresholds", len(_thresholds(scope)),
+                key_field="version"),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
@@ -217,6 +332,8 @@ class GiftFinance(Feature):
             return _taxable(scope)
         if tab == "budgets":
             return _budgets(scope)
+        if tab == "thresholds":
+            return _thresholds(scope)
         return _referrals(scope)
 
     def rules(self, scope: Scope) -> list[str]:

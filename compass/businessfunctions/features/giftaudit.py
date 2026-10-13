@@ -50,7 +50,7 @@ from compass.businessfunctions.features.base import (
 #: answerable for it.
 DECISIONS = frozenset({"reviewed", "signed_off", "declined", "referred",
                        "excepted", "superseded", "cancelled", "closed",
-                       "approved"})
+                       "threshold_set", "approved"})
 
 #: What each event reads as lives on the ledger, with the events themselves
 #: — see `ledger.READS_AS`. Kept here, it was one of two vocabularies for

@@ -18,3 +18,6 @@ data/
 # teaser, the script that drew one. Output, not source: it belongs on the
 # disk it was made on, and it is how a 120KB PNG ends up in a code review.
 assets/
+
+# Server logs from running the dev stack locally.
+*.log
