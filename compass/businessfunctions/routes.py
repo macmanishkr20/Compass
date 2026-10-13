@@ -234,7 +234,13 @@ async def get_feature(
         }
 
     tabs = handler.tabs(scope)
-    chosen = tab or (tabs[0].key if tabs else "")
+    # Open on a tab that has something. The first tab is usually the
+    # reader's own queue, which is the right default for somebody who holds
+    # a step — and always empty for somebody who holds none. Leadership
+    # opened the request chain onto "Waiting on you: 0" and read it as "no
+    # data", with three orders one tab away.
+    chosen = tab or next((t.key for t in tabs if t.count), "") \
+        or (tabs[0].key if tabs else "")
     applies = set(handler.rules(scope))
 
     return {

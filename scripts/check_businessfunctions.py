@@ -700,6 +700,25 @@ def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
        str(body)[:140])
     ok("and sends no rows while it waits", "rows" not in body)
 
+    # A screen opens on a tab that has something in it. The first tab is
+    # the reader's own queue, which is right for a desk and always empty
+    # for Leadership, who hold no step — they opened the chain onto
+    # "Waiting on you: 0" and read it as no data, three orders away.
+    r = c.get("/v1/business-functions/scs/features/requests",
+              params={"period": "FY 2026-27"})
+    body = r.json()
+    counts = {t["key"]: t["count"] for t in body["tabs"]}
+    ok("the screen opens on a tab that has rows",
+       counts.get(body["tab"], 0) > 0 or not any(counts.values()),
+       f"opened on {body['tab']!r} with {counts}")
+    ok("and that tab's rows really arrive",
+       len(body["rows"]) == counts[body["tab"]],
+       f"{len(body['rows'])} rows vs count {counts[body['tab']]}")
+    ok("a tab asked for by name is still honoured",
+       c.get("/v1/business-functions/scs/features/requests",
+             params={"period": "FY 2026-27", "tab": "mine"}).json()["tab"]
+       == "mine")
+
     # Which fields are the screen's machinery rather than somebody's to
     # read. Sent, because the alternative is the UI keeping its own copy of
     # the list — which it did, and which had drifted far enough that a
