@@ -194,6 +194,12 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
             return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
         return row["kind"], f"{row['kind']} · {row['left']} of {row['of']} days"
     if feature_id == "register":
+        # An ORDER being tracked, told apart by the progress it carries.
+        # Three shapes on this feature now: an order on its way, a
+        # person's year, and a declared item.
+        if "progress" in row:
+            return row["id"], (f"{row['what']} for {row['recipient']} · "
+                               f"{row['progress']} · with {row['with']}")
         # Two shapes, because one of its tabs lists declared items rather
         # than people. Told apart by what the row carries and not by which
         # tab asked, so this cannot drift out of step with the tabs.
@@ -265,6 +271,10 @@ def _candidates(feature: FeatureManifest, handler: Feature,
     tabs = handler.tabs(scope)
     if not tabs:
         return []
+    # The tab in view, because "that one" and "all three" both mean rows
+    # the person can see right now. Spanning every tab was tried and is
+    # wrong for exactly that reason: "all three" against six rows gathered
+    # from three views is a question nobody asked.
     chosen = tab if any(t.key == tab for t in tabs) else tabs[0].key
     return handler.rows(scope, chosen)
 

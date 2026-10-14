@@ -933,6 +933,17 @@ export class BusinessFunctions {
     }
     // The dashboard. Three tabs, three shapes: people nobody has decided,
     // the places the process stopped, and where the value comes from.
+    if (this.featureId() === 'register' && this.feature()?.tab === 'orders') {
+      // The tracker's own view: where an order has got to, and who has it.
+      return [
+        { key: 'what', label: 'Order' },
+        { key: 'recipient', label: 'For' },
+        { key: 'value', label: 'Value', numeric: true },
+        { key: 'progress', label: 'Progress' },
+        { key: 'with', label: 'With' },
+        { key: 'waiting_days', label: 'Waiting', numeric: true },
+      ];
+    }
     if (this.featureId() === 'oversight') {
       const tab = this.feature()?.tab;
       // The four views the charts are drawn from. Without these the grid

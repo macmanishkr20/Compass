@@ -460,6 +460,18 @@ def _unanswered(scope: Scope) -> list[dict[str, Any]]:
     return [r for r in _disclosed_rows(scope) if r["state"] == "queried"]
 
 
+def _orders(scope: Scope) -> list[dict[str, Any]]:
+    """Every order this person is part of, and how far it has got.
+
+    Asked of the chain rather than worked out here: which orders are
+    somebody's business is the chain's rule, and a tracker deriving it
+    again would be a second place for a privacy rule to be wrong.
+    """
+    from compass.businessfunctions.features import giftrequests
+
+    return giftrequests.tracked(scope.user, scope.period)
+
+
 def _totals(scope: Scope) -> list[dict[str, Any]]:
     """One row per person: their items, their total, and where it stands.
 
@@ -653,7 +665,12 @@ class RewardLens(Feature):
     #: `status` already says all of these in words, `state` is its key form,
     #: `can` is this feature's own rules and `asked_at` is a float.
     private = frozenset({"over_limit", "referred", "exception", "state",
-                         "can", "asked_at"})
+                         "can", "asked_at",
+                         # an order's own machinery: the stage key and the
+                         # two halves of "3 of 7", which the row already
+                         # says in words. NOT employee_id — that is how a
+                         # person's row is identified and aimed at.
+                         "stage", "done", "of"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)
@@ -710,6 +727,8 @@ class RewardLens(Feature):
             # "over the limit", empty, makes their own record look like it
             # is not there. Their year comes first; the rest still follow.
             return [
+                Tab("orders", "Your orders", len(_orders(scope)),
+                    key_field="id"),
                 Tab("all", "Your year", len(rows)),
                 Tab("over", "Over the limit", len(over)),
                 Tab("unacknowledged", "To acknowledge",
@@ -718,6 +737,12 @@ class RewardLens(Feature):
                     key_field="id"),
             ]
         return [
+            # The tracker's own question, and the first thing it answers:
+            # where has every order you are part of got to. The chain is a
+            # QUEUE — what needs me now. This is the JOURNEY — what has
+            # happened to each order and who has it.
+            Tab("orders", "Orders in flight", len(_orders(scope)),
+                key_field="id"),
             Tab("over", "Over the limit", len(over)),
             Tab("all", "Everyone", len(rows)),
             Tab("unacknowledged", "Awaiting acknowledgement",
@@ -730,6 +755,8 @@ class RewardLens(Feature):
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        if tab == "orders":
+            return _orders(scope)
         rows = _totals(scope)
         if tab == "over":
             return [r for r in rows if r["over_limit"]]

@@ -43,6 +43,7 @@ source is a stand-in for a finance system rather than a model of one.
 from __future__ import annotations
 
 import datetime as dt
+import time
 import uuid
 from typing import Any
 
@@ -570,6 +571,68 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
 #: else is a desk in the chain and sees their own work; these two personas
 #: exist to see all of it, which is what the dashboard and the trail are.
 SEES_EVERYTHING = frozenset({"compliance", "leadership"})
+
+
+def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
+    """Every order this person is involved in, and how far each has got.
+
+    The TRACKER's source. Built here rather than in the tracker because
+    the rule about which orders are somebody's business lives here, and a
+    second screen deriving it again would be a second place for it to be
+    wrong. The tracker asks; this answers under the chain's own rules.
+
+    What it adds over the chain's own rows is PROGRESS: which of the seven
+    steps are done, what each one was, who took it, and how long it has
+    been sitting where it is. The chain is a queue — what needs me now.
+    This is the journey — where has everything got to.
+    """
+    from compass.businessfunctions import people as _people
+    from compass.businessfunctions import registry as _registry
+
+    feature = _registry.feature_of("scs", "requests")[1]
+    if feature is None:
+        return []
+    scope = _people.scope_for(user, feature, period=period)
+
+    out = []
+    for row in _rows(scope):
+        request = next((r for r in ledger.requests() if r["id"] == row["id"]),
+                       None)
+        if request is None:
+            continue
+        trail = ledger.events(row["id"])
+        done = [e for e in trail if e["kind"] == SIGN_OFF]
+        stage = row["stage"]
+        steps = [s for s in STAGES if s != "closed"]
+        at = next((e["at"] for e in reversed(trail)), request.get("at", 0))
+        out.append({
+            "id": row["id"],
+            "what": row["what"],
+            "recipient": row["recipient"],
+            "employee_id": row["employee_id"],
+            "value": row["value"],
+            "source": row["source"],
+            "raised_by": row["requested_by"],
+            "raised_on": _day(request.get("at", 0)),
+            "stage": stage,
+            "status": row["status"],
+            # "whom to assign": who the next move belongs to.
+            "with": row["with"],
+            "progress": (f"{len(done)} of {len(steps)}"
+                         if stage not in ENDED else row["status"].lower()),
+            "done": len(done),
+            "of": len(steps),
+            "last_step": (stage_label(done[-1].get("stage", "")).lower()
+                          if done and done[-1].get("stage") in STAGES else "—"),
+            "last_by": done[-1]["by"] if done else "—",
+            "waiting_days": max(0, int((time.time() - at) // 86_400))
+                            if stage not in ENDED else 0,
+            "acknowledged_on": row["acknowledged_on"],
+        })
+    # Whatever is moving comes first, least far along first: a tracker is
+    # read to find what has not arrived, not to admire what has.
+    out.sort(key=lambda r: (r["stage"] in ENDED, r["done"], -r["waiting_days"]))
+    return out
 
 
 def _concerns(scope: Scope, row: dict[str, Any]) -> bool:

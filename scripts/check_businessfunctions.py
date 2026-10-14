@@ -950,7 +950,11 @@ def check_the_rail_can_work_rewardlens() -> None:
     fn, feat, h = registry.feature_of("scs", "register")
     s = as_("compliance", period="FY 2026-27")
 
-    r = assistant.interpret("scs", feat, h, s, "Refer John to Finance", "compliance")
+    # Named, because the rail resolves against the VIEW somebody is on and
+    # the tracker now opens on its orders. A sentence about people is one
+    # typed while looking at people.
+    r = assistant.interpret("scs", feat, h, s, "Refer John to Finance",
+                            "compliance", "all")
     ok("naming one person becomes a plan", isinstance(r, assistant.Proposal),
        type(r).__name__)
     ok("the plan names only that person",
@@ -962,13 +966,15 @@ def check_the_rail_can_work_rewardlens() -> None:
     out = assistant.confirm(r.id, "compliance", h)
     ok("confirming it refers them", out.ok and "Finance" in out.said, out.said)
 
-    everyone = assistant.interpret("scs", feat, h, s, "refer all of them", "compliance")
+    everyone = assistant.interpret("scs", feat, h, s, "refer all of them",
+                                   "compliance", "all")
     ok("referring everybody is not proposed",
        isinstance(everyone, assistant.Clarify), type(everyone).__name__)
 
     unresolved = [st for st in feat.starters
                   if not isinstance(
-                      assistant.interpret("scs", feat, h, s, st, "compliance"),
+                      assistant.interpret("scs", feat, h, s, st, "compliance",
+                                          "all"),
                       (assistant.Proposal, assistant.Answer, assistant.Clarify))]
     ok("every RewardLens starter resolves", not unresolved, str(unresolved))
 
@@ -2504,9 +2510,17 @@ def check_an_employee_is_not_shown_a_colleague() -> None:
        figures["headroom"].value)
     ok("in their own words", "your limit" in figures["recorded"].caption,
        figures["recorded"].caption)
-    ok("and the first tab is their year rather than an empty queue",
-       h.tabs(them)[0].key == "all" and h.rows(them, h.tabs(them)[0].key),
-       h.tabs(them)[0].key)
+    # The intent, which has outlived the tab that used to satisfy it: an
+    # employee opening this must land on something that HAS rows, not on
+    # an empty queue that makes their own record look absent. The tracker
+    # now opens on their orders, which is a better first answer to "what
+    # is happening to my gift" than their year total.
+    first = h.tabs(them)[0]
+    ok("an employee lands on a view with something in it",
+       h.rows(them, first.key), f"{first.key} is empty")
+    ok("and their own year is still one tab away",
+       any(t.key == "all" and t.count for t in h.tabs(them)),
+       str([(t.key, t.count) for t in h.tabs(them)]))
 
 
 def check_what_a_feature_declares_is_what_is_enforced() -> None:
@@ -3311,6 +3325,80 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
     said = h.preview(asking, "request_gift", dict(base, recipient="  ")).said
     ok("a blank one asks for a name rather than quoting nothing back",
        "Say who it is for" in said and "''" not in said, said)
+
+
+def check_the_tracker_follows_orders_through_the_chain() -> None:
+    """Two screens, two questions. The chain is a QUEUE — what needs me
+    now. The tracker is the JOURNEY — where has each order got to, and who
+    has it.
+
+    Both are narrowed by the same rule, asked of the chain rather than
+    worked out twice: which orders are somebody's business is the chain's
+    to say, and a tracker deriving it again is a second place for a
+    privacy rule to be wrong.
+    """
+    _, feat, h = registry.feature_of("scs", "register")
+    _, _rf, chain = registry.feature_of("scs", "requests")
+
+    board = people.scope_for("compliance", feat, period="FY 2026-27")
+    orders = h.rows(board, "orders")
+    ok("the tracker opens on orders", h.tabs(board)[0].key == "orders",
+       h.tabs(board)[0].key)
+    ok("and there are some to follow", orders)
+
+    for row in orders:
+        ok(f"{row['id']}: says how far it has got",
+           " of " in row["progress"] or row["stage"] in gr_mod.ENDED,
+           row["progress"])
+        ok(f"{row['id']}: and who has it now", row["with"])
+        ok(f"{row['id']}: with what was given and to whom",
+           row["what"] and row["recipient"])
+        break
+
+    # The same order, seen by the desks that handle it and not by others.
+    rid = orders[0]["id"]
+    sees = lambda who: {r["id"] for r in h.rows(
+        people.scope_for(who, feat, period="FY 2026-27"), "orders")}
+    # Nothing has reached Procurement in the fixture, and a desk tracking
+    # orders that are nowhere near it would be the bug. Walk one to them.
+    ok("a desk tracks nothing before anything reaches it",
+       not gr_mod.tracked("procurement", "FY 2026-27"),
+       str(len(gr_mod.tracked("procurement", "FY 2026-27"))))
+    mine = _ask(what="A hamper", value="1300", source="People team")
+    _walk(mine, upto="procurement")
+    ok("and tracks it once it is theirs",
+       mine in {r["id"] for r in gr_mod.tracked("procurement", "FY 2026-27")})
+    ok("and tracks the same ones the chain gives it",
+       {r["id"] for r in gr_mod.tracked("procurement", "FY 2026-27")}
+       == {r["id"] for r in chain.rows(
+           people.scope_for("procurement", _rf, period="FY 2026-27"), "all")})
+    ok("a stranger tracks nothing", not gr_mod.tracked("stranger", "FY 2026-27"))
+
+    # Procurement reads the ORDERS without reading the firm's register,
+    # which is the whole reason the two narrowings are separate.
+    proc = people.scope_for("procurement", feat, period="FY 2026-27")
+    ok("procurement follows the order that reached it",
+       mine in {r["id"] for r in h.rows(proc, "orders")})
+    ok("while still seeing none of the firm's register",
+       not h.rows(proc, "all"), str(len(h.rows(proc, "all"))))
+
+    # Progress is a fold over the trail, so it moves when the order does.
+    with fixtures():
+        fresh = _ask(what="A hamper", value="1100", source="People team")
+        was = next(r["progress"] for r in h.rows(board, "orders")
+                   if r["id"] == fresh)
+        chain.act(_req("servicelead"), "sign_off", [fresh], "Clear need.")
+        now = next(r["progress"] for r in h.rows(board, "orders")
+                   if r["id"] == fresh)
+        ok("a sign-off moves the tracker", was != now, f"{was} -> {now}")
+        ok("and it says which desk has it now",
+           next(r["with"] for r in h.rows(board, "orders")
+                if r["id"] == fresh) == "Finance Team")
+
+    ok("none of the order machinery reaches a workbook",
+       not ({"stage", "done", "of"} & set(orders[0])) or
+       {"stage", "done", "of"} <= h.private,
+       str(sorted(h.private)))
 
 
 def check_the_firm_has_three_levels() -> None:
@@ -4485,6 +4573,8 @@ def _checks() -> int:
     with fixtures():
         check_every_stage_reads_as_a_sentence()
     check_the_firm_has_three_levels()
+    with fixtures():
+        check_the_tracker_follows_orders_through_the_chain()
     with fixtures():
         check_the_dashboard_is_leaderships_alone_and_draws_what_it_says()
     with fixtures():
