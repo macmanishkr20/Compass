@@ -102,7 +102,7 @@ def _may(scope: Scope, action_id: str) -> bool:
     because the two drifting apart is how a screen comes to offer a button
     the server refuses — or worse, accept one it should not have.
     """
-    feature = registry.feature_of("scs", "rewardlens")[1]
+    feature = registry.feature_of("rewardlens", "register")[1]
     if feature is None:
         return False
     declared = next((a.roles for a in feature.actions if a.id == action_id), None)

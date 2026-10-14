@@ -193,7 +193,7 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
         if "dates" in row:
             return row["id"], f"{row['who']} · {row['dates']} · {row['kind']}"
         return row["kind"], f"{row['kind']} · {row['left']} of {row['of']} days"
-    if feature_id == "rewardlens":
+    if feature_id == "register":
         # Two shapes, because one of its tabs lists declared items rather
         # than people. Told apart by what the row carries and not by which
         # tab asked, so this cannot drift out of step with the tabs.

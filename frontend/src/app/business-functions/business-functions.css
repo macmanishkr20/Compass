@@ -131,6 +131,47 @@
   text-align: left;
   min-height: 42px;
 }
+/* Sub-services read as parts of one service: indented under the group
+   label, on a hairline that ties them together. The dashboard sits above
+   that line, because it is the one screen for reading the position rather
+   than a desk doing work. No colour is introduced — the rule is the
+   border token the rest of the module already uses. */
+.bf-sub { padding-left: 18px; }
+.bf-sub:not(.lead)::after {
+  content: "";
+  position: absolute;
+  left: 8px; top: 0; bottom: 0;
+  border-left: 1px solid var(--border);
+}
+.bf-sub.lead {
+  padding-left: 10px;
+  margin-bottom: 6px;
+}
+.bf-sub.lead .bf-navt b::after {
+  content: "the one view";
+  margin-left: 7px;
+  font-size: 9px;
+  font-weight: 680;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+
+/* The dashboard's card leads the grid, marked the same way its nav item
+   is: one view of the position, above the desks that do the work. */
+.bf-card.lead { border-color: var(--border-strong); }
+.bf-card.lead b::after {
+  content: "the one view";
+  margin-left: 8px;
+  font-size: 9px;
+  font-weight: 680;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+
 .bf-navitem:hover { background: var(--bg-2); }
 .bf-navitem.on { background: var(--accent-tint); }
 .bf-navitem.on::before {

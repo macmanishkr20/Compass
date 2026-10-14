@@ -1,21 +1,29 @@
-# Supply Chain Services.
+# RewardLens.
 #
-# The function that buys and distributes things on the firm's behalf — and so
-# the function that has to be able to say who received what.
+# ONE SERVICE, not five. Gifts, awards and vouchers given to employees: asked
+# for, checked, bought, handed over, confirmed, and accounted for against an
+# annual limit. The screens below are SUB-SERVICES of that one thing — a desk
+# each in the same process — and they were read as five separate services
+# because they sat in a flat list under a function named after a department.
+#
+# The leadership view is ONE screen, the Dashboard. The rest are where the
+# work is done: the chain, the register it writes to, Finance's own view of
+# it, and the history of every decision.
 
-id: scs
-name: SCS
-subtitle: Supply Chain Services
+id: rewardlens
+name: RewardLens
+subtitle: Gifts, awards and vouchers
 blurb: >-
-  Procurement and distribution. RewardLens is the one place a gift, award or
-  voucher given to an employee is recorded, so the firm can answer who
-  received what and how much it came to; Gift oversight is the same facts
-  read from above, for the people accountable for them.
-owner: scs-function-owner
+  One service for everything the firm gives an employee. A request is asked
+  for, checked by each desk in turn, bought, handed over and confirmed by the
+  person who received it; the register is what it all adds up to against the
+  annual limit. The Dashboard is the one view of the whole position.
+owner: rewardlens-service-owner
 
 starters:
   - Who is over the gift limit this year?
   - What has nobody acknowledged yet?
+  - Where has something been stuck longest?
 
 tools:
   - read_rows
@@ -23,12 +31,14 @@ tools:
 
 features:
   - id: oversight
-    name: Gift oversight
-    short: Exposure · process health
+    name: Dashboard
+    short: The whole position, for leadership
     blurb: >-
-      What the firm is exposed to, how much of it nobody has decided, and
-      where the process has stopped. Built from the same rows RewardLens
-      shows, so the two cannot disagree.
+      THE leadership view, and the only one: what the firm is exposed to,
+      how much of it nobody has decided, and where the process has stopped.
+      Built from the same rows the register shows, so the two cannot
+      disagree. Everything else here is a desk doing work; this is the one
+      screen for reading the position rather than acting on it.
     handler: gift_oversight
     scope: [period]
     choices:
@@ -83,151 +93,6 @@ features:
       - What are we exposed to?
       - What has nobody decided?
       - Where has the process stopped?
-
-    tools:
-      - read_rows
-      - explain_row
-
-  - id: audit
-    name: Audit trail
-    short: Every decision, in order
-    blurb: >-
-      Not a position but a history: one row per thing that happened, with a
-      name and a time against it. The question this answers is whether
-      every gift and every approval can be shown to have happened, which no
-      summary can.
-    handler: gift_audit
-    scope: [period]
-    choices:
-      period: [FY 2026-27, FY 2025-26, FY 2024-25]
-    scope_why: >-
-      The trail is kept per year, like everything else that hangs off an
-      annual limit.
-
-    # No actions at all. A function that could alter what it audits is not
-    # one — and Audit, which can see everything, is the persona most likely
-    # to be over-granted by somebody being helpful.
-
-    visibility:
-      firm: [compliance, finance, payroll, leadership]
-
-    rules:
-      - id: audit_is_a_role
-        headline: This one is for Leadership and Compliance.
-        detail: >-
-          It shows every decision anybody has taken about anybody's gifts,
-          which is more than most people have any reason to read. Audit is
-          not a separate login here — auditing the chain is part of what
-          Leadership and Compliance do with it.
-        tone: limit
-      - id: nothing_has_happened
-        headline: Nothing has been recorded yet.
-        detail: >-
-          No gift has been requested, reviewed or declared in this year. An
-          empty trail is a true answer, not a broken screen.
-        tone: notice
-
-    starters:
-      - What happened most recently?
-      - Which decisions has anybody taken?
-
-    tools:
-      - read_rows
-      - explain_row
-
-  - id: finance
-    name: Tax & budget
-    short: Referrals · thresholds · spend
-    blurb: >-
-      What compliance has sent to Finance, who is past the annual limit and
-      by how much, and what each team has committed against its budget. The
-      amount above the limit is reported; the tax treatment is Finance's own
-      system's to decide.
-    handler: gift_finance
-    scope: [period]
-    choices:
-      period: [FY 2026-27, FY 2025-26, FY 2024-25]
-    scope_why: >-
-      A limit is annual and so is a budget. Without the year, neither
-      question has an answer.
-
-    visibility:
-      firm: [finance, payroll, compliance, leadership]
-
-    actions:
-      - id: record_tax
-        label: Record the treatment
-        roles: [finance]
-        note_label: What did Finance do with it?
-        confirm: >-
-          Records that Finance has dealt with this referral, with your note
-          on the trail. It does not change the total — a total is the sum of
-          what somebody received, and no department edits that.
-        reversible: false
-
-    rules:
-      - id: finance_is_a_role
-        headline: This one is for Finance.
-        detail: >-
-          It names everybody past the annual limit across the firm, which is
-          not something an individual needs to read.
-        tone: limit
-      - id: not_everything_was_referred
-        headline: Somebody is past the limit and was never referred.
-        detail: >-
-          Finance hearing only about the breaches compliance remembered to
-          send is the shape of the problem this function exists to end, so
-          the list here is everybody — referred or not.
-        tone: limit
-      - id: a_team_is_over_budget
-        headline: A team has committed more than it was given.
-        detail: >-
-          Committed, not spent: an approval commits the money and handing it
-          over spends it. The gap is where a budget holder still has a
-          choice.
-        tone: limit
-      - id: nothing_above_the_limit
-        headline: Nobody is past the limit.
-        detail: Worth saying plainly, so the screen is read when it is not.
-        tone: notice
-
-    starters:
-      - Who is past the limit?
-      - What has been referred to Finance?
-      - Which teams are near their budget?
-
-    forms:
-      - id: set_thresholds
-        label: Set thresholds
-        submit_label: Put it in force
-        blurb: >-
-          The annual limit and the single-gift threshold every request is
-          judged against. Leave a field empty to keep it as it is. "What
-          would this do?" shows the change before anything moves.
-        confirm: >-
-          Puts a NEW VERSION in force from this moment. Nothing already
-          recorded changes: a gift inside the limit on the day it was given
-          stays inside it, and a breach stays a breach. The change goes on
-          the audit trail with your name and your reason.
-        fields:
-          - id: annual_limit
-            label: Annual limit per person
-            kind: money
-            required: false
-            help: Past this, Finance decides the tax treatment.
-          - id: big
-            label: Single-gift threshold
-            kind: money
-            required: false
-            help: >-
-              Above this, one gift needs compliance rather than a line
-              manager, whatever the running total says.
-          - id: why
-            label: Why are you changing it?
-            kind: text
-            help: >-
-              Goes on the trail against the version. A threshold moved with
-              no reason is one nobody can account for later.
 
     tools:
       - read_rows
@@ -390,9 +255,9 @@ features:
       - read_rows
       - explain_row
 
-  - id: rewardlens
-    name: RewardLens
-    short: Gifts · awards · thresholds
+  - id: register
+    name: Register
+    short: What was given, and to whom
     blurb: >-
       Every gift, award and voucher given to an employee, totalled per person
       against the annual limit. The spend was always known; who received it
@@ -647,3 +512,148 @@ features:
     tools:
       - read_rows
       - explain_row
+  - id: finance
+    name: Tax & budget
+    short: Referrals · thresholds · spend
+    blurb: >-
+      What compliance has sent to Finance, who is past the annual limit and
+      by how much, and what each team has committed against its budget. The
+      amount above the limit is reported; the tax treatment is Finance's own
+      system's to decide.
+    handler: gift_finance
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      A limit is annual and so is a budget. Without the year, neither
+      question has an answer.
+
+    visibility:
+      firm: [finance, payroll, compliance, leadership]
+
+    actions:
+      - id: record_tax
+        label: Record the treatment
+        roles: [finance]
+        note_label: What did Finance do with it?
+        confirm: >-
+          Records that Finance has dealt with this referral, with your note
+          on the trail. It does not change the total — a total is the sum of
+          what somebody received, and no department edits that.
+        reversible: false
+
+    rules:
+      - id: finance_is_a_role
+        headline: This one is for Finance.
+        detail: >-
+          It names everybody past the annual limit across the firm, which is
+          not something an individual needs to read.
+        tone: limit
+      - id: not_everything_was_referred
+        headline: Somebody is past the limit and was never referred.
+        detail: >-
+          Finance hearing only about the breaches compliance remembered to
+          send is the shape of the problem this function exists to end, so
+          the list here is everybody — referred or not.
+        tone: limit
+      - id: a_team_is_over_budget
+        headline: A team has committed more than it was given.
+        detail: >-
+          Committed, not spent: an approval commits the money and handing it
+          over spends it. The gap is where a budget holder still has a
+          choice.
+        tone: limit
+      - id: nothing_above_the_limit
+        headline: Nobody is past the limit.
+        detail: Worth saying plainly, so the screen is read when it is not.
+        tone: notice
+
+    starters:
+      - Who is past the limit?
+      - What has been referred to Finance?
+      - Which teams are near their budget?
+
+    forms:
+      - id: set_thresholds
+        label: Set thresholds
+        submit_label: Put it in force
+        blurb: >-
+          The annual limit and the single-gift threshold every request is
+          judged against. Leave a field empty to keep it as it is. "What
+          would this do?" shows the change before anything moves.
+        confirm: >-
+          Puts a NEW VERSION in force from this moment. Nothing already
+          recorded changes: a gift inside the limit on the day it was given
+          stays inside it, and a breach stays a breach. The change goes on
+          the audit trail with your name and your reason.
+        fields:
+          - id: annual_limit
+            label: Annual limit per person
+            kind: money
+            required: false
+            help: Past this, Finance decides the tax treatment.
+          - id: big
+            label: Single-gift threshold
+            kind: money
+            required: false
+            help: >-
+              Above this, one gift needs compliance rather than a line
+              manager, whatever the running total says.
+          - id: why
+            label: Why are you changing it?
+            kind: text
+            help: >-
+              Goes on the trail against the version. A threshold moved with
+              no reason is one nobody can account for later.
+
+    tools:
+      - read_rows
+      - explain_row
+
+  - id: audit
+    name: Audit trail
+    short: Every decision, in order
+    blurb: >-
+      Not a position but a history: one row per thing that happened, with a
+      name and a time against it. The question this answers is whether
+      every gift and every approval can be shown to have happened, which no
+      summary can.
+    handler: gift_audit
+    scope: [period]
+    choices:
+      period: [FY 2026-27, FY 2025-26, FY 2024-25]
+    scope_why: >-
+      The trail is kept per year, like everything else that hangs off an
+      annual limit.
+
+    # No actions at all. A function that could alter what it audits is not
+    # one — and Audit, which can see everything, is the persona most likely
+    # to be over-granted by somebody being helpful.
+
+    visibility:
+      firm: [compliance, finance, payroll, leadership]
+
+    rules:
+      - id: audit_is_a_role
+        headline: This one is for Leadership and Compliance.
+        detail: >-
+          It shows every decision anybody has taken about anybody's gifts,
+          which is more than most people have any reason to read. Audit is
+          not a separate login here — auditing the chain is part of what
+          Leadership and Compliance do with it.
+        tone: limit
+      - id: nothing_has_happened
+        headline: Nothing has been recorded yet.
+        detail: >-
+          No gift has been requested, reviewed or declared in this year. An
+          empty trail is a true answer, not a broken screen.
+        tone: notice
+
+    starters:
+      - What happened most recently?
+      - Which decisions has anybody taken?
+
+    tools:
+      - read_rows
+      - explain_row
+

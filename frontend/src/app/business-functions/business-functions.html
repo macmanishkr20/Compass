@@ -44,9 +44,14 @@
         }
       </button>
 
-      <div class="bf-lbl bf-navlbl">Features</div>
-      @for (f of current()?.features ?? []; track f.id) {
-        <button class="bf-navitem" type="button" [class.on]="featureId() === f.id"
+      <!-- Sub-services of ONE service, not a flat list of five. The group
+           is named after the service that holds them, and the first is
+           marked as the single place the whole position is read, so a
+           dashboard and a desk do not look like the same kind of thing. -->
+      <div class="bf-lbl bf-navlbl">Within {{ current()?.name }}</div>
+      @for (f of current()?.features ?? []; track f.id; let first = $first) {
+        <button class="bf-navitem bf-sub" type="button"
+          [class.on]="featureId() === f.id" [class.lead]="first"
           (click)="openFeature(f.id)">
           <span class="bf-navt"><b>{{ f.name }}</b><small>{{ f.short }}</small></span>
         </button>
@@ -93,19 +98,20 @@
             <p class="bf-clear">Nothing is waiting on you in {{ fn.name }}.</p>
           }
 
-          <div class="bf-sec bf-sec2"><span class="bf-lbl">Features</span><span class="bf-rule"></span>
+          <div class="bf-sec bf-sec2"><span class="bf-lbl">Sub-services</span><span class="bf-rule"></span>
             <span class="bf-ct">{{ fn.features.length }}</span>
           </div>
           <div class="bf-grid">
-            @for (f of fn.features; track f.id) {
-              <button class="bf-card" type="button" (click)="openFeature(f.id)">
+            @for (f of fn.features; track f.id; let first = $first) {
+              <button class="bf-card" type="button" [class.lead]="first"
+                (click)="openFeature(f.id)">
                 <b>{{ f.name }}</b>
                 <p>{{ f.blurb }}</p>
                 <span class="bf-cardfoot">{{ f.short }}</span>
               </button>
             }
-            <div class="bf-add">More features land here as the {{ fn.name }} owner adds them.
-              The assistant picks them up automatically.</div>
+            <div class="bf-add">More sub-services land here as the {{ fn.name }} owner
+              adds them. The assistant picks them up automatically.</div>
           </div>
         </div>
       }
