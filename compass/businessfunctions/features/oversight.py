@@ -43,8 +43,10 @@ from typing import Any
 from compass.businessfunctions import notices
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import (
+    Chart,
     Feature,
     Figure,
+    Slice,
     Outcome,
     Scope,
     Tab,
@@ -147,6 +149,90 @@ def _stuck(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: (-r["waiting"], r["who"]))
 
 
+def _firm(scope: Scope) -> Scope:
+    """This scope at firm breadth. The dashboard is leadership's only."""
+    return Scope(user=scope.user, period=scope.period, sees="firm",
+                 roles=scope.roles)
+
+
+def _budget_rows(scope: Scope) -> list[dict[str, Any]]:
+    """Each team's allowance against what it has committed this year.
+
+    Read from the same functions Tax & budget uses, so the dashboard and
+    Finance's own screen cannot tell leadership two different numbers.
+    """
+    from compass.businessfunctions.features import giftrequests
+
+    out = []
+    for source, budget in giftrequests.BUDGETS_now().items():
+        committed = giftrequests.committed(source, scope.period)
+        out.append({"source": source, "budget": budget,
+                    "committed": committed, "left": budget - committed,
+                    "status": "over budget" if committed > budget
+                              else "within budget"})
+    return sorted(out, key=lambda r: -r["committed"])
+
+
+def _team_spend(scope: Scope) -> list[dict[str, Any]]:
+    """What each team actually handed over, as against committed."""
+    given: dict[str, dict[str, Any]] = {}
+    for item in rewardlens.items(_firm(scope)):
+        if item["id"] in rewardlens.superseded():
+            continue
+        row = given.setdefault(item["source"], {
+            "source": item["source"], "given": 0, "items": 0, "people": set()})
+        row["given"] += item["value"]
+        row["items"] += 1
+        row["people"].add(item["employee_id"])
+    out = [{**r, "people": len(r["people"])} for r in given.values()]
+    return sorted(out, key=lambda r: -r["given"])
+
+
+def _notable(scope: Scope, above: int) -> list[dict[str, Any]]:
+    """Everybody whose year is past the watch level, biggest first."""
+    return sorted(
+        [{"employee_id": r["employee_id"], "recipient": r["recipient"],
+          "total": r["total"], "items": r["items"],
+          "over_limit_by": r["excess"], "status": r["status"]}
+         for r in rewardlens.totals(_firm(scope)) if r["total"] > above],
+        key=lambda r: -r["total"])
+
+
+def _team_tax(scope: Scope) -> list[dict[str, Any]]:
+    """How much of each team's giving sits above the annual limit.
+
+    A person's excess is attributed to the teams that gave to them, in
+    proportion to what each gave — because the excess is a property of the
+    PERSON's year and no single gift caused it. Said plainly here because
+    an apportionment that looks like a measurement is how a dashboard
+    misleads.
+    """
+    by_person: dict[str, dict[str, int]] = {}
+    for item in rewardlens.items(_firm(scope)):
+        if item["id"] in rewardlens.superseded():
+            continue
+        if item["kind"] not in rewardlens.counts_towards_limit():
+            continue
+        by_person.setdefault(item["employee_id"], {})
+        by_person[item["employee_id"]][item["source"]] = (
+            by_person[item["employee_id"]].get(item["source"], 0)
+            + item["value"])
+
+    out: dict[str, dict[str, Any]] = {}
+    for row in rewardlens.totals(_firm(scope)):
+        if not row["over_limit"]:
+            continue
+        gave = by_person.get(row["employee_id"], {})
+        whole = sum(gave.values()) or 1
+        for source, amount in gave.items():
+            share = round(row["excess"] * amount / whole)
+            team = out.setdefault(source, {"source": source, "above_limit": 0,
+                                           "people": 0})
+            team["above_limit"] += share
+            team["people"] += 1
+    return sorted(out.values(), key=lambda r: -r["above_limit"])
+
+
 def _sources(scope: Scope) -> list[dict[str, Any]]:
     """Where it all comes from, worst first.
 
@@ -226,10 +312,87 @@ class Oversight(Feature):
                    "bad" if unreached else "good"),
         ]
 
+    # Above this, a year is worth leadership looking at by name. NOT the
+    # annual limit, which is the compliance line and lives in `policy`:
+    # this is the "who is unusually expensive" watch level, and the two
+    # being different numbers is deliberate.
+    NOTABLE = 50_000
+
+    def charts(self, scope: Scope) -> list[Chart]:
+        """The four pictures leadership reads the position from.
+
+        Each one is drawn from a tab on this screen, so a click goes to
+        the numbers it was drawn from. A chart that cannot be got behind
+        is a chart nobody can check.
+        """
+        if self._shut_out(scope):
+            return []
+        money = rewardlens.rupees
+        budgets = _budget_rows(scope)
+        teams = _team_spend(scope)
+        over = _notable(scope, self.NOTABLE)
+        taxed = _team_tax(scope)
+
+        return [
+            Chart(
+                key="budget", kind="bars", tab="budgets",
+                title="Annual budget against what is spent",
+                caption=f"{money(sum(b['budget'] for b in budgets))} allowed "
+                        f"across {len(budgets)} teams, "
+                        f"{money(sum(b['committed'] for b in budgets))} of it "
+                        f"committed.",
+                slices=[Slice(label=b["source"], value=b["committed"],
+                              against=b["budget"],
+                              said=f"{money(b['committed'])} of "
+                                   f"{money(b['budget'])}")
+                        for b in budgets],
+                empty="No team has a budget recorded."),
+            Chart(
+                key="teams", kind="split", tab="teams",
+                title="Where the spend goes, by team",
+                caption="Every gift that reached somebody, by the team that "
+                        "paid for it.",
+                slices=[Slice(label=t["source"], value=t["given"],
+                              said=money(t["given"]))
+                        for t in teams if t["given"]],
+                empty="Nothing has been handed over yet."),
+            Chart(
+                key="notable", kind="bars", tab="notable",
+                title=f"People past {money(self.NOTABLE)} this year",
+                caption=f"A year worth looking at by name. The compliance "
+                        f"limit is {money(rewardlens.limit())}; this is the "
+                        f"higher watch level.",
+                slices=[Slice(label=r["employee_id"], value=r["total"],
+                              against=self.NOTABLE,
+                              said=f"{r['recipient']} — {money(r['total'])}")
+                        for r in over],
+                empty=f"Nobody is past {money(self.NOTABLE)} this year."),
+            Chart(
+                key="tax", kind="split", tab="tax",
+                title="Amount above the limit, by team",
+                caption="What each team's giving has pushed past the annual "
+                        "limit. The amount, never a rate — the treatment is "
+                        "Finance's own system's to decide.",
+                slices=[Slice(label=t["source"], value=t["above_limit"],
+                              said=money(t["above_limit"]))
+                        for t in taxed if t["above_limit"]],
+                empty="Nobody is over the limit, so there is nothing above it."),
+        ]
+
     def tabs(self, scope: Scope) -> list[Tab]:
         if self._shut_out(scope):
             return []
+        # The first four are what the charts are drawn from, in the same
+        # order, so clicking a picture lands on its own numbers.
         return [
+            Tab("budgets", "Budget vs spent", len(_budget_rows(scope)),
+                key_field="source"),
+            Tab("teams", "Team spend", len(_team_spend(scope)),
+                key_field="source"),
+            Tab("notable", f"Past {rewardlens.rupees(self.NOTABLE)}",
+                len(_notable(scope, self.NOTABLE)), key_field="employee_id"),
+            Tab("tax", "Above the limit, by team", len(_team_tax(scope)),
+                key_field="source"),
             Tab("attention", "Nobody has decided", len(_undecided(scope))),
             Tab("stuck", "Process gaps", len(_stuck(scope)), key_field="id"),
             Tab("sources", "Where it comes from", len(_sources(scope)),
@@ -239,6 +402,14 @@ class Oversight(Feature):
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         if self._shut_out(scope):
             return []
+        if tab == "budgets":
+            return _budget_rows(scope)
+        if tab == "teams":
+            return _team_spend(scope)
+        if tab == "notable":
+            return _notable(scope, self.NOTABLE)
+        if tab == "tax":
+            return _team_tax(scope)
         if tab == "stuck":
             return _stuck(scope)
         if tab == "sources":

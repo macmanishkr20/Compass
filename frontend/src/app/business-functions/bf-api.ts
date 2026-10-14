@@ -71,6 +71,15 @@ export interface RailView {
   can_act: boolean;
 }
 
+/** One service inside a function, and the sub-services it is made of. */
+export interface ServiceGroup {
+  id: string;
+  name: string;
+  short: string;
+  blurb: string;
+  features: FeatureCard[];
+}
+
 export interface FunctionDetail {
   id: string;
   name: string;
@@ -78,6 +87,8 @@ export interface FunctionDetail {
   blurb: string;
   empty: boolean;
   features: FeatureCard[];
+  /** The same features, grouped under the services that hold them. */
+  services?: ServiceGroup[];
   queue: QueueItem[];
   rail: RailView;
 }
@@ -88,6 +99,27 @@ export interface Figure {
   caption: string;
   /** 'plain' | 'good' | 'warn' | 'bad' — the reading, not the colour. */
   tone: string;
+}
+
+/** One bar or wedge, and what it is worth saying about it. */
+export interface ChartSlice {
+  label: string;
+  value: number;
+  said: string;
+  /** A second number drawn against the first — a budget behind a spend. */
+  against: number | null;
+}
+
+export interface ChartSpec {
+  key: string;
+  title: string;
+  /** 'bars' compares quantities; 'split' shows parts of one whole. */
+  kind: 'bars' | 'split';
+  caption: string;
+  /** The tab holding the rows this was drawn from, so a click can open them. */
+  tab: string;
+  empty: string;
+  slices: ChartSlice[];
 }
 
 export interface TabSpec {
@@ -159,6 +191,8 @@ export interface FeatureView {
   scope?: { entity: string; period: string };
   figures?: Figure[];
   tabs?: TabSpec[];
+  /** Pictures of what this screen holds, each naming the tab behind it. */
+  charts?: ChartSpec[];
   tab?: string;
   /** Which date this screen's window is about — "acknowledged on". Absent
    *  when the screen has no window, which is most of them. */

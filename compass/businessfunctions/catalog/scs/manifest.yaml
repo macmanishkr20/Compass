@@ -1,24 +1,34 @@
-# RewardLens.
+# Supply Chain Services.
 #
-# ONE SERVICE, not five. Gifts, awards and vouchers given to employees: asked
-# for, checked, bought, handed over, confirmed, and accounted for against an
-# annual limit. The screens below are SUB-SERVICES of that one thing — a desk
-# each in the same process — and they were read as five separate services
-# because they sat in a flat list under a function named after a department.
+# THREE LEVELS, because the firm has three. SCS is the FUNCTION: the part of
+# the firm that buys and distributes things on everybody's behalf.
+# RewardLens is a SERVICE it runs — everything the firm gives an employee —
+# and the screens below are that service's SUB-SERVICES, a desk each in one
+# process.
 #
-# The leadership view is ONE screen, the Dashboard. The rest are where the
-# work is done: the chain, the register it writes to, Finance's own view of
-# it, and the history of every decision.
+# Flattened to two levels the sub-services sat beside each other looking like
+# five separate services, which is what somebody reading the nav concluded.
 
-id: rewardlens
-name: RewardLens
-subtitle: Gifts, awards and vouchers
+id: scs
+name: SCS
+subtitle: Supply Chain Services
 blurb: >-
-  One service for everything the firm gives an employee. A request is asked
-  for, checked by each desk in turn, bought, handed over and confirmed by the
-  person who received it; the register is what it all adds up to against the
-  annual limit. The Dashboard is the one view of the whole position.
-owner: rewardlens-service-owner
+  Procurement and distribution. SCS runs RewardLens, the service that covers
+  everything the firm gives an employee: a request is asked for, checked by
+  each desk in turn, bought, handed over and confirmed by the person who
+  received it, and the tracker is what it all adds up to against the annual
+  limit.
+owner: scs-function-owner
+
+services:
+  - id: rewardlens
+    name: RewardLens
+    short: Gifts, awards and vouchers
+    blurb: >-
+      One service for everything the firm gives an employee. Anybody may ask
+      for a gift; each desk checks what it is theirs to check; the tracker
+      follows the order and what it came to. The Dashboard is leadership's
+      only view of the whole position.
 
 starters:
   - Who is over the gift limit this year?
@@ -31,6 +41,7 @@ tools:
 
 features:
   - id: oversight
+    service: rewardlens
     name: Dashboard
     short: The whole position, for leadership
     blurb: >-
@@ -51,8 +62,12 @@ features:
     # dashboard, and "what is the firm exposed to" is not a question an
     # individual's own record can answer. Everybody else is told why rather
     # than shown an empty screen.
+    # LEADERSHIP ONLY. The one view of the whole position, and the only
+    # screen here that is for reading rather than doing. Finance and
+    # Payroll have their own screens; giving them this one as well made it
+    # a third opinion about the same facts.
     visibility:
-      firm: [compliance, finance, payroll, leadership]
+      firm: [leadership]
 
     # No actions, deliberately. This screen reports; the decisions belong
     # to the people whose names go against them, on RewardLens. A feature
@@ -99,6 +114,7 @@ features:
       - explain_row
 
   - id: requests
+    service: rewardlens
     name: Gift requests
     short: Ask · check · sign off · give
     blurb: >-
@@ -256,7 +272,8 @@ features:
       - explain_row
 
   - id: register
-    name: Register
+    service: rewardlens
+    name: Tracker
     short: What was given, and to whom
     blurb: >-
       Every gift, award and voucher given to an employee, totalled per person
@@ -275,6 +292,10 @@ features:
     # the people who report to them. Compliance, Finance, Audit and
     # Leadership see the firm, because answering "who received what" across
     # it is the problem this exists to solve.
+    # Everybody who HANDLES an order can read what happened to it:
+    # admin, Procurement, Payroll, Accounts Payable and the compliance
+    # side. A history only its subjects cannot read is not much of a
+    # control.
     visibility:
       firm: [compliance, finance, payroll, leadership]
       team: [service_line]
@@ -513,6 +534,7 @@ features:
       - read_rows
       - explain_row
   - id: finance
+    service: rewardlens
     name: Tax & budget
     short: Referrals · thresholds · spend
     blurb: >-
@@ -611,6 +633,7 @@ features:
       - explain_row
 
   - id: audit
+    service: rewardlens
     name: Audit trail
     short: Every decision, in order
     blurb: >-
@@ -630,8 +653,12 @@ features:
     # one — and Audit, which can see everything, is the persona most likely
     # to be over-granted by somebody being helpful.
 
+    # Everybody who HANDLES an order can read what happened to it: admin,
+    # Procurement, Payroll, Accounts Payable and the compliance side. A
+    # history its own subjects cannot read is not much of a control.
     visibility:
-      firm: [compliance, finance, payroll, leadership]
+      firm: [admin, procurement, payroll, accounts_payable, finance,
+             compliance, leadership]
 
     rules:
       - id: audit_is_a_role

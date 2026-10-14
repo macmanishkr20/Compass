@@ -223,6 +223,20 @@ async def get_function(
         # learned what Compass watches by being told they may not look.
         "features": [_feature_card(fn.id, f) for f in fn.features
                      if _may_open(user, f)],
+        # The three levels the firm actually has: this FUNCTION runs
+        # SERVICES, and the screens are their SUB-SERVICES. Sent grouped so
+        # the UI does not have to infer a hierarchy from a flat list — which
+        # it could not, and so showed five sub-services as five services.
+        "services": [
+            {"id": svc.id if svc else "",
+             "name": svc.name if svc else "",
+             "short": svc.short if svc else "",
+             "blurb": svc.blurb if svc else "",
+             "features": [_feature_card(fn.id, f) for f in feats
+                          if _may_open(user, f)]}
+            for svc, feats in fn.grouped()
+            if any(_may_open(user, f) for f in feats)
+        ],
         "queue": queue,
         "rail": _rail(fn, None, _scope(user, entity, period)),
     }
@@ -292,6 +306,16 @@ async def get_feature(
         # thing and had drifted, so a reader saw "stage: payroll_tax".
         "private": sorted(handler.private),
         "tabs": [{"key": t.key, "label": t.label, "count": t.count} for t in tabs],
+        # Pictures, and the tab each was drawn from. A chart nobody can get
+        # behind is a chart nobody can check, so every one names its rows.
+        "charts": [
+            {"key": c.key, "title": c.title, "kind": c.kind,
+             "caption": c.caption, "tab": c.tab, "empty": c.empty,
+             "slices": [{"label": s.label, "value": s.value,
+                         "said": s.said or str(s.value),
+                         "against": s.against} for s in c.slices]}
+            for c in handler.charts(scope)
+        ],
         "tab": chosen,
         # Whether this screen has a date window, and which date it is about.
         # The UI cannot invent either: "acknowledged on" rather than

@@ -59,6 +59,12 @@ ROLES = frozenset({
     "accounts_payable",  # Accounts Payable: the payment
     "compliance",        # Leadership / Compliance: dashboards, alerts, audit
     "leadership",        # the aggregate view; audit duties sit here too
+    # Not a persona the business named. `admin` administers the SYSTEM
+    # rather than taking part in the work it records: the thresholds every
+    # other persona is judged against, and the history of what was done.
+    # It was granted in the directory without being declared here, so a
+    # manifest naming it was refused while a Person holding it was not.
+    "admin",
 })
 
 #: What each persona is called where a person reads it. The manifest says

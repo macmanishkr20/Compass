@@ -134,6 +134,41 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class Slice:
+    """One bar, one wedge: a label, a number, and the rows behind it."""
+
+    label: str
+    value: int
+    #: What to say instead of the bare number — "₹4,50,000", "3 people".
+    said: str = ""
+    #: A second number drawn against the first, for a comparison chart:
+    #: budget against spend, limit against total.
+    against: int | None = None
+
+
+@dataclass(frozen=True)
+class Chart:
+    """A picture of something, and the grid it is a picture OF.
+
+    A chart nobody can get behind is a chart nobody can check. `tab` names
+    the view holding the rows it was drawn from, so a click opens the
+    numbers rather than a bigger version of the same picture.
+    """
+
+    key: str
+    title: str
+    #: "bars" for comparing quantities, "split" for parts of one whole.
+    kind: str
+    slices: list[Slice]
+    #: What the chart is saying, in one line, under the title.
+    caption: str = ""
+    #: The tab whose rows are what this was drawn from.
+    tab: str = ""
+    #: Said in place of the chart when there is nothing to draw.
+    empty: str = "Nothing to show yet."
+
+
+@dataclass(frozen=True)
 class Outcome:
     """What `act` did, in terms a person and the assistant can both use."""
 
@@ -177,6 +212,15 @@ class Feature(ABC):
         than `payroll_tax` even from a feature that never thought about it.
         """
         return step.replace("_", " ").capitalize()
+
+    def charts(self, scope: Scope) -> list["Chart"]:
+        """Pictures of what this screen holds. None by default.
+
+        A screen that reports a position rather than listing work can say
+        more in four charts than in forty rows; everything else here is a
+        queue, and a queue is a list.
+        """
+        return []
 
     @abstractmethod
     def figures(self, scope: Scope) -> list[Figure]:

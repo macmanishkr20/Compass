@@ -296,6 +296,9 @@ class FeatureManifest(BaseModel):
 
     id: str
     name: str
+    #: Which service inside the function this is a sub-service of. Empty
+    #: means unfiled, which a function with no services is for everything.
+    service: str = ""
     #: The line under the name in the sidebar. "Reconciliation · tax credits".
     short: str
     #: The paragraph on the launcher card.
@@ -438,8 +441,30 @@ class FeatureManifest(BaseModel):
         return found
 
 
+class ServiceManifest(BaseModel):
+    """One service inside a function, and the sub-services it is made of.
+
+    THREE LEVELS, because the firm has three: SCS is a function, RewardLens
+    is a service it runs, and the screens are sub-services of that service.
+    Flattened to two, five sub-services sat beside each other looking like
+    five services, which is exactly what somebody reading the nav concluded.
+
+    A service holds no behaviour of its own. It is a grouping with a name,
+    and the features say which one they belong to — so adding a second
+    service to SCS later is a manifest edit and not a migration.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    name: str
+    #: The line under the name. "Gifts, awards and vouchers".
+    short: str = ""
+    blurb: str = ""
+
+
 class FunctionManifest(BaseModel):
-    """One part of the firm, and the features it offers its own people."""
+    """One part of the firm, the services it runs, and their sub-services."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -455,7 +480,32 @@ class FunctionManifest(BaseModel):
     starters: list[str] = Field(default_factory=list)
     #: Every tool any feature here may ask for. The ceiling, not the grant.
     tools: list[str] = Field(default_factory=list)
+    #: The services this function runs. A function with none is read as
+    #: one unnamed service holding every feature, which is what every
+    #: function was before this existed.
+    services: list[ServiceManifest] = Field(default_factory=list)
     features: list[FeatureManifest] = Field(default_factory=list)
+
+    def service_of(self, feature: "FeatureManifest") -> ServiceManifest | None:
+        """The service a sub-service belongs to, or None when unfiled."""
+        return next((s for s in self.services if s.id == feature.service), None)
+
+    def grouped(self) -> list[tuple[ServiceManifest | None, list["FeatureManifest"]]]:
+        """Features under their services, in manifest order.
+
+        Anything a service does not claim comes last under None, so a
+        mistyped `service:` shows up as a feature sitting outside rather
+        than a feature that vanished.
+        """
+        out: list[tuple[ServiceManifest | None, list[FeatureManifest]]] = []
+        for service in self.services:
+            out.append((service, [f for f in self.features
+                                  if f.service == service.id]))
+        loose = [f for f in self.features
+                 if not any(f.service == s.id for s in self.services)]
+        if loose:
+            out.append((None, loose))
+        return out
 
     @property
     def empty(self) -> bool:

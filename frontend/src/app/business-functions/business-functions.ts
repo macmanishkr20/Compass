@@ -13,6 +13,8 @@ import { BusinessFunctionsLayout } from './bf-layout.service';
 import {
   ActionSpec,
   ActResult,
+  ChartSlice,
+  ChartSpec,
   AskResult,
   BusinessFunctionsApi,
   FeatureCard,
@@ -72,7 +74,7 @@ interface RailTurn {
   // Escape closes the open row wherever focus has got to inside it. Bound
   // on the host rather than the dialog, because the dialog's own children
   // take focus and a keydown on a textarea would otherwise never reach it.
-  host: { '(document:keydown.escape)': 'closeRow()' },
+  host: { '(document:keydown.escape)': 'escaped()' },
 })
 export class BusinessFunctions {
   private readonly api = inject(BusinessFunctionsApi);
@@ -262,6 +264,72 @@ export class BusinessFunctions {
     await this.openFeature(this.featureId(), this.feature()?.tab ?? '');
   }
 
+  // ── charts ──────────────────────────────────────────────────────────────
+  //
+  // Hand-drawn SVG rather than a charting library: every one of those
+  // brings its own palette and its own canvas, and this module's whole
+  // argument is that it introduces no colour of its own. A bar is a rect.
+
+  /** The tallest value in a chart, so every bar is drawn against it. */
+  private peak(c: ChartSpec): number {
+    return Math.max(1, ...c.slices.map((s) => Math.max(s.value, s.against ?? 0)));
+  }
+
+  /** How wide a bar is, as a percentage of the widest. */
+  barWidth(c: ChartSpec, s: ChartSlice): string {
+    return `${Math.round((s.value / this.peak(c)) * 100)}%`;
+  }
+
+  /** The same for the number drawn behind it — a budget behind a spend. */
+  againstWidth(c: ChartSpec, s: ChartSlice): string {
+    return `${Math.round(((s.against ?? 0) / this.peak(c)) * 100)}%`;
+  }
+
+  /** True when the bar has outgrown what it is drawn against. */
+  overspent(s: ChartSlice): boolean {
+    return s.against !== null && s.value > s.against;
+  }
+
+  /** Wedges as SVG arc paths on a 100-unit circle, largest first. */
+  wedges(c: ChartSpec): { path: string; slice: ChartSlice; share: string }[] {
+    const total = c.slices.reduce((n, s) => n + s.value, 0);
+    if (!total) return [];
+    let from = -Math.PI / 2;
+    return c.slices.map((slice) => {
+      const sweep = (slice.value / total) * Math.PI * 2;
+      const to = from + sweep;
+      const big = sweep > Math.PI ? 1 : 0;
+      const [x1, y1] = [50 + 42 * Math.cos(from), 50 + 42 * Math.sin(from)];
+      const [x2, y2] = [50 + 42 * Math.cos(to), 50 + 42 * Math.sin(to)];
+      // A single wedge is the whole circle, which an arc cannot draw.
+      const path = sweep >= Math.PI * 2 - 0.001
+        ? 'M50 8A42 42 0 1 1 49.9 8Z'
+        : `M50 50L${x1.toFixed(2)} ${y1.toFixed(2)}` +
+          `A42 42 0 ${big} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}Z`;
+      from = to;
+      return { path, slice, share: `${Math.round((slice.value / total) * 100)}%` };
+    });
+  }
+
+  /** The chart whose figures are open over the dashboard, or null. */
+  readonly chartOpen = signal<ChartSpec | null>(null);
+
+  /** Open the rows a chart was drawn from, over the dashboard.
+   *
+   *  The tab is switched first so the grid gets its own columns and its
+   *  own rows — then shown in a sheet rather than only below the fold,
+   *  because the point of clicking a chart is to check it without losing
+   *  sight of the picture you were reading. */
+  async openChart(c: ChartSpec): Promise<void> {
+    if (!c.tab || !c.slices.length) return;
+    await this.pickTab(c.tab);
+    this.chartOpen.set(c);
+  }
+
+  closeChart(): void {
+    this.chartOpen.set(null);
+  }
+
   // ── the table ───────────────────────────────────────────────────────────
 
   // -- the row somebody has opened, by id rather than by value. Holding the
@@ -285,6 +353,12 @@ export class BusinessFunctions {
   closeRow(): void {
     this.dropReason();
     this.viewing.set(null);
+  }
+
+  /** Escape closes whatever is on top: a row first, then a chart. */
+  escaped(): void {
+    if (this.viewing()) this.closeRow();
+    else this.closeChart();
   }
 
   /** The id a row is known by, which differs per feature. */
@@ -861,6 +935,42 @@ export class BusinessFunctions {
     // the places the process stopped, and where the value comes from.
     if (this.featureId() === 'oversight') {
       const tab = this.feature()?.tab;
+      // The four views the charts are drawn from. Without these the grid
+      // behind a chart fell through to the default columns and showed a
+      // column of dashes — a table claiming the chart had no numbers.
+      if (tab === 'budgets') {
+        return [
+          { key: 'source', label: 'Team' },
+          { key: 'budget', label: 'Budget', numeric: true },
+          { key: 'committed', label: 'Committed', numeric: true },
+          { key: 'left', label: 'Left', numeric: true },
+          { key: 'status', label: 'Status' },
+        ];
+      }
+      if (tab === 'teams') {
+        return [
+          { key: 'source', label: 'Team' },
+          { key: 'given', label: 'Given', numeric: true },
+          { key: 'items', label: 'Gifts', numeric: true },
+          { key: 'people', label: 'People', numeric: true },
+        ];
+      }
+      if (tab === 'notable') {
+        return [
+          { key: 'employee_id', label: 'Employee' },
+          { key: 'recipient', label: 'Person' },
+          { key: 'total', label: 'This year', numeric: true },
+          { key: 'items', label: 'Gifts', numeric: true },
+          { key: 'over_limit_by', label: 'Over the limit by', numeric: true },
+        ];
+      }
+      if (tab === 'tax') {
+        return [
+          { key: 'source', label: 'Team' },
+          { key: 'above_limit', label: 'Above the limit', numeric: true },
+          { key: 'people', label: 'People', numeric: true },
+        ];
+      }
       if (tab === 'stuck') {
         return [
           { key: 'who', label: 'Who' },
@@ -928,7 +1038,8 @@ export class BusinessFunctions {
     // declaration of nothing, so a zero here would be a bug worth seeing.
     if (key === 'value') return BusinessFunctions.rupees(Number(value));
     if (key === 'above_limit' || key === 'budget' || key === 'committed'
-        || key === 'left' || key === 'not_requested' || key === 'given') {
+        || key === 'left' || key === 'not_requested' || key === 'given'
+        || key === 'over_limit_by') {
       return Number(value) === 0 ? '—' : BusinessFunctions.rupees(Number(value));
     }
     if (key === 'to_people_over') {

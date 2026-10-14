@@ -136,6 +136,23 @@
    that line, because it is the one screen for reading the position rather
    than a desk doing work. No colour is introduced — the rule is the
    border token the rest of the module already uses. */
+/* A service is a heading, not a target: nothing opens at that level. */
+.bf-svc { margin-top: 12px; }
+.bf-svch { padding: 4px 10px 6px; }
+.bf-svch b {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 680;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.bf-svch small {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
 .bf-sub { padding-left: 18px; }
 .bf-sub:not(.lead)::after {
   content: "";
@@ -398,6 +415,87 @@
 }
 .bf-wclear:hover { color: var(--ink); }
 
+/* ── charts ──────────────────────────────────────────────────────────
+   Drawn from the module's own tokens and nothing else: the accent for the
+   measured quantity, the border for what it is measured against, the
+   danger token only where a bar has outgrown its budget. Five wedge
+   shades are the accent at five opacities rather than five new colours,
+   so a pie stays recognisable in both themes without introducing a
+   palette. */
+.bf-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  margin: 16px 22px 4px;
+}
+.bf-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 15px 16px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.bf-chart:hover { border-color: var(--border-strong); }
+.bf-chart > b { font-size: 13px; font-weight: 640; color: var(--ink); }
+.bf-chart > small {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.bf-chartnone { margin: 14px 0; font-size: 12px; color: var(--muted); }
+.bf-chartgo {
+  margin-top: 10px;
+  font-size: 10.5px;
+  font-weight: 680;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bf-chart:hover .bf-chartgo { color: var(--accent); }
+
+.bf-bars { display: flex; flex-direction: column; gap: 7px; margin: 12px 0 2px; }
+.bf-bar { display: grid; grid-template-columns: 92px 1fr auto; align-items: center; gap: 9px; }
+.bf-barlbl {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bf-bartrack { position: relative; height: 15px; border-radius: 4px; background: var(--bg-2); }
+.bf-barof {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 4px;
+  border: 1px dashed var(--border-strong);
+}
+.bf-barfill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  min-width: 2px;
+}
+.bf-barfill.over { background: var(--danger); }
+.bf-barval { font-size: 11px; color: var(--ink); white-space: nowrap; }
+
+.bf-split { display: flex; align-items: center; gap: 14px; margin: 12px 0 2px; }
+.bf-pie { width: 104px; height: 104px; flex: none; }
+.bf-key { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.bf-key li { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.bf-key li span { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bf-key li b { color: var(--ink); font-weight: 600; }
+.bf-key li small { color: var(--muted); min-width: 30px; text-align: right; }
+.bf-key i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+.bf-w0, .bf-key i.bf-w0 { fill: var(--accent); background: var(--accent); }
+.bf-w1, .bf-key i.bf-w1 { fill: var(--accent); background: var(--accent); opacity: .76; }
+.bf-w2, .bf-key i.bf-w2 { fill: var(--accent); background: var(--accent); opacity: .56; }
+.bf-w3, .bf-key i.bf-w3 { fill: var(--accent); background: var(--accent); opacity: .4; }
+.bf-w4, .bf-key i.bf-w4 { fill: var(--accent); background: var(--accent); opacity: .26; }
+
 .bf-wait {
   margin: 18px 22px;
   padding: 15px 17px;
@@ -561,6 +659,9 @@
 }
 .bf-sheetx:hover { background: var(--bg-2); color: var(--ink); }
 .bf-sheetbd { padding: 15px 18px; overflow-y: auto; }
+/* A grid needs more room than a record does. */
+.bf-sheet.bf-wide { width: min(860px, 100%); }
+.bf-sheet.bf-wide .bf-tbl { width: 100%; }
 .bf-sheetft {
   display: flex;
   align-items: center;

@@ -221,13 +221,28 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
         return row["id"], (f"{row['what']} for {row['recipient']} · "
                            f"{rupees(row['value'])}")
     if feature_id == "oversight":
-        # Three shapes on one feature, told apart by what the row carries
-        # rather than by which tab asked, so this cannot drift out of step
-        # with the tabs.
+        # Seven shapes on one feature now that it draws charts, told apart
+        # by what the row carries rather than by which tab asked, so this
+        # cannot drift out of step with the tabs. A team row is named by
+        # the one figure that tab is ABOUT: its budget, its spend, or what
+        # it pushed past the limit.
         if "source" in row:
-            return row["source"], f"{row['source']} · {rupees(row['value'])}"
+            for field, said in (("committed", "committed of"),
+                                ("given", "given"),
+                                ("above_limit", "above the limit"),
+                                ("value", "")):
+                if field in row:
+                    amount = rupees(row[field])
+                    tail = (f"{amount} {said} {rupees(row['budget'])}"
+                            if field == "committed" else
+                            f"{amount} {said}".strip())
+                    return row["source"], f"{row['source']} · {tail}"
+            return row["source"], row["source"]
         if "problem" in row:
             return row["id"], f"{row['who']} · {row['problem']}"
+        if "over_limit_by" in row:
+            return row["employee_id"], (f"{row['recipient']} · "
+                                        f"{rupees(row['total'])} this year")
         return row["employee_id"], (f"{row['recipient']} · "
                                     f"{rupees(row['excess'])} over")
     # A feature whose rows the rail cannot name is a feature the rail cannot
