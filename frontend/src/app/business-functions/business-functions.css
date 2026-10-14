@@ -137,6 +137,21 @@
    than a desk doing work. No colour is introduced — the rule is the
    border token the rest of the module already uses. */
 /* A service is a heading, not a target: nothing opens at that level. */
+.bf-ovup {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 680;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.bf-badge.quiet {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
 .bf-svc { margin-top: 12px; }
 .bf-svch { padding: 4px 10px 6px; }
 .bf-svch b {

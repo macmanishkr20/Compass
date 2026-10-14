@@ -129,6 +129,44 @@ export class BusinessFunctions {
   readonly rail = computed(() => this.feature()?.rail ?? this.current()?.rail ?? null);
   readonly atOverview = computed(() => this.feature() === null);
 
+  // -- which SERVICE is open, if any. The sidebar lists services and not
+  //    their parts: the parts are the cards on the service's own page,
+  //    which is where somebody reads what each is for. Listing them in
+  //    both places said the same thing twice.
+  readonly serviceId = signal('');
+
+  /** The open service, or null at the function's own overview. */
+  readonly openedService = computed(() => {
+    const id = this.serviceId();
+    return (this.current()?.services ?? []).find((s) => s.id === id) ?? null;
+  });
+
+  /** The cards to show: a service's sub-services, or nothing at the top. */
+  readonly shown = computed(() => this.openedService()?.features ?? []);
+
+  /** Whether what is open is a NAMED service, rather than the unnamed
+   *  bucket a function with no services sends its own screens in. Both are
+   *  "open" — they fill the same grid — but only one of them has parts, and
+   *  calling Form 26 a sub-service of nothing read as a missing level. */
+  readonly insideService = computed(() => !!this.openedService()?.id);
+
+  /** Open a service — its sub-services, as cards. */
+  async openService(id: string): Promise<void> {
+    this.serviceId.set(id);
+    this.feature.set(null);
+    this.featureId.set('');
+    this.aimed.set(new Set());
+    this.resetRail();
+    const fn = this.current();
+    if (!fn) return;
+    try {
+      this.current.set(await this.api.detail(fn.id, this.scope()));
+    } catch {
+      // What is already on screen is true enough; a failed refresh is not
+      // worth replacing a working page with an error.
+    }
+  }
+
   /** What a scope dimension may be set to, for the feature that is open.
    *
    *  Asked of the feature rather than held here. The first version of this
@@ -172,6 +210,7 @@ export class BusinessFunctions {
       this.current.set(detail);
       this.feature.set(null);
       this.featureId.set('');
+      this.serviceId.set('');
       this.resetRail();
     } catch (err) {
       this.error.set(String(err));
@@ -186,6 +225,7 @@ export class BusinessFunctions {
     if (!fn) return;
     this.feature.set(null);
     this.featureId.set('');
+    this.serviceId.set('');
     this.aimed.set(new Set());
     this.resetRail();
     // Re-read so the queue reflects anything that just changed.
@@ -200,6 +240,10 @@ export class BusinessFunctions {
   async openFeature(featureId: string, tab = ''): Promise<void> {
     const fn = this.current();
     if (!fn) return;
+    // Keep the rail showing which service this belongs to.
+    const owner = (fn.services ?? []).find(
+      (s) => s.features.some((f) => f.id === featureId));
+    if (owner) this.serviceId.set(owner.id);
     const fresh = featureId !== this.featureId();
     this.featureId.set(featureId);
     this.loading.set(true);

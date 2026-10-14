@@ -49,20 +49,33 @@
            target, because there is nothing to open at that level — it is
            what holds the parts together, and without it five parts read
            as five services. -->
+      <!-- The SERVICES this function runs, and nothing under them. Their
+           sub-services are the cards on the service's own page, which is
+           where somebody reads what each one is for — listing them here
+           as well said the same thing twice and made the rail long.
+
+           A function that declares no services sends its screens in an
+           unnamed group, and those ARE its rail: there is no level to
+           open, so they stay listed exactly as they were. -->
       @for (svc of current()?.services ?? []; track svc.id) {
-        <div class="bf-svc">
-          <div class="bf-svch">
-            <b>{{ svc.name || current()?.name }}</b>
-            @if (svc.short) { <small>{{ svc.short }}</small> }
-          </div>
-          @for (f of svc.features; track f.id; let first = $first) {
-            <button class="bf-navitem bf-sub" type="button"
-              [class.on]="featureId() === f.id" [class.lead]="first"
-              (click)="openFeature(f.id)">
+        @if (svc.id) {
+          <button class="bf-navitem" type="button"
+            [class.on]="serviceId() === svc.id && !featureId()"
+            (click)="openService(svc.id)">
+            <span class="bf-navt">
+              <b>{{ svc.name }}</b>
+              <small>{{ svc.short }}</small>
+            </span>
+            <span class="bf-badge quiet">{{ svc.features.length }}</span>
+          </button>
+        } @else {
+          @for (f of svc.features; track f.id) {
+            <button class="bf-navitem" type="button"
+              [class.on]="featureId() === f.id" (click)="openFeature(f.id)">
               <span class="bf-navt"><b>{{ f.name }}</b><small>{{ f.short }}</small></span>
             </button>
           }
-        </div>
+        }
       }
       @if (current()?.empty) {
         <p class="bf-note">Nothing in this function yet. Its owner adds features in admin.</p>
@@ -81,9 +94,18 @@
     @if (atOverview()) {
       @if (current(); as fn) {
         <div class="bf-ov">
+          <!-- The function, or one of its services. Same page, because
+               the question is the same at both levels: what is here, and
+               what needs me. -->
           <header class="bf-ovh">
-            <h1>{{ fn.name }}</h1>
-            <p>{{ fn.blurb }}</p>
+            @if (insideService() && openedService(); as svc) {
+              <span class="bf-ovup">{{ fn.name }}</span>
+              <h1>{{ svc.name }}</h1>
+              <p>{{ svc.blurb || svc.short }}</p>
+            } @else {
+              <h1>{{ fn.name }}</h1>
+              <p>{{ fn.blurb }}</p>
+            }
           </header>
 
           <div class="bf-sec"><span class="bf-lbl">Needs you</span><span class="bf-rule"></span>
@@ -106,20 +128,39 @@
             <p class="bf-clear">Nothing is waiting on you in {{ fn.name }}.</p>
           }
 
-          <div class="bf-sec bf-sec2"><span class="bf-lbl">Sub-services</span><span class="bf-rule"></span>
-            <span class="bf-ct">{{ fn.features.length }}</span>
+          <div class="bf-sec bf-sec2">
+            <span class="bf-lbl">{{ insideService() ? 'Sub-services' : 'Services' }}</span>
+            <span class="bf-rule"></span>
+            <span class="bf-ct">{{ openedService() ? shown().length
+              : (current()?.services?.length ?? 0) }}</span>
           </div>
           <div class="bf-grid">
-            @for (f of fn.features; track f.id; let first = $first) {
-              <button class="bf-card" type="button" [class.lead]="first"
-                (click)="openFeature(f.id)">
-                <b>{{ f.name }}</b>
-                <p>{{ f.blurb }}</p>
-                <span class="bf-cardfoot">{{ f.short }}</span>
-              </button>
+            @if (openedService()) {
+              @for (f of shown(); track f.id; let first = $first) {
+                <button class="bf-card" type="button" [class.lead]="first"
+                  (click)="openFeature(f.id)">
+                  <b>{{ f.name }}</b>
+                  <p>{{ f.blurb }}</p>
+                  <span class="bf-cardfoot">{{ f.short }}</span>
+                </button>
+              }
+            } @else {
+              <!-- At the function, the cards are its SERVICES. Opening one
+                   shows what it is made of. -->
+              @for (svc of current()?.services ?? []; track svc.id) {
+                <button class="bf-card" type="button"
+                  (click)="openService(svc.id)">
+                  <b>{{ svc.name }}</b>
+                  <p>{{ svc.blurb || svc.short }}</p>
+                  <span class="bf-cardfoot">{{ svc.features.length }}
+                    sub-services &middot; {{ svc.short }}</span>
+                </button>
+              }
             }
-            <div class="bf-add">More sub-services land here as the {{ fn.name }} owner
-              adds them. The assistant picks them up automatically.</div>
+            <div class="bf-add">More
+              {{ insideService() ? 'sub-services' : 'services' }} land here as
+              the {{ fn.name }} owner adds them. The assistant picks them up
+              automatically.</div>
           </div>
         </div>
       }
