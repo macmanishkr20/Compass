@@ -915,7 +915,9 @@ class RewardLens(Feature):
     #: And the actions that move an ORDER along the chain. Their targets are
     #: request ids, which is a third kind of target on one screen — the
     #: price of the Tracker being the desk where every persona signs off.
-    CHAIN_ACTIONS = ("sign_off", "decline", "cancel_request")
+    CHAIN_ACTIONS = ("sign_off", "decline", "cancel_request",
+                     "request_exception", "grant_exception",
+                     "refuse_exception")
 
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:

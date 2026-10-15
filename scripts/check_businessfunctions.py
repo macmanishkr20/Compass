@@ -1272,6 +1272,100 @@ def check_procurement_is_referenced_not_approved() -> None:
        ledger.reads_as("referenced") in said, str(said))
 
 
+def check_a_blocked_order_can_ask_for_an_exception() -> None:
+    """A rule that refuses is not the end of the conversation.
+
+    Before this the only answers to a blocked order were "send it back"
+    and "withdraw it". The case the business has every month — a gift that
+    matters and a rule that did not foresee it — had no route through
+    Compass, which means it was done beside it, which is the whole failure
+    this function exists to end.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+
+    # Client courtesy above the single-gift threshold: blocked.
+    rid = _ask(what="Dinner out", value="12000", kind="gift",
+               occasion="client courtesy")
+    row = lambda who: next(r for r in gr_mod._rows(_req(who))
+                           if r["id"] == rid)
+    ok("it is blocked", row("servicelead")["blocked"])
+    ok("so it offers no sign-off",
+       "sign_off" not in row("servicelead")["can"])
+    ok("but the desk holding it can ask for an exception",
+       "request_exception" in row("servicelead")["can"],
+       str(row("servicelead")["can"]))
+    ok("and so can whoever raised it",
+       "request_exception" in row("requester")["can"],
+       str(row("requester")["can"]))
+    # Finance is not even shown it yet: an order at the service line is
+    # not Finance's business until somebody puts the question to them.
+    ok("Finance has not been handed it before anybody asks",
+       not any(r["id"] == rid for r in gr_mod._rows(_req("finance"))))
+
+    ok("asking without a reason is refused",
+       not h.act(_req("servicelead"), "request_exception", [rid], "  ").ok)
+    out = h.act(_req("servicelead"), "request_exception", [rid],
+                "Twenty-year client, and the partner is attending.")
+    ok("with one, it is asked", out.ok, out.said)
+    ok("and it does not move the order",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "service_line")
+    ok("it is still blocked while Finance thinks", row("servicelead")["blocked"])
+
+    ok("now Finance can decide it",
+       {"grant_exception", "refuse_exception"} <= set(row("finance")["can"]),
+       str(row("finance")["can"]))
+    ok("and the desk that asked cannot grant its own",
+       not {"grant_exception", "refuse_exception"}
+       & set(row("servicelead")["can"]), str(row("servicelead")["can"]))
+
+    out = h.act(_req("finance"), "grant_exception", [rid],
+                "Allowed once, on the partner's authority.")
+    ok("Finance grants it", out.ok, out.said)
+    ok("the order is no longer blocked", not row("servicelead")["blocked"])
+    ok("and the rule is still on the record beside the decision",
+       "above" in row("servicelead")["policy"]
+       and "exception granted" in row("servicelead")["policy"],
+       row("servicelead")["policy"])
+    ok("so it can be signed off now",
+       "sign_off" in row("servicelead")["can"], str(row("servicelead")["can"]))
+    ok("and it runs to the end", not _walk(rid), "")
+
+    ok("the asking and the granting are both on the trail",
+       {ledger.reads_as("exception_asked"), ledger.reads_as("excepted")}
+       <= {ledger.reads_as(e["kind"]) for e in ledger.events(rid)},
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("granting twice is refused",
+       not h.act(_req("finance"), "grant_exception", [rid], "again").ok)
+
+    # And the other way: refused, and the rule stands.
+    second = _ask(what="More dinner", value="12000", kind="gift",
+                  occasion="client courtesy")
+    h.act(_req("servicelead"), "request_exception", [second], "Same client.")
+    out = h.act(_req("finance"), "refuse_exception", [second],
+                "Once was the exception.")
+    ok("Finance can refuse one", out.ok, out.said)
+    second_row = next(r for r in gr_mod._rows(_req("servicelead"))
+                      if r["id"] == second)
+    ok("and the order stays blocked", second_row["blocked"])
+    ok("with no second bite at it",
+       "request_exception" not in second_row["can"], str(second_row["can"]))
+    ok("but it can still be sent back",
+       "decline" in second_row["can"], str(second_row["can"]))
+
+    # An order nothing is blocking has no exception to make.
+    fine = _ask(what="A hamper", value="1000")
+    ok("an unblocked order is offered no exception",
+       "request_exception" not in next(
+           r for r in gr_mod._rows(_req("servicelead"))
+           if r["id"] == fine)["can"])
+    refused = h.act(_req("servicelead"), "request_exception", [fine], "why not")
+    ok("and asking anyway is refused, saying why", not refused.ok,
+       refused.said)
+    ok("in words that explain the rule is not biting",
+       "not biting" in refused.said, refused.said)
+
+
 def check_the_trail_is_read_by_the_order() -> None:
     """One row per ORDER, from the day it was asked for to the day it landed.
 
@@ -4681,7 +4775,7 @@ def check_one_team_buys_for_the_whole_firm() -> None:
     # And the third check is gone with the budget it read.
     verdict = gr_mod.checks(_req("requester"), request)
     ok("a request is checked on policy and on their year, and nothing else",
-       set(verdict) == {"policy", "tax", "blocked", "warns"},
+       set(verdict) == {"policy", "tax", "blocked", "warns", "exception"},
        str(sorted(verdict)))
     ok("only policy blocks it",
        verdict["blocked"] == (not verdict["policy"]["ok"]))
@@ -5225,6 +5319,8 @@ def _checks() -> int:
         check_payroll_is_read_at_the_end_not_signed_at_the_start()
     with fixtures():
         check_procurement_is_referenced_not_approved()
+    with fixtures():
+        check_a_blocked_order_can_ask_for_an_exception()
     with fixtures():
         check_the_trail_is_read_by_the_order()
     with fixtures():

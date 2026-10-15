@@ -92,6 +92,11 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # invoice a gift was bought on and has no part in raising any
           # of them.
           "referenced",
+          # the exception branch: asked for, granted, refused. Three kinds
+          # rather than one with a state, because "somebody asked" and
+          # "somebody decided" are different facts and an auditor reading
+          # the trail wants both.
+          "exception_asked", "exception_refused",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -116,6 +121,8 @@ READS_AS = {
     "acknowledged": "confirmed receiving",
     "allocated": "allocated",
     "referenced": "recorded the purchase reference for",
+    "exception_asked": "asked Finance to make an exception for",
+    "exception_refused": "refused an exception for",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

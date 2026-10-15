@@ -82,6 +82,12 @@ MOST_PER_ORDER = 500
 #: no business having an opinion about theirs.
 _REF_MAX = 64
 
+#: Who may take responsibility for a gift the rules refuse. Finance, as
+#: the business's own flow has it — the point of an exception is that
+#: somebody senior to the rule owns the decision, so it cannot be the desk
+#: the rule is inconveniencing.
+EXCEPTION_OWNER = "finance"
+
 #: How a gift reached somebody. Asked at distribution because "we have no
 #: idea how it got there" is the honest answer otherwise, and an auditor
 #: asking how two hundred hampers were handed out deserves better.
@@ -427,6 +433,24 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "said": "within policy"}
 
 
+def exception_on(request_id: str) -> dict[str, Any] | None:
+    """The exception granted on this order, if Finance has granted one.
+
+    THE WAY PAST A BLOCK, and the only one. A request that policy refuses
+    is not a request nobody can ever make — it is one somebody senior has
+    to take responsibility for, in writing, before it goes any further.
+    Without this the only answers were "send it back" and "withdraw it",
+    so the real-world case the business has every month — a gift that
+    matters and a rule that did not foresee it — had no route through
+    Compass at all and would have been done beside it.
+
+    A property of the request, not a stage: the order does not go
+    sideways to Finance and come back, it carries a decision that unblocks
+    it and stays on the trail for ever.
+    """
+    return ledger.latest(request_id, "excepted")
+
+
 def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
     """Both of them, in the words this reader may have them in.
 
@@ -444,7 +468,13 @@ def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
     """
     policy = _policy_check(request)
     tax = _tax_check(scope, request["for"], request["value"], request["kind"])
+    granted = exception_on(request["id"])
+    if granted is not None and not policy["ok"]:
+        policy = {"ok": True,
+                  "said": f"{policy['said']} — exception granted by "
+                          f"{granted.get('by', 'Finance')}"}
     return {"policy": policy, "tax": tax,
+            "exception": granted is not None,
             "blocked": not policy["ok"],
             # A tax consequence is not a reason to refuse — it is a reason
             # for somebody senior to decide knowingly, which is the whole
@@ -844,6 +874,16 @@ def _concerns(scope: Scope, row: dict[str, Any]) -> bool:
         return True
     if scope.employee and scope.employee in row.get("allocated_ids", []):
         return True
+    # An order waiting on an exception is the exception owner's business
+    # wherever it is standing. Without this, Finance was asked to take
+    # responsibility for an order it could not see — the request sat at
+    # the service line, which is not Finance's stage, so the question
+    # arrived with no way to answer it.
+    if (EXCEPTION_OWNER in scope.roles
+            and ledger.happened(row["id"], "exception_asked")
+            and exception_on(row["id"]) is None
+            and not ledger.happened(row["id"], "exception_refused")):
+        return True
     return any(e.get("by") == scope.user for e in ledger.events(row["id"]))
 
 
@@ -952,6 +992,20 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
         return []
 
     can: list[str] = []
+
+    # The exception branch. A blocked order is not a dead end: whoever is
+    # holding it may ask Finance to take responsibility for it, and
+    # Finance may grant that or refuse it. Offered only while it IS
+    # blocked and nobody has decided yet, because an exception to a rule
+    # that is not biting is not an exception.
+    if (verdict["blocked"] and exception_on(request["id"]) is None
+            and not ledger.happened(request["id"], "exception_refused")):
+        if mine_to_sign(scope, request, stage) or request["by"] == scope.user:
+            can.append("request_exception")
+        if EXCEPTION_OWNER in scope.roles and request["by"] != scope.user:
+            if ledger.happened(request["id"], "exception_asked"):
+                can.extend(["grant_exception", "refuse_exception"])
+
     if mine_to_sign(scope, request, stage):
         # Policy stops it at the gate; a tax consequence does not — it is
         # shown, and whoever signs off does so knowing.
@@ -1074,19 +1128,28 @@ class GiftRequests(Feature):
         if len(chosen) > 1:
             return Outcome(ok=False, said="Each request is decided on its own.")
         row = chosen[0]
+        request = next(r for r in ledger.requests() if r["id"] == row["id"])
+        stage = row["stage"]
+
+        # The exception branch answers its own refusals, because "that is
+        # not something you can do to it now" is the wrong sentence for
+        # every one of them: the useful answer is that nothing is blocking
+        # it, or that Finance has already decided, or that the decision is
+        # Finance's — and a reader who is told only the stage goes looking
+        # in the wrong place.
+        if action in ("request_exception", "grant_exception",
+                      "refuse_exception"):
+            return self._exception(scope, action, row, request, stage, note)
 
         if action not in row["can"]:
             # Say whose it is, not just that it is not theirs — "with
-            # Payroll" tells somebody where to chase; "you cannot do that"
-            # tells them nothing.
+            # Procurement" tells somebody where to chase; "you cannot do
+            # that" tells them nothing.
             return Outcome(
                 ok=False,
                 said=f"{row['what']} is {row['status'].lower()} — that is "
                      f"not something you can do to it now.",
             )
-
-        request = next(r for r in ledger.requests() if r["id"] == row["id"])
-        stage = row["stage"]
 
         if action == "cancel_request":
             ledger.add_event(subject=row["id"], kind="cancelled",
@@ -1213,6 +1276,68 @@ class GiftRequests(Feature):
             ok=True,
             said=f"Signed off: {step_name(stage)}.{crossing}{said_extra} "
                  f"It is now with {STAGES[nxt]['holder']}.",
+            touched=[row["id"]])
+
+    def _exception(self, scope: Scope, action: str, row: dict[str, Any],
+                   request: dict[str, Any], stage: str, note: str) -> Outcome:
+        """Ask for, grant or refuse an exception to a rule that is blocking.
+
+        Every branch here writes a reason, including the asking. An
+        exception with nothing written against it is the rule quietly not
+        applying, which is worse than the rule not existing — somebody
+        reading the trail a year later has to be able to see who decided
+        and what they thought.
+        """
+        if action not in row["can"]:
+            if exception_on(row["id"]) is not None:
+                return Outcome(ok=False, said="An exception has already been "
+                                              "granted on this one.")
+            if ledger.happened(row["id"], "exception_refused"):
+                return Outcome(ok=False, said="Finance has already refused an "
+                                              "exception on this one.")
+            if not row["blocked"]:
+                return Outcome(
+                    ok=False,
+                    said="Nothing is blocking this, so there is no exception "
+                         "to make. A rule that is not biting does not need "
+                         "one.")
+            return Outcome(ok=False, said="That decision is Finance's.")
+
+        if not note.strip():
+            return Outcome(
+                ok=False,
+                said="Say why. An exception with no reason against it is the "
+                     "rule quietly not applying.")
+
+        if action == "request_exception":
+            ledger.add_event(subject=row["id"], kind="exception_asked",
+                             by=scope.user, note=note.strip(), stage=stage)
+            return Outcome(
+                ok=True,
+                said=f"Asked Finance for an exception: {row['policy']} "
+                     f"It stays where it is until they decide.",
+                touched=[row["id"]])
+
+        if action == "refuse_exception":
+            ledger.add_event(subject=row["id"], kind="exception_refused",
+                             by=scope.user, note=note.strip(), stage=stage)
+            return Outcome(
+                ok=True,
+                said="Exception refused, with your reason on the record. The "
+                     "order stays blocked and can be sent back.",
+                touched=[row["id"]])
+
+        # Granted. The order is not changed — the rule still says what it
+        # said, and what is recorded is that somebody took responsibility
+        # for going ahead anyway.
+        ledger.add_event(subject=row["id"], kind="excepted", by=scope.user,
+                         note=note.strip(), stage=stage,
+                         value=request["value"])
+        return Outcome(
+            ok=True,
+            said=f"Exception granted, in your name. {row['policy']} — and it "
+                 f"can now be signed off. The rule stays on the record "
+                 f"alongside your decision; neither replaces the other.",
             touched=[row["id"]])
 
     # ── asking ──────────────────────────────────────────────────────────

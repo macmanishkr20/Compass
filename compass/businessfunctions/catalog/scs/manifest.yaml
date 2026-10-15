@@ -175,6 +175,33 @@ features:
           Withdraws your own request, while it is still being checked.
           Nothing was bought.
         reversible: false
+      - id: request_exception
+        label: Ask Finance for an exception
+        roles: [service_line, finance, procurement, requester, employee]
+        note_label: Why should this go ahead anyway?
+        confirm: >-
+          Asks Finance to take responsibility for a gift the rules refuse.
+          It does not approve anything and it does not move the order —
+          it puts the question, and your reason, on the record.
+        reversible: true
+      - id: grant_exception
+        label: Grant the exception
+        roles: [finance]
+        note_label: Why are you allowing it?
+        confirm: >-
+          Records that you are allowing a gift the rules refuse, in your
+          name and with your reason. The rule stays on the record beside
+          your decision — an exception does not rewrite the policy, it
+          says who took responsibility for going past it.
+        reversible: false
+      - id: refuse_exception
+        label: Refuse the exception
+        roles: [finance]
+        note_label: Why not?
+        confirm: >-
+          Records that the rule stands. The order stays blocked and
+          whoever is holding it can send it back.
+        reversible: false
 
     forms:
       - id: request_gift
@@ -399,6 +426,33 @@ features:
         confirm: >-
           Withdraws your own order, while it is still being checked.
           Nothing was bought.
+        reversible: false
+      - id: request_exception
+        label: Ask Finance for an exception
+        roles: [service_line, finance, procurement, requester, employee]
+        note_label: Why should this go ahead anyway?
+        confirm: >-
+          Asks Finance to take responsibility for a gift the rules refuse.
+          It does not approve anything and it does not move the order —
+          it puts the question, and your reason, on the record.
+        reversible: true
+      - id: grant_exception
+        label: Grant the exception
+        roles: [finance]
+        note_label: Why are you allowing it?
+        confirm: >-
+          Records that you are allowing a gift the rules refuse, in your
+          name and with your reason. The rule stays on the record beside
+          your decision — an exception does not rewrite the policy, it
+          says who took responsibility for going past it.
+        reversible: false
+      - id: refuse_exception
+        label: Refuse the exception
+        roles: [finance]
+        note_label: Why not?
+        confirm: >-
+          Records that the rule stands. The order stays blocked and
+          whoever is holding it can send it back.
         reversible: false
 
       - id: refer_to_finance
