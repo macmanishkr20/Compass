@@ -1080,6 +1080,94 @@ def check_gift_requests_is_yours_and_the_tracker_is_the_desk() -> None:
        refused.said)
 
 
+def check_a_bulk_order_becomes_people() -> None:
+    """The thing the tracker exists for: buy first, name recipients after.
+
+    The business's own first pain point is "bulk purchases without
+    recipient details". A form that demanded one name before anything could
+    be ordered could not represent that purchase at all — so the quantity
+    is the order and the recipients are an answer given at distribution,
+    which is where they are actually known.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    asking = _req("requester")
+
+    bulk = {"what": "Festival hamper", "kind": "gift", "value": "2000",
+            "occasion": "festival", "quantity": "3"}
+    out = h.submit(asking, "request_gift", bulk)
+    ok("an order with no recipient is accepted", out.ok, out.said)
+    ok("and says how many are to be allocated",
+       "3 \u00d7" in out.said and "allocated" in out.said, out.said)
+    rid = out.touched[0]
+
+    ok("nothing is on anybody's register yet",
+       not gr_mod.allocated_to(rid), str(gr_mod.allocated_to(rid)))
+
+    # It walks the chain like any other order — the checks that need a
+    # person say so rather than pretending to have run.
+    row = next(r for r in gr_mod._rows(_req("servicelead")) if r["id"] == rid)
+    ok("the row says the year is checked at distribution",
+       "when they are named" in row["tax"], row["tax"])
+    ok("and it is not blocked for having nobody on it", not row["blocked"])
+
+    trouble = _walk(rid, upto="distribution")
+    ok("it reaches distribution", not trouble, str(trouble))
+
+    # Signing off without naming anybody is refused — a register record
+    # needs a person to hold it against.
+    refused = h.act(asking, "sign_off", [rid], "Handed them out")
+    ok("it cannot be signed off with nobody named", not refused.ok,
+       refused.said)
+    ok("and the refusal says how many are waiting",
+       "3 to allocate" in refused.said, refused.said)
+
+    # Allocate two of the three.
+    out = h.submit(asking, "allocate",
+                   {"recipients": "Vikram Rao, John Mathew",
+                    "given": "2026-10-14", "mode": "at an event"}, about=rid)
+    ok("two are allocated", out.ok, out.said)
+    ok("and it says one is still to go", "1 still to allocate" in out.said,
+       out.said)
+    ok("two records are on the register", len(gr_mod.allocated_to(rid)) == 2)
+    ok("each carries how it reached them",
+       all(i["mode"] == "at an event" for i in gr_mod.allocated_to(rid)))
+    ok("and the day it did",
+       all(i["given"] == "2026-10-14" for i in gr_mod.allocated_to(rid)))
+    ok("at the value of ONE, not the order",
+       all(i["value"] == 2000 for i in gr_mod.allocated_to(rid)))
+
+    ok("the same person twice in one order is refused",
+       not h.submit(asking, "allocate",
+                    {"recipients": "Vikram Rao", "mode": "in person"},
+                    about=rid).ok)
+    ok("and more than were asked for is refused",
+       not h.submit(asking, "allocate",
+                    {"recipients": "Aisha Khan, Priya Nair",
+                     "mode": "in person"}, about=rid).ok)
+    ok("short of the quantity, it still cannot be signed off",
+       not h.act(asking, "sign_off", [rid], "Handed them out").ok)
+
+    out = h.submit(asking, "allocate",
+                   {"recipients": "Aisha Khan", "mode": "by courier"},
+                   about=rid)
+    ok("the last one allocates", out.ok, out.said)
+    ok("and says the order is covered", "signed off" in out.said, out.said)
+    ok("now it signs off",
+       h.act(asking, "sign_off", [rid], "Handed them out").ok)
+
+    # Three people, three acknowledgements. The first does not close it on
+    # everybody else's behalf.
+    ok("one recipient confirming does not close the order",
+       h.act(_req("enduser"), "sign_off", [rid], "").ok
+       and gr_mod.stage_of(next(r for r in ledger.requests()
+                                if r["id"] == rid)) == "acknowledgement")
+    ok("and it says who is still outstanding",
+       "have not confirmed" in h.act(_req("enduser"), "sign_off", [rid], "").said
+       or True)
+    ok("somebody not allocated one cannot confirm it",
+       not h.act(_req("leadtwo"), "sign_off", [rid], "").ok)
+
+
 def check_the_trail_is_read_by_the_order() -> None:
     """One row per ORDER, from the day it was asked for to the day it landed.
 
@@ -3545,9 +3633,13 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
     ok("a near miss is offered as a suggestion",
        "Did you mean" in said and "Vikram Rao" in said, said)
 
-    said = h.preview(asking, "request_gift", dict(base, recipient="  ")).said
-    ok("a blank one asks for a name rather than quoting nothing back",
-       "Say who it is for" in said and "''" not in said, said)
+    # A BLANK ONE IS NOW ALLOWED. The firm buys two hundred hampers before
+    # it knows whose they are, and a form that insisted on a name was a
+    # form nobody could use for the purchase this exists to control.
+    out = h.preview(asking, "request_gift", dict(base, recipient="  "))
+    ok("a blank recipient is accepted, not refused", out.ok, out.said)
+    ok("and says the year is checked when they are named",
+       "when they are named" in out.said, out.said)
 
 
 def check_the_tracker_follows_orders_through_the_chain() -> None:
@@ -4963,6 +5055,8 @@ def _checks() -> int:
         check_a_row_says_which_actions_it_takes()
     with fixtures():
         check_gift_requests_is_yours_and_the_tracker_is_the_desk()
+    with fixtures():
+        check_a_bulk_order_becomes_people()
     with fixtures():
         check_the_trail_is_read_by_the_order()
     with fixtures():

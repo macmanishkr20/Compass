@@ -909,7 +909,8 @@ export class BusinessFunctions {
           { key: 'id', label: 'Order' },
           { key: 'what', label: 'What' },
           { key: 'recipient', label: 'For' },
-          { key: 'value', label: 'Value', numeric: true },
+          { key: 'quantity', label: 'Qty', numeric: true },
+          { key: 'value', label: 'Each', numeric: true },
           { key: 'progress', label: 'Progress' },
           ...(tab === 'completed'
             ? [{ key: 'status', label: 'Status' }]
@@ -1000,8 +1001,9 @@ export class BusinessFunctions {
       return [
         { key: 'recipient', label: 'For' },
         { key: 'what', label: 'What' },
-        { key: 'value', label: 'Value', numeric: true },
-        { key: 'occasion', label: 'Occasion' },
+        { key: 'quantity', label: 'Qty', numeric: true },
+        { key: 'value', label: 'Each', numeric: true },
+        { key: 'allocation', label: 'Allocated' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
         { key: 'status', label: 'Status' },

@@ -182,10 +182,10 @@ features:
         label: Ask for a gift
         submit_label: Send the request
         blurb: >-
-          Say who it is for and what it is. Before you send it, "What would
-          this do?" will tell you whether it is permitted, what it does to
-          their year, and whether your team has the money — which is
-          cheaper to find out now than after it is bought.
+          Say what it is, how many, and who it is for if you know yet.
+          Before you send it, "What would this do?" will tell you whether
+          it is permitted and what it does to their year — which is cheaper
+          to find out now than after it is bought.
         confirm: >-
           Starts the chain with your name on it. It goes to the Service
           Line Approver first, then Finance, Payroll, Procurement and
@@ -193,7 +193,8 @@ features:
           it is actually handed over.
         fields:
           - id: recipient
-            label: Who it is for
+            label: Who it is for, if you know yet
+            required: false
             kind: text
             help: Their name, as Compass knows it.
           - id: what
@@ -214,9 +215,48 @@ features:
                       farewell, other]
             help: Policy depends on this, so it is not a free-text note.
           - id: value
-            label: What it costs
+            label: What ONE costs
             kind: money
-            help: Whole rupees.
+            help: Whole rupees. The value of a single gift, not the order.
+          - id: quantity
+            label: How many
+            kind: money
+            required: false
+            help: >-
+              Leave it empty for one. The firm buys in bulk and works out
+              whose they are afterwards, so this is the number of gifts —
+              who receives them is answered at distribution.
+      - id: allocate
+        label: Name who received them
+        on_row: true
+        submit_label: Record them
+        blurb: >-
+          The step the whole tracker exists for. An order is for a
+          quantity; this is where a quantity becomes people, and nothing
+          reaches anybody's annual total until it does. Name them by
+          comma, say when they were handed over and how.
+        confirm: >-
+          Puts one record on the register per person named, against their
+          year. The register is write-once — a correction supersedes a
+          record rather than editing it.
+        fields:
+          - id: recipients
+            label: Who received them
+            kind: text
+            help: Names separated by commas. One record each.
+          - id: given
+            label: When they were handed over
+            kind: date
+            required: false
+            help: Leave it empty for today.
+          - id: mode
+            label: How it reached them
+            kind: choice
+            options: [in person, at an event, by courier, sent digitally]
+            help: >-
+              An auditor asking how two hundred hampers were handed out
+              deserves better than silence.
+
     rules:
       - id: waiting_on_you
         headline: Something is waiting on you.

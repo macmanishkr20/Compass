@@ -83,6 +83,10 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # eight kinds nobody can fold.
           "requested", "signed_off", "declined", "cancelled", "closed",
           "acknowledged",
+          # where a quantity becomes people. Its own kind rather than a
+          # sign-off, because allocating is not a decision — it is the
+          # record of who actually got one.
+          "allocated",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -105,6 +109,7 @@ READS_AS = {
     "closed": "closed",
     "declined": "sent back",
     "acknowledged": "confirmed receiving",
+    "allocated": "allocated",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

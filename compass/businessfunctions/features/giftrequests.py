@@ -73,6 +73,15 @@ OCCASIONS = ("festival", "long service", "performance", "client courtesy",
 #: gift the firm's own allowance allowed.
 PROCUREMENT = "Procurement"
 
+#: The most gifts one order may be for. Not a policy — a guard, so a typo
+#: in a quantity field cannot write ten thousand register records.
+MOST_PER_ORDER = 500
+
+#: How a gift reached somebody. Asked at distribution because "we have no
+#: idea how it got there" is the honest answer otherwise, and an auditor
+#: asking how two hundred hampers were handed out deserves better.
+MODES = ("in person", "at an event", "by courier", "sent digitally")
+
 
 def BIG_now() -> int:
     return policy.big()
@@ -247,8 +256,32 @@ def stage_of(request: dict[str, Any]) -> str:
             if e["kind"] == SIGN_OFF}
     stage = FIRST_STAGE
     while stage != "closed" and stage in done:
+        # One order can reach several people. A sign-off at acknowledgement
+        # is ONE of them confirming, so the order is not closed until there
+        # is nobody left who has not — otherwise the first person to
+        # confirm would close it on everybody else's behalf, which is the
+        # firm asserting receipt again by a different route.
+        if stage == "acknowledgement" and _unconfirmed(request["id"]):
+            break
         stage = STAGES[stage]["next"]
     return stage
+
+
+def allocated_to(request_id: str) -> list[dict[str, Any]]:
+    """The register records this order became — one per recipient.
+
+    An order is for a QUANTITY; who received them is answered at
+    distribution, which is the whole point of the tracker. Read from the
+    register rather than from a field on the request, because the register
+    is the thing the totals are built from and a second list would be a
+    second answer.
+    """
+    return [i for i in ledger.items() if i.get("from_request") == request_id]
+
+
+def _unconfirmed(request_id: str) -> list[dict[str, Any]]:
+    """The allocated records nobody has confirmed receiving yet."""
+    return [i for i in allocated_to(request_id) if not i["acknowledged"]]
 
 
 def stage_label(stage: str) -> str:
@@ -327,6 +360,13 @@ def _may_read_totals(scope: Scope, employee_id: str) -> bool:
 
 def _tax_check(scope: Scope, employee_id: str, value: int,
                kind: str) -> dict[str, Any]:
+    if not employee_id:
+        # A bulk order with nobody named yet. Said plainly rather than
+        # answered: the limit is a property of a person's year, and there
+        # is no person to ask about until the gifts are allocated.
+        return {"ok": True,
+                "said": "checked against each recipient's year when they "
+                        "are named at distribution"}
     """What approving this would do to the recipient's year.
 
     The point of the whole system, asked one gift earlier than before. The
@@ -374,7 +414,7 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False,
                 "said": f"client courtesy above {rewardlens.rupees(BIG_now())} "
                         f"needs a conversation, not a form"}
-    if request["for"] == request["by_employee"] and request["by_employee"]:
+    if request["for"] and request["for"] == request["by_employee"]:
         return {"ok": False, "said": "you cannot request a gift for yourself"}
     if request["value"] > BIG_now():
         return {"ok": True,
@@ -474,8 +514,52 @@ def _with(request: dict[str, Any], stage: str) -> str:
         who = people.find(request["by"])
         return who.name if who else request["by"]
     if stage == "acknowledgement":
+        waiting = sorted({i["recipient"] for i in _unconfirmed(request["id"])})
+        if waiting:
+            return waiting[0] if len(waiting) == 1 else (
+                f"{waiting[0]} and {len(waiting) - 1} other"
+                f"{'s' if len(waiting) > 2 else ''}")
         return _name_of(request["for"])
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
+
+
+def _allocation_said(request: dict[str, Any]) -> str:
+    """How far an order has got towards knowing whose gifts these are."""
+    wanted = request.get("quantity", 1)
+    done = len(allocated_to(request["id"]))
+    if wanted == 1 and request["for"]:
+        return "named when asked for"
+    if not done:
+        return f"none of {wanted} named"
+    return f"{done} of {wanted} named"
+
+
+def _record(request: dict[str, Any], employee_id: str, name: str,
+            given: str, mode: str) -> dict[str, Any]:
+    """Put one gift on the register, against one person.
+
+    The ONE place an order becomes a record. Called once for a request
+    raised in somebody's name and once per recipient for a bulk order, so
+    the two cannot end up writing different shapes of row.
+    """
+    item = {
+        "id": f"G-{uuid.uuid4().hex[:6].upper()}",
+        "employee_id": employee_id,
+        "recipient": name,
+        "kind": request["kind"],
+        "what": request["what"],
+        "value": request["value"],
+        "given": given,
+        "source": request["source"],
+        "channel": "procured",
+        "acknowledged": False,
+        "from_request": request["id"],
+        # How it reached them. Empty for an order raised in one person's
+        # name and handed over without an allocation step.
+        "mode": mode,
+    }
+    ledger.add_item(item)
+    return item
 
 
 def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
@@ -533,6 +617,19 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             "why": ((ended.get("note") if ended else None)
                     or (last.get("note") if last else None) or "—"),
             "acknowledged_on": _day(ack["at"]) if ack else "—",
+            # How many were asked for, and how many have a person against
+            # them. "3 of 200 allocated" is the sentence a bulk order is
+            # read for, and no status word carries it.
+            "quantity": request.get("quantity", 1),
+            "allocated": len(allocated_to(request["id"])),
+            # In words, for the column: "2 of 3 named" is what a bulk
+            # order is read for, and neither number says it alone.
+            "allocation": _allocation_said(request),
+            # Who actually got one. On the row because "is this mine" can
+            # no longer be answered from the request alone: a bulk order
+            # names nobody when it is raised.
+            "allocated_ids": [i["employee_id"]
+                              for i in allocated_to(request["id"])],
             # What to ask this desk before it signs off, per action. The
             # screen asks it; the server requires an answer to the same
             # question, so the two cannot disagree about what is needed.
@@ -542,8 +639,32 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
     # Whatever is with somebody comes before whatever is finished, and the
     # oldest first inside that — a queue, not a list.
     out.sort(key=lambda r: (r["stage"] in ENDED, r["steps_done"], -r["value"]))
-    out = scope.narrow(out, person_key=("employee_id", "by_employee"))
+    # Breadth, applied here rather than through `Scope.narrow`, because
+    # one of these rows can be about a LIST of people. Narrow compares a
+    # named field to the ids somebody may see, and an order for two
+    # hundred hampers has no single field that says whose it is — the
+    # answer is the allocation. Keyed on the request alone, a recipient
+    # could not see, or confirm, the gift they had just been handed.
+    out = [r for r in out if _within_breadth(scope, r)]
     return [r for r in out if rule(scope, r)]
+
+
+def _within_breadth(scope: Scope, row: dict[str, Any]) -> bool:
+    """How much of this screen is theirs, for a row about several people."""
+    if scope.sees == "firm":
+        return True
+    if scope.sees == "none":
+        return False
+    allowed = {scope.employee} if scope.employee else set()
+    if scope.sees == "team":
+        allowed |= set(scope.team)
+    if not allowed:
+        return False
+    if str(row.get("employee_id", "")) in allowed:
+        return True
+    if str(row.get("by_employee", "")) in allowed:
+        return True
+    return bool(allowed & set(row.get("allocated_ids", ())))
 
 
 #: Who reads this screen as a POSITION rather than as a queue. Everybody
@@ -623,6 +744,9 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "why": row["why"],
             "kind": row["kind"],
             "occasion": row["occasion"],
+            "quantity": row["quantity"],
+            "allocation": row["allocation"],
+            "allocated_ids": row["allocated_ids"],
         })
     # Whatever is moving comes first, least far along first: a tracker is
     # read to find what has not arrived, not to admire what has.
@@ -648,7 +772,13 @@ def _is_yours(scope: Scope, row: dict[str, Any]) -> bool:
     what the Tracker, the Dashboard and the trail are for; this screen is
     personal, and a personal screen with an exception in it is not one.
     """
-    return row["requested_by"] == scope.user or scope.mine(row["employee_id"])
+    return (row["requested_by"] == scope.user
+            or scope.mine(row["employee_id"])
+            # ...or they were handed one out of it. A bulk order names
+            # nobody when it is raised, and the people it reached have as
+            # much right to see it as somebody named up front.
+            or (bool(scope.employee)
+                and scope.employee in row.get("allocated_ids", [])))
 
 
 def _concerns(scope: Scope, row: dict[str, Any]) -> bool:
@@ -680,6 +810,8 @@ def _concerns(scope: Scope, row: dict[str, Any]) -> bool:
     if row["requested_by"] == scope.user:
         return True
     if scope.mine(row["employee_id"]):
+        return True
+    if scope.employee and scope.employee in row.get("allocated_ids", []):
         return True
     return any(e.get("by") == scope.user for e in ledger.events(row["id"]))
 
@@ -760,7 +892,12 @@ def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
     if stage == "distribution":
         return request["by"] == scope.user
     if stage == "acknowledgement":
-        return scope.mine(request["for"])
+        # Whoever was ALLOCATED one, not whoever the request named. A bulk
+        # order names nobody when it is raised; the people who received it
+        # are known only once it has been handed out, and each of them
+        # confirms their own.
+        return bool(scope.employee) and scope.employee in {
+            i["employee_id"] for i in _unconfirmed(request["id"])}
 
     owner = STAGES.get(stage, {}).get("owner")
     if not owner or owner not in scope.roles:
@@ -804,14 +941,17 @@ class GiftRequests(Feature):
     key = "gift_requests"
     row_key = "id"
     private = frozenset({"by_employee", "stage", "blocked", "warns", "can",
-                         "steps_done", "ask"})
+                         "steps_done", "ask", "allocated_ids"})
 
     def step_label(self, step: str) -> str:
         """A stage on the trail, in the words the screen uses for it."""
         return stage_label(step) if step in STAGES else super().step_label(step)
 
     REQUEST_FORM = "request_gift"
-    FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion"})
+    FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",
+                        "quantity"})
+    ALLOCATE_FORM = "allocate"
+    ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope, _is_yours)
@@ -953,36 +1093,63 @@ class GiftRequests(Feature):
         if stage == "distribution":
             # Where a proposal becomes a record. Nothing before this is on
             # anybody's total, and nothing after it can be taken off.
-            item = {
-                "id": f"G-{uuid.uuid4().hex[:6].upper()}",
-                "employee_id": request["for"],
-                "recipient": row["recipient"],
-                "kind": request["kind"],
-                "what": request["what"],
-                "value": request["value"],
-                "given": dt.date.today().isoformat(),
-                "source": request["source"],
-                "channel": "procured",
-                "acknowledged": False,
-                "from_request": row["id"],
-            }
-            ledger.add_item(item)
-            after = next((r["total"] for r in rewardlens.totals(
-                Scope(user=scope.user, period=scope.period, sees="firm"))
-                if r["employee_id"] == request["for"]), request["value"])
-            said_extra = (f" It is on the register against "
-                          f"{row['recipient']}, whose year is now "
-                          f"{rewardlens.rupees(after)}.")
+            #
+            # ONE RECIPIENT IS A SPECIAL CASE OF MANY. An order raised for
+            # a named person is allocated to them here, exactly as it
+            # always was; anything else has to have been allocated first,
+            # because the quantity is the only thing the order knows and a
+            # number is not a list of people.
+            given = allocated_to(row["id"])
+            if not given:
+                if not request["for"]:
+                    return Outcome(
+                        ok=False,
+                        said=f"Name who received them first — "
+                             f"{request['quantity']} to allocate, and the "
+                             f"register cannot hold a gift without a person "
+                             f"to hold it against.")
+                given = [_record(request, request["for"], row["recipient"],
+                                 dt.date.today().isoformat(), "")]
+            short = request["quantity"] - len(given)
+            if short > 0:
+                return Outcome(
+                    ok=False,
+                    said=f"{len(given)} of {request['quantity']} allocated. "
+                         f"Name who received the other {short} before "
+                         f"signing this off.")
+            names = ", ".join(sorted({i["recipient"] for i in given}))
+            said_extra = (f" {len(given)} record"
+                          f"{'s are' if len(given) > 1 else ' is'} on the "
+                          f"register, against {names}.")
+            if len(given) == 1:
+                # One recipient, so the sentence that matters is still what
+                # this did to THEIR year. With twenty it would be twenty
+                # sentences, and the register is where you read those.
+                after = next((r["total"] for r in rewardlens.totals(
+                    Scope(user=scope.user, period=scope.period, sees="firm"))
+                    if r["employee_id"] == given[0]["employee_id"]),
+                    request["value"])
+                said_extra = (f" It is on the register against "
+                              f"{given[0]['recipient']}, whose year is now "
+                              f"{rewardlens.rupees(after)}.")
 
         if stage == "acknowledgement":
-            for item in rewardlens.items(scope):
-                if item.get("from_request") == row["id"]:
-                    item["acknowledged"] = True
-                    ledger.touch_item(item["id"])
-                    ledger.add_event(subject=item["id"], kind="acknowledged",
-                                     by=scope.user)
+            # THEIRS, not the order's. One order can reach twenty people,
+            # and each of them confirms what they themselves were given.
+            mine = [i for i in _unconfirmed(row["id"])
+                    if i["employee_id"] == scope.employee]
+            for item in mine:
+                item["acknowledged"] = True
+                ledger.touch_item(item["id"])
+                ledger.add_event(subject=item["id"], kind="acknowledged",
+                                 by=scope.user)
+            still = len(_unconfirmed(row["id"]))
             said_extra = (" The record now says you confirmed receiving it, "
                           "rather than the firm saying you did.")
+            if still:
+                said_extra += (f" {still} other"
+                               f"{'s have' if still > 1 else ' has'} not "
+                               f"confirmed yet, so the order stays open.")
 
         ledger.add_event(subject=row["id"], kind=SIGN_OFF, by=scope.user,
                          stage=stage, note=note.strip(), value=row["value"])
@@ -1009,7 +1176,83 @@ class GiftRequests(Feature):
     # ── asking ──────────────────────────────────────────────────────────
 
     def accepts(self, form_id: str) -> set[str]:
-        return set(self.FIELDS) if form_id == self.REQUEST_FORM else set()
+        if form_id == self.REQUEST_FORM:
+            return set(self.FIELDS)
+        if form_id == self.ALLOCATE_FORM:
+            return set(self.ALLOCATE_FIELDS)
+        return set()
+
+    def _read_allocation(self, scope: Scope, values: dict[str, str],
+                         about: str) -> tuple[dict[str, Any] | None,
+                                              Outcome | None]:
+        """The allocation these values describe, or why they do not.
+
+        This is "Provide recipient list / allocation details": the step
+        where a quantity becomes people. Everything it refuses, it refuses
+        BEFORE anything is written, because a half-written allocation on a
+        write-once register is not something anybody can tidy up.
+        """
+        request = next((r for r in ledger.requests() if r["id"] == about), None)
+        if request is None:
+            return None, Outcome(ok=False, said="No order by that id.")
+        if stage_of(request) != "distribution":
+            return None, Outcome(
+                ok=False,
+                said=f"{request['id']} is {stage_label(stage_of(request)).lower()}. "
+                     f"Gifts are allocated when it reaches distribution.")
+        if request["by"] != scope.user:
+            return None, Outcome(
+                ok=False,
+                said="Whoever raised it hands it over, so they are the one "
+                     "who can say who received it.")
+
+        already = allocated_to(request["id"])
+        room = request.get("quantity", 1) - len(already)
+        if room <= 0:
+            return None, Outcome(
+                ok=False,
+                said=f"All {request.get('quantity', 1)} are allocated.")
+
+        names = [n.strip() for n in values.get("recipients", "").split(",")
+                 if n.strip()]
+        if not names:
+            return None, Outcome(ok=False, said="Name who received them, "
+                                                "separated by commas.")
+        if len(names) > room:
+            return None, Outcome(
+                ok=False,
+                said=f"{len(names)} names for {room} remaining. Allocate no "
+                     f"more than were asked for.")
+
+        held = {i["employee_id"] for i in already}
+        people_named: list[tuple[str, str]] = []
+        for name in names:
+            employee = _employee_named(name)
+            if not employee:
+                return None, Outcome(
+                    ok=False,
+                    said=f"Compass does not know anybody called {name!r}. "
+                         f"It knows: {', '.join(_known_names())}.")
+            if employee in held or employee in {e for e, _ in people_named}:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{name} is already down for one from this order. "
+                         f"One record per person per order, so a second "
+                         f"gift is a second order.")
+            people_named.append((employee, _name_of(employee)))
+
+        given = values.get("given", "").strip() or dt.date.today().isoformat()
+        try:
+            dt.date.fromisoformat(given)
+        except ValueError:
+            return None, Outcome(ok=False, said="Give the date they were "
+                                                "handed over as YYYY-MM-DD.")
+        mode = values.get("mode", "").strip().lower()
+        if mode not in MODES:
+            return None, Outcome(ok=False, said=f"How did it reach them? One "
+                                                f"of: {', '.join(MODES)}.")
+        return {"request": request, "people": people_named, "given": given,
+                "mode": mode, "room": room}, None
 
     def _read(self, scope: Scope, values: dict[str, str]
               ) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -1017,9 +1260,19 @@ class GiftRequests(Feature):
         if scope.period in rewardlens.closed_periods():
             return None, Outcome(ok=False, said=f"{scope.period} has been "
                                                 f"signed off.")
+        quantity = rewardlens.whole_rupees(values.get("quantity", "") or "1")
+        if quantity is None or quantity < 1 or quantity > MOST_PER_ORDER:
+            return None, Outcome(ok=False, said=f"How many? A whole number "
+                                                f"from 1 to {MOST_PER_ORDER}.")
+
+        # The recipient is OPTIONAL, which is the whole change: the firm
+        # buys two hundred hampers before it knows whose they are, and a
+        # form that insisted on a name was a form nobody could use for the
+        # purchase this exists to control. Named here when it is known;
+        # named at distribution when it is not.
         recipient = values.get("recipient", "").strip()
-        employee = _employee_named(recipient)
-        if not employee:
+        employee = _employee_named(recipient) if recipient else ""
+        if recipient and not employee:
             # Say who it DOES know. A refusal that only says no turns a
             # typed name into a guessing game, and the thing it most often
             # catches is punctuation: "Manish K" against "Manish K.".
@@ -1034,7 +1287,8 @@ class GiftRequests(Feature):
                       + f"A gift has to be recorded against somebody, and "
                         f"Compass knows: {', '.join(known)}.")
                 if recipient else
-                "Say who it is for. A gift has to be recorded against somebody.")
+                "Say who it is for, or leave it empty and name them at "
+                "distribution.")
 
         kind = values.get("kind", "").strip().lower()
         if kind not in KINDS:
@@ -1052,14 +1306,19 @@ class GiftRequests(Feature):
         # people got wrong.
         value = rewardlens.whole_rupees(values.get("value", ""))
         if value is None or value <= 0:
-            return None, Outcome(ok=False, said="Give the value in whole "
-                                                "rupees — 8000, or 8,000.")
+            return None, Outcome(ok=False, said="Give the value of ONE of "
+                                                "them in whole rupees — "
+                                                "8000, or 8,000.")
         if value > rewardlens.most_per_item():
             return None, Outcome(ok=False, said="That is past what this form "
                                                 "takes.")
         return {
             "id": f"R-{uuid.uuid4().hex[:6].upper()}",
             "for": employee, "kind": kind, "what": what, "value": value,
+            # Per gift, not for the lot. A limit is a thing one person has,
+            # so the number every check reads has to be what one person
+            # receives; the order's cost is this times the quantity.
+            "quantity": quantity,
             "occasion": occasion, "source": PROCUREMENT,
             "by": scope.user, "by_employee": scope.employee,
             "at": dt.datetime.now().timestamp(),
@@ -1067,6 +1326,27 @@ class GiftRequests(Feature):
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
+        if form_id == self.ALLOCATE_FORM:
+            read, refused = self._read_allocation(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            crossing = []
+            for employee, name in read["people"]:
+                verdict = _tax_check(scope, employee, read["request"]["value"],
+                                     read["request"]["kind"])
+                if not verdict["ok"]:
+                    crossing.append(f"{name} ({verdict['said']})")
+            left = read["room"] - len(read["people"])
+            said = (f"{len(read['people'])} to be recorded, {read['mode']}, "
+                    f"on {read['given']}."
+                    + (f" {left} still to allocate after this." if left else
+                       " That allocates the order in full."))
+            if crossing:
+                said += (" Over the annual limit: " + "; ".join(crossing)
+                         + ". It still records — the limit is reported, not "
+                           "enforced at the door.")
+            return Outcome(ok=True, said=said)
         if form_id != self.REQUEST_FORM:
             return Outcome(ok=False, said=f"No form called {form_id!r}.")
         request, refused = self._read(scope, values)
@@ -1085,6 +1365,28 @@ class GiftRequests(Feature):
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
+        if form_id == self.ALLOCATE_FORM:
+            read, refused = self._read_allocation(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            request = read["request"]
+            for employee, name in read["people"]:
+                _record(request, employee, name, read["given"], read["mode"])
+            ledger.add_event(subject=request["id"], kind="allocated",
+                             by=scope.user, stage="distribution",
+                             items=len(read["people"]),
+                             note=", ".join(n for _e, n in read["people"]))
+            left = request.get("quantity", 1) - len(allocated_to(request["id"]))
+            return Outcome(
+                ok=True,
+                said=f"Recorded against "
+                     f"{', '.join(n for _e, n in read['people'])}, "
+                     f"{read['mode']}, on {read['given']}."
+                     + (f" {left} still to allocate." if left else
+                        " Everything in this order now has somebody against "
+                        "it, so it can be signed off."),
+                touched=[request["id"]])
         if form_id != self.REQUEST_FORM:
             return Outcome(ok=False, said=f"No form called {form_id!r}.")
         request, refused = self._read(scope, values)
@@ -1101,9 +1403,9 @@ class GiftRequests(Feature):
                      "approves it will be told so.")
         return Outcome(
             ok=True,
-            said=f"Requested: {request['what']} for "
-                 f"{_name_of(request['for'])}, "
-                 f"{rewardlens.rupees(request['value'])}.{note}",
+            said=f"Requested: {request['quantity']} \u00d7 {request['what']} "
+                 f"{'for ' + _name_of(request['for']) if request['for'] else 'to be allocated'}"
+                 f", {rewardlens.rupees(request['value'])} each.{note}",
             touched=[request["id"]],
         )
 

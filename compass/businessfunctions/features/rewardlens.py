@@ -755,7 +755,7 @@ class RewardLens(Feature):
                          # off from here: the question a step asks before
                          # it is taken, and whether policy stops it. Both
                          # drive buttons; neither is a thing to read.
-                         "ask", "blocked"})
+                         "ask", "blocked", "allocated_ids"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)
