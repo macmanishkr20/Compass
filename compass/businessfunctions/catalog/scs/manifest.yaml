@@ -128,8 +128,8 @@ features:
     choices:
       period: [FY 2026-27, FY 2025-26, FY 2024-25]
     scope_why: >-
-      A limit is annual and so is a budget. The year is what makes "can we
-      afford this" and "does this take them over" answerable.
+      The allowance is annual, so the year is what makes "does this take
+      them over" answerable.
 
     # Cut on the day the recipient confirmed receiving it — not when it was
     # asked for, approved or bought, which can be months earlier.
@@ -217,14 +217,6 @@ features:
             label: What it costs
             kind: money
             help: Whole rupees.
-          - id: source
-            label: Which team is paying
-            kind: choice
-            options: [Procurement · Chennai, Procurement · Bengaluru,
-                      People team, Service line · Advisory,
-                      Service line · Tax, Service line · Assurance]
-            help: The budget it comes out of.
-
     rules:
       - id: waiting_on_you
         headline: Something is waiting on you.
@@ -242,7 +234,7 @@ features:
       - id: against_policy
         headline: Something here cannot proceed as asked.
         detail: >-
-          Policy or budget says no. The request stays on the record with
+          Policy says no. The request stays on the record with
           its reason; changing what is asked for means a new request.
         tone: limit
       - id: nothing_requested
@@ -310,6 +302,41 @@ features:
       year and every gift, award and voucher inside it is added up per person.
 
     actions:
+      # The chain, signed off from here. Every persona but the requester
+      # and the recipient works on this screen: Gift requests is where
+      # somebody ASKS, the Tracker is where the desks DECIDE. The ids and
+      # the roles are the chain's own — the handler hands the action
+      # straight back to it rather than keeping a second copy of the
+      # rules — and `register` declaring them is what lets its role gate
+      # answer for them at all.
+      - id: sign_off
+        label: Sign off
+        roles: [service_line, finance, payroll, procurement,
+                accounts_payable, requester, employee]
+        note_label: What did you check?
+        confirm: >-
+          Signs off this stage with your name against it and moves the
+          order to the next team. Finance and Payroll must say what they
+          checked; at distribution this is what puts it on the register,
+          and at acknowledgement it is the recipient confirming receipt.
+        reversible: false
+      - id: decline
+        label: Send it back
+        roles: [service_line, finance, payroll, procurement,
+                accounts_payable]
+        note_label: Why are you sending it back?
+        confirm: >-
+          Stops it here, with your reason on the record. Nothing is bought
+          and nothing reaches anybody's total.
+        reversible: false
+      - id: cancel_request
+        label: Withdraw it
+        roles: [employee]
+        confirm: >-
+          Withdraws your own order, while it is still being checked.
+          Nothing was bought.
+        reversible: false
+
       - id: refer_to_finance
         label: Refer to Finance
         roles: [compliance]
@@ -539,16 +566,17 @@ features:
     short: Referrals · thresholds · spend
     blurb: >-
       What compliance has sent to Finance, who is past the annual limit and
-      by how much, and what each team has committed against its budget. The
-      amount above the limit is reported; the tax treatment is Finance's own
-      system's to decide.
+      by how much, and the allowance itself with every version it has had.
+      One allowance, the same for every employee whatever team they are in,
+      because one team buys for the whole firm. The amount above the limit
+      is reported; the tax treatment is Finance's own system's to decide.
     handler: gift_finance
     scope: [period]
     choices:
       period: [FY 2026-27, FY 2025-26, FY 2024-25]
     scope_why: >-
-      A limit is annual and so is a budget. Without the year, neither
-      question has an answer.
+      The allowance is annual. Without the year, "who is past it" has no
+      answer.
 
     visibility:
       firm: [finance, payroll, compliance, leadership]
@@ -578,13 +606,6 @@ features:
           send is the shape of the problem this function exists to end, so
           the list here is everybody — referred or not.
         tone: limit
-      - id: a_team_is_over_budget
-        headline: A team has committed more than it was given.
-        detail: >-
-          Committed, not spent: an approval commits the money and handing it
-          over spends it. The gap is where a budget holder still has a
-          choice.
-        tone: limit
       - id: nothing_above_the_limit
         headline: Nobody is past the limit.
         detail: Worth saying plainly, so the screen is read when it is not.
@@ -593,7 +614,7 @@ features:
     starters:
       - Who is past the limit?
       - What has been referred to Finance?
-      - Which teams are near their budget?
+      - What is the allowance, and when did it change?
 
     forms:
       - id: set_thresholds
@@ -635,12 +656,14 @@ features:
   - id: audit
     service: rewardlens
     name: Audit trail
-    short: Every decision, in order
+    short: Every order, end to end
     blurb: >-
-      Not a position but a history: one row per thing that happened, with a
-      name and a time against it. The question this answers is whether
-      every gift and every approval can be shown to have happened, which no
-      summary can.
+      Not a position but a history. One row per ORDER, by its number, from
+      the day it was asked for to the day the recipient confirmed receiving
+      it — open one and its whole trail is there, every step with a name
+      and a time against it. The raw list of events is still underneath,
+      because the question this answers is whether every gift and every
+      approval can be shown to have happened, which no summary can.
     handler: gift_audit
     scope: [period]
     choices:

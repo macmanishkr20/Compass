@@ -210,6 +210,12 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
         return row["id"], (f"{row['declared_by']} · {row['what']} · "
                            f"{rupees(row['value'])}")
     if feature_id == "audit":
+        # Two shapes: an ORDER end to end, and one event out of its trail.
+        # Told apart by what the row carries rather than by which tab
+        # asked, so this cannot drift out of step with the tabs.
+        if "trail" in row:
+            return row["id"], (f"{row['id']} · {row['what']} for "
+                               f"{row['recipient']} · {row['status']}")
         return row["id"], f"{row['when']} · {row['who']} {row['did']}"
     if feature_id == "finance":
         # Three shapes again, told apart by what the row carries: a team's
@@ -220,7 +226,7 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
                                     f"from {row['in_force_from']}")
         if "source" in row:
             return row["source"], (f"{row['source']} · "
-                                   f"{rupees(row['left'])} left")
+                                   f"{rupees(row.get('left', 0))} left")
         return row["employee_id"], (f"{row['recipient']} · "
                                     f"{rupees(row['above_limit'])} above")
     if feature_id == "requests":

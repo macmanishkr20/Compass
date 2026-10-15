@@ -26,6 +26,7 @@ import {
   Plan,
   PlanTarget,
   ReportState,
+  TrailStep,
 } from './bf-api';
 
 /** One line in the rail: what was said, by whom, and what it was about. */
@@ -898,15 +899,22 @@ export class BusinessFunctions {
     // through to one derived from the row's own keys, and the panel headed
     // itself "E-1052" and listed "ITEMS COUNTED" and "UNACKNOWLEDGED".
     if (this.featureId() === 'register') {
-      if (this.feature()?.tab === 'orders') {
-        // Where an order has got to, and who has it.
+      const tab = this.feature()?.tab;
+      // The desk's queue, the journey and where orders land are three
+      // readings of the same row, so they are one shape — what differs is
+      // which column earns its place at the end: what is waiting on you
+      // says how long, and a finished order says how it finished.
+      if (tab === 'to_sign' || tab === 'orders' || tab === 'completed') {
         return [
-          { key: 'what', label: 'Order' },
+          { key: 'id', label: 'Order' },
+          { key: 'what', label: 'What' },
           { key: 'recipient', label: 'For' },
           { key: 'value', label: 'Value', numeric: true },
           { key: 'progress', label: 'Progress' },
-          { key: 'with', label: 'With' },
-          { key: 'waiting_days', label: 'Waiting', numeric: true },
+          ...(tab === 'completed'
+            ? [{ key: 'status', label: 'Status' }]
+            : [{ key: 'with', label: 'With' },
+               { key: 'waiting_days', label: 'Waiting', numeric: true }]),
         ];
       }
       if (this.feature()?.tab === 'disclosed') {
@@ -931,8 +939,21 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
-    // Audit: one row per thing that happened, in the words of what it was.
+    // Audit, in two shapes: the ORDER end to end, and one event out of a
+    // trail. The order is the row somebody arrives with a number for.
     if (this.featureId() === 'audit') {
+      if (this.feature()?.tab === 'orders') {
+        return [
+          { key: 'id', label: 'Order' },
+          { key: 'what', label: 'What' },
+          { key: 'recipient', label: 'For' },
+          { key: 'value', label: 'Value' },
+          { key: 'raised_on', label: 'Raised' },
+          { key: 'received_on', label: 'Received' },
+          { key: 'steps', label: 'Steps', numeric: true },
+          { key: 'status', label: 'Status' },
+        ];
+      }
       return [
         { key: 'when', label: 'When' },
         { key: 'who', label: 'Who' },
@@ -983,7 +1004,6 @@ export class BusinessFunctions {
         { key: 'occasion', label: 'Occasion' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
-        { key: 'budget', label: 'Budget' },
         { key: 'status', label: 'Status' },
       ];
     }
@@ -1128,6 +1148,18 @@ export class BusinessFunctions {
       .map((c) => ({ k: c.label, v: this.cell(row, c.key) }));
     return [...shown, ...this.details(row)]
       .filter((d) => d.v && d.v !== '\u2014');
+  }
+
+  /** The steps a row carries, when it carries a history rather than a fact.
+   *
+   *  Only the audit's orders do, today. Typed off the row rather than
+   *  declared per feature, because what the sheet needs to know is whether
+   *  THIS row has a trail — and a feature that gains one later gets the
+   *  rendering without a line here. */
+  trailOf(row: Record<string, unknown>): TrailStep[] | null {
+    const steps = row['trail'];
+    if (!Array.isArray(steps) || !steps.length) return null;
+    return steps as TrailStep[];
   }
 
   /** The heading of the panel: the row under the first column that has one. */

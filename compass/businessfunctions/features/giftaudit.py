@@ -116,15 +116,97 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
             "detail": _detail(event),
             "kind": event["kind"],
             "subject": event["subject"],
+            # Audit reads. Nothing here is decided from here, by anybody.
+            "can": [],
         })
     out.reverse()
+    return out
+
+
+def _item_for(request_id: str) -> dict[str, Any] | None:
+    """The register record a request became, once it was handed over."""
+    for item in ledger.items():
+        if item.get("from_request") == request_id:
+            return item
+    return None
+
+
+def _steps(request_id: str) -> list[dict[str, Any]]:
+    """One order's whole history, in order, from asking to receiving.
+
+    END TO END, which means two subjects. A request is one thing on the
+    trail until it is handed over, and from then on what happens happens
+    to the REGISTER RECORD — acknowledged, queried, corrected, superseded.
+    Read under the request's id alone, an order's history stopped at
+    distribution and the half that proves somebody actually received it
+    was filed under an id nobody looking at the order would think to ask
+    for.
+    """
+    item = _item_for(request_id)
+    trail = list(ledger.events(request_id))
+    if item is not None:
+        trail += list(ledger.events(item["id"]))
+    trail.sort(key=lambda e: e.get("at", 0))
+    return [{
+        "when": dt.datetime.fromtimestamp(e.get("at", 0)).strftime(
+            "%Y-%m-%d %H:%M") if e.get("at") else "—",
+        "who": e.get("by") or "—",
+        "did": ledger.reads_as(e["kind"]),
+        "detail": _detail(e),
+    } for e in trail]
+
+
+def _orders(scope: Scope) -> list[dict[str, Any]]:
+    """One row per ORDER, not per event.
+
+    The raw trail is still the thing an auditor needs, and it is still
+    here — but a thousand rows in the order they happened cannot answer
+    "show me this order from end to end", which is the question somebody
+    actually arrives with. An order has a number; this is the screen where
+    that number is the row.
+    """
+    from compass.businessfunctions.features.giftrequests import (
+        stage_label, stage_of,
+    )
+
+    out = []
+    for request in ledger.requests():
+        if not rewardlens.within(scope.period, request.get("at")):
+            continue
+        steps = _steps(request["id"])
+        item = _item_for(request["id"])
+        decisions = [e for e in ledger.events(request["id"])
+                     if e["kind"] in DECISIONS]
+        out.append({
+            # The order number, and the row's own key: an audit row people
+            # quote to each other is quoted by its number.
+            "id": request["id"],
+            "what": request["what"],
+            "recipient": _subject_of(request["for"]),
+            "value": rewardlens.rupees(request["value"]),
+            "raised_by": request.get("by", "—"),
+            "raised_on": (dt.datetime.fromtimestamp(request["at"]).strftime(
+                "%Y-%m-%d") if request.get("at") else "—"),
+            "status": stage_label(stage_of(request)),
+            "steps": len(steps),
+            "decisions": len(decisions),
+            "received_on": next(
+                (s["when"] for s in steps if s["did"] == ledger.reads_as(
+                    "acknowledged")), "not yet"),
+            # The whole history, carried on the row so opening it opens the
+            # trail. Private: a list does not go in a spreadsheet cell, and
+            # the workbook has the events tab for exactly this.
+            "trail": steps,
+            "can": [],
+        })
+    out.sort(key=lambda r: r["raised_on"], reverse=True)
     return out
 
 
 class GiftAudit(Feature):
     key = "gift_audit"
     row_key = "id"
-    private = frozenset({"kind", "subject"})
+    private = frozenset({"kind", "subject", "trail", "can"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         if scope.sees != "firm":
@@ -154,6 +236,10 @@ class GiftAudit(Feature):
             return []
         rows = _rows(scope)
         return [
+            # The order, end to end. First, because it is the question
+            # people arrive with; the raw trail answers it only if you
+            # already know which events belong together.
+            Tab("orders", "Orders", len(_orders(scope)), key_field="id"),
             Tab("decisions", "Decisions",
                 len([r for r in rows if r["kind"] in DECISIONS])),
             Tab("everything", "Everything", len(rows)),
@@ -162,6 +248,8 @@ class GiftAudit(Feature):
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         if scope.sees != "firm":
             return []
+        if tab == "orders":
+            return _orders(scope)
         rows = _rows(scope)
         if tab == "decisions":
             return [r for r in rows if r["kind"] in DECISIONS]

@@ -102,6 +102,14 @@ export interface Figure {
 }
 
 /** One bar or wedge, and what it is worth saying about it. */
+/** One step of a row's own history, for a row that carries one. */
+export interface TrailStep {
+  when: string;
+  who: string;
+  did: string;
+  detail: string;
+}
+
 export interface ChartSlice {
   label: string;
   value: number;

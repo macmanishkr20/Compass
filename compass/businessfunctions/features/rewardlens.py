@@ -509,14 +509,40 @@ def _orders(scope: Scope) -> list[dict[str, Any]]:
     """
     from compass.businessfunctions.features import giftrequests
 
-    # Nothing is decided here. A tracker says where an order has got to and
-    # who holds it; the deciding is Gift requests' own screen, with its own
-    # guards, and a second set of sign-off buttons over here would be a
-    # second place for the chain's rules to be wrong. Said on the row,
-    # because an empty list is what the surface reads to draw no buttons —
-    # and saying nothing is what let it draw all nine.
-    return [{**row, "can": []}
-            for row in giftrequests.tracked(scope.user, scope.period)]
+    # THIS is where the desks sign things off. Gift requests is the screen
+    # where somebody asks for something and watches their own; every other
+    # persona — Service Line, Finance, Payroll, Procurement, Accounts
+    # Payable, Compliance — works here, on the stage it is their turn to
+    # take. The permissions ride on the row from the chain itself, so the
+    # buttons drawn are the ones `act` will accept.
+    return giftrequests.tracked(scope.user, scope.period)
+
+
+#: An order that has been signed off all the way through, or stopped. The
+#: chain's own words for its ends — read from the row's stage rather than
+#: re-derived, so "finished" means here what it means there.
+ENDED_STAGES = frozenset({"closed", "declined", "cancelled"})
+
+
+def _to_sign(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The orders standing at a stage THIS reader's desk owns.
+
+    Not "orders with a button": the person who raised one may withdraw it
+    at any point before it is bought, and counting that as a queue would
+    tell an employee something was waiting on them about an order sitting
+    with Payroll.
+    """
+    return [r for r in orders if "sign_off" in r.get("can", [])]
+
+
+def _in_flight(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Everything still moving, whoever has it."""
+    return [r for r in orders if r["stage"] not in ENDED_STAGES]
+
+
+def _completed(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Where an order lands: signed off to the end, declined or withdrawn."""
+    return [r for r in orders if r["stage"] in ENDED_STAGES]
 
 
 def _totals(scope: Scope) -> list[dict[str, Any]]:
@@ -724,7 +750,12 @@ class RewardLens(Feature):
                          # two halves of "3 of 7", which the row already
                          # says in words. NOT employee_id — that is how a
                          # person's row is identified and aimed at.
-                         "stage", "done", "of"})
+                         "stage", "done", "of",
+                         # and the chain's, now that the chain is signed
+                         # off from here: the question a step asks before
+                         # it is taken, and whether policy stops it. Both
+                         # drive buttons; neither is a thing to read.
+                         "ask", "blocked"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)
@@ -790,12 +821,22 @@ class RewardLens(Feature):
                 Tab("disclosed", "What you declared", len(_awaiting(scope)),
                     key_field="id"),
             ]
+        orders = _orders(scope)
         return [
-            # The tracker's own question, and the first thing it answers:
-            # where has every order you are part of got to. The chain is a
-            # QUEUE — what needs me now. This is the JOURNEY — what has
-            # happened to each order and who has it.
-            Tab("orders", "Orders in flight", len(_orders(scope)),
+            # The desk's own queue, first, because it is the only tab that
+            # is about the reader: the orders standing at a stage they own
+            # and nobody else can move. This is where the signing off
+            # happens — Gift requests is where somebody asks.
+            Tab("to_sign", "To sign off", len(_to_sign(orders)),
+                key_field="id"),
+            # Then the journey: where has every order you are part of got
+            # to, and who has it.
+            Tab("orders", "In flight", len(_in_flight(orders)),
+                key_field="id"),
+            # And where they land. An order that is signed off all the way
+            # through stops being work and becomes a record; a queue that
+            # kept it would never empty.
+            Tab("completed", "Signed off", len(_completed(orders)),
                 key_field="id"),
             Tab("over", "Over the limit", len(over)),
             Tab("all", "Everyone", len(rows)),
@@ -809,8 +850,13 @@ class RewardLens(Feature):
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
-        if tab == "orders":
-            return _orders(scope)
+        if tab in ("orders", "to_sign", "completed"):
+            orders = _orders(scope)
+            if tab == "to_sign":
+                return _to_sign(orders)
+            if tab == "completed":
+                return _completed(orders)
+            return _in_flight(orders)
         rows = _totals(scope)
         if tab == "over":
             return [r for r in rows if r["over_limit"]]
@@ -866,6 +912,11 @@ class RewardLens(Feature):
     REVIEW_ACTIONS = ("accept_disclosure", "query_disclosure", "record_breach",
                       "accept_answer", "resend_notice")
 
+    #: And the actions that move an ORDER along the chain. Their targets are
+    #: request ids, which is a third kind of target on one screen — the
+    #: price of the Tracker being the desk where every persona signs off.
+    CHAIN_ACTIONS = ("sign_off", "decline", "cancel_request")
+
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
         if scope.period in _CLOSED:
@@ -887,6 +938,9 @@ class RewardLens(Feature):
 
         if action in self.REVIEW_ACTIONS:
             return self._review(scope, action, targets, note)
+
+        if action in self.CHAIN_ACTIONS:
+            return self._chain(scope, action, targets, note)
 
         rows = {r["employee_id"]: r for r in _totals(scope)}
         chosen = [rows[t] for t in targets if t in rows]
@@ -1033,6 +1087,33 @@ class RewardLens(Feature):
             )
 
         return Outcome(ok=False, said=f"RewardLens has no action called {action!r}.")
+
+    def _chain(self, scope: Scope, action: str, targets: list[str],
+               note: str) -> Outcome:
+        """Move an order along. Handed straight to the chain.
+
+        NOT reimplemented here. Which desk owns which stage, who may not
+        sign their own, what a step must be told before it is taken and
+        what the trail records are the chain's rules, and a tracker with
+        its own copy of them would be a second answer to every one of
+        those questions. The Tracker is where the buttons are; Gift
+        requests is still where the rules are.
+
+        The scope is rebuilt against the CHAIN's feature rather than passed
+        through, because breadth is declared per feature: this one is
+        self-only for an employee and the chain is not, and handing it the
+        wrong scope would either hide a desk's queue or widen it.
+        """
+        from compass.businessfunctions import people as _people
+        from compass.businessfunctions import registry as _registry
+        from compass.businessfunctions.features import giftrequests
+
+        feature = _registry.feature_of("scs", "requests")[1]
+        handler = _registry.feature_of("scs", "requests")[2]
+        if feature is None or handler is None:
+            return Outcome(ok=False, said="The chain is not loaded.")
+        theirs = _people.scope_for(scope.user, feature, period=scope.period)
+        return handler.act(theirs, action, targets, note)
 
     # ── reviewing what was declared ─────────────────────────────────────────
     #

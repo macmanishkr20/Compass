@@ -996,3 +996,52 @@
   .bf-stage { flex: 1 1 100%; min-height: 60vh; }
   .bf-rail { flex: 1 1 100%; max-height: 50vh; }
 }
+
+/* ── a row's own history ────────────────────────────────────────────────
+   An order opened from the trail shows every step it took, in order. A
+   list, because that is what it is: flattened into one cell it was a
+   sentence nobody finished reading. */
+.bf-trail { margin-top: 18px; }
+.bf-traillbl {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--bf-quiet, #8a8578);
+  margin-bottom: 10px;
+}
+.bf-trail ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--bf-rule, rgba(140, 132, 112, .28));
+}
+.bf-trail li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 2px 12px;
+  padding: 0 0 14px;
+  font-size: 12.5px;
+}
+.bf-trail li::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bf-rule, rgba(140, 132, 112, .5));
+}
+.bf-trail li:last-child { padding-bottom: 0; }
+.bf-trail li:last-child::before { background: var(--bf-accent, #b89250); }
+.bf-trailwhen { color: var(--bf-quiet, #8a8578); font-variant-numeric: tabular-nums; }
+.bf-trailwhat { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.bf-trailwhat b { font-weight: 600; }
+.bf-trailwhat small { color: var(--bf-quiet, #8a8578); }
+.bf-trailnote {
+  grid-column: 2;
+  color: var(--bf-quiet, #8a8578);
+  line-height: 1.45;
+}

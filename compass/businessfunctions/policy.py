@@ -1,11 +1,19 @@
 """The rules every gift is judged against, and the versions they had.
 
-The annual limit, what counts towards it, the single-gift threshold and the
-team budgets are the ONE source of truth: every policy check, every tax
-sentence and every budget refusal reads them. They were Python constants,
-which meant the firm's own compliance rule could only be changed by editing
-code and deploying — and that nobody could say what the rule had been last
-March.
+The annual limit, what counts towards it and the single-gift threshold are
+the ONE source of truth: every policy check and every tax sentence reads
+them. They were Python constants, which meant the firm's own compliance
+rule could only be changed by editing code and deploying — and that nobody
+could say what the rule had been last March.
+
+ONE ALLOWANCE, PER PERSON, FIRM-WIDE. There were per-team budgets here
+too, and they modelled a firm that does not exist: the business buys
+everything through one Procurement team, and the control it actually
+applies is a single annual allowance that is the same for every employee
+whatever team they are in. A team budget on top of that was a second,
+quieter limit that could refuse a gift the real rule allowed. The annual
+limit IS the budget now, and `annual_limit` is the only number either
+question reads.
 
 THRESHOLDS ARE VERSIONED, NOT EDITED. Setting a new limit does not change
 the old one; it adds a version with a time it takes effect from. A record
@@ -47,14 +55,6 @@ SHIPPED: dict[str, Any] = {
     "annual_limit": 15_000,
     "big": 10_000,
     "counts": ["gift", "award", "voucher"],
-    "budgets": {
-        "Procurement · Chennai": 60_000,
-        "Procurement · Bengaluru": 45_000,
-        "People team": 80_000,
-        "Service line · Advisory": 25_000,
-        "Service line · Tax": 25_000,
-        "Service line · Assurance": 25_000,
-    },
     "effective_from": 0.0,
     "by": "shipped with Compass",
     "why": "The rules the module was built against.",
@@ -62,7 +62,7 @@ SHIPPED: dict[str, Any] = {
 
 #: Which fields a new version may set. Anything else is a key nobody reads,
 #: and a threshold nobody reads is worse than no threshold at all.
-FIELDS = ("annual_limit", "big", "counts", "budgets")
+FIELDS = ("annual_limit", "big", "counts")
 
 _versions: list[dict[str, Any]] = []
 _unsaved: list[str] = []
@@ -107,10 +107,6 @@ def counts(when: float | None = None) -> frozenset[str]:
     return frozenset((at(when) if when is not None else current())["counts"])
 
 
-def budgets(when: float | None = None) -> dict[str, int]:
-    return dict((at(when) if when is not None else current())["budgets"])
-
-
 def describe(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     """What changed between two versions, in words somebody can read."""
     said = []
@@ -120,13 +116,6 @@ def describe(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
         said.append(f"single-gift threshold ₹{a['big']:,} → ₹{b['big']:,}")
     if set(a["counts"]) != set(b["counts"]):
         said.append(f"counts towards the limit: {', '.join(sorted(b['counts']))}")
-    for team in sorted(set(a["budgets"]) | set(b["budgets"])):
-        before, after = a["budgets"].get(team), b["budgets"].get(team)
-        if before != after:
-            said.append(f"{team} budget "
-                        + (f"₹{before:,} → ₹{after:,}" if before and after
-                           else f"removed" if after is None
-                           else f"added at ₹{after:,}"))
     return said
 
 

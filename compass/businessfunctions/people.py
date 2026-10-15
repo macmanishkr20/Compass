@@ -96,6 +96,12 @@ class Person:
     roles: frozenset[str] = field(default_factory=frozenset)
     #: Employee ids reporting to them. Only meaningful with `manager`.
     manages: frozenset[str] = field(default_factory=frozenset)
+    #: Which team they BELONG to — not which team pays for their gifts.
+    #: One team, Procurement, buys everything; the people who receive it
+    #: work all over the firm, and "which part of the firm is receiving
+    #: this" is a question only the recipient's own team answers. Empty
+    #: for the shared mailboxes, which are desks rather than people.
+    team: str = ""
 
     @property
     def all_roles(self) -> frozenset[str]:
@@ -115,21 +121,23 @@ DIRECTORY: dict[str, Person] = {
     # A compliance reviewer who is also a recipient, so the rule about not
     # deciding your own record has something to catch.
     "mk": Person("E-1041", "Manish K.", "manish.k@example.invalid",
-                 frozenset({"compliance"})),
+                 frozenset({"compliance"}), team="Risk & Compliance"),
     # The signed-in administrator on a local deployment: compliance and
     # leadership, and ₹12,000 of their own, one ordinary gift from the limit.
     "admin": Person("E-1052", "Aisha Khan", "aisha.khan@example.invalid",
-                    frozenset({"compliance", "leadership", "admin"})),
+                    frozenset({"compliance", "leadership", "admin"}),
+                    team="Risk & Compliance"),
     # An ordinary employee. Holds nothing else, which is what makes the
     # employee view worth looking at rather than assuming.
     "enduser": Person("E-1066", "Vikram Rao", "vikram.rao@example.invalid",
-                      frozenset()),
+                      frozenset(), team="Service line · Advisory"),
     # A service line lead who also raises requests — the common real case,
     # and the reason the rule is "not the one you raised" rather than "not
     # your team's".
     "servicelead": Person("E-1033", "Rahul Desai", "rahul.desai@example.invalid",
                           frozenset({"service_line", "requester"}),
-                          frozenset({"E-1007", "E-1019"})),
+                          frozenset({"E-1007", "E-1019"}),
+                          team="Service line · Advisory"),
     # A second service line approver. Not padding: with one, a request the
     # approver raised themselves had nowhere to go — the rule says they
     # cannot sign off their own, and there was nobody else holding the
@@ -137,7 +145,8 @@ DIRECTORY: dict[str, Person] = {
     # firm with one approver per service line has this problem in real life
     # and solves it the same way.
     "leadtwo": Person("E-1077", "Priya Nair", "priya.nair@example.invalid",
-                      frozenset({"service_line", "requester"})),
+                      frozenset({"service_line", "requester"}),
+                      team="Service line · Tax"),
     # The teams in the chain. None of them has an employee record: they act
     # on other people's gifts and receive none in this fixture, so there is
     # nothing for the "not your own" rules to trip over.
@@ -150,6 +159,22 @@ DIRECTORY: dict[str, Person] = {
                        frozenset({"accounts_payable"})),
     "compliance": Person("", "Leadership / Compliance", "",
                          frozenset({"compliance", "leadership"})),
+}
+
+#: Which team the employees who have NO LOGIN belong to. The directory is
+#: keyed by login because that is what a person reading this file
+#: recognises, and somebody who receives gifts without ever signing in to
+#: Compass has no key in it — they are a recipient, not a user.
+#:
+#: Deliberately not a second Person in DIRECTORY: there is already a Priya
+#: Nair with a login (E-1077) and a different Priya Nair on the register
+#: (E-1019), and adding the second to a dict that `_employee_named` reads
+#: in order would quietly change which of them a typed name resolves to.
+#: A team is the only fact we need about these two, so a team is all this
+#: holds.
+TEAMS_BY_EMPLOYEE: dict[str, str] = {
+    "E-1007": "Service line · Advisory",
+    "E-1019": "Service line · Advisory",
 }
 
 
@@ -198,6 +223,46 @@ def address_of(user: str) -> str:
     """Where to write to them, or "" when nobody knows."""
     person = find(user)
     return person.email if person else ""
+
+
+def team_of_employee(employee_id: str) -> str:
+    """Which part of the firm this employee works in, or "" if nobody knows.
+
+    One team buys everything — Procurement — so the paying team stopped
+    being a useful axis the moment the budgets became a single per-person
+    allowance. The RECEIVING team did not: "which part of the firm is this
+    going to" is still the question leadership asks of a year's gifts, and
+    it is a fact about the recipient rather than about the purchase.
+
+    Empty rather than guessed. A chart with an "unknown" bar is a chart
+    somebody can go and fix; a chart that quietly files strangers under
+    the biggest team is one nobody can.
+    """
+    for person in DIRECTORY.values():
+        if person.employee_id == employee_id and person.team:
+            return person.team
+    return TEAMS_BY_EMPLOYEE.get(employee_id, "")
+
+
+def employees_by_team() -> dict[str, list[str]]:
+    """Every employee the firm knows, grouped by the team they work in.
+
+    What a team's gift ALLOWANCE is, now that there is one number per
+    person: this many people times that number. It is a headcount read off
+    the directory rather than a budget somebody typed, which means a team
+    that hires has a bigger allowance the same day — and nobody has to
+    remember to change a figure.
+
+    People with no team are left out rather than bucketed, for the reason
+    `team_of_employee` gives.
+    """
+    out: dict[str, list[str]] = {}
+    for person in DIRECTORY.values():
+        if person.employee_id and person.team:
+            out.setdefault(person.team, []).append(person.employee_id)
+    for employee_id, team in TEAMS_BY_EMPLOYEE.items():
+        out.setdefault(team, []).append(employee_id)
+    return {team: sorted(set(ids)) for team, ids in sorted(out.items())}
 
 
 def team_of(user: str) -> frozenset[str]:

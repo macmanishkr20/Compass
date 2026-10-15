@@ -67,15 +67,11 @@ KINDS = rewardlens.KINDS
 OCCASIONS = ("festival", "long service", "performance", "client courtesy",
              "farewell", "other")
 
-#: What each team may spend in a year, in whole rupees. A stand-in for the
-#: finance system: one number per source, consumed by what has actually been
-#: approved. Enough to make the check real, and not a model of a budget.
-#: The teams that pay and what each has, and the single-gift threshold —
-#: both now versioned in `policy`. A budget changed today does not make
-#: last quarter's approvals retrospectively unaffordable, which is the same
-#: argument as the annual limit.
-def BUDGETS_now() -> dict[str, int]:
-    return policy.budgets()
+#: Who buys. ONE team does, for the whole firm, wherever the recipient
+#: sits — so this is a constant and not a choice on a form. It was a
+#: choice, and the choice carried a per-team budget that could refuse a
+#: gift the firm's own allowance allowed.
+PROCUREMENT = "Procurement"
 
 
 def BIG_now() -> int:
@@ -89,11 +85,11 @@ def BIG_now() -> int:
 SEED: list[dict[str, Any]] = [
     {"id": "R-SEED01", "for": "E-1066", "kind": "gift",
      "what": "Diwali hamper", "value": 3000, "occasion": "festival",
-     "source": "Procurement · Bengaluru", "by": "servicelead",
+     "source": PROCUREMENT, "by": "servicelead",
      "by_employee": "E-1033", "at": 0.0},
     {"id": "R-SEED02", "for": "E-1007", "kind": "gift",
      "what": "Long service watch", "value": 6000, "occasion": "long service",
-     "source": "People team", "by": "servicelead",
+     "source": PROCUREMENT, "by": "servicelead",
      "by_employee": "E-1033", "at": 0.0},
 ]
 
@@ -387,51 +383,25 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "said": "within policy"}
 
 
-def _budget_check(request: dict[str, Any], figures: bool = True,
-                  period: str = "") -> dict[str, Any]:
-    """Whether the team asking still has the money.
-
-    `figures` carries whether the reader may be told HOW MUCH. A team's
-    remaining budget is the team's business; somebody raising one request
-    needs to know it will not clear, not what the department has left.
-    """
-    budget = BUDGETS_now().get(request["source"])
-    if budget is None:
-        return {"ok": True, "said": "no budget recorded for this team"}
-    spent = _spent(request["source"], period)
-    if stage_of(request) not in ("service_line", "declined", "cancelled"):
-        # Already counted in `spent`; do not charge it twice when the row is
-        # redrawn after the first sign-off.
-        spent -= request["value"]
-    committed = spent
-    left = budget - committed
-    if request["value"] > left:
-        return {"ok": False,
-                "said": (f"{rewardlens.rupees(left)} left of "
-                         f"{rewardlens.rupees(budget)} — short by "
-                         f"{rewardlens.rupees(request['value'] - left)}")
-                        if figures else
-                        "the team paying does not have this left"}
-    return {"ok": True,
-            "said": (f"{rewardlens.rupees(left - request['value'])} would be "
-                     f"left of {rewardlens.rupees(budget)}") if figures
-                    else "the team paying has the budget"}
-
-
 def checks(scope: Scope, request: dict[str, Any]) -> dict[str, Any]:
-    """All three, in the words this reader may have them in.
+    """Both of them, in the words this reader may have them in.
+
+    There were THREE. The third asked whether the team paying still had
+    budget, and it stopped being a question the day the firm settled on one
+    allowance per employee and one team that buys: the money is the
+    recipient's allowance, which is what the tax check already reads. A
+    second limit on top of it could refuse a gift the real rule allowed,
+    and nobody could say which of the two had done it.
 
     The VERDICTS are the same for everybody — blocked is blocked whoever is
     looking. What changes is whether the sentence carries the figures
-    behind it, because a colleague's year and a team's budget are not an
-    ordinary employee's to read just because they asked for a hamper.
+    behind it, because a colleague's year is not an ordinary employee's to
+    read just because they asked for a hamper.
     """
     policy = _policy_check(request)
     tax = _tax_check(scope, request["for"], request["value"], request["kind"])
-    budget = _budget_check(request, _may_read_totals(scope, request["for"]),
-                           scope.period)
-    return {"policy": policy, "tax": tax, "budget": budget,
-            "blocked": not (policy["ok"] and budget["ok"]),
+    return {"policy": policy, "tax": tax,
+            "blocked": not policy["ok"],
             # A tax consequence is not a reason to refuse — it is a reason
             # for somebody senior to decide knowingly, which is the whole
             # argument of the requirement.
@@ -508,7 +478,17 @@ def _with(request: dict[str, Any], stage: str) -> str:
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
-def _rows(scope: Scope) -> list[dict[str, Any]]:
+def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
+    """Every request this reader may see, under the rule they are reading by.
+
+    TWO RULES, TWO SCREENS. Gift requests is where somebody asks for
+    something and watches their own; the Tracker is where the desks sign
+    things off. They are different questions about the same records, so the
+    rule for "is this mine to see" is passed in rather than fixed here —
+    and a desk's queue cannot leak onto the requester's screen because the
+    requester's screen never asks for it.
+    """
+    rule = seen_by or _concerns
     out: list[dict[str, Any]] = []
     for request in ledger.requests():
         stage = stage_of(request)
@@ -545,7 +525,6 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
             "with": _with(request, stage),
             "policy": verdict["policy"]["said"],
             "tax": verdict["tax"]["said"],
-            "budget": verdict["budget"]["said"],
             "blocked": verdict["blocked"],
             "warns": verdict["warns"],
             "steps_done": len(signed),
@@ -564,7 +543,7 @@ def _rows(scope: Scope) -> list[dict[str, Any]]:
     # oldest first inside that — a queue, not a list.
     out.sort(key=lambda r: (r["stage"] in ENDED, r["steps_done"], -r["value"]))
     out = scope.narrow(out, person_key=("employee_id", "by_employee"))
-    return [r for r in out if _concerns(scope, r)]
+    return [r for r in out if rule(scope, r)]
 
 
 #: Who reads this screen as a POSITION rather than as a queue. Everybody
@@ -628,11 +607,48 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "waiting_days": max(0, int((time.time() - at) // 86_400))
                             if stage not in ENDED else 0,
             "acknowledged_on": row["acknowledged_on"],
+            # The chain's own answer about what this desk may do, carried
+            # through rather than worked out again. The Tracker is where
+            # the signing off happens now, so the buttons it draws have to
+            # be the ones `act` will accept — and there is exactly one
+            # function that knows which those are.
+            "can": row["can"],
+            "ask": row["ask"],
+            "blocked": row["blocked"],
+            "policy": row["policy"],
+            "tax": row["tax"],
+            # What was said at the last decision. A desk that sent an order
+            # back wrote a reason, and the screen where orders are now read
+            # is the one where that reason has to be legible.
+            "why": row["why"],
+            "kind": row["kind"],
+            "occasion": row["occasion"],
         })
     # Whatever is moving comes first, least far along first: a tracker is
     # read to find what has not arrived, not to admire what has.
     out.sort(key=lambda r: (r["stage"] in ENDED, r["done"], -r["waiting_days"]))
     return out
+
+
+def _is_yours(scope: Scope, row: dict[str, Any]) -> bool:
+    """Whether this request is the reader's OWN — the Gift requests rule.
+
+    Two ways, and no others. You raised it, or it was raised for you: a
+    service line lead asking on behalf of somebody puts it on that
+    person's screen as well as their own, because a request about you that
+    you cannot see is a thing being done to you.
+
+    Nothing about roles, stages or desks. A Finance reviewer opening Gift
+    requests sees what they themselves asked for and what was asked for
+    them, exactly like everybody else — the approving they do is the
+    Tracker's screen, and mixing the two put the firm's whole queue on the
+    page where an employee asks for a hamper.
+
+    No exemption for Compliance or Leadership either. Seeing everything is
+    what the Tracker, the Dashboard and the trail are for; this screen is
+    personal, and a personal screen with an exception in it is not one.
+    """
+    return row["requested_by"] == scope.user or scope.mine(row["employee_id"])
 
 
 def _concerns(scope: Scope, row: dict[str, Any]) -> bool:
@@ -769,8 +785,8 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
 
     can: list[str] = []
     if mine_to_sign(scope, request, stage):
-        # Policy and budget stop it at the gate; a tax consequence does not
-        # — it is shown, and whoever signs off does so knowing.
+        # Policy stops it at the gate; a tax consequence does not — it is
+        # shown, and whoever signs off does so knowing.
         if not verdict["blocked"]:
             can.append("sign_off")
         # Only the desks whose step is a CHECK. The last two record what
@@ -795,11 +811,10 @@ class GiftRequests(Feature):
         return stage_label(step) if step in STAGES else super().step_label(step)
 
     REQUEST_FORM = "request_gift"
-    FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",
-                        "source"})
+    FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion"})
 
     def figures(self, scope: Scope) -> list[Figure]:
-        rows = _rows(scope)
+        rows = _rows(scope, _is_yours)
         mine = _my_step(rows)
         moving = [r for r in rows if r["stage"] not in ENDED]
         blocked = [r for r in moving if r["blocked"]]
@@ -828,10 +843,12 @@ class GiftRequests(Feature):
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
-        rows = _rows(scope)
+        rows = _rows(scope, _is_yours)
         return [
-            # A queue, not a filter: these are the ones this persona has to
-            # do something about, which is the whole point of routing.
+            # Only two of the seven steps are ever the reader's own here —
+            # handing over what they raised, and confirming what they were
+            # given. The other five are desks, and desks work in the
+            # Tracker.
             Tab("mine", "Waiting on you", len(_my_step(rows))),
             Tab("moving", "In flight",
                 len([r for r in rows if r["stage"] not in ENDED])),
@@ -840,7 +857,7 @@ class GiftRequests(Feature):
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
-        rows = _rows(scope)
+        rows = _rows(scope, _is_yours)
         if tab == "mine":
             return _my_step(rows)
         if tab == "moving":
@@ -854,7 +871,7 @@ class GiftRequests(Feature):
             return ["not_yours_to_see"]
         if scope.period in rewardlens.closed_periods():
             return ["period_closed"]
-        rows = _rows(scope)
+        rows = _rows(scope, _is_yours)
         moving = [r for r in rows if r["stage"] not in ENDED]
         said: list[str] = []
         # The reader's own queue first: a screen that leads with the firm's
@@ -1030,10 +1047,9 @@ class GiftRequests(Feature):
         what = values.get("what", "").strip()
         if not what:
             return None, Outcome(ok=False, said="Say what it is.")
-        source = values.get("source", "").strip()
-        if source not in BUDGETS_now():
-            return None, Outcome(ok=False, said=f"Which team is paying? One "
-                                                f"of: {', '.join(BUDGETS_now())}.")
+        # Nobody is asked who pays. One team buys for the whole firm, so
+        # the answer was the same every time and the question was a field
+        # people got wrong.
         value = rewardlens.whole_rupees(values.get("value", ""))
         if value is None or value <= 0:
             return None, Outcome(ok=False, said="Give the value in whole "
@@ -1044,7 +1060,7 @@ class GiftRequests(Feature):
         return {
             "id": f"R-{uuid.uuid4().hex[:6].upper()}",
             "for": employee, "kind": kind, "what": what, "value": value,
-            "occasion": occasion, "source": source,
+            "occasion": occasion, "source": PROCUREMENT,
             "by": scope.user, "by_employee": scope.employee,
             "at": dt.datetime.now().timestamp(),
         }, None
@@ -1059,8 +1075,7 @@ class GiftRequests(Feature):
         assert request is not None
         verdict = checks(scope, request)
         parts = [f"Policy: {verdict['policy']['said']}.",
-                 f"Their year: {verdict['tax']['said']}.",
-                 f"Budget: {verdict['budget']['said']}."]
+                 f"Their year: {verdict['tax']['said']}."]
         if verdict["blocked"]:
             parts.append("As asked, this cannot be approved.")
         elif verdict["warns"]:

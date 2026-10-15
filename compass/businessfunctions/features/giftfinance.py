@@ -118,58 +118,6 @@ def _taxable(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: -r["above_limit"])
 
 
-def _budgets(scope: Scope) -> list[dict[str, Any]]:
-    """What each team has committed and actually given."""
-    given: dict[str, int] = {}
-    for item in rewardlens.items(_firm(scope)):
-        if item["id"] in rewardlens.superseded():
-            continue
-        if item["kind"] not in rewardlens.counts_towards_limit():
-            continue
-        given[item["source"]] = given.get(item["source"], 0) + item["value"]
-
-    # What was handed over WITHOUT a request behind it: the register
-    # predates the request flow, and anything declared by a recipient never
-    # had one. Left out, a team showed ₹13,000 given against ₹0 committed
-    # and a full budget remaining — understating its own spend by every
-    # gift it gave before this screen existed.
-    unrequested: dict[str, int] = {}
-    with_request = {i["source"]: 0 for i in rewardlens.items(_firm(scope))}
-    for item in rewardlens.items(_firm(scope)):
-        if item["id"] in rewardlens.superseded():
-            continue
-        if item["kind"] not in rewardlens.counts_towards_limit():
-            continue
-        if not item.get("from_request"):
-            unrequested[item["source"]] = (
-                unrequested.get(item["source"], 0) + item["value"])
-
-    out = []
-    for source, budget in giftrequests.BUDGETS_now().items():
-        approved = giftrequests.committed(source, scope.period)
-        outside = unrequested.get(source, 0)
-        committed = approved + outside
-        out.append({
-            "source": source,
-            "budget": budget,
-            "committed": committed,
-            "given": given.get(source, 0),
-            # Said separately, because "we never asked for it" is a
-            # different conversation from "we approved too much".
-            "not_requested": outside,
-            "left": budget - committed,
-            "status": "over budget" if committed > budget
-                      else "fully committed" if committed == budget
-                      else "within budget",
-            # A team is not a thing this screen decides. Reported, not acted
-            # on.
-            "can": [],
-        })
-    # Tightest first: a team with nothing left is the one somebody has to
-    # talk to before the next request arrives.
-    return sorted(out, key=lambda r: r["left"])
-
-
 def _thresholds(scope: Scope) -> list[dict[str, Any]]:
     """Every version of the rules, newest first.
 
@@ -302,8 +250,6 @@ class GiftFinance(Feature):
         referrals = _referrals(scope)
         waiting = [r for r in referrals if not r["done"]]
         taxable = _taxable(scope)
-        budgets = _budgets(scope)
-        over = [b for b in budgets if b["left"] < 0]
         return [
             Figure("waiting", str(len(waiting)),
                    "referred and not dealt with" if waiting
@@ -319,9 +265,11 @@ class GiftFinance(Feature):
                    str(len([r for r in taxable if not r["referred"]])),
                    "past it and never referred", "warn"
                    if [r for r in taxable if not r["referred"]] else "good"),
-            Figure("budgets", str(len(over)),
-                   "teams over budget" if over else "every team within budget",
-                   "bad" if over else "good"),
+            # The firm's own ceiling, which is now one number per person
+            # rather than six team budgets. Said here because it is the
+            # figure every other one on this screen is measured against.
+            Figure("allowance", rewardlens.rupees(rewardlens.limit()),
+                   "allowed per employee, per year"),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -331,7 +279,6 @@ class GiftFinance(Feature):
             Tab("referred", "With Finance",
                 len([r for r in _referrals(scope) if not r["done"]])),
             Tab("taxable", "Past the limit", len(_taxable(scope))),
-            Tab("budgets", "Budgets", len(_budgets(scope)), key_field="source"),
             # Visible to everybody who can read this screen: the rule you
             # are judged by is not a secret. Only `admin` can add to it.
             Tab("thresholds", "Thresholds", len(_thresholds(scope)),
@@ -343,8 +290,6 @@ class GiftFinance(Feature):
             return []
         if tab == "taxable":
             return _taxable(scope)
-        if tab == "budgets":
-            return _budgets(scope)
         if tab == "thresholds":
             return _thresholds(scope)
         return _referrals(scope)
@@ -356,8 +301,6 @@ class GiftFinance(Feature):
         taxable = _taxable(scope)
         if [r for r in taxable if not r["referred"]]:
             said.append("not_everything_was_referred")
-        if [b for b in _budgets(scope) if b["left"] < 0]:
-            said.append("a_team_is_over_budget")
         if not taxable:
             said.append("nothing_above_the_limit")
         return said

@@ -488,6 +488,30 @@
                     }
                   </dl>
 
+                  <!-- A row that carries a history shows it as one. An
+                       order's trail is the answer to the question somebody
+                       opened the row with, and a list of steps flattened
+                       into one cell is a list nobody reads. -->
+                  @if (trailOf(row); as steps) {
+                    <div class="bf-trail">
+                      <span class="bf-traillbl">The whole trail, in order</span>
+                      <ol>
+                        @for (step of steps; track $index) {
+                          <li>
+                            <span class="bf-trailwhen">{{ step.when }}</span>
+                            <span class="bf-trailwhat">
+                              <b>{{ step.did }}</b>
+                              <small>{{ step.who }}</small>
+                            </span>
+                            @if (step.detail && step.detail !== '\u2014') {
+                              <span class="bf-trailnote">{{ step.detail }}</span>
+                            }
+                          </li>
+                        }
+                      </ol>
+                    </div>
+                  }
+
                   <!-- A decision that goes on an audit trail says why, and
                        the question is the one this step asks. -->
                   @for (a of actionsFor(row); track a.id) {

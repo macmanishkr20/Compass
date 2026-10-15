@@ -155,36 +155,63 @@ def _firm(scope: Scope) -> Scope:
                  roles=scope.roles)
 
 
-def _budget_rows(scope: Scope) -> list[dict[str, Any]]:
-    """Each team's allowance against what it has committed this year.
+def _team_of(employee_id: str) -> str:
+    """Which team a recipient works in, or a bucket that says nobody knows."""
+    from compass.businessfunctions import people
 
-    Read from the same functions Tax & budget uses, so the dashboard and
-    Finance's own screen cannot tell leadership two different numbers.
+    return people.team_of_employee(employee_id) or "team not recorded"
+
+
+def _received_by_team(scope: Scope) -> dict[str, dict[str, Any]]:
+    """What each team's PEOPLE received this year.
+
+    By the team that RECEIVED, not the team that paid. One team buys for
+    the whole firm, so the paying team stopped being an axis the day the
+    budgets became a single per-person allowance — every bar would be the
+    same bar. Where it went is still a real question, and it is the one
+    leadership was asking when they asked about teams.
     """
-    from compass.businessfunctions.features import giftrequests
+    out: dict[str, dict[str, Any]] = {}
+    for item in rewardlens.items(_firm(scope)):
+        if item["id"] in rewardlens.superseded():
+            continue
+        team = _team_of(item["employee_id"])
+        row = out.setdefault(team, {"source": team, "given": 0, "items": 0,
+                                    "people": set()})
+        row["given"] += item["value"]
+        row["items"] += 1
+        row["people"].add(item["employee_id"])
+    return out
 
+
+def _budget_rows(scope: Scope) -> list[dict[str, Any]]:
+    """Each team's allowance against what its people have actually had.
+
+    A team's allowance is its HEADCOUNT times the one annual allowance
+    every employee has — not a budget somebody typed per team, which is
+    what this was. The firm buys through one team and controls the spend
+    one person at a time, so the only honest team figure is the sum of its
+    people's allowances.
+    """
+    from compass.businessfunctions import people
+
+    received = _received_by_team(scope)
     out = []
-    for source, budget in giftrequests.BUDGETS_now().items():
-        committed = giftrequests.committed(source, scope.period)
-        out.append({"source": source, "budget": budget,
-                    "committed": committed, "left": budget - committed,
-                    "status": "over budget" if committed > budget
-                              else "within budget"})
+    for team, employees in people.employees_by_team().items():
+        allowed = len(employees) * rewardlens.limit()
+        had = received.get(team, {}).get("given", 0)
+        out.append({"source": team, "people": len(employees),
+                    "budget": allowed, "committed": had,
+                    "left": allowed - had,
+                    "status": "over the allowance" if had > allowed
+                              else "within the allowance"})
     return sorted(out, key=lambda r: -r["committed"])
 
 
 def _team_spend(scope: Scope) -> list[dict[str, Any]]:
-    """What each team actually handed over, as against committed."""
-    given: dict[str, dict[str, Any]] = {}
-    for item in rewardlens.items(_firm(scope)):
-        if item["id"] in rewardlens.superseded():
-            continue
-        row = given.setdefault(item["source"], {
-            "source": item["source"], "given": 0, "items": 0, "people": set()})
-        row["given"] += item["value"]
-        row["items"] += 1
-        row["people"].add(item["employee_id"])
-    out = [{**r, "people": len(r["people"])} for r in given.values()]
+    """What each team's people actually received."""
+    out = [{**r, "people": len(r["people"])}
+           for r in _received_by_team(scope).values()]
     return sorted(out, key=lambda r: -r["given"])
 
 
@@ -199,37 +226,25 @@ def _notable(scope: Scope, above: int) -> list[dict[str, Any]]:
 
 
 def _team_tax(scope: Scope) -> list[dict[str, Any]]:
-    """How much of each team's giving sits above the annual limit.
+    """How much of each team's year sits above the annual allowance.
 
-    A person's excess is attributed to the teams that gave to them, in
-    proportion to what each gave — because the excess is a property of the
-    PERSON's year and no single gift caused it. Said plainly here because
-    an apportionment that looks like a measurement is how a dashboard
-    misleads.
+    It used to APPORTION a person's excess across the teams that gave to
+    them, in proportion to what each gave, because the excess is a property
+    of the person's year and no single gift caused it — an apportionment
+    that had to be said out loud so it did not read as a measurement.
+
+    There is nothing left to apportion. A person works in one team, and
+    their excess is that team's, whole.
     """
-    by_person: dict[str, dict[str, int]] = {}
-    for item in rewardlens.items(_firm(scope)):
-        if item["id"] in rewardlens.superseded():
-            continue
-        if item["kind"] not in rewardlens.counts_towards_limit():
-            continue
-        by_person.setdefault(item["employee_id"], {})
-        by_person[item["employee_id"]][item["source"]] = (
-            by_person[item["employee_id"]].get(item["source"], 0)
-            + item["value"])
-
     out: dict[str, dict[str, Any]] = {}
     for row in rewardlens.totals(_firm(scope)):
         if not row["over_limit"]:
             continue
-        gave = by_person.get(row["employee_id"], {})
-        whole = sum(gave.values()) or 1
-        for source, amount in gave.items():
-            share = round(row["excess"] * amount / whole)
-            team = out.setdefault(source, {"source": source, "above_limit": 0,
-                                           "people": 0})
-            team["above_limit"] += share
-            team["people"] += 1
+        team = _team_of(row["employee_id"])
+        held = out.setdefault(team, {"source": team, "above_limit": 0,
+                                     "people": 0})
+        held["above_limit"] += row["excess"]
+        held["people"] += 1
     return sorted(out.values(), key=lambda r: -r["above_limit"])
 
 
@@ -336,22 +351,26 @@ class Oversight(Feature):
         return [
             Chart(
                 key="budget", kind="bars", tab="budgets",
-                title="Annual budget against what is spent",
-                caption=f"{money(sum(b['budget'] for b in budgets))} allowed "
-                        f"across {len(budgets)} teams, "
+                title="Annual allowance against what was received",
+                caption=f"{money(rewardlens.limit())} a head across "
+                        f"{sum(b['people'] for b in budgets)} people in "
+                        f"{len(budgets)} teams — "
+                        f"{money(sum(b['budget'] for b in budgets))} allowed, "
                         f"{money(sum(b['committed'] for b in budgets))} of it "
-                        f"committed.",
+                        f"received.",
                 slices=[Slice(label=b["source"], value=b["committed"],
                               against=b["budget"],
                               said=f"{money(b['committed'])} of "
                                    f"{money(b['budget'])}")
                         for b in budgets],
-                empty="No team has a budget recorded."),
+                empty="The directory knows nobody's team."),
             Chart(
                 key="teams", kind="split", tab="teams",
                 title="Where the spend goes, by team",
-                caption="Every gift that reached somebody, by the team that "
-                        "paid for it.",
+                caption="Every gift that reached somebody, by the team they "
+                        "work in. One team buys for the whole firm, so who "
+                        "paid is the same answer every time; who received "
+                        "is not.",
                 slices=[Slice(label=t["source"], value=t["given"],
                               said=money(t["given"]))
                         for t in teams if t["given"]],
@@ -370,9 +389,9 @@ class Oversight(Feature):
             Chart(
                 key="tax", kind="split", tab="tax",
                 title="Amount above the limit, by team",
-                caption="What each team's giving has pushed past the annual "
-                        "limit. The amount, never a rate — the treatment is "
-                        "Finance's own system's to decide.",
+                caption="How much of each team's year sits above the "
+                        "allowance. The amount, never a rate — the "
+                        "treatment is Finance's own system's to decide.",
                 slices=[Slice(label=t["source"], value=t["above_limit"],
                               said=money(t["above_limit"]))
                         for t in taxed if t["above_limit"]],
