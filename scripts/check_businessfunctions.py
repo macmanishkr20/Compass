@@ -1168,6 +1168,54 @@ def check_a_bulk_order_becomes_people() -> None:
        not h.act(_req("leadtwo"), "sign_off", [rid], "").ok)
 
 
+def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
+    """What is taxable is a property of a YEAR, not of a purchase.
+
+    Payroll was third of seven in the chain, confirming the tax treatment
+    of one gift before it was bought. That is the wrong end: the third
+    hamper is what takes somebody over, not the first, and nobody can
+    answer "is this taxable" at the point of purchase. So payroll is not a
+    desk here at all — it reads the employee-level taxable position once a
+    year and processes it in its own system.
+    """
+    ok("payroll is not a stage in the chain",
+       "payroll_tax" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
+    ok("and no stage is owned by payroll",
+       not [k for k, v in gr_mod.STAGES.items() if v.get("owner") == "payroll"])
+    ok("the chain is six steps",
+       len([k for k in gr_mod.STAGES if k != "closed"]) == 6,
+       str(list(gr_mod.STAGES)))
+
+    rid = _ask(what="A hamper", value="1200")
+    ok("payroll has nothing to sign off", not _desk("payroll", "to_sign"))
+    ok("and the chain still runs end to end without them", not _walk(rid), "")
+
+    # What they get instead.
+    _, _f, fin = registry.feature_of("scs", "finance")
+    rows = fin.rows(_fin(), "payroll")
+    ok("payroll gets a line per employee who is over", rows, str(len(rows)))
+    for row in rows:
+        ok(f"{row['employee_id']}: the taxable value is the amount above the "
+           f"allowance",
+           row["taxable"] == row["received"] - row["allowance"],
+           f"{row['received']} - {row['allowance']} != {row['taxable']}")
+        ok(f"{row['employee_id']}: and it says whether Finance has looked yet",
+           row["ready"] in ("yes", "no"), row["ready"])
+    ok("nobody within their allowance is on it",
+       all(r["taxable"] > 0 for r in rows))
+
+    # It is a rupee amount and never a rate: what to do with it is
+    # payroll's own system's to decide.
+    ok("no rate is computed anywhere on it",
+       not any("%" in str(v) for r in rows for v in r.values()), str(rows[:1]))
+
+    # And the figure is on the screen, not only in a tab.
+    figure = next(f for f in fin.figures(_fin()) if f.key == "payroll")
+    ok("the screen says what is leaving for payroll",
+       figure.value == rewardlens.rupees(sum(r["taxable"] for r in rows)),
+       figure.value)
+
+
 def check_the_trail_is_read_by_the_order() -> None:
     """One row per ORDER, from the day it was asked for to the day it landed.
 
@@ -3080,7 +3128,6 @@ def _order(user: str, rid: str, tab: str = "orders") -> dict:
 SIGNS = {
     "service_line": "servicelead",
     "finance_policy": "finance",
-    "payroll_tax": "payroll",
     "procurement": "procurement",
     "accounts_payable": "payments",
     # Not a persona but a person: whoever raised it handed it over.
@@ -3149,7 +3196,7 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     ok("a request can be raised", rid)
     ok("and changes nobody's total", total() == before, str(total()))
 
-    for stage in ("service_line", "finance_policy", "payroll_tax",
+    for stage in ("service_line", "finance_policy",
                   "procurement", "accounts_payable"):
         out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
         ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
@@ -3223,14 +3270,14 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
     ok("and the sign-off records that they knew",
        out.ok and "knowing" in out.said, out.said)
     # The warning travels with the request, so the desk holding it sees it
-    # whichever desk that is. Payroll cannot see it yet — it is not theirs
-    # until Finance has passed it on, which is the point of the queue.
+    # whichever desk that is. Procurement cannot see it yet — it is not
+    # theirs until Finance has passed it on, which is the point of a queue.
     ok("a later desk has nothing to sign while it is not theirs",
-       not any(r["id"] == rid for r in _desk("payroll", "to_sign")),
-       "payroll has an order still at the service line to sign")
+       not any(r["id"] == rid for r in _desk("procurement", "to_sign")),
+       "procurement has an order still at the service line to sign")
     h.act(_req("finance"), "sign_off", [rid], "Within policy.")
     ok("and sees it, warning and all, once it reaches them",
-       "over" in _order("payroll", rid, "to_sign")["tax"])
+       "over" in _order("procurement", rid, "to_sign")["tax"])
 
 
 def check_policy_blocks_where_tax_only_warns() -> None:
@@ -3365,8 +3412,7 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
            "sign_off" in offered(theirs), str(offered(theirs)))
         withdraw = "cancel_request" in offered("requester")
         ok(f"{label}: the requester can withdraw it only before it is bought",
-           withdraw == (stage in ("service_line", "finance_policy",
-                                  "payroll_tax")),
+           withdraw == (stage in ("service_line", "finance_policy")),
            f"{stage}: {offered('requester')}")
 
         out = h.act(_req(theirs), "sign_off", [rid], f"Checked at {stage}.")
@@ -4232,14 +4278,19 @@ def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     # ...all the way to the end, and what each desk is left holding.
     trouble = _walk(rid)
     ok("the chain still runs end to end", not trouble, str(trouble))
-    for touched in ("servicelead", "finance", "payroll", "procurement",
+    # Payroll is NOT in this list any more, and that is the change: it is
+    # not a desk in the chain, it is a reader of the year's taxable
+    # position on Tax & budget.
+    for touched in ("servicelead", "finance", "procurement",
                     "payments", "requester"):
         ok(f"{touched} can still see the closed order it worked on",
            rid in sees(touched))
         ok(f"and it is signed off on {touched}'s tracker",
            any(r["id"] == rid for r in _desk(touched, "completed")))
     ok("so the order report is reachable by every desk that touched it",
-       all(rid in sees(u) for u in ("finance", "payroll", "procurement")))
+       all(rid in sees(u) for u in ("finance", "procurement", "payments")))
+    ok("and payroll, which is no longer a desk, is shown none of it",
+       rid not in sees("payroll"), "payroll still has an order queue")
 
     # A second order nobody but the first desk has touched stays invisible.
     other = _ask(what="Another hamper", value="1100")
@@ -4267,7 +4318,7 @@ def check_the_question_belongs_to_the_step() -> None:
     _, feat, h = registry.feature_of("scs", "requests")
     rid = _ask(what="A hamper", value="1200")
 
-    needs = {"finance_policy", "payroll_tax", "distribution"}
+    needs = {"finance_policy", "distribution"}
     for stage in [s for s in gr_mod.STAGES if s != "closed"]:
         # Asked of the chain's own rows: `ask` is machinery the Tracker
         # keeps private, and this is a check about what the server
@@ -4469,8 +4520,9 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
     tabs = [t.key for t in h.tabs(_fin())]
     ok("Tax & budget no longer has a team budgets tab",
        "budgets" not in tabs, str(tabs))
-    ok("it reports referrals, who is past the limit, and the rule itself",
-       tabs == ["referred", "taxable", "thresholds"], str(tabs))
+    ok("it reports referrals, who is past the limit, what payroll gets, "
+       "and the rule itself",
+       tabs == ["referred", "taxable", "payroll", "thresholds"], str(tabs))
 
     ok("the rulebook holds no team budgets",
        "budgets" not in policy.current(), str(sorted(policy.current())))
@@ -4586,7 +4638,7 @@ def check_the_trail_reads_as_what_happened() -> None:
     ok("the rest of the chain runs", not trouble, str(trouble))
     mine = [r for r in h.rows(_aud(), "everything") if rid in str(r["subject"])]
     ok("every step of one order is on the trail, in order",
-       len([r for r in mine if r["did"] == "signed off"]) == 7,
+       len([r for r in mine if r["did"] == "signed off"]) == 6,
        str([r["detail"] for r in mine]))
     ok("and the last thing that happened to it is that it closed",
        any(r["did"] == "closed" for r in mine),
@@ -4634,14 +4686,14 @@ def check_an_order_has_its_own_report() -> None:
     # that says "signed_off" next to a screen that says "signed off" makes
     # a reader wonder which of the two is the real record.
     signed = [r for r in steps if r[2] == ledger.reads_as("signed_off")]
-    ok("every step of the chain is in it", len(signed) == 7, str(len(signed)))
+    ok("every step of the chain is in it", len(signed) == 6, str(len(signed)))
     ok("each one names who took it", all(r[1] for r in signed), str(signed[:2]))
     ok("none of it is written in the code's own vocabulary",
        not any("_" in str(c) for r in steps for c in r[2:4]),
        str([r[2:4] for r in steps]))
     ok("and which step it was, as the screen names it", [r[3] for r in signed]
        == [gr_mod.stage_label(st) for st in
-           ("service_line", "finance_policy", "payroll_tax", "procurement",
+           ("service_line", "finance_policy", "procurement",
             "accounts_payable", "distribution", "acknowledgement")],
        str([r[3] for r in signed]))
     ok("in the order they happened",
@@ -5057,6 +5109,8 @@ def _checks() -> int:
         check_gift_requests_is_yours_and_the_tracker_is_the_desk()
     with fixtures():
         check_a_bulk_order_becomes_people()
+    with fixtures():
+        check_payroll_is_read_at_the_end_not_signed_at_the_start()
     with fixtures():
         check_the_trail_is_read_by_the_order()
     with fixtures():

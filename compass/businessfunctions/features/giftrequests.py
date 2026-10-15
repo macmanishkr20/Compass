@@ -154,19 +154,17 @@ STAGES: dict[str, dict[str, Any]] = {
         "label": "With Finance",
         "verb": "Confirm it meets policy",
         "asks": "policy thresholds, compliance rules and any exception",
-        "next": "payroll_tax",
-    },
-    "payroll_tax": {
-        "back": True,
-        "ask": "What did you check — the tax logic and the taxable value?",
-        "step": "the tax treatment",
-        "holder": "Payroll",
-        "owner": "payroll",
-        "label": "With Payroll",
-        "verb": "Confirm the tax treatment",
-        "asks": "the tax logic and the employee-level taxable value",
         "next": "procurement",
     },
+    # PAYROLL IS NOT A STEP IN THIS CHAIN. It was — third of seven,
+    # confirming the tax treatment of one gift before it was bought — and
+    # that is the wrong end of the process. A gift's tax consequence is a
+    # property of the recipient's YEAR, which cannot be known at the point
+    # of purchase and is not settled until the year is aggregated: the
+    # third hamper is what takes somebody over, not the first. So payroll
+    # reads the employee-level taxable position once a year, on Tax &
+    # budget, and processes it in its own system. See `_payroll_rows`
+    # there.
     "procurement": {
         "back": True,
         "ask": "",
@@ -932,7 +930,7 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
             can.append("decline")
     # The person who raised it can withdraw it until it has been bought.
     if request["by"] == scope.user and stage in (
-            "service_line", "finance_policy", "payroll_tax"):
+            "service_line", "finance_policy"):
         can.append("cancel_request")
     return can
 

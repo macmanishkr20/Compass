@@ -966,6 +966,18 @@ export class BusinessFunctions {
     // Finance: three questions, three shapes.
     if (this.featureId() === 'finance') {
       const tab = this.feature()?.tab;
+      // What leaves the function. The taxable amount is the column payroll
+      // acts on, so it is the one that reads as a figure.
+      if (tab === 'payroll') {
+        return [
+          { key: 'employee_id', label: 'Employee' },
+          { key: 'recipient', label: 'Person' },
+          { key: 'received', label: 'Received', numeric: true },
+          { key: 'allowance', label: 'Allowance', numeric: true },
+          { key: 'taxable', label: 'Taxable', numeric: true },
+          { key: 'status', label: 'Finance' },
+        ];
+      }
       if (tab === 'budgets') {
         return [
           { key: 'source', label: 'Team' },

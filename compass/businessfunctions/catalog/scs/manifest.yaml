@@ -119,10 +119,11 @@ features:
     short: Ask · check · sign off · give
     blurb: >-
       The chain, from asking to closing. A request sits with exactly one
-      team at a time — Service Line, Finance, Payroll, Procurement,
-      Accounts Payable, then back to the requester to distribute and to the
-      recipient to confirm. Each sees only what is waiting on them, and
-      signing off is what moves it along.
+      team at a time — Service Line, Finance, Procurement, Accounts
+      Payable, then back to the requester to allocate and hand over, and
+      to each recipient to confirm. Payroll is not a step: what is taxable
+      is a property of somebody's year, not of a purchase, so it is read
+      once a year on Tax & budget.
     handler: gift_requests
     scope: [period]
     choices:
@@ -188,9 +189,9 @@ features:
           to find out now than after it is bought.
         confirm: >-
           Starts the chain with your name on it. It goes to the Service
-          Line Approver first, then Finance, Payroll, Procurement and
-          Accounts Payable. Nothing counts towards anybody's limit until
-          it is actually handed over.
+          Line Approver first, then Finance, Procurement and Accounts
+          Payable. Nothing counts towards anybody's limit until it is
+          actually allocated and handed over.
         fields:
           - id: recipient
             label: Who it is for, if you know yet
@@ -606,7 +607,8 @@ features:
     short: Referrals · thresholds · spend
     blurb: >-
       What compliance has sent to Finance, who is past the annual limit and
-      by how much, and the allowance itself with every version it has had.
+      by how much, what payroll is handed at the year end, and the
+      allowance itself with every version it has had.
       One allowance, the same for every employee whatever team they are in,
       because one team buys for the whole firm. The amount above the limit
       is reported; the tax treatment is Finance's own system's to decide.
@@ -655,6 +657,7 @@ features:
       - Who is past the limit?
       - What has been referred to Finance?
       - What is the allowance, and when did it change?
+      - What is going to payroll this year?
 
     forms:
       - id: set_thresholds
