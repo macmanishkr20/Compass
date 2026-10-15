@@ -340,6 +340,46 @@ def _superseded_by(item_id: str) -> str | None:
     return None if event is None else event.get("replacement", "")
 
 
+def _allowed_person(scope: Scope, row: dict[str, Any]) -> list[str]:
+    """What THIS person may do to THIS person's year, right now.
+
+    The same job as `_allowed` one level up: a declaration is an item, a
+    referral is a year, and both need the row to say what is open rather
+    than the surface guessing from a status word.
+
+    It guesses no longer. The surface used to work this out itself, keyed
+    on the feature's id — and when the id changed from `rewardlens` to
+    `register` the guess stopped matching, fell through to "offer
+    everything the manifest declares", and put nine buttons on a row that
+    had one. Eight of them the server refuses, and the one that was
+    actually open — acknowledging your own gift — sat in the middle of
+    them looking like the rest.
+
+    Every clause below is the mirror of a refusal in `act`, in the same
+    order, so a button that is drawn is a button that works.
+    """
+    if scope.period in _CLOSED:
+        return []
+
+    # Nobody decides their own case. Acknowledging is the exception and not
+    # a loophole: confirming you received something is not a decision about
+    # a case, it is the one act here that is only ever about yourself.
+    if row["yours"]:
+        return (["acknowledge"] if row["unacknowledged"]
+                and _may(scope, "acknowledge") else [])
+
+    # Referring comes first where it applies: it is the forward move, and
+    # the surface reads the first action as the primary one.
+    open_now = []
+    if row["over_limit"] and not row["referred"]:
+        open_now.append("refer_to_finance")
+    if row["unacknowledged"]:
+        open_now.append("chase_acknowledgement")
+    if row["over_limit"]:
+        open_now.append("record_exception")
+    return [a for a in open_now if _may(scope, a)]
+
+
 def _allowed(scope: Scope, item: dict[str, Any], state: str) -> list[str]:
     """What THIS person may do to THIS declaration, right now.
 
@@ -469,7 +509,14 @@ def _orders(scope: Scope) -> list[dict[str, Any]]:
     """
     from compass.businessfunctions.features import giftrequests
 
-    return giftrequests.tracked(scope.user, scope.period)
+    # Nothing is decided here. A tracker says where an order has got to and
+    # who holds it; the deciding is Gift requests' own screen, with its own
+    # guards, and a second set of sign-off buttons over here would be a
+    # second place for the chain's rules to be wrong. Said on the row,
+    # because an empty list is what the surface reads to draw no buttons —
+    # and saying nothing is what let it draw all nine.
+    return [{**row, "can": []}
+            for row in giftrequests.tracked(scope.user, scope.period)]
 
 
 def _totals(scope: Scope) -> list[dict[str, Any]]:
@@ -544,6 +591,13 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
                 for i in row["items"] if i["kind"] not in counts_towards_limit()
             ) or "—",
         })
+    # What each row is open to, worked out once and said on the row. Done
+    # after the row is built rather than inside it, because the answer is a
+    # reading of the finished row — over the limit, already referred, whose
+    # it is — and a surface that re-derived it from a status word would be
+    # a second place for the rule to be wrong.
+    for row in out:
+        row["can"] = _allowed_person(scope, row)
     # Worst first: the people a reviewer has to deal with are at the top.
     out.sort(key=lambda r: (-r["total"], r["recipient"]))
     # And narrowed to what this person may see, HERE rather than on the way

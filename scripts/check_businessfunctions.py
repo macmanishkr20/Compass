@@ -936,6 +936,83 @@ def check_a_referral_is_one_person_at_a_time() -> None:
        not h.act(s, "chase_acknowledgement", ["E-1019"]).ok)
 
 
+def check_a_row_says_which_actions_it_takes() -> None:
+    """Every row of a feature with buttons says which of them IT takes.
+
+    This is the contract that puts buttons on a screen: the surface draws
+    what the row allows and nothing otherwise, because it cannot know who
+    holds which role, whose record this is, or what state it is in.
+
+    It is checked rather than assumed because the last time it broke,
+    nothing failed. The Tracker's person rows never carried the list; the
+    surface, which was steering on the feature's id, stopped recognising
+    that id when the sub-service was renamed `register`, fell through to
+    "offer everything the manifest declares", and put nine buttons on a
+    record that was within the limit — a referral with nothing to refer, an
+    exception with no breach, and four decisions about a declaration that
+    did not exist. Eight of the nine the server refuses, and the one that
+    was real sat in the middle of them looking identical.
+    """
+    function = registry.get("scs")
+    ok("the function loads", function is not None)
+    if function is None:
+        return
+
+    for feature in function.features:
+        if not feature.actions:
+            continue
+        declared = {a.id for a in feature.actions}
+        _, _f, h = registry.feature_of("scs", feature.id)
+        # Compliance sees the firm on every screen here, so this walks the
+        # widest set of rows any one person is shown.
+        scope = as_("compliance", feature.id, period="FY 2026-27")
+        for tab in h.tabs(scope):
+            rows = h.rows(scope, tab.key)
+            ok(f"{feature.id}/{tab.key}: every row says what it takes",
+               all(isinstance(r.get("can"), list) for r in rows),
+               str(next((r for r in rows
+                         if not isinstance(r.get("can"), list)), ""))[:120])
+            loose = {a for r in rows for a in r.get("can", [])} - declared
+            ok(f"{feature.id}/{tab.key}: and names only declared actions",
+               not loose, str(loose))
+
+    # And the list is the truth, not a hint: what a row says it takes, the
+    # handler takes. Walked against the Tracker's people, because that is
+    # the screen the regression was on.
+    _, _feat, tracker = registry.feature_of("scs", "register")
+    firm = as_("compliance", period="FY 2026-27")
+    people_rows = tracker.rows(firm, "all")
+    ok("the Tracker's people carry a list each",
+       people_rows and all(isinstance(r.get("can"), list) for r in people_rows))
+
+    within = next((r for r in people_rows
+                   if not r["over_limit"] and not r["unacknowledged"]), None)
+    ok("somebody within the limit with nothing outstanding offers nothing",
+       within is not None and within["can"] == [], str(within and within["can"]))
+
+    over = next((r for r in people_rows
+                 if r["over_limit"] and not r["referred"]), None)
+    ok("somebody over the limit leads with the referral",
+       over is not None and over["can"][:1] == ["refer_to_finance"],
+       str(over and over["can"]))
+
+    # Their own row: the one act on this screen that is only ever about
+    # yourself, and the only one offered on it.
+    mine = as_("admin", period="FY 2026-27")
+    own = next((r for r in tracker.rows(mine, "all") if r["yours"]), None)
+    ok("your own row offers acknowledging and nothing else",
+       own is not None and own["can"] == ["acknowledge"], str(own and own["can"]))
+    ok("and the handler agrees it is open",
+       own is not None
+       and tracker.act(mine, "acknowledge", [own["employee_id"]]).ok)
+
+    # The orders tab tracks; it does not decide. The chain's own screen has
+    # the sign-off buttons, with the chain's own guards behind them.
+    orders = tracker.rows(firm, "orders")
+    ok("an order on the tracker offers nothing",
+       orders and all(r["can"] == [] for r in orders))
+
+
 def check_a_signed_off_year_is_closed_to_everyone() -> None:
     _, _feat, h = registry.feature_of("scs", "register")
     closed = as_("compliance", period="FY 2024-25")
@@ -4699,6 +4776,8 @@ def _checks() -> int:
         check_nobody_clears_their_own_breach()
     with fixtures():
         check_a_referral_is_one_person_at_a_time()
+    with fixtures():
+        check_a_row_says_which_actions_it_takes()
     with fixtures():
         check_a_signed_off_year_is_closed_to_everyone()
     with fixtures():

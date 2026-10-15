@@ -108,6 +108,12 @@ def _taxable(scope: Scope) -> list[dict[str, Any]]:
             "crossed_on": row["crossed_on"],
             "status": row["status"],
             "referred": row["referred"],
+            # Nothing is decided from this tab. `act` resolves its targets
+            # against the REFERRALS, so a button here would refuse on every
+            # row — and the surface draws what the row says and nothing
+            # else, so saying nothing is how a tab reports without
+            # pretending to decide.
+            "can": [],
         })
     return sorted(out, key=lambda r: -r["above_limit"])
 
@@ -155,6 +161,9 @@ def _budgets(scope: Scope) -> list[dict[str, Any]]:
             "status": "over budget" if committed > budget
                       else "fully committed" if committed == budget
                       else "within budget",
+            # A team is not a thing this screen decides. Reported, not acted
+            # on.
+            "can": [],
         })
     # Tightest first: a team with nothing left is the one somebody has to
     # talk to before the next request arrives.
@@ -185,6 +194,10 @@ def _thresholds(scope: Scope) -> list[dict[str, Any]]:
             "changed": "; ".join(policy.describe(earlier, v)) if earlier
                        else "the rules as shipped",
             "current": v is every[-1],
+            # A version in force is a fact, not a queue. Setting a new one
+            # is the admin's form, not a button on an old row — and nothing
+            # ever rewrites a version that has been in force.
+            "can": [],
         })
     return out
 

@@ -514,24 +514,19 @@ export class BusinessFunctions {
       const can = row['can'] as string[];
       return all.filter((a) => can.includes(a.id));
     }
-    if (this.featureId() === 'rewardlens') {
-      // A declared item is reviewed; a person's year is referred, chased or
-      // excepted. Two kinds of row, so two sets of buttons.
-      // Only what this row can actually take. A referral that would be
-      // refused is a button that should not have been drawn.
-      const over = row['over_limit'] === true;
-      const referred = row['referred'] === true;
-      const unack = Number(row['unacknowledged'] ?? 0) > 0;
-      // Acknowledging is the recipient's own, and only theirs: the row
-      // says `yours` because only the server knows whose it is.
-      const yours = row['yours'] === true;
-      return all.filter((a) =>
-        (a.id === 'acknowledge' && yours && unack)
-        || (a.id === 'refer_to_finance' && over && !referred && !yours)
-        || (a.id === 'record_exception' && over && !yours)
-        || (a.id === 'chase_acknowledgement' && unack && !yours));
-    }
-    return all;
+    // A row that says nothing offers nothing. It used to offer EVERYTHING
+    // the manifest declared, which held only while every feature either
+    // sent `can` or was named above — and the Tracker stopped being named
+    // the moment its id changed from `rewardlens` to `register`. The row
+    // went quiet, this fell through, and a within-limit record was given
+    // nine buttons: refer it, except it, accept a declaration that was not
+    // there, send an email nobody had tried. Eight refusals and one real
+    // action, and no way to tell them apart until you clicked.
+    //
+    // So the default is nothing. A feature that wants a button says so on
+    // the row, where the server is — the only place that knows who holds
+    // which role, whose record it is and what state it is in.
+    return [];
   }
 
   // ── a standing request ──────────────────────────────────────────────────
@@ -896,7 +891,24 @@ export class BusinessFunctions {
     // firm already had; the total against the limit is the thing it did not.
     // Except on the declarations tab: a review is a thing an ITEM has, so
     // that one lists items.
-    if (this.featureId() === 'rewardlens') {
+    // The Tracker, in its three shapes: an order on its way through the
+    // chain, a declaration being reviewed, and a person's year against the
+    // limit. Keyed on `register`, which is what the sub-service is called —
+    // under the old id this branch matched nothing, the columns fell
+    // through to one derived from the row's own keys, and the panel headed
+    // itself "E-1052" and listed "ITEMS COUNTED" and "UNACKNOWLEDGED".
+    if (this.featureId() === 'register') {
+      if (this.feature()?.tab === 'orders') {
+        // Where an order has got to, and who has it.
+        return [
+          { key: 'what', label: 'Order' },
+          { key: 'recipient', label: 'For' },
+          { key: 'value', label: 'Value', numeric: true },
+          { key: 'progress', label: 'Progress' },
+          { key: 'with', label: 'With' },
+          { key: 'waiting_days', label: 'Waiting', numeric: true },
+        ];
+      }
       if (this.feature()?.tab === 'disclosed') {
         return [
           { key: 'declared_by', label: 'Declared by' },
@@ -975,19 +987,9 @@ export class BusinessFunctions {
         { key: 'status', label: 'Status' },
       ];
     }
-    // The dashboard. Three tabs, three shapes: people nobody has decided,
-    // the places the process stopped, and where the value comes from.
-    if (this.featureId() === 'register' && this.feature()?.tab === 'orders') {
-      // The tracker's own view: where an order has got to, and who has it.
-      return [
-        { key: 'what', label: 'Order' },
-        { key: 'recipient', label: 'For' },
-        { key: 'value', label: 'Value', numeric: true },
-        { key: 'progress', label: 'Progress' },
-        { key: 'with', label: 'With' },
-        { key: 'waiting_days', label: 'Waiting', numeric: true },
-      ];
-    }
+    // The dashboard. Four tabs, four shapes: the budget against the spend,
+    // where the value comes from, who is past the notable figure, and what
+    // each team has pushed over the limit.
     if (this.featureId() === 'oversight') {
       const tab = this.feature()?.tab;
       // The four views the charts are drawn from. Without these the grid
