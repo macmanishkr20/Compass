@@ -1182,8 +1182,8 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
        "payroll_tax" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
     ok("and no stage is owned by payroll",
        not [k for k, v in gr_mod.STAGES.items() if v.get("owner") == "payroll"])
-    ok("the chain is six steps",
-       len([k for k in gr_mod.STAGES if k != "closed"]) == 6,
+    ok("the chain is five steps",
+       len([k for k in gr_mod.STAGES if k != "closed"]) == 5,
        str(list(gr_mod.STAGES)))
 
     rid = _ask(what="A hamper", value="1200")
@@ -1212,8 +1212,64 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
     # And the figure is on the screen, not only in a tab.
     figure = next(f for f in fin.figures(_fin()) if f.key == "payroll")
     ok("the screen says what is leaving for payroll",
-       figure.value == rewardlens.rupees(sum(r["taxable"] for r in rows)),
+       figure.value == rl_mod.rupees(sum(r["taxable"] for r in rows)),
        figure.value)
+
+
+def check_procurement_is_referenced_not_approved() -> None:
+    """Buying happens elsewhere; what Compass keeps is the thread back.
+
+    It was two sign-off steps — Procurement "marking it bought" and
+    Accounts Payable "marking it paid" — for work neither of them does in
+    this system. That claimed Compass was the system of record for the
+    purchasing it has no part in, and it recorded no reference at all,
+    which was the one thing it could usefully have held.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+
+    ok("accounts payable is not a stage",
+       "accounts_payable" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
+    ok("and no stage is owned by it",
+       not [k for k, v in gr_mod.STAGES.items()
+            if v.get("owner") == "accounts_payable"])
+    ok("procurement's step is the reference, not the approval",
+       "reference" in gr_mod.STAGES["procurement"]["step"],
+       gr_mod.STAGES["procurement"]["step"])
+
+    rid = _ask(what="A hamper", value="1400")
+    _walk(rid, upto="procurement")
+
+    # The sign-off is refused until the reference is there, because the
+    # reference IS the step.
+    refused = h.act(_req("procurement"), "sign_off", [rid], "Bought it")
+    ok("it cannot be signed off with no reference", not refused.ok,
+       refused.said)
+    ok("and the refusal says the buying happens elsewhere",
+       "existing system" in refused.said, refused.said)
+
+    ok("an empty reference is refused",
+       not h.submit(_req("procurement"), "record_purchase", {}, about=rid).ok)
+    ok("and nobody but Procurement may record one",
+       not h.submit(_req("finance"), "record_purchase", {"po": "PO-1"},
+                    about=rid).ok)
+
+    out = h.submit(_req("procurement"), "record_purchase",
+                   {"pr": "PR-4411", "po": "PO-9902", "invoice": "INV-7"},
+                   about=rid)
+    ok("Procurement records what it was bought on", out.ok, out.said)
+    ref = gr_mod.purchase_ref(rid)
+    ok("all three are kept", ref == {"pr": "PR-4411", "po": "PO-9902",
+                                     "invoice": "INV-7"}, str(ref))
+    ok("the row carries the thread back to the purchase",
+       "PO-9902" in _order("procurement", rid)["bought_on"],
+       _order("procurement", rid)["bought_on"])
+    ok("now it signs off",
+       h.act(_req("procurement"), "sign_off", [rid], "Bought it").ok)
+
+    # And it is on the trail, in the words of what it was.
+    said = [ledger.reads_as(e["kind"]) for e in ledger.events(rid)]
+    ok("recording it is its own thing on the trail",
+       ledger.reads_as("referenced") in said, str(said))
 
 
 def check_the_trail_is_read_by_the_order() -> None:
@@ -3129,7 +3185,6 @@ SIGNS = {
     "service_line": "servicelead",
     "finance_policy": "finance",
     "procurement": "procurement",
-    "accounts_payable": "payments",
     # Not a persona but a person: whoever raised it handed it over.
     "distribution": "requester",
     # Not a persona either: whoever received it.
@@ -3167,6 +3222,24 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
         stage = gr_mod.stage_of(request)
         if stage == upto or stage in gr_mod.ENDED:
             break
+        # Two steps now have a record to make before they have a
+        # sign-off to give: Procurement says what it was bought on, and
+        # the requester says who received it. Both are the point of their
+        # step rather than a formality, so the walk makes them properly.
+        if stage == "procurement" and not gr_mod.purchase_ref(rid):
+            made = h.submit(_req(signers[stage]), "record_purchase",
+                            {"po": f"PO-{rid[-4:]}"}, about=rid)
+            if not made.ok:
+                trouble.append(f"{stage}: {made.said}")
+                break
+        if stage == "distribution" and not gr_mod.allocated_to(rid):
+            if not request["for"]:
+                made = h.submit(_req(by), "allocate",
+                                {"recipients": "Vikram Rao",
+                                 "mode": "in person"}, about=rid)
+                if not made.ok:
+                    trouble.append(f"{stage}: {made.said}")
+                    break
         out = h.act(_req(signers[stage]), "sign_off", [rid],
                     f"Checked at {stage}.")
         if not out.ok:
@@ -3196,8 +3269,13 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     ok("a request can be raised", rid)
     ok("and changes nobody's total", total() == before, str(total()))
 
-    for stage in ("service_line", "finance_policy",
-                  "procurement", "accounts_payable"):
+    for stage in ("service_line", "finance_policy", "procurement"):
+        if stage == "procurement":
+            # Its whole job: the thread back to the system that bought it.
+            made = h.submit(_req(SIGNS[stage]), "record_purchase",
+                            {"po": "PO-9001"}, about=rid)
+            ok("procurement records what it was bought on", made.ok, made.said)
+            ok("and that changed nobody's total either", total() == before)
         out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
         ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
         ok(f"and {stage} changed nobody's total", total() == before, str(total()))
@@ -3236,7 +3314,7 @@ def check_a_declined_request_never_becomes_a_gift() -> None:
        not h.act(_req("servicelead"), "sign_off", [rid], "on reflection").ok)
     ok("and no later stage can pick it up either",
        not any(h.act(_req(who), "sign_off", [rid], "mine now").ok
-               for who in ("finance", "payroll", "procurement", "payments")))
+               for who in ("finance", "procurement")))
 
 
 def check_the_breach_is_caught_before_it_is_bought() -> None:
@@ -3415,6 +3493,16 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
            withdraw == (stage in ("service_line", "finance_policy")),
            f"{stage}: {offered('requester')}")
 
+        # The two steps whose job is a RECORD rather than a judgement
+        # make it before they sign off: Procurement says what it was
+        # bought on, the requester says who received it.
+        if stage == "procurement":
+            h.submit(_req(theirs), "record_purchase", {"po": "PO-7700"},
+                     about=rid)
+        if stage == "distribution" and not gr_mod.allocated_to(rid):
+            h.submit(_req(theirs), "allocate",
+                     {"recipients": "Vikram Rao", "mode": "in person"},
+                     about=rid)
         out = h.act(_req(theirs), "sign_off", [rid], f"Checked at {stage}.")
         ok(f"{label}: {people.LABELS.get(owner, owner)} can", out.ok, out.said)
 
@@ -3563,6 +3651,13 @@ def check_every_stage_reads_as_a_sentence() -> None:
            gr_mod.step_name(stage).lower()
            != gr_mod.stage_label(stage).lower())
 
+        if stage == "procurement":
+            h.submit(_req(SIGNS[stage]), "record_purchase", {"po": "PO-5500"},
+                     about=rid)
+        if stage == "distribution" and not gr_mod.allocated_to(rid):
+            h.submit(_req(SIGNS[stage]), "allocate",
+                     {"recipients": "Vikram Rao", "mode": "in person"},
+                     about=rid)
         out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked {stage}.")
         ok(f"{stage}: it can be signed off", out.ok, out.said)
         ok(f"{stage}: and reads as English, not as a heading",
@@ -3605,6 +3700,15 @@ def check_the_last_two_steps_only_go_forward() -> None:
         # The chain's own rows: this is a check about what each STEP
         # allows, and the two last steps are read on Gift requests while
         # the five desks are read on the Tracker. One source for both.
+        # The record the step owes, made before its row is read: a step
+        # whose own capture is missing offers no sign-off, which is a
+        # different rule and is measured in its own check.
+        if stage == "procurement":
+            h.submit(theirs, "record_purchase", {"po": "PO-2200"}, about=rid)
+        if stage == "distribution" and not gr_mod.allocated_to(rid):
+            h.submit(theirs, "allocate",
+                     {"recipients": "Vikram Rao", "mode": "in person"},
+                     about=rid)
         row = next(r for r in gr_mod._rows(theirs) if r["id"] == rid)
         checks = stage not in ("distribution", "acknowledgement")
 
@@ -3632,9 +3736,8 @@ def check_the_last_two_steps_only_go_forward() -> None:
     # And the manifest says the same thing, since that is what the role
     # gate at the entry of `act` reads.
     declines = next(a for a in feat.actions if a.id == "decline")
-    ok("the manifest gives sending it back to the five checking desks only",
-       set(declines.roles) == {"service_line", "finance", "payroll",
-                               "procurement", "accounts_payable"},
+    ok("the manifest gives sending it back to the checking desks only",
+       set(declines.roles) == {"service_line", "finance", "procurement"},
        str(sorted(declines.roles)))
     ok("and the recipient is not among them", "employee" not in declines.roles)
 
@@ -4258,7 +4361,7 @@ def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     rid = _ask(what="A hamper", value="1200")
 
     ok("the desk it is with sees it", rid in sees("servicelead"))
-    for later in ("finance", "payroll", "procurement", "payments"):
+    for later in ("finance", "procurement"):
         ok(f"{later} cannot see it while it is not theirs",
            rid not in sees(later))
     ok("the person who raised it keeps sight of it", rid in sees("requester"))
@@ -4272,7 +4375,7 @@ def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     ok("once signed off, the desk that acted keeps it",
        rid in sees("servicelead"))
     ok("and the desk it moved to now has it", rid in sees("finance"))
-    for ahead in ("payroll", "procurement", "payments"):
+    for ahead in ("procurement",):
         ok(f"{ahead} still cannot see it", rid not in sees(ahead))
 
     # ...all the way to the end, and what each desk is left holding.
@@ -4281,21 +4384,20 @@ def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     # Payroll is NOT in this list any more, and that is the change: it is
     # not a desk in the chain, it is a reader of the year's taxable
     # position on Tax & budget.
-    for touched in ("servicelead", "finance", "procurement",
-                    "payments", "requester"):
+    for touched in ("servicelead", "finance", "procurement", "requester"):
         ok(f"{touched} can still see the closed order it worked on",
            rid in sees(touched))
         ok(f"and it is signed off on {touched}'s tracker",
            any(r["id"] == rid for r in _desk(touched, "completed")))
     ok("so the order report is reachable by every desk that touched it",
-       all(rid in sees(u) for u in ("finance", "procurement", "payments")))
+       all(rid in sees(u) for u in ("finance", "procurement")))
     ok("and payroll, which is no longer a desk, is shown none of it",
        rid not in sees("payroll"), "payroll still has an order queue")
 
     # A second order nobody but the first desk has touched stays invisible.
     other = _ask(what="Another hamper", value="1100")
     ok("a desk is not shown an order it has never been near",
-       other not in sees("payroll") and other not in sees("payments"))
+       other not in sees("payroll") and other not in sees("procurement"))
     ok("while its own queue still holds what is waiting on it",
        other in sees("servicelead"))
 
@@ -4328,6 +4430,16 @@ def check_the_question_belongs_to_the_step() -> None:
         asked = row["ask"]["sign_off"]
         ok(f"{stage}: asks for a note only where one is needed",
            bool(asked) == (stage in needs), f"{stage}: {asked!r}")
+
+        # The record each step owes before it can sign off. Not a note —
+        # a thing the step exists to capture.
+        if stage == "procurement":
+            h.submit(_req(SIGNS[stage]), "record_purchase", {"po": "PO-3300"},
+                     about=rid)
+        if stage == "distribution" and not gr_mod.allocated_to(rid):
+            h.submit(_req(SIGNS[stage]), "allocate",
+                     {"recipients": "Vikram Rao", "mode": "in person"},
+                     about=rid)
 
         if stage in needs:
             refused = h.act(_req(SIGNS[stage]), "sign_off", [rid], "   ")
@@ -4638,7 +4750,7 @@ def check_the_trail_reads_as_what_happened() -> None:
     ok("the rest of the chain runs", not trouble, str(trouble))
     mine = [r for r in h.rows(_aud(), "everything") if rid in str(r["subject"])]
     ok("every step of one order is on the trail, in order",
-       len([r for r in mine if r["did"] == "signed off"]) == 6,
+       len([r for r in mine if r["did"] == "signed off"]) == 5,
        str([r["detail"] for r in mine]))
     ok("and the last thing that happened to it is that it closed",
        any(r["did"] == "closed" for r in mine),
@@ -4686,7 +4798,7 @@ def check_an_order_has_its_own_report() -> None:
     # that says "signed_off" next to a screen that says "signed off" makes
     # a reader wonder which of the two is the real record.
     signed = [r for r in steps if r[2] == ledger.reads_as("signed_off")]
-    ok("every step of the chain is in it", len(signed) == 6, str(len(signed)))
+    ok("every step of the chain is in it", len(signed) == 5, str(len(signed)))
     ok("each one names who took it", all(r[1] for r in signed), str(signed[:2]))
     ok("none of it is written in the code's own vocabulary",
        not any("_" in str(c) for r in steps for c in r[2:4]),
@@ -4694,7 +4806,7 @@ def check_an_order_has_its_own_report() -> None:
     ok("and which step it was, as the screen names it", [r[3] for r in signed]
        == [gr_mod.stage_label(st) for st in
            ("service_line", "finance_policy", "procurement",
-            "accounts_payable", "distribution", "acknowledgement")],
+            "distribution", "acknowledgement")],
        str([r[3] for r in signed]))
     ok("in the order they happened",
        [r[0] for r in signed] == sorted(r[0] for r in signed))
@@ -5111,6 +5223,8 @@ def _checks() -> int:
         check_a_bulk_order_becomes_people()
     with fixtures():
         check_payroll_is_read_at_the_end_not_signed_at_the_start()
+    with fixtures():
+        check_procurement_is_referenced_not_approved()
     with fixtures():
         check_the_trail_is_read_by_the_order()
     with fixtures():

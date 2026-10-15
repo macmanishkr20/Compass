@@ -148,8 +148,7 @@ features:
     actions:
       - id: sign_off
         label: Sign off
-        roles: [service_line, finance, payroll, procurement,
-                accounts_payable, requester, employee]
+        roles: [service_line, finance, procurement, requester, employee]
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
@@ -163,8 +162,7 @@ features:
       # to reopen a decision five other desks already took.
       - id: decline
         label: Send it back
-        roles: [service_line, finance, payroll, procurement,
-                accounts_payable]
+        roles: [service_line, finance, procurement]
         note_label: Why are you sending it back?
         confirm: >-
           Stops it here, with your reason on the record. Nothing is bought
@@ -227,6 +225,33 @@ features:
               Leave it empty for one. The firm buys in bulk and works out
               whose they are afterwards, so this is the number of gifts —
               who receives them is answered at distribution.
+      - id: record_purchase
+        label: Record what it was bought on
+        on_row: true
+        submit_label: Record the reference
+        blurb: >-
+          Reference only. The requisition, order and invoice live in the
+          firm's existing system and nothing here raises, orders or pays
+          anything — what Compass keeps is the thread, so an auditor
+          reading a register record can get back to the purchase behind
+          it. One of the three is enough.
+        confirm: >-
+          Puts the reference on this order's trail with your name against
+          it. It changes nothing in the purchasing system.
+        fields:
+          - id: pr
+            label: Requisition (PR)
+            kind: text
+            required: false
+          - id: po
+            label: Purchase order (PO)
+            kind: text
+            required: false
+          - id: invoice
+            label: Invoice
+            kind: text
+            required: false
+
       - id: allocate
         label: Name who received them
         on_row: true
@@ -352,8 +377,7 @@ features:
       # answer for them at all.
       - id: sign_off
         label: Sign off
-        roles: [service_line, finance, payroll, procurement,
-                accounts_payable, requester, employee]
+        roles: [service_line, finance, procurement, requester, employee]
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
@@ -363,8 +387,7 @@ features:
         reversible: false
       - id: decline
         label: Send it back
-        roles: [service_line, finance, payroll, procurement,
-                accounts_payable]
+        roles: [service_line, finance, procurement]
         note_label: Why are you sending it back?
         confirm: >-
           Stops it here, with your reason on the record. Nothing is bought

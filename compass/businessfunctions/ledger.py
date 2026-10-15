@@ -87,6 +87,11 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # sign-off, because allocating is not a decision — it is the
           # record of who actually got one.
           "allocated",
+          # the thread back to the system that actually bought it. A
+          # reference, not an approval: Compass records which PR, PO or
+          # invoice a gift was bought on and has no part in raising any
+          # of them.
+          "referenced",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -110,6 +115,7 @@ READS_AS = {
     "declined": "sent back",
     "acknowledged": "confirmed receiving",
     "allocated": "allocated",
+    "referenced": "recorded the purchase reference for",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

@@ -77,6 +77,11 @@ PROCUREMENT = "Procurement"
 #: in a quantity field cannot write ten thousand register records.
 MOST_PER_ORDER = 500
 
+#: How long a reference from another system may be. A guard, not a format:
+#: every firm numbers its own purchase orders differently and Compass has
+#: no business having an opinion about theirs.
+_REF_MAX = 64
+
 #: How a gift reached somebody. Asked at distribution because "we have no
 #: idea how it got there" is the honest answer otherwise, and an auditor
 #: asking how two hundred hampers were handed out deserves better.
@@ -165,26 +170,27 @@ STAGES: dict[str, dict[str, Any]] = {
     # reads the employee-level taxable position once a year, on Tax &
     # budget, and processes it in its own system. See `_payroll_rows`
     # there.
+    # PROCUREMENT IS NOT APPROVED HERE, IT IS REFERENCED. Buying runs in
+    # the firm's existing system — requisition, order, vendor, invoice,
+    # payment — and that is out of this module's scope on purpose. What
+    # Compass needs is the thread back to it: the PR, PO or invoice that
+    # this gift was bought on, so an auditor reading a register record can
+    # get to the purchase behind it.
+    #
+    # It was two sign-off steps, Procurement and Accounts Payable, each
+    # "marking" something Compass had no part in doing. That claimed this
+    # was the system of record for work that happens elsewhere, and it
+    # recorded no reference at all — the one thing it could usefully have
+    # held.
     "procurement": {
         "back": True,
         "ask": "",
-        "step": "the purchase",
+        "step": "the purchase reference",
         "holder": "Procurement",
         "owner": "procurement",
         "label": "With Procurement",
-        "verb": "Mark it bought",
-        "asks": "purchase through an approved channel",
-        "next": "accounts_payable",
-    },
-    "accounts_payable": {
-        "back": True,
-        "ask": "",
-        "step": "payment",
-        "holder": "Accounts Payable",
-        "owner": "accounts_payable",
-        "label": "With Accounts Payable",
-        "verb": "Mark it paid",
-        "asks": "financial processing against the approved purchase",
+        "verb": "Record what it was bought on",
+        "asks": "the requisition, order or invoice it was bought on",
         "next": "distribution",
     },
     "distribution": {
@@ -521,6 +527,30 @@ def _with(request: dict[str, Any], stage: str) -> str:
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
+def purchase_ref(request_id: str) -> dict[str, str]:
+    """What this order was bought on, in the firm's existing system.
+
+    Reference only — Compass does not raise a requisition, cut an order,
+    or pay an invoice, and the numbers here are typed in by the people who
+    do. Their value is the thread: a register record leads to a gift,
+    which leads to an order, which leads to the purchase behind it.
+    """
+    event = ledger.latest(request_id, "referenced")
+    if event is None:
+        return {}
+    return {k: str(event.get(k, "")) for k in ("pr", "po", "invoice")
+            if event.get(k)}
+
+
+def _ref_said(request_id: str) -> str:
+    """The purchase reference as a row shows it."""
+    ref = purchase_ref(request_id)
+    if not ref:
+        return "not recorded yet"
+    return " · ".join(f"{k.upper() if k != 'invoice' else 'Invoice'} {v}"
+                      for k, v in ref.items())
+
+
 def _allocation_said(request: dict[str, Any]) -> str:
     """How far an order has got towards knowing whose gifts these are."""
     wanted = request.get("quantity", 1)
@@ -623,6 +653,8 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             # In words, for the column: "2 of 3 named" is what a bulk
             # order is read for, and neither number says it alone.
             "allocation": _allocation_said(request),
+            # The thread back to the system that bought it.
+            "bought_on": _ref_said(request["id"]),
             # Who actually got one. On the row because "is this mine" can
             # no longer be answered from the request alone: a bulk order
             # names nobody when it is raised.
@@ -744,6 +776,7 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "occasion": row["occasion"],
             "quantity": row["quantity"],
             "allocation": row["allocation"],
+            "bought_on": row["bought_on"],
             "allocated_ids": row["allocated_ids"],
         })
     # Whatever is moving comes first, least far along first: a tracker is
@@ -950,6 +983,8 @@ class GiftRequests(Feature):
                         "quantity"})
     ALLOCATE_FORM = "allocate"
     ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode"})
+    PURCHASE_FORM = "record_purchase"
+    PURCHASE_FIELDS = frozenset({"pr", "po", "invoice"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope, _is_yours)
@@ -1088,6 +1123,15 @@ class GiftRequests(Feature):
                      f"no record of it is one nobody can audit.")
 
         said_extra = ""
+        if stage == "procurement" and not purchase_ref(row["id"]):
+            return Outcome(
+                ok=False,
+                said="Record what it was bought on first — the requisition, "
+                     "order or invoice number. That reference is the whole "
+                     "job of this step: the buying itself happens in the "
+                     "existing system and Compass only keeps the thread "
+                     "back to it.")
+
         if stage == "distribution":
             # Where a proposal becomes a record. Nothing before this is on
             # anybody's total, and nothing after it can be taken off.
@@ -1178,7 +1222,39 @@ class GiftRequests(Feature):
             return set(self.FIELDS)
         if form_id == self.ALLOCATE_FORM:
             return set(self.ALLOCATE_FIELDS)
+        if form_id == self.PURCHASE_FORM:
+            return set(self.PURCHASE_FIELDS)
         return set()
+
+    def _read_purchase(self, scope: Scope, values: dict[str, str],
+                       about: str) -> tuple[dict[str, Any] | None,
+                                            Outcome | None]:
+        """The purchase reference these values carry, or why they carry none."""
+        request = next((r for r in ledger.requests() if r["id"] == about), None)
+        if request is None:
+            return None, Outcome(ok=False, said="No order by that id.")
+        if stage_of(request) != "procurement":
+            return None, Outcome(
+                ok=False,
+                said=f"{request['id']} is "
+                     f"{stage_label(stage_of(request)).lower()}. The purchase "
+                     f"reference is recorded when it reaches Procurement.")
+        owner = STAGES["procurement"]["owner"]
+        if owner not in scope.roles:
+            return None, Outcome(
+                ok=False,
+                said="Procurement records what it bought this on.")
+
+        ref = {k: values.get(k, "").strip()[:_REF_MAX]
+               for k in ("pr", "po", "invoice")}
+        ref = {k: v for k, v in ref.items() if v}
+        if not ref:
+            return None, Outcome(
+                ok=False,
+                said="Give at least one of the requisition, order or invoice "
+                     "number. A purchase with no reference is a gift nobody "
+                     "can trace back to what paid for it.")
+        return {"request": request, "ref": ref}, None
 
     def _read_allocation(self, scope: Scope, values: dict[str, str],
                          about: str) -> tuple[dict[str, Any] | None,
@@ -1324,6 +1400,18 @@ class GiftRequests(Feature):
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
+        if form_id == self.PURCHASE_FORM:
+            read, refused = self._read_purchase(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            return Outcome(
+                ok=True,
+                said="Records " + " · ".join(
+                    f"{k.upper() if k != 'invoice' else 'Invoice'} {v}"
+                    for k, v in read["ref"].items())
+                     + " against this order. Reference only — nothing is "
+                       "raised, ordered or paid from here.")
         if form_id == self.ALLOCATE_FORM:
             read, refused = self._read_allocation(scope, values, about)
             if refused is not None:
@@ -1363,6 +1451,19 @@ class GiftRequests(Feature):
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
+        if form_id == self.PURCHASE_FORM:
+            read, refused = self._read_purchase(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            ledger.add_event(subject=read["request"]["id"], kind="referenced",
+                             by=scope.user, stage="procurement",
+                             **read["ref"])
+            return Outcome(
+                ok=True,
+                said=f"Recorded: {_ref_said(read['request']['id'])}. The "
+                     f"order can be signed off now.",
+                touched=[read["request"]["id"]])
         if form_id == self.ALLOCATE_FORM:
             read, refused = self._read_allocation(scope, values, about)
             if refused is not None:

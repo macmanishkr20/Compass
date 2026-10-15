@@ -1016,6 +1016,7 @@ export class BusinessFunctions {
         { key: 'quantity', label: 'Qty', numeric: true },
         { key: 'value', label: 'Each', numeric: true },
         { key: 'allocation', label: 'Allocated' },
+        { key: 'bought_on', label: 'Bought on' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
         { key: 'status', label: 'Status' },
