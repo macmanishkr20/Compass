@@ -97,6 +97,10 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # "somebody decided" are different facts and an auditor reading
           # the trail wants both.
           "exception_asked", "exception_refused",
+          # the recipient list, maintained rather than overwritten: a name
+          # put on it and a name taken off it, each with who did it and
+          # what they said. The list itself is a fold over these.
+          "listed", "unlisted",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -123,6 +127,8 @@ READS_AS = {
     "referenced": "recorded the purchase reference for",
     "exception_asked": "asked Finance to make an exception for",
     "exception_refused": "refused an exception for",
+    "listed": "added a recipient to",
+    "unlisted": "took a recipient off",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

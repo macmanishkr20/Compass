@@ -47,7 +47,7 @@ import time
 import uuid
 from typing import Any
 
-from compass.businessfunctions import ledger, policy, people
+from compass.businessfunctions import ledger, notices, policy, people
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import (
     Feature,
@@ -82,11 +82,19 @@ MOST_PER_ORDER = 500
 #: no business having an opinion about theirs.
 _REF_MAX = 64
 
+#: How long a reason may be. Long enough for a sentence, short enough that
+#: nobody pastes a thread into it.
+_TEXT_MAX = 400
+
 #: Who may take responsibility for a gift the rules refuse. Finance, as
 #: the business's own flow has it — the point of an exception is that
 #: somebody senior to the rule owns the decision, so it cannot be the desk
 #: the rule is inconveniencing.
 EXCEPTION_OWNER = "finance"
+
+#: Who hands the gifts out, besides whoever raised the order. One persona,
+#: named here rather than spelled into three functions.
+DISTRIBUTOR = "operations"
 
 #: How a gift reached somebody. Asked at distribution because "we have no
 #: idea how it got there" is the honest answer otherwise, and an auditor
@@ -200,17 +208,19 @@ STAGES: dict[str, dict[str, Any]] = {
         "next": "distribution",
     },
     "distribution": {
-        # The business requester records what was ACTUALLY given, because
-        # they are the ones who handed it over and the only ones who can say
-        # it differed from what was asked for. This is the moment it reaches
-        # the register and starts counting.
+        # Whoever handed it over records what was ACTUALLY given, because
+        # they are the only ones who can say it differed from what was
+        # asked for. OPERATIONS or the raiser: the SPOC who has the boxes
+        # distributes a bulk order, the colleague who asked distributes a
+        # one-off. This is the moment it reaches the register and starts
+        # counting.
         "back": False,
         "ask": "What was actually given, and anything different from what "
                "was asked for?",
         "step": "what was actually given",
-        "holder": "the requester, to hand it over",
-        "owner": "requester",
-        "label": "With the requester to distribute",
+        "holder": "Operations or the requester, to hand it over",
+        "owner": "operations",
+        "label": "With Operations to distribute",
         "verb": "Record what was given",
         "asks": "the actual distribution, and any deviation from the request",
         "next": "acknowledgement",
@@ -433,6 +443,50 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "said": "within policy"}
 
 
+def intended_list(request_id: str) -> list[str]:
+    """Who the order was ORIGINALLY asked for, as named when it was raised.
+
+    Kept because a list that was revised and a list that was right first
+    time are not the same fact, and the difference is the one an auditor
+    asks about: two hundred hampers were approved for these people and
+    went to those people. The original is on the trail from the moment the
+    request is raised and nothing ever edits it.
+    """
+    event = ledger.latest(request_id, "requested")
+    if event is None:
+        return []
+    return [n for n in str(event.get("intended", "")).split("|") if n]
+
+
+def list_revisions(request_id: str) -> list[dict[str, Any]]:
+    """Every change made to the recipient list, in order, with who and why.
+
+    CONTROLLED ADD AND DELETE, which is what makes this a list somebody
+    can maintain rather than a list somebody can overwrite. A name taken
+    off is not gone — it is a line on the trail saying who took it off and
+    what they said about it.
+    """
+    return [e for e in ledger.events(request_id)
+            if e["kind"] in ("listed", "unlisted")]
+
+
+def planned_list(request_id: str) -> list[str]:
+    """The list as it stands now: the original, plus and minus the changes.
+
+    A fold, like the stage. Stored, it could disagree with the changes
+    that produced it, and for the one record that says who was supposed to
+    receive something that is the wrong thing to be relaxed about.
+    """
+    names = list(intended_list(request_id))
+    for event in list_revisions(request_id):
+        who = str(event.get("who", ""))
+        if event["kind"] == "listed" and who not in names:
+            names.append(who)
+        elif event["kind"] == "unlisted" and who in names:
+            names.remove(who)
+    return names
+
+
 def exception_on(request_id: str) -> dict[str, Any] | None:
     """The exception granted on this order, if Finance has granted one.
 
@@ -546,7 +600,8 @@ def _with(request: dict[str, Any], stage: str) -> str:
     """
     if stage == "distribution":
         who = people.find(request["by"])
-        return who.name if who else request["by"]
+        raiser = who.name if who else request["by"]
+        return f"{people.LABELS[DISTRIBUTOR]} or {raiser}"
     if stage == "acknowledgement":
         waiting = sorted({i["recipient"] for i in _unconfirmed(request["id"])})
         if waiting:
@@ -557,28 +612,40 @@ def _with(request: dict[str, Any], stage: str) -> str:
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
-def purchase_ref(request_id: str) -> dict[str, str]:
-    """What this order was bought on, in the firm's existing system.
+def reference_for(request: dict[str, Any]) -> str:
+    """The reference COMPASS mints for an approved order.
 
-    Reference only — Compass does not raise a requisition, cut an order,
-    or pay an invoice, and the numbers here are typed in by the people who
-    do. Their value is the thread: a register record leads to a gift,
-    which leads to an order, which leads to the purchase behind it.
+    THE TRACKER ISSUES IT; the purchasing system quotes it. That is the
+    whole integration, and it is deliberately not one: when an order is
+    approved, Compass generates this and emails it, somebody carries it to
+    the PR/PO tool by hand, and the requisition they raise there carries
+    the reference. Nothing is read back.
+
+    It was the other way round for a day — Procurement typed their PO
+    number into Compass — which needs the purchasing team to do data entry
+    in a second system for no benefit to them, and leaves the order stuck
+    until they do.
+
+    Derived from the order id and the year rather than counted, so it
+    needs no sequence to keep and cannot be minted twice for one order.
     """
-    event = ledger.latest(request_id, "referenced")
-    if event is None:
-        return {}
-    return {k: str(event.get(k, "")) for k in ("pr", "po", "invoice")
-            if event.get(k)}
+    raised = dt.date.fromtimestamp(request.get("at", 0) or 0)
+    # April to March, like every other year in this module.
+    start = raised.year if raised.month >= 4 else raised.year - 1
+    return f"GIFT-{start % 100:02d}{(start + 1) % 100:02d}-{request['id'][2:]}"
+
+
+def reference_issued(request_id: str) -> dict[str, Any] | None:
+    """When the reference was issued and what was said, or None."""
+    return ledger.latest(request_id, "referenced")
 
 
 def _ref_said(request_id: str) -> str:
-    """The purchase reference as a row shows it."""
-    ref = purchase_ref(request_id)
-    if not ref:
-        return "not recorded yet"
-    return " · ".join(f"{k.upper() if k != 'invoice' else 'Invoice'} {v}"
-                      for k, v in ref.items())
+    """The reference as a row shows it."""
+    event = reference_issued(request_id)
+    if event is None:
+        return "not issued yet"
+    return str(event.get("reference", "")) or "issued"
 
 
 def _allocation_said(request: dict[str, Any]) -> str:
@@ -593,7 +660,7 @@ def _allocation_said(request: dict[str, Any]) -> str:
 
 
 def _record(request: dict[str, Any], employee_id: str, name: str,
-            given: str, mode: str) -> dict[str, Any]:
+            given: str, mode: str, actual: int | None = None) -> dict[str, Any]:
     """Put one gift on the register, against one person.
 
     The ONE place an order becomes a record. Called once for a request
@@ -606,7 +673,12 @@ def _record(request: dict[str, Any], employee_id: str, name: str,
         "recipient": name,
         "kind": request["kind"],
         "what": request["what"],
-        "value": request["value"],
+        # What it ACTUALLY cost. The register is the record of what was
+        # received, so the estimate stays on the request and the real
+        # figure lands here — a limit measured against an estimate is a
+        # limit measured against a guess.
+        "value": request["value"] if actual is None else actual,
+        "estimated": request["value"],
         "given": given,
         "source": request["source"],
         "channel": "procured",
@@ -658,6 +730,7 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             "kind": request["kind"],
             "value": request["value"],
             "occasion": request["occasion"],
+            "purpose": request.get("purpose", "—"),
             "source": request["source"],
             "requested_by": request["by"],
             "stage": stage,
@@ -683,6 +756,15 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             # In words, for the column: "2 of 3 named" is what a bulk
             # order is read for, and neither number says it alone.
             "allocation": _allocation_said(request),
+            # The list as it stands, the list as approved, and whether the
+            # two differ — three facts, because "it was revised" is the
+            # one somebody asks about and neither list says it alone.
+            "for_list": ", ".join(_name_of(e)
+                                  for e in planned_list(request["id"])) or "—",
+            "listed_as": ", ".join(_name_of(e)
+                                   for e in intended_list(request["id"]))
+                         or "nobody named up front",
+            "list_changes": len(list_revisions(request["id"])),
             # The thread back to the system that bought it.
             "bought_on": _ref_said(request["id"]),
             # Who actually got one. On the row because "is this mine" can
@@ -807,6 +889,9 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "quantity": row["quantity"],
             "allocation": row["allocation"],
             "bought_on": row["bought_on"],
+            "purpose": row["purpose"],
+            "for_list": row["for_list"],
+            "listed_as": row["listed_as"],
             "allocated_ids": row["allocated_ids"],
         })
     # Whatever is moving comes first, least far along first: a tracker is
@@ -961,7 +1046,14 @@ def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
         something is not deciding your own case.
     """
     if stage == "distribution":
-        return request["by"] == scope.user
+        # OPERATIONS HANDS THINGS OUT, and so may whoever raised it. Both,
+        # because both happen: a bulk order is distributed by the SPOC who
+        # has the boxes, and a one-off gift by the colleague who asked for
+        # it. Routed by identity OR by that one persona rather than by the
+        # persona alone — gating it on a role stranded every request an
+        # ordinary employee raised, which is the bug the comment below was
+        # written about.
+        return request["by"] == scope.user or DISTRIBUTOR in scope.roles
     if stage == "acknowledgement":
         # Whoever was ALLOCATED one, not whoever the request named. A bulk
         # order names nobody when it is raised; the people who received it
@@ -1026,7 +1118,8 @@ class GiftRequests(Feature):
     key = "gift_requests"
     row_key = "id"
     private = frozenset({"by_employee", "stage", "blocked", "warns", "can",
-                         "steps_done", "ask", "allocated_ids"})
+                         "steps_done", "ask", "allocated_ids",
+                         "list_changes"})
 
     def step_label(self, step: str) -> str:
         """A stage on the trail, in the words the screen uses for it."""
@@ -1034,11 +1127,11 @@ class GiftRequests(Feature):
 
     REQUEST_FORM = "request_gift"
     FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",
-                        "quantity"})
+                        "quantity", "purpose"})
     ALLOCATE_FORM = "allocate"
-    ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode"})
-    PURCHASE_FORM = "record_purchase"
-    PURCHASE_FIELDS = frozenset({"pr", "po", "invoice"})
+    ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode", "actual"})
+    LIST_FORM = "revise_list"
+    LIST_FIELDS = frozenset({"add", "remove", "why"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope, _is_yours)
@@ -1186,15 +1279,6 @@ class GiftRequests(Feature):
                      f"no record of it is one nobody can audit.")
 
         said_extra = ""
-        if stage == "procurement" and not purchase_ref(row["id"]):
-            return Outcome(
-                ok=False,
-                said="Record what it was bought on first — the requisition, "
-                     "order or invoice number. That reference is the whole "
-                     "job of this step: the buying itself happens in the "
-                     "existing system and Compass only keeps the thread "
-                     "back to it.")
-
         if stage == "distribution":
             # Where a proposal becomes a record. Nothing before this is on
             # anybody's total, and nothing after it can be taken off.
@@ -1215,6 +1299,7 @@ class GiftRequests(Feature):
                              f"to hold it against.")
                 given = [_record(request, request["for"], row["recipient"],
                                  dt.date.today().isoformat(), "")]
+
             short = request["quantity"] - len(given)
             if short > 0:
                 return Outcome(
@@ -1237,6 +1322,14 @@ class GiftRequests(Feature):
                 said_extra = (f" It is on the register against "
                               f"{given[0]['recipient']}, whose year is now "
                               f"{rewardlens.rupees(after)}.")
+
+        if stage == "finance_policy":
+            # APPROVED, so the reference is issued and emailed. This is the
+            # hand-off to purchasing and the whole of it: somebody takes
+            # the reference from that email to the PR/PO tool, and the
+            # requisition they raise there carries it. Nothing is read
+            # back, which is why there is no integration to build.
+            said_extra = " " + self._issue_reference(scope, request)
 
         if stage == "acknowledgement":
             # THEIRS, not the order's. One order can reach twenty people,
@@ -1277,6 +1370,33 @@ class GiftRequests(Feature):
             said=f"Signed off: {step_name(stage)}.{crossing}{said_extra} "
                  f"It is now with {STAGES[nxt]['holder']}.",
             touched=[row["id"]])
+
+    def _issue_reference(self, scope: Scope, request: dict[str, Any]) -> str:
+        """Mint the order's reference and email it. Says what happened."""
+        if reference_issued(request["id"]) is not None:
+            return ""
+        ref = reference_for(request)
+        raiser = people.find(request["by"])
+        notice = notices.record(
+            to=raiser.email if raiser else "",
+            name=raiser.name if raiser else request["by"],
+            subject=f"{ref} — approved, ready to order",
+            body=(f"{request['quantity']} \u00d7 {request['what']} at "
+                  f"{rewardlens.rupees(request['value'])} each has been "
+                  f"approved.\n\nQuote {ref} on the requisition when you "
+                  f"raise it in the purchasing system, so what is bought "
+                  f"can be matched back to this order.\n\nNothing is "
+                  f"ordered by this email. Compass does not raise, order "
+                  f"or pay for anything."),
+            about=request["id"])
+        ledger.add_event(subject=request["id"], kind="referenced",
+                         by=scope.user, stage="finance_policy",
+                         reference=ref, notice=notice.id)
+        if notice.state == "held":
+            return (f"Reference {ref} issued — not emailed: "
+                    f"{notice.detail}. Quote it on the requisition.")
+        return (f"Reference {ref} issued and emailed to "
+                f"{notice.name}. Quote it on the requisition.")
 
     def _exception(self, scope: Scope, action: str, row: dict[str, Any],
                    request: dict[str, Any], stage: str, note: str) -> Outcome:
@@ -1347,39 +1467,163 @@ class GiftRequests(Feature):
             return set(self.FIELDS)
         if form_id == self.ALLOCATE_FORM:
             return set(self.ALLOCATE_FIELDS)
-        if form_id == self.PURCHASE_FORM:
-            return set(self.PURCHASE_FIELDS)
+        if form_id == self.LIST_FORM:
+            return set(self.LIST_FIELDS)
         return set()
 
-    def _read_purchase(self, scope: Scope, values: dict[str, str],
-                       about: str) -> tuple[dict[str, Any] | None,
-                                            Outcome | None]:
-        """The purchase reference these values carry, or why they carry none."""
+    def _read_list(self, scope: Scope, values: dict[str, str],
+                   about: str) -> tuple[dict[str, Any] | None,
+                                        Outcome | None]:
+        """The change to the recipient list, or why it cannot be made.
+
+        Controlled: who may change it, when it may be changed, and never
+        past the quantity that was approved. A list somebody can rewrite
+        silently is not a control, and a list nobody can correct is a
+        control people work around.
+        """
         request = next((r for r in ledger.requests() if r["id"] == about), None)
         if request is None:
             return None, Outcome(ok=False, said="No order by that id.")
-        if stage_of(request) != "procurement":
+        stage = stage_of(request)
+        if stage in ENDED:
             return None, Outcome(
                 ok=False,
-                said=f"{request['id']} is "
-                     f"{stage_label(stage_of(request)).lower()}. The purchase "
-                     f"reference is recorded when it reaches Procurement.")
-        owner = STAGES["procurement"]["owner"]
-        if owner not in scope.roles:
+                said=f"{request['id']} is {stage_label(stage).lower()}. The "
+                     f"list of an order that has ended does not change.")
+        if allocated_to(request["id"]):
             return None, Outcome(
                 ok=False,
-                said="Procurement records what it bought this on.")
+                said="Some of these are already on the register, and the "
+                     "register is write-once. A record that was wrong is "
+                     "superseded there, not unlisted here.")
+        if (request["by"] != scope.user and DISTRIBUTOR not in scope.roles
+                and "service_line" not in scope.roles):
+            return None, Outcome(
+                ok=False,
+                said="Whoever raised it, their approver, or Operations keep "
+                     "the list straight.")
 
-        ref = {k: values.get(k, "").strip()[:_REF_MAX]
-               for k in ("pr", "po", "invoice")}
-        ref = {k: v for k, v in ref.items() if v}
-        if not ref:
+        now = planned_list(request["id"])
+        adding, removing = [], []
+        for name in [n.strip() for n in values.get("add", "").split(",")
+                     if n.strip()]:
+            known = _employee_named(name)
+            if not known:
+                return None, Outcome(
+                    ok=False,
+                    said=f"Compass does not know anybody called {name!r}. "
+                         f"It knows: {', '.join(_known_names())}.")
+            if known in now:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{_name_of(known)} is already on the list.")
+            if known not in adding:
+                adding.append(known)
+        for name in [n.strip() for n in values.get("remove", "").split(",")
+                     if n.strip()]:
+            known = _employee_named(name)
+            if known not in now:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{name} is not on the list, so there is nothing to "
+                         f"take off.")
+            if known not in removing:
+                removing.append(known)
+        if not adding and not removing:
+            return None, Outcome(ok=False, said="Name somebody to add or to "
+                                                "take off.")
+        after = len(now) + len(adding) - len(removing)
+        if after > request.get("quantity", 1):
             return None, Outcome(
                 ok=False,
-                said="Give at least one of the requisition, order or invoice "
-                     "number. A purchase with no reference is a gift nobody "
-                     "can trace back to what paid for it.")
-        return {"request": request, "ref": ref}, None
+                said=f"That would be {after} people for "
+                     f"{request.get('quantity', 1)} gifts. The quantity is "
+                     f"what was approved.")
+        if not values.get("why", "").strip():
+            return None, Outcome(
+                ok=False,
+                said="Say why it changed. A list that was revised and a list "
+                     "that was right first time are different facts, and the "
+                     "difference is the one somebody will ask about.")
+        return {"request": request, "add": adding, "remove": removing,
+                "why": values["why"].strip(), "after": after}, None
+
+    def _read_list(self, scope: Scope, values: dict[str, str],
+                   about: str) -> tuple[dict[str, Any] | None,
+                                        Outcome | None]:
+        """The change to the recipient list, or why it cannot be made.
+
+        Controlled: who may change it, when it may be changed, and never
+        past the quantity that was approved. A list somebody can rewrite
+        silently is not a control, and a list nobody can correct is a
+        control people work around.
+        """
+        request = next((r for r in ledger.requests() if r["id"] == about), None)
+        if request is None:
+            return None, Outcome(ok=False, said="No order by that id.")
+        stage = stage_of(request)
+        if stage in ENDED:
+            return None, Outcome(
+                ok=False,
+                said=f"{request['id']} is {stage_label(stage).lower()}. The "
+                     f"list of an order that has ended does not change.")
+        if allocated_to(request["id"]):
+            return None, Outcome(
+                ok=False,
+                said="Some of these are already on the register, and the "
+                     "register is write-once. A record that was wrong is "
+                     "superseded there, not unlisted here.")
+        if (request["by"] != scope.user and DISTRIBUTOR not in scope.roles
+                and "service_line" not in scope.roles):
+            return None, Outcome(
+                ok=False,
+                said="Whoever raised it, their approver, or Operations keep "
+                     "the list straight.")
+
+        now = planned_list(request["id"])
+        adding, removing = [], []
+        for name in [n.strip() for n in values.get("add", "").split(",")
+                     if n.strip()]:
+            known = _employee_named(name)
+            if not known:
+                return None, Outcome(
+                    ok=False,
+                    said=f"Compass does not know anybody called {name!r}. "
+                         f"It knows: {', '.join(_known_names())}.")
+            if known in now:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{_name_of(known)} is already on the list.")
+            if known not in adding:
+                adding.append(known)
+        for name in [n.strip() for n in values.get("remove", "").split(",")
+                     if n.strip()]:
+            known = _employee_named(name)
+            if known not in now:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{name} is not on the list, so there is nothing to "
+                         f"take off.")
+            if known not in removing:
+                removing.append(known)
+        if not adding and not removing:
+            return None, Outcome(ok=False, said="Name somebody to add or to "
+                                                "take off.")
+        after = len(now) + len(adding) - len(removing)
+        if after > request.get("quantity", 1):
+            return None, Outcome(
+                ok=False,
+                said=f"That would be {after} people for "
+                     f"{request.get('quantity', 1)} gifts. The quantity is "
+                     f"what was approved.")
+        if not values.get("why", "").strip():
+            return None, Outcome(
+                ok=False,
+                said="Say why it changed. A list that was revised and a list "
+                     "that was right first time are different facts, and the "
+                     "difference is the one somebody will ask about.")
+        return {"request": request, "add": adding, "remove": removing,
+                "why": values["why"].strip(), "after": after}, None
 
     def _read_allocation(self, scope: Scope, values: dict[str, str],
                          about: str) -> tuple[dict[str, Any] | None,
@@ -1399,11 +1643,11 @@ class GiftRequests(Feature):
                 ok=False,
                 said=f"{request['id']} is {stage_label(stage_of(request)).lower()}. "
                      f"Gifts are allocated when it reaches distribution.")
-        if request["by"] != scope.user:
+        if request["by"] != scope.user and DISTRIBUTOR not in scope.roles:
             return None, Outcome(
                 ok=False,
-                said="Whoever raised it hands it over, so they are the one "
-                     "who can say who received it.")
+                said="Whoever raised it hands it over, or Operations — they "
+                     "are the ones who can say who actually received it.")
 
         already = allocated_to(request["id"])
         room = request.get("quantity", 1) - len(already)
@@ -1424,6 +1668,9 @@ class GiftRequests(Feature):
                      f"more than were asked for.")
 
         held = {i["employee_id"] for i in already}
+        # What was approved. Empty means nobody was named up front, and
+        # then distribution is where the names come from.
+        planned = planned_list(request["id"])
         people_named: list[tuple[str, str]] = []
         for name in names:
             employee = _employee_named(name)
@@ -1432,6 +1679,13 @@ class GiftRequests(Feature):
                     ok=False,
                     said=f"Compass does not know anybody called {name!r}. "
                          f"It knows: {', '.join(_known_names())}.")
+            if planned and employee not in planned:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{name} is not on this order's recipient list. "
+                         f"Put them on it first — the list is what was "
+                         f"approved, and allocating round it is how a gift "
+                         f"ends up on somebody nobody signed off for.")
             if employee in held or employee in {e for e, _ in people_named}:
                 return None, Outcome(
                     ok=False,
@@ -1450,8 +1704,25 @@ class GiftRequests(Feature):
         if mode not in MODES:
             return None, Outcome(ok=False, said=f"How did it reach them? One "
                                                 f"of: {', '.join(MODES)}.")
+
+        # WHAT IT ACTUALLY COST, which is not what was estimated. The
+        # request carries an estimate made before anything was bought; the
+        # register has to carry what was really given, because that is the
+        # figure somebody's annual limit is measured against and the one a
+        # tax position rests on. Empty means it came in at the estimate.
+        actual = request["value"]
+        if values.get("actual", "").strip():
+            actual = rewardlens.whole_rupees(values["actual"])
+            if actual is None or actual <= 0:
+                return None, Outcome(ok=False, said="Give what one of them "
+                                                    "actually cost in whole "
+                                                    "rupees, or leave it "
+                                                    "empty for the estimate.")
+            if actual > rewardlens.most_per_item():
+                return None, Outcome(ok=False, said="That is past what this "
+                                                    "form takes.")
         return {"request": request, "people": people_named, "given": given,
-                "mode": mode, "room": room}, None
+                "mode": mode, "room": room, "actual": actual}, None
 
     def _read(self, scope: Scope, values: dict[str, str]
               ) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -1469,7 +1740,13 @@ class GiftRequests(Feature):
         # form that insisted on a name was a form nobody could use for the
         # purchase this exists to control. Named here when it is known;
         # named at distribution when it is not.
-        recipient = values.get("recipient", "").strip()
+        # A LIST, not a name. The business captures who it is for up
+        # front when it knows — "known recipients (if any)" — and a form
+        # that took one name could not carry a festival order for four
+        # people somebody already had in mind.
+        wanted = [n.strip() for n in values.get("recipient", "").split(",")
+                  if n.strip()]
+        recipient = wanted[0] if wanted else ""
         employee = _employee_named(recipient) if recipient else ""
         if recipient and not employee:
             # Say who it DOES know. A refusal that only says no turns a
@@ -1500,9 +1777,36 @@ class GiftRequests(Feature):
         what = values.get("what", "").strip()
         if not what:
             return None, Outcome(ok=False, said="Say what it is.")
+        # WHY the firm is giving it, in the asker's own words. The occasion
+        # is a category and the policy reads it; this is the sentence an
+        # approver actually decides on, and a business reason nobody wrote
+        # down is a decision nobody can review.
+        purpose = values.get("purpose", "").strip()[:_TEXT_MAX]
+        if not purpose:
+            return None, Outcome(
+                ok=False,
+                said="Say what it is for. The occasion is the category; this "
+                     "is the business reason, and an approver has nothing to "
+                     "decide on without it.")
         # Nobody is asked who pays. One team buys for the whole firm, so
         # the answer was the same every time and the question was a field
         # people got wrong.
+        intended: list[str] = []
+        for name in wanted:
+            known = _employee_named(name)
+            if not known:
+                return None, Outcome(
+                    ok=False,
+                    said=f"Compass does not know anybody called {name!r}. "
+                         f"It knows: {', '.join(_known_names())}.")
+            if known not in intended:
+                intended.append(known)
+        if len(intended) > quantity:
+            return None, Outcome(
+                ok=False,
+                said=f"{len(intended)} names for {quantity}. Ask for as many "
+                     f"as you mean to give.")
+
         value = rewardlens.whole_rupees(values.get("value", ""))
         if value is None or value <= 0:
             return None, Outcome(ok=False, said="Give the value of ONE of "
@@ -1518,25 +1822,37 @@ class GiftRequests(Feature):
             # so the number every check reads has to be what one person
             # receives; the order's cost is this times the quantity.
             "quantity": quantity,
-            "occasion": occasion, "source": PROCUREMENT,
+            # Everybody named up front, resolved to employee ids. The
+            # FIRST of them is also `for`, because one named recipient is
+            # the ordinary case and every check that reads a single person
+            # reads that one.
+            "intended": intended,
+            "occasion": occasion, "purpose": purpose,
+            "source": PROCUREMENT,
             "by": scope.user, "by_employee": scope.employee,
             "at": dt.datetime.now().timestamp(),
         }, None
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
-        if form_id == self.PURCHASE_FORM:
-            read, refused = self._read_purchase(scope, values, about)
+        if form_id == self.LIST_FORM:
+            read, refused = self._read_list(scope, values, about)
             if refused is not None:
                 return refused
             assert read is not None
+            parts = []
+            if read["add"]:
+                parts.append("on: " + ", ".join(_name_of(e)
+                                                for e in read["add"]))
+            if read["remove"]:
+                parts.append("off: " + ", ".join(_name_of(e)
+                                                 for e in read["remove"]))
             return Outcome(
                 ok=True,
-                said="Records " + " · ".join(
-                    f"{k.upper() if k != 'invoice' else 'Invoice'} {v}"
-                    for k, v in read["ref"].items())
-                     + " against this order. Reference only — nothing is "
-                       "raised, ordered or paid from here.")
+                said=" · ".join(parts)
+                     + f" — {read['after']} of "
+                       f"{read['request'].get('quantity', 1)} named after "
+                       f"this. The original list stays on the trail.")
         if form_id == self.ALLOCATE_FORM:
             read, refused = self._read_allocation(scope, values, about)
             if refused is not None:
@@ -1549,8 +1865,13 @@ class GiftRequests(Feature):
                 if not verdict["ok"]:
                     crossing.append(f"{name} ({verdict['said']})")
             left = read["room"] - len(read["people"])
-            said = (f"{len(read['people'])} to be recorded, {read['mode']}, "
-                    f"on {read['given']}."
+            differs = read["actual"] != read["request"]["value"]
+            said = (f"{len(read['people'])} to be recorded at "
+                    f"{rewardlens.rupees(read['actual'])} each, "
+                    f"{read['mode']}, on {read['given']}."
+                    + (f" The estimate was "
+                       f"{rewardlens.rupees(read['request']['value'])}."
+                       if differs else "")
                     + (f" {left} still to allocate after this." if left else
                        " That allocates the order in full."))
             if crossing:
@@ -1576,18 +1897,27 @@ class GiftRequests(Feature):
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
-        if form_id == self.PURCHASE_FORM:
-            read, refused = self._read_purchase(scope, values, about)
+        if form_id == self.LIST_FORM:
+            read, refused = self._read_list(scope, values, about)
             if refused is not None:
                 return refused
             assert read is not None
-            ledger.add_event(subject=read["request"]["id"], kind="referenced",
-                             by=scope.user, stage="procurement",
-                             **read["ref"])
+            for employee in read["add"]:
+                ledger.add_event(subject=read["request"]["id"], kind="listed",
+                                 by=scope.user, who=employee,
+                                 note=read["why"])
+            for employee in read["remove"]:
+                ledger.add_event(subject=read["request"]["id"],
+                                 kind="unlisted", by=scope.user,
+                                 who=employee, note=read["why"])
             return Outcome(
                 ok=True,
-                said=f"Recorded: {_ref_said(read['request']['id'])}. The "
-                     f"order can be signed off now.",
+                said=f"The list is now "
+                     f"{', '.join(_name_of(e) for e in planned_list(read['request']['id'])) or 'empty'}"
+                     f" — {read['after']} of "
+                     f"{read['request'].get('quantity', 1)}. Every change is "
+                     f"on the trail with your reason, and the list as first "
+                     f"approved is still there beside it.",
                 touched=[read["request"]["id"]])
         if form_id == self.ALLOCATE_FORM:
             read, refused = self._read_allocation(scope, values, about)
@@ -1596,7 +1926,8 @@ class GiftRequests(Feature):
             assert read is not None
             request = read["request"]
             for employee, name in read["people"]:
-                _record(request, employee, name, read["given"], read["mode"])
+                _record(request, employee, name, read["given"],
+                        read["mode"], read["actual"])
             ledger.add_event(subject=request["id"], kind="allocated",
                              by=scope.user, stage="distribution",
                              items=len(read["people"]),
@@ -1605,7 +1936,8 @@ class GiftRequests(Feature):
             return Outcome(
                 ok=True,
                 said=f"Recorded against "
-                     f"{', '.join(n for _e, n in read['people'])}, "
+                     f"{', '.join(n for _e, n in read['people'])} at "
+                     f"{rewardlens.rupees(read['actual'])} each, "
                      f"{read['mode']}, on {read['given']}."
                      + (f" {left} still to allocate." if left else
                         " Everything in this order now has somebody against "
@@ -1620,7 +1952,11 @@ class GiftRequests(Feature):
         ledger.add_request(request)
         ledger.add_event(subject=request["id"], kind="requested",
                          by=scope.user, value=request["value"],
-                         recipient=request["for"])
+                         recipient=request["for"],
+                         # The original list, on the trail from the start.
+                         # Nothing ever edits this event, so "who was it
+                         # approved for" has one answer for ever.
+                         intended="|".join(request["intended"]))
         verdict = checks(scope, request)
         note = ("" if not verdict["warns"]
                 else " It would take them over the annual limit, and whoever "
@@ -1628,8 +1964,11 @@ class GiftRequests(Feature):
         return Outcome(
             ok=True,
             said=f"Requested: {request['quantity']} \u00d7 {request['what']} "
-                 f"{'for ' + _name_of(request['for']) if request['for'] else 'to be allocated'}"
-                 f", {rewardlens.rupees(request['value'])} each.{note}",
+                 f"{'for ' + ', '.join(_name_of(e) for e in request['intended']) if request['intended'] else 'to be allocated'}"
+                 f", {rewardlens.rupees(request['value'])} each."
+                 + (f" {request['quantity'] - len(request['intended'])} still "
+                    f"to name." if len(request['intended']) < request['quantity']
+                    else "") + note,
             touched=[request["id"]],
         )
 

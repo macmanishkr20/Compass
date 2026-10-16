@@ -57,6 +57,12 @@ ROLES = frozenset({
     "payroll",           # Payroll Team: tax logic and employee-level values
     "procurement",       # Procurement / SCS: buys through approved channels
     "accounts_payable",  # Accounts Payable: the payment
+    "operations",        # Operations / SPOC: hands the gifts out and keeps
+                         # the recipient list straight. Not a Business
+                         # Requester: the person who ASKS for two hundred
+                         # hampers is rarely the person who distributes
+                         # them, and until this existed the chain made
+                         # them the same person.
     "compliance",        # Leadership / Compliance: dashboards, alerts, audit
     "leadership",        # the aggregate view; audit duties sit here too
     # Not a persona the business named. `admin` administers the SYSTEM
@@ -76,6 +82,7 @@ LABELS = {
     "finance": "Finance Team",
     "payroll": "Payroll Team",
     "procurement": "Procurement / SCS",
+    "operations": "Operations / SPOC",
     "accounts_payable": "Accounts Payable",
     "compliance": "Leadership / Compliance",
     "leadership": "Leadership",
@@ -157,6 +164,9 @@ DIRECTORY: dict[str, Person] = {
                           frozenset({"procurement"})),
     "payments": Person("", "Accounts Payable", "",
                        frozenset({"accounts_payable"})),
+    # The desk that actually hands things out. No employee record: they
+    # distribute other people's gifts and receive none in this fixture.
+    "spoc": Person("", "Operations / SPOC", "", frozenset({"operations"})),
     "compliance": Person("", "Leadership / Compliance", "",
                          frozenset({"compliance", "leadership"})),
 }

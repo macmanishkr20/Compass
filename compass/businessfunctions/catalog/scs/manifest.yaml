@@ -141,14 +141,15 @@ features:
     # firm, because a request nobody can find is the problem this ends.
     visibility:
       firm: [requester, service_line, finance, payroll, procurement,
-             accounts_payable, compliance, leadership]
+             accounts_payable, operations, compliance, leadership]
       team: [service_line]
       self: [employee]
 
     actions:
       - id: sign_off
         label: Sign off
-        roles: [service_line, finance, procurement, requester, employee]
+        roles: [service_line, finance, procurement, operations, requester,
+                employee]
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
@@ -177,7 +178,8 @@ features:
         reversible: false
       - id: request_exception
         label: Ask Finance for an exception
-        roles: [service_line, finance, procurement, requester, employee]
+        roles: [service_line, finance, procurement, operations, requester,
+                employee]
         note_label: Why should this go ahead anyway?
         confirm: >-
           Asks Finance to take responsibility for a gift the rules refuse.
@@ -221,6 +223,9 @@ features:
           - id: recipient
             label: Who it is for, if you know yet
             required: false
+            help: >-
+              Names separated by commas, as many as you already know. The
+              rest are named before distribution.
             kind: text
             help: Their name, as Compass knows it.
           - id: what
@@ -240,8 +245,14 @@ features:
             options: [festival, long service, performance, client courtesy,
                       farewell, other]
             help: Policy depends on this, so it is not a free-text note.
+          - id: purpose
+            label: What it is for
+            kind: text
+            help: >-
+              The business reason, in your words. The occasion above is the
+              category policy reads; this is what an approver decides on.
           - id: value
-            label: What ONE costs
+            label: What ONE costs, estimated
             kind: money
             help: Whole rupees. The value of a single gift, not the order.
           - id: quantity
@@ -252,32 +263,37 @@ features:
               Leave it empty for one. The firm buys in bulk and works out
               whose they are afterwards, so this is the number of gifts —
               who receives them is answered at distribution.
-      - id: record_purchase
-        label: Record what it was bought on
+      - id: revise_list
+        label: Change the recipient list
         on_row: true
-        submit_label: Record the reference
+        submit_label: Change the list
         blurb: >-
-          Reference only. The requisition, order and invoice live in the
-          firm's existing system and nothing here raises, orders or pays
-          anything — what Compass keeps is the thread, so an auditor
-          reading a register record can get back to the purchase behind
-          it. One of the three is enough.
+          Controlled add and remove, before anything reaches the register.
+          Names come off by being recorded as coming off, with your reason
+          — the list as first approved stays on the trail beside every
+          revision, because "it was right first time" and "it was changed
+          twice" are different facts.
         confirm: >-
-          Puts the reference on this order's trail with your name against
-          it. It changes nothing in the purchasing system.
+          Puts each change on this order's trail in your name. It cannot
+          take the list past the quantity that was approved, and it cannot
+          touch anything already on the register.
         fields:
-          - id: pr
-            label: Requisition (PR)
+          - id: add
+            label: Put on the list
             kind: text
             required: false
-          - id: po
-            label: Purchase order (PO)
+            help: Names separated by commas.
+          - id: remove
+            label: Take off the list
             kind: text
             required: false
-          - id: invoice
-            label: Invoice
+            help: Names separated by commas.
+          - id: why
+            label: Why it changed
             kind: text
-            required: false
+            help: >-
+              Somebody left, somebody was missed, the event changed. One
+              line is enough; nothing is enough.
 
       - id: allocate
         label: Name who received them
@@ -309,6 +325,14 @@ features:
             help: >-
               An auditor asking how two hundred hampers were handed out
               deserves better than silence.
+          - id: actual
+            label: What one ACTUALLY cost
+            kind: money
+            required: false
+            help: >-
+              Leave it empty if it came in at the estimate. The register
+              records what was received, and a limit measured against an
+              estimate is a limit measured against a guess.
 
     rules:
       - id: waiting_on_you
@@ -382,7 +406,7 @@ features:
     # side. A history only its subjects cannot read is not much of a
     # control.
     visibility:
-      firm: [compliance, finance, payroll, leadership]
+      firm: [compliance, finance, payroll, operations, leadership]
       team: [service_line]
       self: [employee]
 
@@ -404,7 +428,8 @@ features:
       # answer for them at all.
       - id: sign_off
         label: Sign off
-        roles: [service_line, finance, procurement, requester, employee]
+        roles: [service_line, finance, procurement, operations, requester,
+                employee]
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
@@ -429,7 +454,8 @@ features:
         reversible: false
       - id: request_exception
         label: Ask Finance for an exception
-        roles: [service_line, finance, procurement, requester, employee]
+        roles: [service_line, finance, procurement, operations, requester,
+                employee]
         note_label: Why should this go ahead anyway?
         confirm: >-
           Asks Finance to take responsibility for a gift the rules refuse.
@@ -800,8 +826,8 @@ features:
     # Procurement, Payroll, Accounts Payable and the compliance side. A
     # history its own subjects cannot read is not much of a control.
     visibility:
-      firm: [admin, procurement, payroll, accounts_payable, finance,
-             compliance, leadership]
+      firm: [admin, procurement, payroll, accounts_payable, operations,
+             finance, compliance, leadership]
 
     rules:
       - id: audit_is_a_role

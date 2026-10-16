@@ -908,7 +908,7 @@ export class BusinessFunctions {
         return [
           { key: 'id', label: 'Order' },
           { key: 'what', label: 'What' },
-          { key: 'recipient', label: 'For' },
+          { key: 'for_list', label: 'For' },
           { key: 'quantity', label: 'Qty', numeric: true },
           { key: 'value', label: 'Each', numeric: true },
           { key: 'progress', label: 'Progress' },
@@ -1011,12 +1011,12 @@ export class BusinessFunctions {
     // approver needs on the row rather than a click away.
     if (this.featureId() === 'requests') {
       return [
-        { key: 'recipient', label: 'For' },
         { key: 'what', label: 'What' },
+        { key: 'for_list', label: 'For' },
         { key: 'quantity', label: 'Qty', numeric: true },
         { key: 'value', label: 'Each', numeric: true },
         { key: 'allocation', label: 'Allocated' },
-        { key: 'bought_on', label: 'Bought on' },
+        { key: 'bought_on', label: 'Reference' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
         { key: 'status', label: 'Status' },

@@ -1093,7 +1093,7 @@ def check_a_bulk_order_becomes_people() -> None:
     asking = _req("requester")
 
     bulk = {"what": "Festival hamper", "kind": "gift", "value": "2000",
-            "occasion": "festival", "quantity": "3"}
+            "occasion": "festival", "quantity": "3", "purpose": "Recognising the team."}
     out = h.submit(asking, "request_gift", bulk)
     ok("an order with no recipient is accepted", out.ok, out.said)
     ok("and says how many are to be allocated",
@@ -1216,60 +1216,68 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
        figure.value)
 
 
-def check_procurement_is_referenced_not_approved() -> None:
-    """Buying happens elsewhere; what Compass keeps is the thread back.
+def check_the_tracker_issues_the_reference_and_emails_it() -> None:
+    """Compass mints the reference; the purchasing system quotes it.
 
-    It was two sign-off steps — Procurement "marking it bought" and
-    Accounts Payable "marking it paid" — for work neither of them does in
-    this system. That claimed Compass was the system of record for the
-    purchasing it has no part in, and it recorded no reference at all,
-    which was the one thing it could usefully have held.
+    That is the whole integration, and it is deliberately not one. When an
+    order is approved the tracker generates a reference and emails it;
+    somebody carries that to the PR/PO tool by hand and the requisition
+    they raise there carries the reference. Nothing is read back.
+
+    It ran the other way for a day — Procurement typed their PO number
+    into Compass — which asks the purchasing team to do data entry in a
+    second system for no benefit to them, and strands the order until they
+    do.
     """
     _, feat, h = registry.feature_of("scs", "requests")
 
     ok("accounts payable is not a stage",
        "accounts_payable" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
-    ok("and no stage is owned by it",
-       not [k for k, v in gr_mod.STAGES.items()
-            if v.get("owner") == "accounts_payable"])
-    ok("procurement's step is the reference, not the approval",
-       "reference" in gr_mod.STAGES["procurement"]["step"],
-       gr_mod.STAGES["procurement"]["step"])
+    ok("and nothing asks anybody to type a PO number in",
+       "record_purchase" not in {f.id for f in feat.forms},
+       str([f.id for f in feat.forms]))
 
     rid = _ask(what="A hamper", value="1400")
-    _walk(rid, upto="procurement")
+    ok("no reference before it is approved",
+       gr_mod.reference_issued(rid) is None)
 
-    # The sign-off is refused until the reference is there, because the
-    # reference IS the step.
-    refused = h.act(_req("procurement"), "sign_off", [rid], "Bought it")
-    ok("it cannot be signed off with no reference", not refused.ok,
-       refused.said)
-    ok("and the refusal says the buying happens elsewhere",
-       "existing system" in refused.said, refused.said)
+    h.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
+    ok("still none at the service line", gr_mod.reference_issued(rid) is None)
 
-    ok("an empty reference is refused",
-       not h.submit(_req("procurement"), "record_purchase", {}, about=rid).ok)
-    ok("and nobody but Procurement may record one",
-       not h.submit(_req("finance"), "record_purchase", {"po": "PO-1"},
-                    about=rid).ok)
+    out = h.act(_req("finance"), "sign_off", [rid], "Within policy.")
+    ok("Finance approving it issues the reference", out.ok, out.said)
+    issued = gr_mod.reference_issued(rid)
+    ok("and it is on the trail", issued is not None)
+    ref = str(issued.get("reference", ""))
+    ok("the reference names the year and the order",
+       ref.startswith("GIFT-") and rid[2:] in ref, ref)
+    ok("the outcome tells whoever signed what to quote",
+       ref in out.said and "requisition" in out.said, out.said)
 
-    out = h.submit(_req("procurement"), "record_purchase",
-                   {"pr": "PR-4411", "po": "PO-9902", "invoice": "INV-7"},
-                   about=rid)
-    ok("Procurement records what it was bought on", out.ok, out.said)
-    ref = gr_mod.purchase_ref(rid)
-    ok("all three are kept", ref == {"pr": "PR-4411", "po": "PO-9902",
-                                     "invoice": "INV-7"}, str(ref))
-    ok("the row carries the thread back to the purchase",
-       "PO-9902" in _order("procurement", rid)["bought_on"],
+    # Emailed, or held with a reason — never silently nothing.
+    notice = notices.latest_for(rid)
+    ok("a notice was written for it", notice is not None)
+    ok("it carries the reference in the subject",
+       ref in notice.subject, notice.subject)
+    ok("and tells them to quote it on the requisition",
+       "requisition" in notice.body, notice.body[:80])
+    ok("and says plainly that Compass orders nothing",
+       "does not raise, order or pay" in notice.body, notice.body[-80:])
+
+    # Minted once. A second reference for one order is two threads back to
+    # one purchase, which is worse than none.
+    before = len([e for e in ledger.events(rid) if e["kind"] == "referenced"])
+    h.act(_req("procurement"), "sign_off", [rid], "Bought it")
+    ok("it is not issued twice",
+       len([e for e in ledger.events(rid) if e["kind"] == "referenced"])
+       == before)
+    ok("and the row shows it", _order("procurement", rid)["bought_on"] == ref,
        _order("procurement", rid)["bought_on"])
-    ok("now it signs off",
-       h.act(_req("procurement"), "sign_off", [rid], "Bought it").ok)
 
-    # And it is on the trail, in the words of what it was.
-    said = [ledger.reads_as(e["kind"]) for e in ledger.events(rid)]
-    ok("recording it is its own thing on the trail",
-       ledger.reads_as("referenced") in said, str(said))
+    # Procurement signs off that it bought, with nothing to type.
+    ok("procurement's step needs no data entry in a second system",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "distribution")
 
 
 def check_a_blocked_order_can_ask_for_an_exception() -> None:
@@ -1364,6 +1372,152 @@ def check_a_blocked_order_can_ask_for_an_exception() -> None:
        refused.said)
     ok("in words that explain the rule is not biting",
        "not biting" in refused.said, refused.said)
+
+
+def check_the_recipient_list_is_maintained_not_overwritten() -> None:
+    """Controlled add and delete, with the original kept beside the revisions.
+
+    "It was right first time" and "it was changed twice, by these people,
+    for these reasons" are different facts, and the difference is the one
+    an auditor asks about: these people were approved and those people
+    received. A list somebody can rewrite silently is not a control; a
+    list nobody can correct is a control people work around.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    asking = _req("requester")
+
+    out = h.submit(asking, "request_gift",
+                   {"recipient": "Vikram Rao, John Mathew", "what": "Hamper",
+                    "kind": "gift", "value": "1500", "occasion": "festival",
+                    "quantity": "3",
+                    "purpose": "Festival gifts for the delivery team."})
+    ok("a list of known recipients is captured up front", out.ok, out.said)
+    rid = out.touched[0]
+    ok("both are on it", len(gr_mod.intended_list(rid)) == 2,
+       str(gr_mod.intended_list(rid)))
+    ok("and more names than gifts is refused",
+       not h.submit(asking, "request_gift",
+                    {"recipient": "Vikram Rao, John Mathew, Aisha Khan",
+                     "what": "Hamper", "kind": "gift", "value": "1500",
+                     "occasion": "festival", "quantity": "2",
+                     "purpose": "Too many."}).ok)
+
+    # Revised: one off, one on, each with a reason.
+    ok("a change with no reason is refused",
+       not h.submit(asking, "revise_list",
+                    {"remove": "John Mathew"}, about=rid).ok)
+    ok("and a change naming nobody is refused",
+       not h.submit(asking, "revise_list", {"why": "because"}, about=rid).ok)
+    out = h.submit(asking, "revise_list",
+                   {"remove": "John Mathew", "add": "Aisha Khan, Priya Nair",
+                    "why": "John has left; the other two joined the team."},
+                   about=rid)
+    ok("a controlled change goes through", out.ok, out.said)
+    now = gr_mod.planned_list(rid)
+    ok("the list is what the changes make it", len(now) == 3, str(now))
+    ok("the person taken off is not on it",
+       gr_mod._employee_named("John Mathew") not in now)
+
+    # ...and the original is untouched.
+    ok("the list as approved is still there",
+       len(gr_mod.intended_list(rid)) == 2, str(gr_mod.intended_list(rid)))
+    ok("so the row can show both",
+       "John Mathew" in next(r for r in gr_mod._rows(asking)
+                             if r["id"] == rid)["listed_as"])
+    ok("and say how many times it changed",
+       next(r for r in gr_mod._rows(asking)
+            if r["id"] == rid)["list_changes"] == 3)
+
+    ok("it cannot be taken past the quantity",
+       not h.submit(asking, "revise_list",
+                    {"add": "Manish K.", "why": "one more"}, about=rid).ok)
+    ok("somebody already on it cannot be added twice",
+       not h.submit(asking, "revise_list",
+                    {"add": "Aisha Khan", "why": "again"}, about=rid).ok)
+    ok("and somebody not on it cannot be taken off",
+       not h.submit(asking, "revise_list",
+                    {"remove": "Rahul Desai", "why": "nope"}, about=rid).ok)
+    ok("a stranger cannot touch the list",
+       not h.submit(_req("payroll"), "revise_list",
+                    {"remove": "Aisha Khan", "why": "no"}, about=rid).ok)
+    ok("but Operations can, since they distribute it",
+       h.submit(_req("spoc"), "revise_list",
+                {"remove": "Priya Nair", "why": "On leave that week."},
+                about=rid).ok)
+
+    # Allocation may only name people the list carries.
+    _walk(rid, upto="distribution")
+    ok("allocating to somebody off the list is refused",
+       not h.submit(asking, "allocate",
+                    {"recipients": "Rahul Desai", "mode": "in person"},
+                    about=rid).ok)
+    ok("and the refusal says to put them on it first",
+       "Put them on it first" in h.submit(
+           asking, "allocate", {"recipients": "Rahul Desai",
+                                "mode": "in person"}, about=rid).said)
+    ok("allocating to somebody on it works",
+       h.submit(asking, "allocate",
+                {"recipients": "Vikram Rao, Aisha Khan",
+                 "mode": "at an event"}, about=rid).ok)
+
+    # Once it is on the register, the list is history.
+    ok("the list cannot be revised after anything is recorded",
+       not h.submit(asking, "revise_list",
+                    {"add": "Manish K.", "why": "late addition"},
+                    about=rid).ok)
+
+    # And every change is on the trail, in words.
+    said = {ledger.reads_as(e["kind"]) for e in ledger.events(rid)}
+    ok("adding and removing are both on the trail",
+       {ledger.reads_as("listed"), ledger.reads_as("unlisted")} <= said,
+       str(said))
+
+
+def check_what_was_actually_given_is_what_counts() -> None:
+    """The register records the real figure, not the estimate.
+
+    A request carries an estimate made before anything was bought. The
+    limit a person is measured against, and the tax position that rests on
+    it, have to be the thing they actually received — so the estimate
+    stays on the request and the real figure lands on the register beside
+    it.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    asking = _req("requester")
+    rid = _ask(what="Festival hamper", value="2000")
+    _walk(rid, upto="distribution")
+
+    out = h.submit(asking, "allocate",
+                   {"recipients": "Vikram Rao", "mode": "in person",
+                    "actual": "2350"}, about=rid)
+    ok("the actual cost is taken at allocation", out.ok, out.said)
+    ok("and the outcome says what was recorded",
+       "\u20b92,350" in out.said, out.said)
+
+    item = gr_mod.allocated_to(rid)[0]
+    ok("the register holds what it actually cost", item["value"] == 2350)
+    ok("and the estimate beside it", item["estimated"] == 2000)
+
+    # Which is the figure the limit reads.
+    bench = registry.feature_of("scs", "register")[2]
+    row = next(r for r in bench.rows(as_("compliance", period="FY 2026-27"),
+                                     "all")
+               if r["employee_id"] == "E-1066")
+    ok("the annual total counts the real figure, not the guess",
+       any(i["value"] == 2350 for i in gr_mod.allocated_to(rid)), str(row))
+
+    # Left empty, it is the estimate — which is the ordinary case.
+    other = _ask(what="Another hamper", value="1800")
+    _walk(other, upto="distribution")
+    ok("a nonsense actual is refused",
+       not h.submit(asking, "allocate",
+                    {"recipients": "Vikram Rao", "mode": "in person",
+                     "actual": "nope"}, about=other).ok)
+    h.submit(asking, "allocate",
+             {"recipients": "Vikram Rao", "mode": "by courier"}, about=other)
+    second = gr_mod.allocated_to(other)[0]
+    ok("an empty actual means it came in at the estimate",
+       second["value"] == second["estimated"] == 1800)
 
 
 def check_the_trail_is_read_by_the_order() -> None:
@@ -3289,7 +3443,8 @@ SIGNS = {
 def _ask(by: str = "requester", **over) -> str:
     """Raise a request and return its id."""
     values = {"recipient": "Vikram Rao", "what": "Diwali hamper",
-              "kind": "gift", "value": "3000", "occasion": "festival"}
+              "kind": "gift", "value": "3000", "occasion": "festival",
+              "purpose": "Thanking the team for the quarter."}
     values.update(over)
     h = registry.feature_of("scs", "requests")[2]
     out = h.submit(_req(by), "request_gift", values)
@@ -3320,12 +3475,6 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
         # sign-off to give: Procurement says what it was bought on, and
         # the requester says who received it. Both are the point of their
         # step rather than a formality, so the walk makes them properly.
-        if stage == "procurement" and not gr_mod.purchase_ref(rid):
-            made = h.submit(_req(signers[stage]), "record_purchase",
-                            {"po": f"PO-{rid[-4:]}"}, about=rid)
-            if not made.ok:
-                trouble.append(f"{stage}: {made.said}")
-                break
         if stage == "distribution" and not gr_mod.allocated_to(rid):
             if not request["for"]:
                 made = h.submit(_req(by), "allocate",
@@ -3364,13 +3513,13 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     ok("and changes nobody's total", total() == before, str(total()))
 
     for stage in ("service_line", "finance_policy", "procurement"):
-        if stage == "procurement":
-            # Its whole job: the thread back to the system that bought it.
-            made = h.submit(_req(SIGNS[stage]), "record_purchase",
-                            {"po": "PO-9001"}, about=rid)
-            ok("procurement records what it was bought on", made.ok, made.said)
-            ok("and that changed nobody's total either", total() == before)
         out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
+        if stage == "finance_policy":
+            # Approving it issues the reference and emails it. That is a
+            # notice, not a gift: nobody's total moves.
+            ok("approving it issues the reference",
+               gr_mod.reference_issued(rid) is not None)
+            ok("and issuing it changed nobody's total", total() == before)
         ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
         ok(f"and {stage} changed nobody's total", total() == before, str(total()))
 
@@ -3423,6 +3572,7 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
     asking = _req()
     watch = {"recipient": "John Mathew", "what": "Long service watch",
              "kind": "gift", "value": "6000", "occasion": "long service",
+             "purpose": "Recognising the team.",
              "source": "People team"}
 
     said = h.preview(asking, "request_gift", watch).said
@@ -3465,6 +3615,7 @@ def check_policy_blocks_where_tax_only_warns() -> None:
     hospitality = h.preview(asking, "request_gift", {
         "recipient": "Vikram Rao", "what": "Dinner", "kind": "hospitality",
         "value": "4000", "occasion": "client courtesy",
+        "purpose": "Recognising the team.",
         "source": "People team"}).said
     ok("hospitality is not requested through this yet",
        "cannot be approved" in hospitality, hospitality)
@@ -3472,13 +3623,14 @@ def check_policy_blocks_where_tax_only_warns() -> None:
     courtesy = h.preview(asking, "request_gift", {
         "recipient": "Vikram Rao", "what": "Hamper", "kind": "gift",
         "value": "12000", "occasion": "client courtesy",
+        "purpose": "Recognising the team.",
         "source": "People team"}).said
     ok("a large client courtesy needs a conversation, not a form",
        "conversation" in courtesy, courtesy)
 
     big = h.preview(asking, "request_gift", {
         "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
-        "value": "30000", "occasion": "festival"}).said
+        "value": "30000", "occasion": "festival", "purpose": "Recognising the team."}).said
     # A large gift is NOT refused. It takes the recipient past their
     # allowance, which is a thing somebody senior decides knowing — the
     # requirement's own argument. What used to refuse it was the paying
@@ -3529,6 +3681,7 @@ def check_nobody_approves_their_own() -> None:
        "cannot be approved" in h.preview(_req("admin"), "request_gift", {
            "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
            "value": "2000", "occasion": "performance",
+           "purpose": "Recognising the team.",
            "source": "People team"}).said)
 
 
@@ -3590,9 +3743,6 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
         # The two steps whose job is a RECORD rather than a judgement
         # make it before they sign off: Procurement says what it was
         # bought on, the requester says who received it.
-        if stage == "procurement":
-            h.submit(_req(theirs), "record_purchase", {"po": "PO-7700"},
-                     about=rid)
         if stage == "distribution" and not gr_mod.allocated_to(rid):
             h.submit(_req(theirs), "allocate",
                      {"recipients": "Vikram Rao", "mode": "in person"},
@@ -3609,7 +3759,9 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
             # routed by identity — "with Business Requester" is not who to
             # chase when the holder is whichever employee raised it.
             now = _order("compliance", rid)["with"]
-            want = ({"distribution": people.find("requester").name,
+            want = ({"distribution":
+                         f"{people.LABELS['operations']} or "
+                         f"{people.find('requester').name}",
                      "acknowledgement": "Vikram Rao"}.get(
                          nxt, people.LABELS.get(
                              gr_mod.STAGES[nxt]["owner"], "")))
@@ -3652,6 +3804,7 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
             out = h.submit(raising, "request_gift", {
                 "recipient": "Aisha Khan", "what": "A thank-you hamper",
                 "kind": "gift", "value": "1500", "occasion": "performance",
+                "purpose": "Recognising the team.",
                 "source": "Service line \u00b7 Advisory"})
             ok(f"{roles} can raise one", out.ok, out.said)
             rid = out.touched[0]
@@ -3704,8 +3857,10 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
            any(r["id"] == rid for r in h.rows(theirs, "mine")))
         ok("and the screen says so", "waiting_on_you" in h.rules(theirs))
 
-    # The rule it must NOT have loosened: distribution is the raiser's and
-    # nobody else's, including people who hold the requester persona.
+    # The rule it must NOT have loosened: distribution is the raiser's or
+    # OPERATIONS', and nobody else's — holding the requester persona is
+    # not enough, which was the whole point of routing this step by
+    # identity rather than by role.
     with fixtures():
         rid = _ask(by="enduser", recipient="Aisha Khan",
                    what="Another hamper", value="1100",
@@ -3713,11 +3868,20 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
         _walk(rid, upto="distribution", by="enduser")
         offered = lambda w: next(
             (r["can"] for r in h.rows(_req(w), "all") if r["id"] == rid), [])
-        ok("and the row names the person holding it, not a persona",
-           _order("compliance", rid)["with"] == people.find("enduser").name,
+        ok("and the row names whoever can hand it over",
+           _order("compliance", rid)["with"]
+           == f"{people.LABELS['operations']} or {people.find('enduser').name}",
            _order("compliance", rid)["with"])
         ok("the raiser may record the distribution",
            "sign_off" in offered("enduser"), str(offered("enduser")))
+        # ...on the TRACKER, which is where every desk works. Gift
+        # requests is personal, and Operations neither raised this one nor
+        # received it.
+        ok("and so may Operations, who have the boxes",
+           "sign_off" in _order("spoc", rid)["can"],
+           str(_order("spoc", rid)["can"]))
+        ok("though Gift requests shows them none of it",
+           not offered("spoc"), str(offered("spoc")))
         strangers = [w for w in ("requester", "servicelead", "procurement",
                                  "payments", "finance", "compliance", "admin")
                      if "sign_off" in offered(w)]
@@ -3745,9 +3909,6 @@ def check_every_stage_reads_as_a_sentence() -> None:
            gr_mod.step_name(stage).lower()
            != gr_mod.stage_label(stage).lower())
 
-        if stage == "procurement":
-            h.submit(_req(SIGNS[stage]), "record_purchase", {"po": "PO-5500"},
-                     about=rid)
         if stage == "distribution" and not gr_mod.allocated_to(rid):
             h.submit(_req(SIGNS[stage]), "allocate",
                      {"recipients": "Vikram Rao", "mode": "in person"},
@@ -3797,8 +3958,6 @@ def check_the_last_two_steps_only_go_forward() -> None:
         # The record the step owes, made before its row is read: a step
         # whose own capture is missing offers no sign-off, which is a
         # different rule and is measured in its own check.
-        if stage == "procurement":
-            h.submit(theirs, "record_purchase", {"po": "PO-2200"}, about=rid)
         if stage == "distribution" and not gr_mod.allocated_to(rid):
             h.submit(theirs, "allocate",
                      {"recipients": "Vikram Rao", "mode": "in person"},
@@ -3847,7 +4006,7 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
     _, feat, h = registry.feature_of("scs", "requests")
     asking = _req()
     base = {"what": "A hamper", "kind": "gift", "value": "1500",
-            "occasion": "performance", "source": "Service line \u00b7 Advisory"}
+            "occasion": "performance", "source": "Service line \u00b7 Advisory", "purpose": "Recognising the team."}
 
     for typed in ("Manish K.", "Manish K", "manish k", "MANISH  K",
                   "  Manish K.  "):
@@ -4116,6 +4275,7 @@ def check_a_year_shows_that_year() -> None:
         ledger.add_request({"id": "R-OLD001", "for": "E-1066", "kind": "gift",
                             "what": "An old hamper", "value": 5_000,
                             "occasion": "festival", "source": team,
+                            "purpose": "Recognising the team.",
                             "by": "requester", "by_employee": "",
                             "at": time.mktime((2024, 6, 1, 12, 0, 0, 0, 0, -1))})
         ledger.add_event(subject="R-OLD001", kind="signed_off", by="servicelead",
@@ -4431,7 +4591,7 @@ def check_an_employee_is_not_shown_the_firms_machinery() -> None:
     # And the preview an employee gets before sending says the same.
     said = h.preview(theirs, "request_gift", {
         "recipient": "John Mathew", "what": "Another hamper", "kind": "gift",
-        "value": "6000", "occasion": "long service"}).said
+        "value": "6000", "occasion": "long service", "purpose": "Recognising the team."}).said
     ok("the preview warns them without disclosing the year",
        "over the annual limit" in said and "\u20b926,000" not in said, said)
 
@@ -4527,9 +4687,6 @@ def check_the_question_belongs_to_the_step() -> None:
 
         # The record each step owes before it can sign off. Not a note —
         # a thing the step exists to capture.
-        if stage == "procurement":
-            h.submit(_req(SIGNS[stage]), "record_purchase", {"po": "PO-3300"},
-                     about=rid)
         if stage == "distribution" and not gr_mod.allocated_to(rid):
             h.submit(_req(SIGNS[stage]), "allocate",
                      {"recipients": "Vikram Rao", "mode": "in person"},
@@ -5318,7 +5475,11 @@ def _checks() -> int:
     with fixtures():
         check_payroll_is_read_at_the_end_not_signed_at_the_start()
     with fixtures():
-        check_procurement_is_referenced_not_approved()
+        check_the_tracker_issues_the_reference_and_emails_it()
+    with fixtures():
+        check_the_recipient_list_is_maintained_not_overwritten()
+    with fixtures():
+        check_what_was_actually_given_is_what_counts()
     with fixtures():
         check_a_blocked_order_can_ask_for_an_exception()
     with fixtures():
