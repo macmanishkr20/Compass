@@ -56,6 +56,7 @@ from compass.businessfunctions.features import form26 as form26_mod  # noqa: E40
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.features import giftrequests as gr_mod  # noqa: E402
 from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E402
+from compass.businessfunctions.features import oversight as ov_mod  # noqa: E402
 from compass.businessfunctions.features import giftaudit as au_mod  # noqa: E402
 from compass.businessfunctions.manifest import (  # noqa: E402
     WITHHELD_TOOLS,
@@ -1520,6 +1521,47 @@ def check_what_was_actually_given_is_what_counts() -> None:
        second["value"] == second["estimated"] == 1800)
 
 
+def check_the_dashboard_is_its_charts() -> None:
+    """Four charts, four tabs, and nothing else on the screen.
+
+    It had seven tabs and four charts. Three of them predate the charts —
+    who nobody had decided, where the process had stalled, where the value
+    came from — and on a screen whose whole argument is "read the position
+    at a glance", a list nobody drew reads as a second screen stacked
+    under the first.
+
+    The findings did not go: they are rules at the top, which is what a
+    finding is. The orders behind them are the Tracker's, which is where
+    every desk already goes to ask what has got where.
+    """
+    _, _f, board = registry.feature_of("scs", "oversight")
+    seeing = as_("compliance", "oversight", period="FY 2026-27")
+
+    tabs = [t.key for t in board.tabs(seeing)]
+    charts = board.charts(seeing)
+    ok("there are four tabs", len(tabs) == 4, str(tabs))
+    ok("and a chart for each", len(charts) == 4, str([c.key for c in charts]))
+    ok("every chart lands on its own tab",
+       [c.tab for c in charts] == tabs, f"{[c.tab for c in charts]} vs {tabs}")
+    ok("and none of the retired ones is left",
+       not {"attention", "stuck", "sources"} & set(tabs), str(tabs))
+
+    for tab in tabs:
+        rows = board.rows(seeing, tab)
+        ok(f"{tab}: its rows are the ones its chart was drawn from",
+           len(rows) == len(next(c for c in charts if c.tab == tab).slices)
+           or not rows,
+           f"{len(rows)} rows")
+
+    # The findings survive the tabs.
+    said = board.rules(seeing)
+    ok("the screen still says what it finds", isinstance(said, list))
+    for rule in said:
+        ok(f"{rule}: and the manifest has words for it",
+           rule in {r.id for r in registry.feature_of("scs", "oversight")[1].rules},
+           rule)
+
+
 def check_the_trail_outlives_the_chain() -> None:
     """Every stage ever shipped still reads, years after it is removed.
 
@@ -2583,9 +2625,12 @@ def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
         ok(f"{why}: the exposure is the sum of their excesses",
            figures["exposure"] == rl_mod.rupees(sum(r["excess"] for r in over)),
            figures["exposure"])
-        on_board = {r["employee_id"] for r in board.rows(c, "attention")}
-        ok(f"{why}: and everyone it lists is over on the workbench",
-           on_board <= {r["employee_id"] for r in over}, str(on_board))
+        # The chart of people past the watch level is drawn from the same
+        # rows, so everybody on it is over on the workbench too.
+        on_board = {r["employee_id"] for r in board.rows(c, "notable")}
+        ok(f"{why}: and everyone it names is on the workbench",
+           on_board <= {r["employee_id"] for r in bench.rows(c, "all")},
+           str(on_board))
 
     agree("to begin with")
 
@@ -2657,7 +2702,11 @@ def check_the_dashboard_sees_the_process_stopping() -> None:
     ok("which is said out loud",
        "somebody_never_heard" in board.rules(c), str(board.rules(c)))
 
-    stuck = board.rows(c, "stuck")
+    # Read from the function that produces the FINDING rather than from a
+    # tab. The Dashboard says "something has been waiting too long" as a
+    # rule at the top; the orders behind it are the Tracker's, which is
+    # where the desks already go.
+    stuck = ov_mod._stuck(c)
     never = [r for r in stuck if "never told" in r["problem"]]
     ok("the process list names them and the reason", 
        len(never) == 1 and never[0]["who"] == "Priya Nair"
@@ -2708,7 +2757,9 @@ def check_a_firm_wide_view_is_for_the_role() -> None:
     ok("no tabs", not board.tabs(plain))
     ok("and no rows, on any tab",
        not any(board.rows(plain, tab)
-               for tab in ("attention", "stuck", "sources")))
+               for tab in ("budgets", "teams", "notable", "tax")))
+    ok("and no charts either",
+       not board.charts(plain), str([c.key for c in board.charts(plain)]))
     ok("they are told why rather than shown an empty screen",
        board.rules(plain) == ["oversight_is_a_role"], str(board.rules(plain)))
     ok("and nobody else's total leaks through the rail",
@@ -2823,9 +2874,13 @@ def check_a_workbook_is_worth_opening() -> None:
     printout pretending to be a spreadsheet."""
     import datetime as dt
 
+    # Read off the TRACKER's register, which is the sheet with every
+    # shape this is about on it: a money column, a date column and the
+    # machinery that must not reach a spreadsheet. The Dashboard used to
+    # carry one; it is four charts and their four tabs now.
     c = as_("compliance", period="FY 2026-27")
-    wb = _workbook("scs", "oversight", c)
-    sheet = wb["Nobody has decided"]
+    wb = _workbook("scs", "register", c)
+    sheet = wb["Everyone"]
     heads = [cell.value for cell in sheet[1]]
     row = {heads[i]: cell for i, cell in enumerate(sheet[2])}
 
@@ -5539,6 +5594,8 @@ def _checks() -> int:
         check_the_recipient_list_is_maintained_not_overwritten()
     with fixtures():
         check_what_was_actually_given_is_what_counts()
+    with fixtures():
+        check_the_dashboard_is_its_charts()
     with fixtures():
         check_the_trail_outlives_the_chain()
     with fixtures():

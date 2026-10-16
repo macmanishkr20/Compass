@@ -248,41 +248,10 @@ def _team_tax(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out.values(), key=lambda r: -r["above_limit"])
 
 
-def _sources(scope: Scope) -> list[dict[str, Any]]:
-    """Where it all comes from, worst first.
-
-    Concentration is the one thing on this screen that suggests a change
-    rather than a chase: if most of the over-limit value comes through one
-    team, the fix is a conversation with that team and not a stream of
-    referrals.
-    """
-    over = {r["employee_id"] for r in rewardlens.totals(scope) if r["over_limit"]}
-    gone = rewardlens.superseded()
-
-    rows: dict[str, dict[str, Any]] = {}
-    for item in rewardlens.items(scope):
-        if item["id"] in gone or item["kind"] not in rewardlens.counts_towards_limit():
-            continue
-        row = rows.setdefault(item["source"], {
-            "source": item["source"], "items": 0, "people": set(),
-            "value": 0, "to_people_over": 0,
-        })
-        row["items"] += 1
-        row["people"].add(item["employee_id"])
-        row["value"] += item["value"]
-        if item["employee_id"] in over:
-            row["to_people_over"] += item["value"]
-
-    out = [{"source": r["source"], "items": r["items"],
-            "people": len(r["people"]), "value": r["value"],
-            "to_people_over": r["to_people_over"]}
-           for r in rows.values()]
-    return sorted(out, key=lambda r: (-r["to_people_over"], -r["value"]))
-
-
 class Oversight(Feature):
     key = "gift_oversight"
-    #: The attention tab lists people; the other two say their own.
+    #: Three of the four tabs are keyed by team and one by person, so each
+    #: declares its own `key_field` and this is only the fallback.
     row_key = "employee_id"
     #: It shows RewardLens's own rows, so it inherits what RewardLens calls
     #: machinery, and adds the composite key its process list is built on.
@@ -401,8 +370,16 @@ class Oversight(Feature):
     def tabs(self, scope: Scope) -> list[Tab]:
         if self._shut_out(scope):
             return []
-        # The first four are what the charts are drawn from, in the same
-        # order, so clicking a picture lands on its own numbers.
+        # FOUR TABS, FOUR CHARTS, in the same order, so clicking a picture
+        # lands on its own numbers and nothing else.
+        #
+        # There were seven. Three of them — who nobody had decided, where
+        # the process had stalled, where the value came from — predate the
+        # charts, and on a screen whose whole argument is "read the
+        # position at a glance" they read as a second screen stacked under
+        # the first. Their findings are still said, as rules at the top;
+        # the orders behind them are the Tracker's, which is where every
+        # desk already goes to ask what has got where.
         return [
             Tab("budgets", "Budget vs spent", len(_budget_rows(scope)),
                 key_field="source"),
@@ -411,10 +388,6 @@ class Oversight(Feature):
             Tab("notable", f"Past {rewardlens.rupees(self.NOTABLE)}",
                 len(_notable(scope, self.NOTABLE)), key_field="employee_id"),
             Tab("tax", "Above the limit, by team", len(_team_tax(scope)),
-                key_field="source"),
-            Tab("attention", "Nobody has decided", len(_undecided(scope))),
-            Tab("stuck", "Process gaps", len(_stuck(scope)), key_field="id"),
-            Tab("sources", "Where it comes from", len(_sources(scope)),
                 key_field="source"),
         ]
 
@@ -427,13 +400,7 @@ class Oversight(Feature):
             return _team_spend(scope)
         if tab == "notable":
             return _notable(scope, self.NOTABLE)
-        if tab == "tax":
-            return _team_tax(scope)
-        if tab == "stuck":
-            return _stuck(scope)
-        if tab == "sources":
-            return _sources(scope)
-        return _undecided(scope)
+        return _team_tax(scope) if tab == "tax" else _budget_rows(scope)
 
     def rules(self, scope: Scope) -> list[str]:
         if self._shut_out(scope):
