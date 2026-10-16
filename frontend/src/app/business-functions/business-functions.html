@@ -168,7 +168,7 @@
 
     <!-- ── workbench ── -->
     @if (feature(); as v) {
-      <div class="bf-work">
+      <div class="bf-work" [class.form-open]="openForm()">
         <header class="bf-wbar">
           <div class="bf-wname">
             <h2>{{ v.name }}</h2>
@@ -693,10 +693,20 @@
             </header>
             <p class="bf-fblurb">{{ form.blurb }}</p>
 
+            <!-- A GRID, not a wrapping row. Every control sits at the
+                 same height in its row whatever the help text under it
+                 says, because the cell is three rows — label, control,
+                 help — and only the help stretches. Wrapped, a four-line
+                 note under one box pushed the box beside it half a row
+                 down the screen. -->
             <div class="bf-fields">
               @for (field of form.fields; track field.id) {
-                <label class="bf-field" [class.wide]="field.kind === 'text'">
-                  <span class="bf-flabel">{{ field.label }}</span>
+                <label class="bf-field" [class]="'span-' + fieldWidth(field)">
+                  <span class="bf-flabel">{{ field.label }}
+                    @if (!field.required) {
+                      <small class="bf-fopt">optional</small>
+                    }
+                  </span>
                   @switch (field.kind) {
                     @case ('choice') {
                       <select [ngModel]="entered()[field.id] ?? ''"
@@ -712,9 +722,25 @@
                         (ngModelChange)="setField(field.id, $event)">
                     }
                     @case ('money') {
-                      <input type="text" inputmode="numeric" placeholder="₹"
+                      <span class="bf-money">
+                        <span class="bf-rupee" aria-hidden="true">₹</span>
+                        <input type="text" inputmode="numeric" placeholder="0"
+                          [ngModel]="entered()[field.id] ?? ''"
+                          (ngModelChange)="setField(field.id, $event)">
+                      </span>
+                    }
+                    @case ('count') {
+                      <!-- A number of things, so no currency anywhere near
+                           it. A quantity box with a rupee sign in it asks
+                           people how much their "how many" costs. -->
+                      <input type="number" min="1" step="1" placeholder="1"
                         [ngModel]="entered()[field.id] ?? ''"
                         (ngModelChange)="setField(field.id, $event)">
+                    }
+                    @case ('names') {
+                      <textarea rows="4" placeholder="One name a line"
+                        [ngModel]="entered()[field.id] ?? ''"
+                        (ngModelChange)="setField(field.id, $event)"></textarea>
                     }
                     @default {
                       <input type="text" [ngModel]="entered()[field.id] ?? ''"

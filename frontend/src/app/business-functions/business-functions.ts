@@ -673,6 +673,18 @@ export class BusinessFunctions {
     return (this.feature()?.forms ?? []).filter((f) => !f.on_row);
   }
 
+  /** How many of the form's twelve columns this field takes.
+   *
+   *  By KIND, so a manifest never has to think about layout: a list of
+   *  people needs the width of the page, a sentence needs half of it, and
+   *  a number, an amount, a date or a choice are all short.
+   */
+  fieldWidth(field: { kind?: string }): number {
+    if (field.kind === 'names') return 12;
+    if (!field.kind || field.kind === 'text') return 6;
+    return 3;
+  }
+
   closeForm(): void {
     this.openForm.set(null);
     this.formAbout.set('');

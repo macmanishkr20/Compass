@@ -87,7 +87,15 @@ MAX_FIELDS = 10
 
 #: What a field can be. The kind decides how it is drawn and how the value
 #: arrives — never what it means, which is the handler's.
-FIELD_KINDS = frozenset({"text", "money", "date", "choice"})
+#:
+#: `count` is a number of things and `money` is an amount, and they are
+#: separate kinds because the box is drawn differently: a quantity with a
+#: rupee sign in it asks people how much their "how many" costs.
+#:
+#: `names` is a list of people, drawn as a box you can paste a column of a
+#: spreadsheet into. The firm buys two hundred hampers at a time, and a
+#: single-line input is not where a list of two hundred names goes.
+FIELD_KINDS = frozenset({"text", "money", "count", "names", "date", "choice"})
 
 
 def _unusable(text: str, *, limit: int, what: str) -> str:
@@ -200,12 +208,21 @@ class FormField(BaseModel):
     id: str
     #: The words beside the box. "When you received it", not "date".
     label: str
-    kind: Literal["text", "money", "date", "choice"] = "text"
+    kind: Literal["text", "money", "count", "names", "date", "choice"] = "text"
     #: The quiet line under it. Where an example belongs.
     help: str = ""
     required: bool = True
     #: For `choice` only, and refused on anything else.
     options: list[str] = Field(default_factory=list)
+    #: Who is offered this field. Empty means everybody who can open the
+    #: form, which is how every field behaved before this existed.
+    #:
+    #: Per FIELD rather than per form, because a form can be one question
+    #: for most people and two for somebody with a wider job: anybody may
+    #: ask for a gift, and only the Service Line Approver hands over a
+    #: list of two hundred names. A second form for them would be the same
+    #: form twice, and the one that drifted would be the one nobody used.
+    roles: list[str] = Field(default_factory=list)
 
     def problems(self) -> list[str]:
         found: list[str] = []
@@ -227,6 +244,10 @@ class FormField(BaseModel):
                     found.append(f"field {self.id!r}: {why}")
         elif self.options:
             found.append(f"field {self.id!r} is a {self.kind} but lists options")
+        for role in self.roles:
+            if role not in ROLES:
+                found.append(f"field {self.id!r} is offered to {role!r}, "
+                             f"which is not a role anybody holds")
         return found
 
 

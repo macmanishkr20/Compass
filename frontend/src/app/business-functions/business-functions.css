@@ -746,48 +746,105 @@
 .bf-detail .bf-form { margin: 11px 0 0; background: var(--surface); }
 .bf-btn.on { border-color: var(--accent); background: var(--accent-tint); }
 
+/* A FORM IS TALLER THAN THE CHROME IT SITS IN. This column gives its
+   scroll to the table and keeps everything above it fixed, which is right
+   until something above it is 700px tall: the table was squeezed to 24px
+   and the form's own buttons ran off the bottom of the screen with
+   nothing able to scroll to them.
+
+   So while a form is open the whole column scrolls, like an ordinary
+   page, and the table gives up its own scroll box for the duration.
+   Squeezing the form instead put its buttons on top of its fields. */
+.bf-work.form-open { overflow-y: auto; }
+.bf-work.form-open .bf-tblwrap {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+}
+
 .bf-form {
   margin: 13px 22px 0;
   padding: 14px 16px 16px;
   border: 1px solid var(--accent-line);
   border-radius: var(--radius-sm);
   background: var(--accent-tint);
+  flex: 0 0 auto;
 }
 .bf-form > header { display: flex; align-items: center; gap: 9px; }
 .bf-form h3 { flex: 1; margin: 0; font-size: 13.5px; font-weight: 650; }
 .bf-fblurb { margin: 6px 0 0; font-size: 12px; line-height: 1.55; color: var(--muted); }
 
 .bf-fields {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 11px;
-  margin-top: 13px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px 12px;
+  margin-top: 14px;
+  align-items: start;
 }
-.bf-field { flex: 1 1 164px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.bf-field.wide { flex-basis: 260px; }
+/* Label, control, help — three rows, so every control in a row sits at
+   the same height however long the note under its neighbour is. */
+.bf-field {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 5px;
+  min-width: 0;
+  grid-column: span 12;
+}
+@media (min-width: 620px) {
+  .bf-field.span-3 { grid-column: span 3; }
+  .bf-field.span-6 { grid-column: span 6; }
+  .bf-field.span-12 { grid-column: span 12; }
+}
 .bf-flabel {
   font-size: 9.5px;
   font-weight: 680;
   letter-spacing: .07em;
   text-transform: uppercase;
   color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.bf-fopt {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .04em;
+  text-transform: none;
+  opacity: .72;
 }
 .bf-field input,
-.bf-field select {
+.bf-field select,
+.bf-field textarea {
   width: 100%;
   box-sizing: border-box;
   min-height: 34px;
   padding: 6px 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   font-family: inherit;
   font-size: 12.5px;
   color: var(--ink);
   outline: none;
 }
+.bf-field textarea { resize: vertical; line-height: 1.5; min-height: 76px; }
+.bf-field input[type='number'] { -moz-appearance: textfield; }
 .bf-field input:focus,
-.bf-field select:focus { border-color: var(--accent); }
+.bf-field select:focus,
+.bf-field textarea:focus { border-color: var(--accent); outline: none; }
+/* The rupee sits INSIDE the box, so an amount reads as an amount and a
+   count has nothing of the sort anywhere near it. */
+.bf-money { position: relative; display: block; }
+.bf-money input { padding-left: 22px; }
+.bf-rupee {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12.5px;
+  color: var(--muted);
+  pointer-events: none;
+}
 .bf-fhelp { font-size: 10.8px; line-height: 1.45; color: var(--muted); }
 
 /* What it would do. The number nobody could see before, so it is the

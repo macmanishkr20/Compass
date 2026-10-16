@@ -81,8 +81,14 @@ def _resolve(function_id: str, feature_id: str):
     return fn, feature, handler
 
 
-def _feature_card(fn_id: str, feature) -> dict:
-    """A feature as the switcher and the launcher grid read it."""
+def _feature_card(fn_id: str, feature, roles: frozenset[str] = frozenset(),
+                  every_field: bool = True) -> dict:
+    """A feature as the switcher and the launcher grid read it.
+
+    `roles` and `every_field` only matter where a form is actually filled
+    in: the grid shows a feature's name and never its fields, so it asks
+    for all of them and does not need to say who is asking.
+    """
     return {
         "id": feature.id,
         "name": feature.name,
@@ -101,10 +107,15 @@ def _feature_card(fn_id: str, feature) -> dict:
             {"id": f.id, "label": f.label, "blurb": f.blurb,
              "submit_label": f.submit_label, "confirm": f.confirm,
              "on_row": f.on_row,
+             # A field somebody is not offered is not SENT to them. Hiding
+             # it in the browser would leave it in the payload, and a box
+             # nobody can see is the kind of thing that gets filled in by
+             # something other than a person.
              "fields": [
                  {"id": x.id, "label": x.label, "kind": x.kind, "help": x.help,
                   "required": x.required, "options": x.options}
                  for x in f.fields
+                 if every_field or not x.roles or (roles & set(x.roles))
              ]}
             for f in feature.forms
         ],
@@ -329,7 +340,10 @@ async def get_feature(
             for r in feature.rules if r.id in applies
         ],
         "actions": _feature_card(fn.id, feature)["actions"],
-        "forms": _feature_card(fn.id, feature)["forms"],
+        # HERE the fields matter, because this is the screen they are
+        # typed into.
+        "forms": _feature_card(fn.id, feature, scope.roles,
+                               every_field=False)["forms"],
         "rail": _rail(fn, feature, scope),
     }
 

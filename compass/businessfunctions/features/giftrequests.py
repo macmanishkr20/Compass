@@ -1158,8 +1158,8 @@ class GiftRequests(Feature):
         return super().step_label(step)
 
     REQUEST_FORM = "request_gift"
-    FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",
-                        "quantity", "purpose"})
+    FIELDS = frozenset({"recipient", "recipient_list", "kind", "what",
+                        "value", "occasion", "quantity", "purpose"})
     ALLOCATE_FORM = "allocate"
     ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode", "actual"})
     LIST_FORM = "revise_list"
@@ -1776,8 +1776,34 @@ class GiftRequests(Feature):
         # front when it knows — "known recipients (if any)" — and a form
         # that took one name could not carry a festival order for four
         # people somebody already had in mind.
-        wanted = [n.strip() for n in values.get("recipient", "").split(",")
-                  if n.strip()]
+        #
+        # TWO WAYS IN, one meaning. A few names are typed with commas; two
+        # hundred are pasted a line at a time out of a spreadsheet, which
+        # is the Service Line Approver's box. Both land here, because a
+        # recipient named one way and a recipient named the other are the
+        # same fact and a handler that kept them apart would be the place
+        # they drifted.
+        typed = values.get("recipient", "")
+        # The paste box is the Service Line Approver's. Checked here and
+        # not only in the route that drew the form, because a field
+        # somebody was not offered is a field they must not be able to
+        # send anyway — the screen is where a box is hidden, the handler
+        # is where it is refused.
+        pasted = ""
+        if "service_line" in scope.roles:
+            pasted = values.get("recipient_list", "").replace("\n", ",")
+        elif values.get("recipient_list", "").strip():
+            return None, Outcome(
+                ok=False,
+                said="Pasting a list of recipients is the Service Line "
+                     "Approver's. Name them with commas, or ask them to "
+                     "raise it.")
+        wanted, seen = [], set()
+        for name in (typed + "," + pasted).split(","):
+            name = name.strip()
+            if name and _plain(name) not in seen:
+                seen.add(_plain(name))
+                wanted.append(name)
         recipient = wanted[0] if wanted else ""
         employee = _employee_named(recipient) if recipient else ""
         if recipient and not employee:

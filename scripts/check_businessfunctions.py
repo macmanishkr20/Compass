@@ -57,6 +57,7 @@ from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.features import giftrequests as gr_mod  # noqa: E402
 from compass.businessfunctions.features import rewardlens as rl_mod  # noqa: E402
 from compass.businessfunctions.features import oversight as ov_mod  # noqa: E402
+from compass.businessfunctions import routes  # noqa: E402
 from compass.businessfunctions.features import giftaudit as au_mod  # noqa: E402
 from compass.businessfunctions.manifest import (  # noqa: E402
     WITHHELD_TOOLS,
@@ -1519,6 +1520,72 @@ def check_what_was_actually_given_is_what_counts() -> None:
     second = gr_mod.allocated_to(other)[0]
     ok("an empty actual means it came in at the estimate",
        second["value"] == second["estimated"] == 1800)
+
+
+def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
+    """A list of two hundred names is the Service Line Approver's box.
+
+    Per FIELD rather than per form: anybody may ask for a gift, and only
+    the approver hands over a list. A second form for them would be the
+    same form twice, and the one that drifted would be the one nobody
+    used.
+
+    Hidden in the browser is not the same as not offered. A field somebody
+    was not sent is also one the handler refuses, because a box nobody can
+    see is the kind of thing that gets filled in by something other than a
+    person.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    form = next(f for f in feat.forms if f.id == "request_gift")
+    bulk = next(x for x in form.fields if x.id == "recipient_list")
+
+    ok("the paste box is declared for the service line",
+       bulk.roles == ["service_line"], str(bulk.roles))
+    ok("and it is a list of names, not a line of text",
+       bulk.kind == "names", bulk.kind)
+    ok("the quantity is a count, so nothing draws money on it",
+       next(x for x in form.fields if x.id == "quantity").kind == "count")
+    ok("while the price is money", 
+       next(x for x in form.fields if x.id == "value").kind == "money")
+
+    # What each reader is SENT.
+    def fields_for(login: str) -> set[str]:
+        scope = people.scope_for(login, feat, period="FY 2026-27")
+        card = routes._feature_card("scs", feat, scope.roles, every_field=False)
+        got = next(f for f in card["forms"] if f["id"] == "request_gift")
+        return {x["id"] for x in got["fields"]}
+
+    lead = fields_for("servicelead")
+    plain = fields_for("enduser")
+    ok("the approver is offered the paste box", "recipient_list" in lead)
+    ok("an employee is not", "recipient_list" not in plain, str(plain))
+    ok("and everything else is offered to both",
+       lead - {"recipient_list"} == plain, str(lead ^ plain))
+
+    # And the handler refuses what the screen did not draw.
+    pasted = {"what": "Hamper", "kind": "gift", "value": "1500",
+              "occasion": "festival", "purpose": "The team.",
+              "quantity": "3", "recipient_list": "Vikram Rao\nJohn Mathew"}
+    out = h.submit(_req("enduser"), "request_gift", dict(pasted))
+    ok("an employee pasting a list anyway is refused", not out.ok, out.said)
+    ok("and told whose it is",
+       "Service Line Approver" in out.said, out.said)
+
+    out = h.submit(_req("servicelead"), "request_gift", dict(pasted))
+    ok("the approver pasting one is accepted", out.ok, out.said)
+    ok("and every line of it became a recipient",
+       len(gr_mod.intended_list(out.touched[0])) == 2,
+       str(gr_mod.intended_list(out.touched[0])))
+
+    # Typed and pasted are the same fact, so the two are merged and the
+    # same person named twice is one person.
+    out = h.submit(_req("servicelead"), "request_gift",
+                   dict(pasted, recipient="Aisha Khan, Vikram Rao",
+                        quantity="4"))
+    ok("typed and pasted names merge", out.ok, out.said)
+    named = gr_mod.intended_list(out.touched[0])
+    ok("and nobody is counted twice", len(named) == len(set(named)) == 3,
+       str(named))
 
 
 def check_the_dashboard_is_its_charts() -> None:
@@ -5594,6 +5661,8 @@ def _checks() -> int:
         check_the_recipient_list_is_maintained_not_overwritten()
     with fixtures():
         check_what_was_actually_given_is_what_counts()
+    with fixtures():
+        check_a_field_is_only_offered_to_whoever_it_is_for()
     with fixtures():
         check_the_dashboard_is_its_charts()
     with fixtures():

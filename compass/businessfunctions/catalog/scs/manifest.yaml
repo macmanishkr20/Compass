@@ -215,19 +215,14 @@ features:
           it is permitted and what it does to their year — which is cheaper
           to find out now than after it is bought.
         confirm: >-
-          Starts the chain with your name on it. It goes to the Service
-          Line Approver first, then Finance, Procurement and Accounts
-          Payable. Nothing counts towards anybody's limit until it is
-          actually allocated and handed over.
+          Starts the chain with your name on it: the Service Line
+          Approver first, then Finance, then Procurement. Nothing counts
+          towards anybody's limit until it is actually allocated and
+          handed over.
         fields:
-          - id: recipient
-            label: Who it is for, if you know yet
-            required: false
-            help: >-
-              Names separated by commas, as many as you already know. The
-              rest are named before distribution.
-            kind: text
-            help: Their name, as Compass knows it.
+          # Read in the order somebody thinks in: what, how many, what it
+          # costs, why, and only then who. Who comes last because for a
+          # bulk order it is the one nobody can answer yet.
           - id: what
             label: What it is
             kind: text
@@ -239,6 +234,15 @@ features:
             help: >-
               Gifts, awards and vouchers count towards the recipient's
               annual limit. Hospitality is not requested through this yet.
+          - id: quantity
+            label: How many
+            kind: count
+            required: false
+            help: Leave it empty for one.
+          - id: value
+            label: What ONE costs
+            kind: money
+            help: Whole rupees. A single gift, not the order.
           - id: occasion
             label: Why
             kind: choice
@@ -249,20 +253,24 @@ features:
             label: What it is for
             kind: text
             help: >-
-              The business reason, in your words. The occasion above is the
+              The business reason, in your words. The occasion is the
               category policy reads; this is what an approver decides on.
-          - id: value
-            label: What ONE costs, estimated
-            kind: money
-            help: Whole rupees. The value of a single gift, not the order.
-          - id: quantity
-            label: How many
-            kind: money
+          - id: recipient
+            label: Who it is for
             required: false
             help: >-
-              Leave it empty for one. The firm buys in bulk and works out
-              whose they are afterwards, so this is the number of gifts —
-              who receives them is answered at distribution.
+              One name, or several separated by commas. Leave it empty if
+              you do not know yet — they are named at distribution.
+          - id: recipient_list
+            label: Or paste a list of recipients
+            kind: names
+            required: false
+            roles: [service_line]
+            help: >-
+              One name a line, or a column pasted straight out of a
+              spreadsheet. The firm buys two hundred hampers at a time and
+              the Service Line Approver is the one holding that list.
+
       - id: revise_list
         label: Change the recipient list
         on_row: true
