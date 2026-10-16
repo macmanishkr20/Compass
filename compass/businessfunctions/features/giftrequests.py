@@ -304,18 +304,46 @@ def _unconfirmed(request_id: str) -> list[dict[str, Any]]:
     return [i for i in allocated_to(request_id) if not i["acknowledged"]]
 
 
+#: Stages the chain no longer has, and the words they used while it did.
+#: THE TRAIL OUTLIVES THE CHAIN. Events are append-only and carry the
+#: stage they were taken at, so every stage ever shipped is still being
+#: read back years later — and removing one from `STAGES` made every
+#: screen that reads a stored stage raise `KeyError` on the records that
+#: had already happened. The audit trail went down first, which is exactly
+#: the screen that must not, because its whole job is that the past stays
+#: legible.
+#:
+#: Kept here for the same reason `ledger.READS_AS` keeps retired event
+#: kinds: a record written under a rule that has since changed still has
+#: to read in the words it was written in.
+RETIRED_STAGES: dict[str, dict[str, str]] = {
+    "payroll_tax": {"label": "With Payroll", "step": "the tax treatment"},
+    "accounts_payable": {"label": "With Accounts Payable",
+                         "step": "payment"},
+}
+
+
 def stage_label(stage: str) -> str:
-    """The column heading: where it is."""
+    """The column heading: where it is. Never raises on an old stage."""
     if stage == "declined":
         return "Declined"
     if stage == "cancelled":
         return "Withdrawn"
-    return STAGES[stage]["label"]
+    if stage in STAGES:
+        return STAGES[stage]["label"]
+    if stage in RETIRED_STAGES:
+        return RETIRED_STAGES[stage]["label"]
+    # Something no version of this chain ever had. Tidied rather than
+    # raised: a trail that cannot be read is worse than one with an odd
+    # word in it, and this is the screen people go to when they need the
+    # record most.
+    return stage.replace("_", " ").capitalize() if stage else "—"
 
 
 def step_name(stage: str) -> str:
     """The same stage in a sentence: what was being decided."""
-    return STAGES.get(stage, {}).get("step", "") or "this step"
+    known = STAGES.get(stage) or RETIRED_STAGES.get(stage) or {}
+    return known.get("step", "") or "this step"
 
 
 def _state(request: dict[str, Any]) -> str:
@@ -1123,7 +1151,11 @@ class GiftRequests(Feature):
 
     def step_label(self, step: str) -> str:
         """A stage on the trail, in the words the screen uses for it."""
-        return stage_label(step) if step in STAGES else super().step_label(step)
+        # Retired stages too: a workbook of an order from last year still
+        # has to name the desks that signed it off.
+        if step in STAGES or step in RETIRED_STAGES:
+            return stage_label(step)
+        return super().step_label(step)
 
     REQUEST_FORM = "request_gift"
     FIELDS = frozenset({"recipient", "kind", "what", "value", "occasion",

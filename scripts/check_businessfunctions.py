@@ -1520,6 +1520,65 @@ def check_what_was_actually_given_is_what_counts() -> None:
        second["value"] == second["estimated"] == 1800)
 
 
+def check_the_trail_outlives_the_chain() -> None:
+    """Every stage ever shipped still reads, years after it is removed.
+
+    The trail is append-only and each event carries the stage it was taken
+    at, so a stage dropped from the chain is still being read back from
+    records that already happened. Removing Payroll and Accounts Payable
+    made every screen that reads a stored stage raise on exactly those
+    records — and the first screen to go down was the audit trail, which
+    is the one that must not, because its whole job is that the past stays
+    legible.
+    """
+    # Nothing in the chain's own vocabulary may raise, whatever it is
+    # handed: a live stage, a retired one, an end state, a stage no
+    # version of this ever had, or nothing at all.
+    for stage in (list(gr_mod.STAGES) + list(gr_mod.RETIRED_STAGES)
+                  + ["declined", "cancelled", "a_stage_from_2019", ""]):
+        label, step = gr_mod.stage_label(stage), gr_mod.step_name(stage)
+        ok(f"{stage or 'nothing'}: reads as words", bool(label) and bool(step),
+           f"{label!r} / {step!r}")
+        ok(f"{stage or 'nothing'}: and not as a key",
+           "_" not in label, label)
+
+    ok("the retired stages are the two that were removed",
+       set(gr_mod.RETIRED_STAGES) == {"payroll_tax", "accounts_payable"},
+       str(sorted(gr_mod.RETIRED_STAGES)))
+    ok("and none of them is still in the chain",
+       not set(gr_mod.RETIRED_STAGES) & set(gr_mod.STAGES))
+    ok("they keep the words they shipped with",
+       gr_mod.stage_label("payroll_tax") == "With Payroll"
+       and gr_mod.stage_label("accounts_payable") == "With Accounts Payable")
+
+    # And the screens that read stored stages survive one.
+    _, _f, h = registry.feature_of("scs", "audit")
+    rid = _ask(what="A hamper", value="1200")
+    ledger.add_event(subject=rid, kind="signed_off", by="payroll",
+                     stage="payroll_tax", value=1200)
+    ledger.add_event(subject=rid, kind="signed_off", by="payments",
+                     stage="accounts_payable", value=1200)
+
+    reader = as_("compliance", "audit", period="FY 2026-27")
+    rows = h.rows(reader, "everything")
+    ok("the audit trail still loads with retired stages on it", rows)
+    mine = [r for r in rows if r["subject"] == rid]
+    ok("and reads them in the words they were taken in",
+       any("with payroll" in r["detail"] for r in mine),
+       str([r["detail"] for r in mine]))
+    ok("including the one from the step after it",
+       any("with accounts payable" in r["detail"] for r in mine),
+       str([r["detail"] for r in mine]))
+    ok("its tabs count them", h.tabs(reader)[0].count is not None)
+
+    # The workbook names them too, rather than printing the raw key.
+    _, feat, _hh = registry.feature_of("scs", "requests")
+    chain = registry.feature_of("scs", "requests")[2]
+    ok("a workbook names a retired step in words",
+       chain.step_label("payroll_tax") == "With Payroll",
+       chain.step_label("payroll_tax"))
+
+
 def check_the_trail_is_read_by_the_order() -> None:
     """One row per ORDER, from the day it was asked for to the day it landed.
 
@@ -5480,6 +5539,8 @@ def _checks() -> int:
         check_the_recipient_list_is_maintained_not_overwritten()
     with fixtures():
         check_what_was_actually_given_is_what_counts()
+    with fixtures():
+        check_the_trail_outlives_the_chain()
     with fixtures():
         check_a_blocked_order_can_ask_for_an_exception()
     with fixtures():
