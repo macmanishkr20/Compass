@@ -153,10 +153,10 @@ export class BusinessFunctions {
 
   /** Open a service — its sub-services, as cards. */
   async openService(id: string): Promise<void> {
+    this.leaveScreen();
     this.serviceId.set(id);
     this.feature.set(null);
     this.featureId.set('');
-    this.aimed.set(new Set());
     this.resetRail();
     const fn = this.current();
     if (!fn) return;
@@ -208,6 +208,7 @@ export class BusinessFunctions {
     this.error.set('');
     try {
       const detail = await this.api.detail(id, this.scope());
+      this.leaveScreen();
       this.current.set(detail);
       this.feature.set(null);
       this.featureId.set('');
@@ -224,10 +225,10 @@ export class BusinessFunctions {
   async toOverview(): Promise<void> {
     const fn = this.current();
     if (!fn) return;
+    this.leaveScreen();
     this.feature.set(null);
     this.featureId.set('');
     this.serviceId.set('');
-    this.aimed.set(new Set());
     this.resetRail();
     // Re-read so the queue reflects anything that just changed.
     try {
@@ -246,6 +247,10 @@ export class BusinessFunctions {
       (s) => s.features.some((f) => f.id === featureId));
     if (owner) this.serviceId.set(owner.id);
     const fresh = featureId !== this.featureId();
+    // Only on a real move. Switching tab on the screen you are already
+    // on keeps what you have open, because half-filling a form and then
+    // looking at another tab is a thing people do.
+    if (fresh) this.leaveScreen();
     this.featureId.set(featureId);
     this.loading.set(true);
     this.error.set('');
@@ -673,6 +678,26 @@ export class BusinessFunctions {
     this.formAbout.set('');
     this.entered.set({});
     this.previewed.set(null);
+  }
+
+  /** Shut everything the screen being left had open.
+   *
+   *  A panel belongs to the screen it was opened on. "Ask for a gift"
+   *  stayed open across a move to another sub-service, so somebody was
+   *  looking at the Tracker with a Gift requests form over it — and the
+   *  form still held the spec from the screen they had left, so sending
+   *  it would have submitted to a feature that was no longer on screen.
+   *
+   *  One method rather than four lines in four places, because the bug
+   *  was that there was nowhere for "leaving a screen" to be said: every
+   *  navigation cleared the feature and forgot the panels. The next panel
+   *  somebody adds is closed here or it will outlive its screen too.
+   */
+  private leaveScreen(): void {
+    this.closeForm();
+    this.closeRow();
+    this.closeChart();
+    this.aimed.set(new Set());
   }
 
   setField(id: string, value: string): void {
