@@ -506,6 +506,21 @@ class StorageSettings(BaseModel):
     # `COMPASS_AUDIT_RETENTION_MONTHS=0` keeps them forever.
     cosmos_audit_container: str = "audit"
     audit_retention_months: float = 3.0
+    # How long the sidebar metadata caches may go without re-reading Cosmos.
+    #
+    # Those caches are written through by the process that owns them, so this
+    # is not about this server's own writes — it is about everybody else's. A
+    # second backend against the same account, a script, a scheduled run: all
+    # of them write rows this process has no way of hearing about, and without
+    # a bound it would serve its first reading of the table until restarted.
+    # The symptom is a sidebar missing the newest conversations that a browser
+    # refresh cannot fix, because the staleness is on the server.
+    #
+    # Thirty seconds rather than zero because the read behind these is a
+    # cross-partition query measured at 0.46s on Home and 241ms on the agent
+    # metadata; re-running it on every list would put that back on every
+    # sidebar load. `COMPASS_META_CACHE_TTL_SECONDS=0` disables the cache.
+    meta_cache_ttl_seconds: float = 30.0
 
     @property
     def cosmos_configured(self) -> bool:
@@ -1035,6 +1050,14 @@ def get_settings() -> Settings:
             logger.warning(
                 "COMPASS_AUDIT_RETENTION_MONTHS is not a number; keeping %s",
                 storage.audit_retention_months,
+            )
+    if ttl := os.environ.get("COMPASS_META_CACHE_TTL_SECONDS"):
+        try:
+            storage.meta_cache_ttl_seconds = max(0.0, float(ttl))
+        except ValueError:
+            logger.warning(
+                "COMPASS_META_CACHE_TTL_SECONDS is not a number; keeping %s",
+                storage.meta_cache_ttl_seconds,
             )
     storage.cosmos_meta_container = os.environ.get(
         "AZURE_COSMOS_META_CONTAINER", storage.cosmos_meta_container

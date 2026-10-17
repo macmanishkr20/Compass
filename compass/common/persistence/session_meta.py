@@ -136,11 +136,20 @@ class CosmosSessionMetaStore:
     continent that is 241ms of pure latency per request, and 455ms when the
     row is missing, because the SDK retries the 404.
 
-    Safe to cache because this process is the only writer: every change goes
-    through `upsert` or `delete` here, and both update the cache as they go.
-    The one thing that writes behind its back is a migration script, which is
-    an offline operation on a stopped server — and `refresh()` exists for
-    anything that wants to be sure.
+    Every change made here goes through `upsert` or `delete`, and both update
+    the cache as they go, so it cannot drift from this process's own writes.
+
+    It used to assume that was the whole story — that the only thing writing
+    behind its back was a migration against a stopped server. That assumption
+    does not survive contact with how Compass is actually run: a second
+    backend against the same Cosmos account, a script, a scheduled run, all
+    write rows this process never hears about. Held for ever, the sidebar
+    would keep answering from its first reading of the table, and no amount of
+    reloading the page would mend it, because the staleness is on the server.
+
+    So what is held expires: `meta_cache_ttl_seconds` (30s by default) bounds
+    how long this may be wrong about somebody else's write. Not zero, because
+    the read behind it is the 241ms above on a path taken by every request.
 
     The whole table is loaded on the first miss rather than row by row. It is
     one query either way, the result is kilobytes, and the sidebar is going to
@@ -153,6 +162,8 @@ class CosmosSessionMetaStore:
         self._init_lock = asyncio.Lock()
         self._cache: dict[str, SessionMeta] | None = None
         self._cache_lock = asyncio.Lock()
+        #: When the above was read — see `_fresh`.
+        self._cached_at: float = 0.0
 
     async def _get_container(self):
         if self._container is not None:
@@ -180,25 +191,46 @@ class CosmosSessionMetaStore:
                 )
             return self._container
 
+    def _fresh(self) -> bool:
+        """Whether what is held may still be answered from.
+
+        Write-through keeps it true for this process's own writes for as long
+        as the process lives. What it cannot know about is a write made
+        elsewhere — a second backend on the same account, a migration, a
+        scheduled run — so the bound is a clock rather than an invalidation.
+        """
+        if self._cache is None:
+            return False
+        ttl = get_settings().storage.meta_cache_ttl_seconds
+        if ttl <= 0:
+            return False
+        return (time.monotonic() - self._cached_at) < ttl
+
     async def _loaded(self) -> dict[str, SessionMeta]:
-        """Every row, read once. Locked so a burst of first requests makes one
-        query between them rather than one each."""
-        if self._cache is not None:
-            return self._cache
+        """Every row, read once and kept until stale. Locked so a burst of
+        first requests makes one query between them rather than one each."""
+        if self._fresh():
+            return self._cache  # type: ignore[return-value]
         async with self._cache_lock:
-            if self._cache is not None:
-                return self._cache
+            if self._fresh():
+                return self._cache  # type: ignore[return-value]
             container = await self._get_container()
             items = container.query_items(query="SELECT * FROM c")
             rows = [SessionMeta.from_dict(i) async for i in items]
             self._cache = {m.id: m for m in rows}
+            self._cached_at = time.monotonic()
             logger.info("session metadata: %d row(s) cached", len(rows))
             return self._cache
 
     async def refresh(self) -> None:
-        """Forget what is cached, for anything that wrote behind this store."""
+        """Forget what is cached, for anything that wrote behind this store.
+
+        Rarely needed now that the cache expires on its own — this is the
+        same thing without the wait.
+        """
         async with self._cache_lock:
             self._cache = None
+            self._cached_at = 0.0
 
     async def get(self, session_id: str) -> SessionMeta | None:
         return (await self._loaded()).get(session_id)

@@ -67,6 +67,10 @@ class CosmosChatStore:
         #: and a thread being deleted.
         self._cards: dict[str, dict] | None = None
         self._cards_lock = asyncio.Lock()
+        #: When the above was read. Write-through keeps it true for this
+        #: process's own writes; nothing keeps it true for anybody else's, so
+        #: it is re-read once it is older than `meta_cache_ttl_seconds`.
+        self._cards_at: float = 0.0
 
     async def _get_container(self):
         if self._container is not None:
@@ -229,22 +233,44 @@ class CosmosChatStore:
         items = container.query_items(query="SELECT DISTINCT VALUE c.sessionId FROM c")
         return sorted([sid async for sid in items])
 
+    def _cards_fresh(self) -> bool:
+        """Whether what is held may still be answered from.
+
+        Held data is fresh for this process's own writes indefinitely, because
+        every one of them writes through. It is only ever stale about writes
+        made somewhere else — another backend on the same account, a script, a
+        scheduled run — so the bound is a clock, not an invalidation.
+        """
+        if self._cards is None:
+            return False
+        ttl = get_settings().storage.meta_cache_ttl_seconds
+        if ttl <= 0:
+            return False
+        return (time.monotonic() - self._cards_at) < ttl
+
     async def _metas(self) -> dict[str, dict]:
-        """Every thread's meta document, read once and then kept."""
-        if self._cards is not None:
-            return self._cards
+        """Every thread's meta document, read once and then kept until stale."""
+        if self._cards_fresh():
+            return self._cards  # type: ignore[return-value]
         async with self._cards_lock:
-            if self._cards is not None:
-                return self._cards
+            if self._cards_fresh():
+                return self._cards  # type: ignore[return-value]
             container = await self._get_container()
             items = container.query_items(query="SELECT * FROM c WHERE c.type='meta'")
             self._cards = {m["sessionId"]: m async for m in items}
+            self._cards_at = time.monotonic()
             return self._cards
 
     async def refresh(self) -> None:
-        """Forget what is cached, for anything that wrote behind this store."""
+        """Forget what is cached, for anything that wrote behind this store.
+
+        Rarely needed now that the cache expires on its own — this is the
+        same thing without the wait, for a caller that has just written behind
+        this store itself and wants the next read to see it.
+        """
         async with self._cards_lock:
             self._cards = None
+            self._cards_at = 0.0
 
     async def list_cards(self) -> list[dict]:
         metas = await self._metas()
