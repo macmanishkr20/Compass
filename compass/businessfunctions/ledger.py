@@ -101,6 +101,10 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # put on it and a name taken off it, each with who did it and
           # what they said. The list itself is a fold over these.
           "listed", "unlisted",
+          # the PR/PO the firm's own purchasing system raised against an
+          # order. Reference only, written here by the people who raised
+          # it — nothing is read back out of that system.
+          "purchase_linked",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -129,6 +133,7 @@ READS_AS = {
     "exception_refused": "refused an exception for",
     "listed": "added a recipient to",
     "unlisted": "took a recipient off",
+    "purchase_linked": "linked the purchase to",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

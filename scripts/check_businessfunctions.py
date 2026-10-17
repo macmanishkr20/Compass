@@ -1388,6 +1388,61 @@ def check_a_blocked_order_can_ask_for_an_exception() -> None:
        "not biting" in refused.said, refused.said)
 
 
+def check_the_purchase_is_linked_back() -> None:
+    """Compass issues the reference; Procurement writes its PR/PO beside it.
+
+    The business asked for both halves: the tracker's approval and
+    reference must PRECEDE procurement, and the relevant PR/PO must be
+    linked back. One direction only — nothing here raises, approves,
+    amends or pays anything, and nothing is read back out of the
+    purchasing system.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    rid = _ask(what="A hamper", value="1800")
+
+    # Nothing to quote before approval, so nothing to link.
+    refused = h.submit(_req("procurement"), "link_purchase",
+                       {"po": "PO-1"}, about=rid)
+    ok("there is nothing to link before the reference exists",
+       not refused.ok, refused.said)
+    ok("and the refusal says which way round it goes",
+       "not the other way round" in refused.said, refused.said)
+
+    h.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
+    h.act(_req("finance"), "sign_off", [rid], "Within policy.")
+    ref = gr_mod.reference_issued(rid)["reference"]
+    ok("approval issued the reference", ref.startswith("GIFT-"), ref)
+
+    ok("nobody but Procurement writes the purchase number down",
+       not h.submit(_req("servicelead"), "link_purchase",
+                    {"po": "PO-2"}, about=rid).ok)
+    ok("and an empty link is refused",
+       not h.submit(_req("procurement"), "link_purchase", {}, about=rid).ok)
+
+    out = h.submit(_req("procurement"), "link_purchase",
+                   {"pr": "PR-7781", "po": "PO-4410", "grn": "GRN-55"},
+                   about=rid)
+    ok("Procurement links the requisition it raised", out.ok, out.said)
+    links = gr_mod.purchase_links(rid)
+    ok("all three are kept",
+       links == {"pr": "PR-7781", "po": "PO-4410", "grn": "GRN-55"},
+       str(links))
+    ok("the row shows the thread both ways",
+       ref in _order("procurement", rid)["bought_on"]
+       and "PO-4410" in _order("procurement", rid)["purchase"],
+       f"{_order('procurement', rid)['bought_on']} / "
+       f"{_order('procurement', rid)['purchase']}")
+
+    ok("linking it is its own thing on the trail",
+       ledger.reads_as("purchase_linked")
+       in {ledger.reads_as(e["kind"]) for e in ledger.events(rid)})
+
+    # Linking is a record, not a gate: the step signs off either way,
+    # because Compass is not part of the purchasing it is referencing.
+    ok("and it is not a gate on the chain",
+       h.act(_req("procurement"), "sign_off", [rid], "Bought it").ok)
+
+
 def check_the_recipient_list_is_maintained_not_overwritten() -> None:
     """Controlled add and delete, with the original kept beside the revisions.
 
@@ -5762,6 +5817,8 @@ def _checks() -> int:
         check_payroll_is_read_at_the_end_not_signed_at_the_start()
     with fixtures():
         check_the_tracker_issues_the_reference_and_emails_it()
+    with fixtures():
+        check_the_purchase_is_linked_back()
     with fixtures():
         check_the_recipient_list_is_maintained_not_overwritten()
     with fixtures():

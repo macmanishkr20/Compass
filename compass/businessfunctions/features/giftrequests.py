@@ -673,6 +673,35 @@ def reference_for(request: dict[str, Any]) -> str:
     return f"GIFT-{start % 100:02d}{(start + 1) % 100:02d}-{request['id'][2:]}"
 
 
+def purchase_links(request_id: str) -> dict[str, str]:
+    """What the firm's own purchasing system raised against this order.
+
+    THE THREAD BACK, and the other half of the reference. Compass issues
+    `GIFT-…`, somebody quotes it on the requisition in the existing
+    system, and this is where that requisition's own numbers are written
+    down beside it — so a register record leads to a gift, which leads to
+    an order, which leads to the purchase behind it.
+
+    Reference only, and in one direction: nothing here raises, approves,
+    amends or pays anything, and nothing is read back out of Mercury or
+    the PR portal. The business asked for the PR/PO to be linked back to
+    the tracker, not for the tracker to become part of procurement.
+    """
+    event = ledger.latest(request_id, "purchase_linked")
+    if event is None:
+        return {}
+    return {k: str(event.get(k, "")) for k in ("pr", "po", "grn")
+            if event.get(k)}
+
+
+def _links_said(request_id: str) -> str:
+    """The purchasing system's own numbers, as a row shows them."""
+    links = purchase_links(request_id)
+    if not links:
+        return "not linked yet"
+    return " · ".join(f"{k.upper()} {v}" for k, v in links.items())
+
+
 def reference_issued(request_id: str) -> dict[str, Any] | None:
     """When the reference was issued and what was said, or None."""
     return ledger.latest(request_id, "referenced")
@@ -803,8 +832,11 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
                                    for e in intended_list(request["id"]))
                          or "nobody named up front",
             "list_changes": len(list_revisions(request["id"])),
-            # The thread back to the system that bought it.
+            # The thread back to the system that bought it: the
+            # reference Compass issued, and the PR/PO the purchasing
+            # system raised against it.
             "bought_on": _ref_said(request["id"]),
+            "purchase": _links_said(request["id"]),
             # Who actually got one. On the row because "is this mine" can
             # no longer be answered from the request alone: a bulk order
             # names nobody when it is raised.
@@ -927,6 +959,7 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "quantity": row["quantity"],
             "allocation": row["allocation"],
             "bought_on": row["bought_on"],
+            "purchase": row["purchase"],
             "purpose": row["purpose"],
             "for_list": row["for_list"],
             "listed_as": row["listed_as"],
@@ -1174,6 +1207,8 @@ class GiftRequests(Feature):
     ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode", "actual"})
     LIST_FORM = "revise_list"
     LIST_FIELDS = frozenset({"add", "remove", "why"})
+    PURCHASE_FORM = "link_purchase"
+    PURCHASE_FIELDS = frozenset({"pr", "po", "grn"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows(scope, _is_yours)
@@ -1511,7 +1546,39 @@ class GiftRequests(Feature):
             return set(self.ALLOCATE_FIELDS)
         if form_id == self.LIST_FORM:
             return set(self.LIST_FIELDS)
+        if form_id == self.PURCHASE_FORM:
+            return set(self.PURCHASE_FIELDS)
         return set()
+
+    def _read_purchase(self, scope: Scope, values: dict[str, str],
+                       about: str) -> tuple[dict[str, Any] | None,
+                                            Outcome | None]:
+        """The purchasing system's own numbers, or why they cannot be linked."""
+        request = next((r for r in ledger.requests() if r["id"] == about), None)
+        if request is None:
+            return None, Outcome(ok=False, said="No order by that id.")
+        if reference_issued(request["id"]) is None:
+            return None, Outcome(
+                ok=False,
+                said="Nothing has been issued to quote yet. The reference "
+                     "comes with approval, and the requisition is raised "
+                     "against it — not the other way round.")
+        if STAGES["procurement"]["owner"] not in scope.roles:
+            return None, Outcome(
+                ok=False,
+                said="Procurement raised it, so Procurement is who writes "
+                     "its number down.")
+
+        links = {k: values.get(k, "").strip()[:_REF_MAX]
+                 for k in ("pr", "po", "grn")}
+        links = {k: v for k, v in links.items() if v}
+        if not links:
+            return None, Outcome(
+                ok=False,
+                said="Give at least one of the requisition, order or GRN "
+                     "number. A gift nobody can trace to what paid for it "
+                     "is the gap this closes.")
+        return {"request": request, "links": links}, None
 
     def _read_list(self, scope: Scope, values: dict[str, str],
                    about: str) -> tuple[dict[str, Any] | None,
@@ -1832,6 +1899,18 @@ class GiftRequests(Feature):
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
+        if form_id == self.PURCHASE_FORM:
+            read, refused = self._read_purchase(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            return Outcome(
+                ok=True,
+                said="Links " + " · ".join(f"{k.upper()} {v}" for k, v
+                                           in read["links"].items())
+                     + f" to {reference_issued(read['request']['id'])['reference']}"
+                       f". Reference only — nothing is raised, amended or "
+                       f"paid from here.")
         if form_id == self.LIST_FORM:
             read, refused = self._read_list(scope, values, about)
             if refused is not None:
@@ -1894,6 +1973,21 @@ class GiftRequests(Feature):
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
+        if form_id == self.PURCHASE_FORM:
+            read, refused = self._read_purchase(scope, values, about)
+            if refused is not None:
+                return refused
+            assert read is not None
+            ledger.add_event(subject=read["request"]["id"],
+                             kind="purchase_linked", by=scope.user,
+                             stage=stage_of(read["request"]),
+                             **read["links"])
+            return Outcome(
+                ok=True,
+                said=f"Linked: {_links_said(read['request']['id'])}. The "
+                     f"order and the purchase behind it now lead to each "
+                     f"other.",
+                touched=[read["request"]["id"]])
         if form_id == self.LIST_FORM:
             read, refused = self._read_list(scope, values, about)
             if refused is not None:

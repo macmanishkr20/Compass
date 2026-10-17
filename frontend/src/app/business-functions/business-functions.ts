@@ -1099,6 +1099,7 @@ export class BusinessFunctions {
         { key: 'value', label: 'Each', numeric: true },
         { key: 'allocation', label: 'Allocated' },
         { key: 'bought_on', label: 'Reference' },
+        { key: 'purchase', label: 'PR / PO' },
         { key: 'policy', label: 'Policy' },
         { key: 'tax', label: 'Their year' },
         { key: 'status', label: 'Status' },
