@@ -258,6 +258,17 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
             return row["source"], row["source"]
         if "problem" in row:
             return row["id"], f"{row['who']} · {row['problem']}"
+        if "stage" in row:
+            # A step of the chain and what is standing at it.
+            return row["stage"], (f"{row['stage']} · {row['orders']} order"
+                                  f"{'' if row['orders'] == 1 else 's'}"
+                                  + (f", longest {row['longest_wait']}d"
+                                     if row["longest_wait"] else ""))
+        if "waiting" in row and "given" in row:
+            # A gift on the register nobody has confirmed receiving.
+            return row["id"], (f"{row['recipient']} · {row['what']} · "
+                               f"{rupees(row['value'])} · "
+                               f"{row['waiting']}d unconfirmed")
         if "over_limit_by" in row:
             return row["employee_id"], (f"{row['recipient']} · "
                                         f"{rupees(row['total'])} this year")

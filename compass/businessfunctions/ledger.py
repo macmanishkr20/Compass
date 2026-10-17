@@ -105,6 +105,10 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # order. Reference only, written here by the people who raised
           # it — nothing is read back out of that system.
           "purchase_linked",
+          # the alert itself. Recorded as well as sent, so "did anybody
+          # tell compliance" is a question with an answer and the same
+          # person is not alerted twice for one crossing.
+          "threshold_crossed",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -134,6 +138,7 @@ READS_AS = {
     "listed": "added a recipient to",
     "unlisted": "took a recipient off",
     "purchase_linked": "linked the purchase to",
+    "threshold_crossed": "was flagged past the threshold",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

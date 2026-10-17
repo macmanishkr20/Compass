@@ -235,6 +235,24 @@ def address_of(user: str) -> str:
     return person.email if person else ""
 
 
+def holders(role: str) -> list[Person]:
+    """Who to write to when something is this role's to know.
+
+    An ALERT has to reach a person, and a role is not a person. Several of
+    the entries here are team mailboxes with no address — they act on other
+    people's gifts and receive none — so writing to the role alone would
+    produce a notice held for "nobody knows their address" while three
+    people who hold that role sit in the directory with addresses on them.
+
+    So: everybody holding the role who can actually be written to, and the
+    role's own mailbox when it can. Empty when nobody can be reached, which
+    the caller turns into one held notice rather than silence — "nobody was
+    told" is a fact somebody needs, and a missing alert is not.
+    """
+    return [person for person in DIRECTORY.values()
+            if role in person.roles and person.email]
+
+
 def team_of_employee(employee_id: str) -> str:
     """Which part of the firm this employee works in, or "" if nobody knows.
 

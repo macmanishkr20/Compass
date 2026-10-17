@@ -215,6 +215,85 @@ def _team_spend(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: -r["given"])
 
 
+def _orders(scope: Scope) -> list[dict[str, Any]]:
+    """Every order in flight, read through the chain's own rule.
+
+    Asked of the chain rather than counted here: which orders somebody may
+    see is the chain's answer, and this screen is leadership's, who see
+    all of it. A dashboard with its own idea of what is in flight is a
+    dashboard that can disagree with the desk working the queue.
+    """
+    from compass.businessfunctions.features import giftrequests
+
+    return giftrequests.tracked(scope.user, scope.period)
+
+
+def _where_orders_are(scope: Scope) -> list[dict[str, Any]]:
+    """How many orders are standing at each step, and the longest wait.
+
+    THE QUESTION A DASHBOARD IS OPENED WITH. Where has everything got to —
+    not what it cost, not who is over, but whether anything is sitting
+    still. The counts come from the chain's stages in chain order rather
+    than from whatever happens to be in the data, so a step with nothing
+    at it shows as empty instead of vanishing, which is the only way to
+    see that a desk has stopped answering.
+    """
+    from compass.businessfunctions.features import giftrequests
+
+    moving = [r for r in _orders(scope)
+              if r["stage"] not in giftrequests.ENDED]
+    out = []
+    for stage in giftrequests.STAGES:
+        if stage == "closed":
+            continue
+        here = [r for r in moving if r["stage"] == stage]
+        out.append({
+            "stage": giftrequests.stage_label(stage),
+            "orders": len(here),
+            "value": sum(r["value"] * r.get("quantity", 1) for r in here),
+            "longest_wait": max((r["waiting_days"] for r in here), default=0),
+            "with": here[0]["with"] if here else "—",
+            "can": [],
+        })
+    return out
+
+
+def _unconfirmed(scope: Scope) -> list[dict[str, Any]]:
+    """Gifts on the register that nobody has confirmed receiving.
+
+    The requirement asks for this by name: gifts that have not reached
+    confirmed receipt. It is the quietest way for this process to fail —
+    the money is spent, the record exists, and whether it ever reached a
+    person is a thing nobody has written down.
+    """
+    out = []
+    for item in rewardlens.items(_firm(scope)):
+        if item["acknowledged"] or item["id"] in rewardlens.superseded():
+            continue
+        out.append({
+            "id": item["id"],
+            "recipient": item["recipient"],
+            "employee_id": item["employee_id"],
+            "what": item["what"],
+            "value": item["value"],
+            "given": item["given"],
+            "waiting": _days_since_day(item["given"]),
+            "can": [],
+        })
+    return sorted(out, key=lambda r: -r["waiting"])
+
+
+def _days_since_day(day: str) -> int:
+    """Whole days since a YYYY-MM-DD, never negative."""
+    import datetime as dt
+
+    try:
+        then = dt.date.fromisoformat(day)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, (dt.date.today() - then).days)
+
+
 def _notable(scope: Scope, above: int) -> list[dict[str, Any]]:
     """Everybody whose year is past the threshold, biggest first.
 
@@ -331,6 +410,8 @@ class Oversight(Feature):
         teams = _team_spend(scope)
         over = _notable(scope, self.NOTABLE)
         taxed = _team_tax(scope)
+        where = _where_orders_are(scope)
+        unconfirmed = _unconfirmed(scope)
 
         return [
             Chart(
@@ -380,6 +461,41 @@ class Oversight(Feature):
                               said=money(t["above_limit"]))
                         for t in taxed if t["above_limit"]],
                 empty="Nobody is over the limit, so there is nothing above it."),
+            # THE TWO THE REQUIREMENT ASKS FOR BY NAME: where everything
+            # has got to, and what has not reached a person. Both were
+            # lists on this screen once and read as a second screen
+            # stacked under the first; as pictures they answer at a glance,
+            # which is what a dashboard is for.
+            Chart(
+                key="where", kind="bars", tab="where",
+                title="Where the orders are now",
+                caption=f"{sum(w['orders'] for w in where)} in flight. A step "
+                        f"with nothing at it is shown empty rather than left "
+                        f"out, because an empty desk is the thing worth "
+                        f"noticing.",
+                slices=[Slice(label=w["stage"].replace("With the ", "")
+                              .replace("With ", ""),
+                              value=w["orders"],
+                              said=f"{w['orders']} order"
+                                   f"{'' if w['orders'] == 1 else 's'}"
+                                   + (f", longest {w['longest_wait']}d"
+                                      if w["longest_wait"] else ""))
+                        for w in where],
+                empty="Nothing is in flight."),
+            Chart(
+                key="unconfirmed", kind="bars", tab="unconfirmed",
+                title="Given, but nobody has confirmed receiving it",
+                caption=f"{money(sum(u['value'] for u in unconfirmed))} across "
+                        f"{len(unconfirmed)} record"
+                        f"{'' if len(unconfirmed) == 1 else 's'}, longest "
+                        f"waiting {max((u['waiting'] for u in unconfirmed), default=0)} "
+                        f"days. The money is spent and the record exists; "
+                        f"whether it reached a person is not written down.",
+                slices=[Slice(label=u["recipient"], value=u["waiting"],
+                              said=f"{u['what']} \u00b7 {money(u['value'])} "
+                                   f"\u00b7 {u['waiting']}d")
+                        for u in unconfirmed[:12]],
+                empty="Everything on the register has been confirmed."),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -404,6 +520,10 @@ class Oversight(Feature):
                 len(_notable(scope, self.NOTABLE)), key_field="employee_id"),
             Tab("tax", "Above the limit, by team", len(_team_tax(scope)),
                 key_field="source"),
+            Tab("where", "Where the orders are",
+                len(_where_orders_are(scope)), key_field="stage"),
+            Tab("unconfirmed", "Not yet confirmed",
+                len(_unconfirmed(scope)), key_field="id"),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
@@ -415,7 +535,13 @@ class Oversight(Feature):
             return _team_spend(scope)
         if tab == "notable":
             return _notable(scope, self.NOTABLE)
-        return _team_tax(scope) if tab == "tax" else _budget_rows(scope)
+        if tab == "tax":
+            return _team_tax(scope)
+        if tab == "where":
+            return _where_orders_are(scope)
+        if tab == "unconfirmed":
+            return _unconfirmed(scope)
+        return _budget_rows(scope)
 
     def rules(self, scope: Scope) -> list[str]:
         if self._shut_out(scope):

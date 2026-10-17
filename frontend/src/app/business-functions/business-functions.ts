@@ -1130,6 +1130,24 @@ export class BusinessFunctions {
           { key: 'people', label: 'People', numeric: true },
         ];
       }
+      if (tab === 'where') {
+        return [
+          { key: 'stage', label: 'Step' },
+          { key: 'with', label: 'With' },
+          { key: 'orders', label: 'Orders', numeric: true },
+          { key: 'value', label: 'Value', numeric: true },
+          { key: 'longest_wait', label: 'Longest wait', numeric: true },
+        ];
+      }
+      if (tab === 'unconfirmed') {
+        return [
+          { key: 'recipient', label: 'Person' },
+          { key: 'what', label: 'What' },
+          { key: 'value', label: 'Value', numeric: true },
+          { key: 'given', label: 'Given' },
+          { key: 'waiting', label: 'Waiting', numeric: true },
+        ];
+      }
       if (tab === 'notable') {
         return [
           { key: 'employee_id', label: 'Employee' },

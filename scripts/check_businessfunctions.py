@@ -1755,8 +1755,8 @@ def check_the_dashboard_is_its_charts() -> None:
 
     tabs = [t.key for t in board.tabs(seeing)]
     charts = board.charts(seeing)
-    ok("there are four tabs", len(tabs) == 4, str(tabs))
-    ok("and a chart for each", len(charts) == 4, str([c.key for c in charts]))
+    ok("there are six tabs", len(tabs) == 6, str(tabs))
+    ok("and a chart for each", len(charts) == 6, str([c.key for c in charts]))
     ok("every chart lands on its own tab",
        [c.tab for c in charts] == tabs, f"{[c.tab for c in charts]} vs {tabs}")
     ok("and none of the retired ones is left",
@@ -1768,6 +1768,30 @@ def check_the_dashboard_is_its_charts() -> None:
            len(rows) == len(next(c for c in charts if c.tab == tab).slices)
            or not rows,
            f"{len(rows)} rows")
+
+    # THE TWO THE REQUIREMENT ASKS FOR BY NAME: where everything has got
+    # to, and what has not reached a person. Point-in-time visibility is
+    # the phrase the business used, and a number nobody drew is not that.
+    where = board.rows(seeing, "where")
+    ok("every step of the chain is on the where-chart",
+       len(where) == len([k for k in gr_mod.STAGES if k != "closed"]),
+       str([w["stage"] for w in where]))
+    ok("a step with nothing at it is still shown",
+       all("orders" in w for w in where), str(where[:1]))
+    ok("and it says how long the longest has waited",
+       all("longest_wait" in w for w in where))
+
+    unconfirmed = board.rows(seeing, "unconfirmed")
+    ok("nothing confirmed is on the unconfirmed list",
+       all(not i["acknowledged"]
+           for i in rl_mod.items(as_("compliance", period="FY 2026-27"))
+           if i["id"] in {u["id"] for u in unconfirmed}),
+       str(unconfirmed[:1]))
+    ok("the longest wait is first",
+       [u["waiting"] for u in unconfirmed]
+       == sorted((u["waiting"] for u in unconfirmed), reverse=True))
+    ok("and a superseded record is not chased",
+       not ({u["id"] for u in unconfirmed} & set(rl_mod.superseded())))
 
     # The findings survive the tabs.
     said = board.rules(seeing)
@@ -2973,7 +2997,8 @@ def check_a_firm_wide_view_is_for_the_role() -> None:
     ok("no tabs", not board.tabs(plain))
     ok("and no rows, on any tab",
        not any(board.rows(plain, tab)
-               for tab in ("budgets", "teams", "notable", "tax")))
+               for tab in ("budgets", "teams", "notable", "tax", "where",
+                           "unconfirmed")))
     ok("and no charts either",
        not board.charts(plain), str([c.key for c in board.charts(plain)]))
     ok("they are told why rather than shown an empty screen",
@@ -3826,6 +3851,148 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
 
 
 
+def check_crossing_the_threshold_tells_somebody() -> None:
+    """The firm's complaint is that it finds out at the year end.
+
+    A dashboard that would have shown it is only as good as somebody
+    opening the dashboard, so the moment the register says somebody is
+    over, the people whose job that is are written to. Measured on the
+    OUTBOX rather than on the sentence, because the sentence is what the
+    signer reads and the notice is what reaches compliance.
+    """
+    notices.clear()
+    big = rl_mod.limit() + 5_000
+    rid = _ask(value=str(big), recipient="Vikram Rao")
+    trouble = _walk(rid, "acknowledgement")
+    ok("an order big enough to cross is signed off", not trouble, str(trouble))
+
+    vikram = people.employee_of("enduser")
+    sent = notices.for_item(vikram)
+    reachable = people.holders("compliance")
+    ok("everybody whose job it is to look is told, not a role mailbox",
+       len(sent) == len(reachable) and len(reachable) > 1,
+       f"{len(sent)} notices to {[p.name for p in reachable]}")
+    his = next(r for r in rl_mod.totals(as_("compliance", period="FY 2026-27"))
+               if r["employee_id"] == vikram)
+    ok("and told by how much, read off the register and not the order",
+       all(rl_mod.rupees(his["excess"]) in n.body for n in sent)
+       and his["excess"] != big - rl_mod.limit(),
+       f"excess {his['excess']}, this order {big}")
+    ok("and told who it is",
+       all(vikram in n.body and "Vikram Rao" in n.subject for n in sent))
+    ok("the alert says it is a flag, not an assessment",
+       all("not an assessment" in n.body for n in sent),
+       str([n.body[:80] for n in sent][:1]))
+    ok("and nobody is told what their tax is — that is out of scope",
+       not any(word in n.body.lower() for n in sent
+               for word in ("perquisite", "tds", "deduct ", "payable",
+                            "liability")),
+       str([n.body[:160] for n in sent][:1]))
+    ok("the crossing is on the trail as well as in the post",
+       ledger.happened(vikram, "threshold_crossed"))
+
+    # ONCE PER PERSON PER YEAR. A second gift to somebody already over is
+    # not news, and an alert that repeats is an alert people filter.
+    was = len(notices.for_item(vikram))
+    again = _ask(value="4000", recipient="Vikram Rao")
+    ok("a second order to the same person goes through",
+       not _walk(again, "acknowledgement"))
+    ok("and does not alert again", len(notices.for_item(vikram)) == was,
+       f"{was} then {len(notices.for_item(vikram))}")
+
+    # AND NOT BEFORE. Nothing is on the register until distribution, so
+    # nothing crosses before it either.
+    notices.clear()
+    third = _ask(value=str(big), recipient="Priya Nair")
+    ok("an order held short of distribution is signed off",
+       not _walk(third, "distribution"))
+    ok("nothing is alerted on a proposal",
+       not notices.for_item("E-1019") and not notices.for_item("E-1077"),
+       str([n.subject for n in notices._outbox.values()]))
+
+
+def check_an_exception_decision_reaches_whoever_asked() -> None:
+    """Granted or refused, the row does not move — so without a notice the
+    asker finds out by going back and looking, which is the same failure
+    as the year end, one decision smaller."""
+    h = registry.feature_of("scs", "requests")[2]
+    row = lambda who, rid: next(r for r in gr_mod._rows(_req(who))
+                                if r["id"] == rid)
+
+    # Client courtesy above the single-gift threshold: the rule bites, so
+    # there is an exception to make. With a mail server, because what is
+    # being measured here is that the answer REACHES somebody — a held
+    # notice is the subject of the third case below, not of this one.
+    notices.clear()
+    post = _Mailbox().__enter__()
+    rid = _ask(by="requester", what="Dinner out", value="12000",
+               kind="gift", occasion="client courtesy")
+    ok("the rule is biting", row("requester", rid)["blocked"])
+    asked = h.act(_req("servicelead"), "request_exception", [rid],
+                  "Twenty-year client, and the partner is attending.")
+    ok("the desk holding it can ask", asked.ok, asked.said)
+    ok("asking alerts nobody — the asker already knows",
+       not notices.for_item(rid), str(len(notices.for_item(rid))))
+
+    refused = h.act(_req("finance"), "refuse_exception", [rid],
+                    "Over the threshold with no business case.")
+    ok("finance can refuse", refused.ok, refused.said)
+    ok("and the refusal says who was told", "has been told" in refused.said,
+       refused.said)
+    told = notices.for_item(rid)
+    ok("the asker is written to, once", len(told) == 1, str(len(told)))
+    ok("by name", told[0].name == people.find("servicelead").name,
+       told[0].name)
+    ok("and actually sent, not held", told[0].state != "held",
+       f"{told[0].state}: {told[0].detail}")
+    ok("with finance's reason in it, not just the verdict",
+       "no business case" in told[0].body, told[0].body[:160])
+    ok("and the decision itself", "refused" in told[0].subject.lower(),
+       told[0].subject)
+    ok("and what it means for the order",
+       "stays blocked" in told[0].body, told[0].body[-120:])
+    ok("the order is still blocked", row("requester", rid)["blocked"])
+
+    # The other way, on a fresh order.
+    notices.clear()
+    other = _ask(by="requester", what="More dinner", value="12000",
+                 kind="gift", occasion="client courtesy")
+    h.act(_req("requester"), "request_exception", [other],
+          "Same client, same partner.")
+    granted = h.act(_req("finance"), "grant_exception", [other],
+                    "Allowed once, on the partner's authority.")
+    ok("finance can grant", granted.ok, granted.said)
+    said = notices.for_item(other)
+    ok("the asker hears that too", len(said) == 1, str(len(said)))
+    ok("and hears it can carry on", "carries on" in said[0].body,
+       said[0].body[-160:])
+    ok("the rule is quoted in it, not replaced by the decision",
+       "above" in said[0].body and "Allowed once" in said[0].body,
+       said[0].body[:200])
+    ok("the exception is on the record", gr_mod.exception_on(other) is not None)
+    post.__exit__()
+
+    # WHOEVER ASKED, not whoever raised — and an asker nobody can write
+    # to is a state the sentence has to admit rather than paper over. The
+    # Business Requester desk has no address on purpose, so this is the
+    # real case and not a contrivance.
+    notices.clear()
+    third = _ask(by="requester", what="Dinner again", value="12000",
+                 kind="gift", occasion="client courtesy")
+    h.act(_req("requester"), "request_exception", [third], "My client.")
+    out = h.act(_req("finance"), "refuse_exception", [third], "Still no.")
+    heard = notices.for_item(third)
+    ok("it is the asker who is written to, not the stage's desk",
+       len(heard) == 1 and heard[0].name == people.find("requester").name,
+       str([n.name for n in heard]))
+    ok("and when nobody knows where, the notice is held with the reason",
+       heard[0].state == "held" and "no email address" in heard[0].detail,
+       f"{heard[0].state}: {heard[0].detail}")
+    ok("and finance is told so, rather than told it was sent",
+       "was not told" in out.said and "no email address" in out.said,
+       out.said)
+
+
 def check_nothing_reaches_the_register_until_it_is_given() -> None:
     """A request is a proposal. Most of what goes wrong in systems like
     this is treating it as a record: a declined request on the register is
@@ -4517,9 +4684,10 @@ def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:
 
     board = people.scope_for("compliance", feat, period="FY 2026-27")
     charts = h.charts(board)
-    ok("it draws four pictures", len(charts) == 4, str(len(charts)))
+    ok("it draws six pictures", len(charts) == 6, str(len(charts)))
     ok("the four the business asked for",
-       [c.key for c in charts] == ["budget", "teams", "notable", "tax"],
+       [c.key for c in charts] == ["budget", "teams", "notable", "tax",
+                                   "where", "unconfirmed"],
        str([c.key for c in charts]))
     ok("each is a shape a reader knows",
        all(c.kind in ("bars", "split") for c in charts),
@@ -5625,6 +5793,10 @@ def _checks() -> int:
     # app module is the sort of thing that should not be upstream of anything.
     check_the_routes_are_mounted_only_when_switched_on()
     check_every_route_is_behind_require_user()
+    with fixtures():
+        check_crossing_the_threshold_tells_somebody()
+    with fixtures():
+        check_an_exception_decision_reaches_whoever_asked()
     with fixtures():
         check_the_surface_answers()
     with fixtures():

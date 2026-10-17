@@ -86,6 +86,12 @@ _REF_MAX = 64
 #: nobody pastes a thread into it.
 _TEXT_MAX = 400
 
+#: Who hears when somebody crosses the threshold. The persona whose job
+#: is watching it, not the person who tripped it: being told you are over
+#: is the recipient's business only once somebody has decided what it
+#: means, and deciding that is not this tool's.
+ALERT_TO = "compliance"
+
 #: Who may take responsibility for a gift the rules refuse. Finance, as
 #: the business's own flow has it — the point of an exception is that
 #: somebody senior to the rule owns the decision, so it cannot be the desk
@@ -713,6 +719,92 @@ def _ref_said(request_id: str) -> str:
     if event is None:
         return "not issued yet"
     return str(event.get("reference", "")) or "issued"
+
+
+def _tell(role: str, *, subject: str, body: str, about: str) -> list[str]:
+    """Write to everybody whose role this is to know. Says who was told.
+
+    A ROLE IS NOT A PERSON. Several entries in the directory are team
+    mailboxes with no address, so writing to the role itself would make one
+    notice held for "nobody knows their address" while the people holding
+    that role sit beside it with addresses on them.
+
+    When nobody can be reached, ONE notice is still recorded, held with the
+    reason. A notice nobody could send is a fact somebody can act on; an
+    alert that quietly did not happen is not, and the firm finding out at
+    the year end is the whole problem this is here to fix.
+    """
+    reachable = people.holders(role)
+    if not reachable:
+        notices.record(to="", name=people.LABELS.get(role, role),
+                       subject=subject, body=body, about=about)
+        return []
+    return [notices.record(to=person.email, name=person.name, subject=subject,
+                           body=body, about=about).name
+            for person in reachable]
+
+
+def _told_said(who: list[str], fallback: str) -> str:
+    """"told X and Y", or why nobody was."""
+    if not who:
+        return f"nobody could be told — no address on file for {fallback}"
+    if len(who) == 1:
+        return f"told {who[0]}"
+    return f"told {', '.join(who[:-1])} and {who[-1]}"
+
+
+def _alert_on_crossing(scope: Scope, request: dict[str, Any],
+                       given: list[dict[str, Any]]) -> str:
+    """Tell compliance when somebody has just crossed the threshold.
+
+    THE ALERT IS THE POINT. The firm's complaint is that it finds out at
+    the year end, and a dashboard that would have shown it is only as good
+    as somebody opening the dashboard. The moment a gift is recorded is the
+    moment the crossing becomes true, so that is the moment it is said.
+
+    A FLAG, NOT AN ASSESSMENT. What crossing ₹50,000 means for somebody's
+    tax is the tax teams' own work, in their own systems, and the body of
+    this says so. This module records that the line was crossed and tells
+    the people whose job is to look; it does not compute a liability, and
+    it does not refuse the gift.
+
+    Once per person per year, not once per gift: whoever reads this needs
+    to know that John is over, and needs to know it on the day. The trail
+    is what remembers that they were already told, which is why the alert
+    is an event on the register and not a flag on a row.
+    """
+    said: list[str] = []
+    firm = Scope(user=scope.user, period=scope.period, sees="firm")
+    totals = {r["employee_id"]: r for r in rewardlens.totals(firm)}
+    for employee in sorted({i["employee_id"] for i in given}):
+        row = totals.get(employee)
+        if row is None or not row["over_limit"]:
+            continue
+        if ledger.happened(employee, "threshold_crossed"):
+            continue
+        told = _tell(
+            ALERT_TO,
+            subject=f"{row['recipient']} is past the "
+                    f"{rewardlens.rupees(row['limit'])} threshold",
+            body=(f"{row['recipient']} ({employee}) has received "
+                  f"{rewardlens.rupees(row['total'])} in gifts this year, "
+                  f"which is {rewardlens.rupees(row['excess'])} past the "
+                  f"{rewardlens.rupees(row['limit'])} threshold.\n\n"
+                  f"The line was crossed by {request['what']}, signed off "
+                  f"at distribution on order {request['id']}.\n\n"
+                  f"This is a flag, not an assessment. What it means for "
+                  f"their tax is the tax teams' own work, in their own "
+                  f"systems. Compass does not compute it, and deducts "
+                  f"nothing from anybody."),
+            about=employee)
+        ledger.add_event(subject=employee, kind="threshold_crossed",
+                         by=scope.user, total=row["total"],
+                         excess=row["excess"], request=request["id"],
+                         told=len(told))
+        said.append(f"{row['recipient']} is now past the "
+                    f"{rewardlens.rupees(row['limit'])} threshold — "
+                    f"{_told_said(told, people.LABELS[ALERT_TO])}.")
+    return " ".join(said)
 
 
 def _allocation_said(request: dict[str, Any]) -> str:
@@ -1399,6 +1491,11 @@ class GiftRequests(Feature):
                 said_extra = (f" It is on the register against "
                               f"{given[0]['recipient']}, whose year is now "
                               f"{rewardlens.rupees(after)}.")
+            # The records exist by now, so the totals are true and a
+            # crossing is a fact rather than a projection. Said AFTER the
+            # register is written for exactly that reason.
+            if crossed := _alert_on_crossing(scope, request, given):
+                said_extra += " " + crossed
 
         if stage == "finance_policy":
             # APPROVED, so the reference is issued and emailed. This is the
@@ -1518,10 +1615,12 @@ class GiftRequests(Feature):
         if action == "refuse_exception":
             ledger.add_event(subject=row["id"], kind="exception_refused",
                              by=scope.user, note=note.strip(), stage=stage)
+            told = self._tell_the_asker(scope, row, request, granted=False,
+                                        note=note.strip())
             return Outcome(
                 ok=True,
-                said="Exception refused, with your reason on the record. The "
-                     "order stays blocked and can be sent back.",
+                said=f"Exception refused, with your reason on the record. "
+                     f"The order stays blocked and can be sent back. {told}",
                 touched=[row["id"]])
 
         # Granted. The order is not changed — the rule still says what it
@@ -1530,12 +1629,57 @@ class GiftRequests(Feature):
         ledger.add_event(subject=row["id"], kind="excepted", by=scope.user,
                          note=note.strip(), stage=stage,
                          value=request["value"])
+        told = self._tell_the_asker(scope, row, request, granted=True,
+                                    note=note.strip())
         return Outcome(
             ok=True,
             said=f"Exception granted, in your name. {row['policy']} — and it "
                  f"can now be signed off. The rule stays on the record "
-                 f"alongside your decision; neither replaces the other.",
+                 f"alongside your decision; neither replaces the other. "
+                 f"{told}",
             touched=[row["id"]])
+
+    def _tell_the_asker(self, scope: Scope, row: dict[str, Any],
+                        request: dict[str, Any], *, granted: bool,
+                        note: str) -> str:
+        """Tell whoever asked for the exception what Finance decided.
+
+        AN ANSWER NOBODY HEARS IS NOT AN ANSWER. The order stays where it
+        is either way — granted, it can be signed off; refused, it stays
+        blocked — so nothing about the row moves to catch the raiser's eye,
+        and without this they find out by going back and looking. That is
+        the same failure as finding out at the year end, one decision
+        smaller.
+
+        To the person who ASKED, not to the raiser: on a request somebody
+        escalated on behalf of a service line, they are the one waiting.
+        The reason goes in the body, because a decision without its reason
+        is the rule quietly not applying and the asker is exactly who needs
+        to be able to see it.
+        """
+        asked = ledger.latest(row["id"], "exception_asked")
+        who = str(asked.get("by", "")) if asked else request["by"]
+        person = people.find(who)
+        verdict = "granted" if granted else "refused"
+        notice = notices.record(
+            to=person.email if person else "",
+            name=person.name if person else who,
+            subject=f"Exception {verdict} on {row['what']}",
+            body=(f"{people.LABELS[EXCEPTION_OWNER]} has {verdict} the "
+                  f"exception asked for on order {row['id']} "
+                  f"({request['quantity']} \u00d7 {request['what']}).\n\n"
+                  f"Their reason: {note}\n\n"
+                  f"The rule that was biting: {row['policy']}\n\n"
+                  + ("The order can now be signed off and carries on down "
+                     "the chain. The rule stays on the record alongside the "
+                     "decision; neither replaces the other."
+                     if granted else
+                     "The order stays blocked. It can be sent back for a "
+                     "smaller amount, or closed.")),
+            about=row["id"])
+        if notice.state == "held":
+            return f"{notice.name} was not told: {notice.detail}."
+        return f"{notice.name}, who asked, has been told."
 
     # ── asking ──────────────────────────────────────────────────────────
 
