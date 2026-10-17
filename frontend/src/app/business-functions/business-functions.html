@@ -738,9 +738,26 @@
                         (ngModelChange)="setField(field.id, $event)">
                     }
                     @case ('names') {
-                      <textarea rows="4" placeholder="One name a line"
-                        [ngModel]="entered()[field.id] ?? ''"
-                        (ngModelChange)="setField(field.id, $event)"></textarea>
+                      <!-- Upload or paste, into the same box. What the
+                           file turned out to hold is shown HERE and sent
+                           from here, so nobody records two hundred
+                           recipients they never saw. -->
+                      <div class="bf-names">
+                        <span class="bf-upload">
+                          <input type="file" accept=".xlsx,.xlsm,.csv,.txt"
+                            [disabled]="uploading()"
+                            (change)="uploadNames(field.id, $event)">
+                          <span class="bf-btn quiet">{{ uploading()
+                            ? 'Reading…' : 'Upload a spreadsheet' }}</span>
+                        </span>
+                        <textarea rows="4"
+                          placeholder="One name a line, or upload the list"
+                          [ngModel]="entered()[field.id] ?? ''"
+                          (ngModelChange)="setField(field.id, $event)"></textarea>
+                        @if (uploaded()) {
+                          <span class="bf-uploaded">{{ uploaded() }}</span>
+                        }
+                      </div>
                     }
                     @default {
                       <input type="text" [ngModel]="entered()[field.id] ?? ''"

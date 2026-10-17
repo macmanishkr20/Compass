@@ -102,6 +102,15 @@ export interface Figure {
 }
 
 /** One bar or wedge, and what it is worth saying about it. */
+/** What a spreadsheet turned out to hold. */
+export interface UploadedNames {
+  field: string;
+  names: string[];
+  unknown: string[];
+  read: number;
+  said: string;
+}
+
 /** One step of a row's own history, for a row that carries one. */
 export interface TrailStep {
   when: string;
@@ -313,6 +322,30 @@ export class BusinessFunctionsApi {
     return firstValueFrom(
       this.http.post<ActResult>(
         `${ROOT}/${fnId}/features/${featureId}/forms/${formId}/preview`, body,
+      ),
+    );
+  }
+
+  /** Read a list of people out of a spreadsheet. Records nothing.
+   *
+   *  The names come back for the person to look at; the form is then sent
+   *  the same way a typed one is. An upload that wrote straight to a
+   *  record would be a list nobody read.
+   */
+  readNames(
+    fnId: string,
+    featureId: string,
+    formId: string,
+    fieldId: string,
+    file: File,
+  ): Promise<UploadedNames> {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return firstValueFrom(
+      this.http.post<UploadedNames>(
+        `${ROOT}/${fnId}/features/${featureId}/forms/${formId}/upload`
+        + `?field=${encodeURIComponent(fieldId)}`,
+        body,
       ),
     );
   }

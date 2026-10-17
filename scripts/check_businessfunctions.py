@@ -648,6 +648,7 @@ def check_the_routes_are_mounted_only_when_switched_on() -> None:
            f"{feature}/report/send",
            f"{feature}/forms/{{form_id}}",
            f"{feature}/forms/{{form_id}}/preview",
+           f"{feature}/forms/{{form_id}}/upload",
            f"{root}/plans/{{plan_id}}/confirm",
            f"{root}/plans/{{plan_id}}/cancel",
        },
@@ -1586,6 +1587,88 @@ def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
     named = gr_mod.intended_list(out.touched[0])
     ok("and nobody is counted twice", len(named) == len(set(named)) == 3,
        str(named))
+
+
+def check_a_recipient_list_can_be_uploaded() -> None:
+    """A spreadsheet of names, read and SHOWN before anything is recorded.
+
+    The firm keeps its list in Excel, because that is where lists live.
+    Reading it is the easy part; what matters is that what was read comes
+    back for somebody to look at, and the request is then sent the same
+    way a typed one is. An upload that wrote straight to a record would be
+    two hundred recipients nobody saw.
+    """
+    from openpyxl import Workbook
+
+    def sheet(rows: list[str]) -> bytes:
+        book = Workbook()
+        page = book.active
+        for i, text in enumerate(rows, start=1):
+            page.cell(row=i, column=1, value=text)
+            page.cell(row=i, column=2, value="not a person")
+        out = io.BytesIO()
+        book.save(out)
+        return out.getvalue()
+
+    # A header row, two known people, a blank, a stranger and a repeat.
+    known, unknown, read = routes.recipients_in("team.xlsx", sheet(
+        ["Name", "Vikram Rao", "", "John Mathew", "Nobody Here", "vikram rao"]))
+    ok("the header row is not taken for a person", "Name" not in known,
+       str(known))
+    ok("the people it knows come back",
+       known == ["Vikram Rao", "John Mathew"], str(known))
+    ok("the one it does not know is set aside, never guessed at",
+       unknown == ["Nobody Here"], str(unknown))
+    ok("a blank row is not a person", read == 4, str(read))
+    ok("and nobody is read twice", len(known) == len(set(known)))
+
+    ok("the sentence names who it could not place",
+       "Nobody Here" in routes._upload_said("team.xlsx", known, unknown)
+       and "does not know" in routes._upload_said("team.xlsx", known, unknown))
+
+    # Only the first column, because a spreadsheet has six others and
+    # guessing which of them are people is how a gift lands on a team name.
+    ok("only the first column is read", "not a person" not in str(known))
+
+    # A list with no header keeps its first row.
+    plain, _u, _r = routes.recipients_in("x.xlsx", sheet(["Vikram Rao",
+                                                          "Aisha Khan"]))
+    ok("a list with no header keeps everybody",
+       plain == ["Vikram Rao", "Aisha Khan"], str(plain))
+
+    # CSV too, because half of these are exported as one.
+    csv = b"Name,Team\nVikram Rao,Advisory\nAisha Khan,Risk\n"
+    from_csv, _u, _r = routes.recipients_in("x.csv", csv)
+    ok("a csv reads the same way",
+       from_csv == ["Vikram Rao", "Aisha Khan"], str(from_csv))
+
+    for filename, raw, why in (("x.pdf", b"%PDF-1.4", "not a list at all"),
+                               ("x.xlsx", b"not a workbook", "unreadable")):
+        try:
+            routes.recipients_in(filename, raw)
+            ok(f"{why} is refused", False, "it was accepted")
+        except Exception as err:                    # noqa: BLE001
+            ok(f"{why} is refused, in words somebody can act on",
+               "paste" in str(err) or "Excel" in str(err), str(err))
+
+    # The field's own roles decide who may upload, because a door beside a
+    # locked door is not a lock. Signed out, `guest` holds nothing.
+    client = _client()
+    got = client.post(
+        "/v1/business-functions/scs/features/requests/forms/"
+        "request_gift/upload?field=recipient_list",
+        files={"file": ("x.csv", csv, "text/csv")})
+    ok("somebody without the role cannot upload to that field",
+       got.status_code == 403, f"{got.status_code} {got.text[:100]}")
+    got = client.post(
+        "/v1/business-functions/scs/features/requests/forms/"
+        "request_gift/upload?field=what",
+        files={"file": ("x.csv", csv, "text/csv")})
+    ok("and no field that is not a list takes one at all",
+       got.status_code == 404, str(got.status_code))
+
+    ok("reading a list records nothing",
+       not [r for r in ledger.requests() if "xlsx" in r.get("what", "")])
 
 
 def check_the_dashboard_is_its_charts() -> None:
@@ -3625,6 +3708,7 @@ def _ask(by: str = "requester", **over) -> str:
     """Raise a request and return its id."""
     values = {"recipient": "Vikram Rao", "what": "Diwali hamper",
               "kind": "gift", "value": "3000", "occasion": "festival",
+              "quantity": "1",
               "purpose": "Thanking the team for the quarter."}
     values.update(over)
     h = registry.feature_of("scs", "requests")[2]
@@ -3754,6 +3838,7 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
     watch = {"recipient": "John Mathew", "what": "Long service watch",
              "kind": "gift", "value": "6000", "occasion": "long service",
              "purpose": "Recognising the team.",
+             "quantity": "1",
              "source": "People team"}
 
     said = h.preview(asking, "request_gift", watch).said
@@ -3797,6 +3882,7 @@ def check_policy_blocks_where_tax_only_warns() -> None:
         "recipient": "Vikram Rao", "what": "Dinner", "kind": "hospitality",
         "value": "4000", "occasion": "client courtesy",
         "purpose": "Recognising the team.",
+        "quantity": "1",
         "source": "People team"}).said
     ok("hospitality is not requested through this yet",
        "cannot be approved" in hospitality, hospitality)
@@ -3805,13 +3891,14 @@ def check_policy_blocks_where_tax_only_warns() -> None:
         "recipient": "Vikram Rao", "what": "Hamper", "kind": "gift",
         "value": "12000", "occasion": "client courtesy",
         "purpose": "Recognising the team.",
+        "quantity": "1",
         "source": "People team"}).said
     ok("a large client courtesy needs a conversation, not a form",
        "conversation" in courtesy, courtesy)
 
     big = h.preview(asking, "request_gift", {
         "recipient": "Vikram Rao", "what": "Big hamper", "kind": "gift",
-        "value": "30000", "occasion": "festival", "purpose": "Recognising the team."}).said
+        "value": "30000", "occasion": "festival", "purpose": "Recognising the team.", "quantity": "1"}).said
     # A large gift is NOT refused. It takes the recipient past their
     # allowance, which is a thing somebody senior decides knowing — the
     # requirement's own argument. What used to refuse it was the paying
@@ -3863,6 +3950,7 @@ def check_nobody_approves_their_own() -> None:
            "recipient": "Aisha Khan", "what": "A watch", "kind": "gift",
            "value": "2000", "occasion": "performance",
            "purpose": "Recognising the team.",
+           "quantity": "1",
            "source": "People team"}).said)
 
 
@@ -3986,6 +4074,7 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
                 "recipient": "Aisha Khan", "what": "A thank-you hamper",
                 "kind": "gift", "value": "1500", "occasion": "performance",
                 "purpose": "Recognising the team.",
+                "quantity": "1",
                 "source": "Service line \u00b7 Advisory"})
             ok(f"{roles} can raise one", out.ok, out.said)
             rid = out.touched[0]
@@ -4187,7 +4276,7 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
     _, feat, h = registry.feature_of("scs", "requests")
     asking = _req()
     base = {"what": "A hamper", "kind": "gift", "value": "1500",
-            "occasion": "performance", "source": "Service line \u00b7 Advisory", "purpose": "Recognising the team."}
+            "occasion": "performance", "source": "Service line \u00b7 Advisory", "purpose": "Recognising the team.", "quantity": "1"}
 
     for typed in ("Manish K.", "Manish K", "manish k", "MANISH  K",
                   "  Manish K.  "):
@@ -4458,7 +4547,7 @@ def check_a_year_shows_that_year() -> None:
                             "occasion": "festival", "source": team,
                             "purpose": "Recognising the team.",
                             "by": "requester", "by_employee": "",
-                            "at": time.mktime((2024, 6, 1, 12, 0, 0, 0, 0, -1))})
+                            "at": time.mktime((2024, 6, 1, 12, 0, 0, 0, 0, -1)), "quantity": "1"})
         ledger.add_event(subject="R-OLD001", kind="signed_off", by="servicelead",
                          stage="service_line", note="x", value=5_000)
         ok("last year's commitment does not spend this year's budget",
@@ -4772,7 +4861,7 @@ def check_an_employee_is_not_shown_the_firms_machinery() -> None:
     # And the preview an employee gets before sending says the same.
     said = h.preview(theirs, "request_gift", {
         "recipient": "John Mathew", "what": "Another hamper", "kind": "gift",
-        "value": "6000", "occasion": "long service", "purpose": "Recognising the team."}).said
+        "value": "6000", "occasion": "long service", "purpose": "Recognising the team.", "quantity": "1"}).said
     ok("the preview warns them without disclosing the year",
        "over the annual limit" in said and "\u20b926,000" not in said, said)
 
@@ -5663,6 +5752,8 @@ def _checks() -> int:
         check_what_was_actually_given_is_what_counts()
     with fixtures():
         check_a_field_is_only_offered_to_whoever_it_is_for()
+    with fixtures():
+        check_a_recipient_list_can_be_uploaded()
     with fixtures():
         check_the_dashboard_is_its_charts()
     with fixtures():

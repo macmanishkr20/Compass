@@ -28,10 +28,19 @@ Every route is behind `require_user`, like the other 136.
 from __future__ import annotations
 
 import asyncio
+import io
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 
 from compass.businessfunctions import (
@@ -649,6 +658,168 @@ def _form_values(feature, form_id: str, body: FormBody) -> dict[str, str]:
         if len(value) > _VALUE_MAX:
             raise HTTPException(422, f"{key} is too long.")
     return {k: body.values.get(k, "") for k in declared}
+
+
+#: What an uploaded list may weigh, and how far down it is read. A
+#: spreadsheet is somebody's working file: it can have a title row, blank
+#: rows, and a second sheet nobody meant to send. Neither limit is a
+#: policy — they are the size at which "paste the names" stops being the
+#: better answer.
+UPLOAD_MAX_BYTES = 2 * 1024 * 1024
+UPLOAD_MAX_ROWS = 2000
+
+
+def _names_from_sheet(raw: bytes) -> list[str]:
+    """Every name in the first column of an .xlsx, in order.
+
+    The FIRST COLUMN and nothing else. A spreadsheet somebody keeps for
+    their own purposes has a column of names and six columns of whatever
+    else they were tracking, and guessing which of the others might also
+    be people is how a gift ends up recorded against a department name.
+    """
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    found: list[str] = []
+    for row in book[book.sheetnames[0]].iter_rows(
+            min_col=1, max_col=1, max_row=UPLOAD_MAX_ROWS, values_only=True):
+        cell = row[0]
+        if cell is None:
+            continue
+        text = str(cell).strip()
+        if text:
+            found.append(text)
+    book.close()
+    return found
+
+
+@router.post("/{function_id}/features/{feature_id}/forms/{form_id}/upload")
+async def read_recipient_file(
+    function_id: str,
+    feature_id: str,
+    form_id: str,
+    field: str = Query("", description="Which field of the form it is for"),
+    file: UploadFile = File(...),
+    user: str = Depends(require_user),
+) -> dict:
+    """Read a list of people out of a spreadsheet. Records nothing.
+
+    It parses and it answers; the names come back for the person to look
+    at and the form is submitted the same way a typed one is. An upload
+    that wrote straight to a record would be a list nobody read — and the
+    whole point of this screen is that somebody can see who the firm is
+    about to give two hundred hampers to.
+
+    Who may upload is the FIELD's own answer: the same `roles` that decide
+    whether the box is drawn decide whether it can be filled this way,
+    because a door beside a locked door is not a lock.
+    """
+    fn, feature, handler = registry.feature_of(function_id, feature_id)
+    if fn is None or feature is None or handler is None:
+        raise HTTPException(status_code=404, detail="No such feature.")
+    form = next((f for f in feature.forms if f.id == form_id), None)
+    if form is None:
+        raise HTTPException(status_code=404, detail="No such form.")
+    wanted = next((x for x in form.fields if x.id == field), None)
+    if wanted is None or wanted.kind != "names":
+        raise HTTPException(status_code=404,
+                            detail="That field does not take a list.")
+    roles = people.roles_of(user)
+    if wanted.roles and not (roles & set(wanted.roles)):
+        raise HTTPException(status_code=403, detail="That field is not yours.")
+
+    raw = await file.read(UPLOAD_MAX_BYTES + 1)
+    if len(raw) > UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"That file is over "
+                   f"{UPLOAD_MAX_BYTES // (1024 * 1024)}MB. A list of names "
+                   f"is a small file; something else is in this one.")
+
+    known, unknown, read = recipients_in(file.filename or "", raw)
+    return {
+        "field": field,
+        "names": known,
+        "unknown": unknown,
+        "read": read,
+        "said": _upload_said(file.filename or "the file", known, unknown),
+    }
+
+
+def recipients_in(filename: str, raw: bytes) -> tuple[list[str], list[str], int]:
+    """The people a file names: the ones Compass knows, and the ones it does not.
+
+    Separate from the route so it can be measured without a request, and
+    because what counts as a name in somebody's spreadsheet is a question
+    about spreadsheets rather than about HTTP.
+    """
+    name = filename.lower()
+    try:
+        if name.endswith((".xlsx", ".xlsm")):
+            found = _names_from_sheet(raw)
+        elif name.endswith((".csv", ".txt")):
+            found = [line.split(",")[0].strip()
+                     for line in raw.decode("utf-8", "replace").splitlines()
+                     ][:UPLOAD_MAX_ROWS]
+        else:
+            raise HTTPException(
+                status_code=415,
+                detail="Upload a spreadsheet (.xlsx) or a .csv. Anything "
+                       "else, paste the names instead.")
+    except HTTPException:
+        raise
+    except Exception as err:                        # noqa: BLE001
+        logger.warning("could not read %s: %s", filename, err)
+        raise HTTPException(
+            status_code=400,
+            detail="Compass could not read that file. If it opens in Excel, "
+                   "save it as .xlsx or .csv and try again.") from None
+
+    found = [text for text in found if text.strip()]
+    # A header is the commonest first row and is never a person. Dropped
+    # only when it says so, rather than by always skipping row one, which
+    # would quietly lose the first recipient of every list that has none.
+    if found and found[0].strip().lower() in _HEADERS:
+        found = found[1:]
+
+    known: list[str] = []
+    unknown: list[str] = []
+    seen: set[str] = set()
+    for person in found:
+        if person.lower() in seen:
+            continue
+        seen.add(person.lower())
+        (known if _looks_like_somebody(person) else unknown).append(person)
+    return known, unknown, len(found)
+
+
+#: First-row words that mean "this is a column heading", not a person.
+_HEADERS = frozenset({"name", "names", "recipient", "recipients", "employee",
+                      "employee name", "staff", "person", "full name"})
+
+
+def _looks_like_somebody(text: str) -> bool:
+    """Whether the directory or the register knows this name."""
+    from compass.businessfunctions.features import giftrequests
+
+    return bool(giftrequests.employee_named(text))
+
+
+def _upload_said(filename: str, known: list[str], unknown: list[str]) -> str:
+    """What the upload found, in a sentence somebody can act on."""
+    if not known and not unknown:
+        return (f"{filename} has no names in its first column. Compass reads "
+                f"the first column of the first sheet.")
+    said = f"{len(known)} name{'' if len(known) == 1 else 's'} from {filename}"
+    if unknown:
+        said += (f", and {len(unknown)} Compass does not know: "
+                 f"{', '.join(unknown[:4])}"
+                 + ("…" if len(unknown) > 4 else "")
+                 + ". Those are left out — check the spelling, or add them "
+                   "by hand.")
+    else:
+        said += ", all of them known."
+    return said
 
 
 @router.post("/{function_id}/features/{feature_id}/forms/{form_id}/preview")

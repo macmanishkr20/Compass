@@ -597,6 +597,16 @@ def _employee_named(name: str) -> str:
     return ""
 
 
+def employee_named(name: str) -> str:
+    """The employee id for a name as somebody typed it, or "".
+
+    Public because an upload has to know, before it writes anything,
+    whether the names in somebody's spreadsheet are people Compass can
+    record a gift against.
+    """
+    return _employee_named(name)
+
+
 def _known_names() -> list[str]:
     """Everybody a gift can be recorded against, as they are spelled."""
     seen: dict[str, str] = {}
@@ -1762,10 +1772,16 @@ class GiftRequests(Feature):
         if scope.period in rewardlens.closed_periods():
             return None, Outcome(ok=False, said=f"{scope.period} has been "
                                                 f"signed off.")
-        quantity = rewardlens.whole_rupees(values.get("quantity", "") or "1")
+        # REQUIRED, because Procurement orders this many from the vendor
+        # in their own system. A quantity nobody gave is a number somebody
+        # has to go back and ask for, which is the phone call this screen
+        # exists to stop.
+        quantity = rewardlens.whole_rupees(values.get("quantity", ""))
         if quantity is None or quantity < 1 or quantity > MOST_PER_ORDER:
             return None, Outcome(ok=False, said=f"How many? A whole number "
-                                                f"from 1 to {MOST_PER_ORDER}.")
+                                                f"from 1 to {MOST_PER_ORDER} "
+                                                f"— Procurement orders that "
+                                                f"many.")
 
         # The recipient is OPTIONAL, which is the whole change: the firm
         # buys two hundred hampers before it knows whose they are, and a

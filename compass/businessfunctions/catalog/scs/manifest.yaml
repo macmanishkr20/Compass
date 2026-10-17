@@ -237,8 +237,10 @@ features:
           - id: quantity
             label: How many
             kind: count
-            required: false
-            help: Leave it empty for one.
+            help: >-
+              Required. Procurement orders this many from the vendor, in
+              their own system, so a number nobody gave is a number
+              somebody has to go and ask for.
           - id: value
             label: What ONE costs
             kind: money
@@ -262,14 +264,16 @@ features:
               One name, or several separated by commas. Leave it empty if
               you do not know yet — they are named at distribution.
           - id: recipient_list
-            label: Or paste a list of recipients
+            label: Or upload the recipient list
             kind: names
             required: false
             roles: [service_line]
             help: >-
-              One name a line, or a column pasted straight out of a
-              spreadsheet. The firm buys two hundred hampers at a time and
-              the Service Line Approver is the one holding that list.
+              A spreadsheet, or names pasted a line at a time. Compass
+              reads the first column of the first sheet and shows you who
+              it found before anything is sent. The firm buys two hundred
+              hampers at a time and the Service Line Approver is the one
+              holding that list.
 
       - id: revise_list
         label: Change the recipient list

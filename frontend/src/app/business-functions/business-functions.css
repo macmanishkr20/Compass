@@ -1102,3 +1102,25 @@
   color: var(--bf-quiet, #8a8578);
   line-height: 1.45;
 }
+
+/* ── a list of people, uploaded or pasted ───────────────────────────── */
+.bf-names { display: grid; gap: 8px; }
+/* The real input sits invisibly over the button, so the control looks
+   like every other button here and still opens the file picker. */
+.bf-upload { position: relative; display: inline-flex; }
+.bf-upload input[type='file'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 0;
+  opacity: 0;
+  cursor: pointer;
+  padding: 0;
+  border: 0;
+}
+.bf-upload .bf-btn { pointer-events: none; }
+.bf-uploaded {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}

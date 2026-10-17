@@ -685,11 +685,52 @@ export class BusinessFunctions {
     return 3;
   }
 
+  /** What the last upload found, so the person can see it worked. */
+  readonly uploaded = signal<string>('');
+  readonly uploading = signal(false);
+
+  /** Read a spreadsheet into a names field.
+   *
+   *  The names land in the box rather than in a record, so somebody looks
+   *  at who the firm is about to give two hundred hampers to before it is
+   *  sent. Appended to whatever is already typed there, because an upload
+   *  that wiped the two names somebody had keyed in would be a surprise.
+   */
+  async uploadNames(fieldId: string, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const fn = this.current();
+    const form = this.openForm();
+    if (!file || !fn || !form) return;
+    this.uploading.set(true);
+    this.uploaded.set('');
+    try {
+      const got = await this.api.readNames(
+        fn.id, this.featureId(), form.id, fieldId, file);
+      const had = (this.entered()[fieldId] ?? '').trim();
+      const lines = got.names.join('\n');
+      this.setField(fieldId, had ? `${had}\n${lines}` : lines);
+      this.uploaded.set(got.said);
+      if (got.unknown.length) this.notice.error(got.said);
+      else this.notice.ok(got.said);
+    } catch (err) {
+      const said = (err as { error?: { detail?: string } })?.error?.detail
+        ?? String(err);
+      this.uploaded.set(said);
+      this.notice.error(said);
+    } finally {
+      this.uploading.set(false);
+      // So picking the same file twice in a row fires again.
+      input.value = '';
+    }
+  }
+
   closeForm(): void {
     this.openForm.set(null);
     this.formAbout.set('');
     this.entered.set({});
     this.previewed.set(null);
+    this.uploaded.set('');
   }
 
   /** Shut everything the screen being left had open.
