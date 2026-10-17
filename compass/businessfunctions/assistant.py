@@ -227,12 +227,12 @@ def _label_for(feature_id: str, row: dict[str, Any]) -> tuple[str, str]:
         if "source" in row:
             return row["source"], (f"{row['source']} · "
                                    f"{rupees(row.get('left', 0))} left")
-        if "taxable" in row:
-            # The payroll line: what leaves this function for payroll to
-            # process, and whether Finance has looked at it yet.
-            return row["employee_id"], (f"{row['recipient']} · "
-                                        f"{rupees(row['taxable'])} taxable · "
-                                        f"{row['status']}")
+        if "above_threshold" in row:
+            # The flagged line: who crossed, by how much, and whether
+            # Finance has seen it. Not a tax figure and never called one.
+            return row["employee_id"], (
+                f"{row['recipient']} · {rupees(row['received'])} received · "
+                f"{rupees(row['above_threshold'])} over · {row['status']}")
         return row["employee_id"], (f"{row['recipient']} · "
                                     f"{rupees(row['above_limit'])} above")
     if feature_id == "requests":

@@ -722,8 +722,10 @@ features:
     short: Referrals · thresholds · spend
     blurb: >-
       What compliance has sent to Finance, who is past the annual limit and
-      by how much, what payroll is handed at the year end, and the
-      allowance itself with every version it has had.
+      by how much, who the tax teams need to be told about, and the
+      threshold itself with every version it has had. It reports; it does
+      not assess — GST, perquisite and personal tax are the tax teams'
+      own, in their own systems.
       One allowance, the same for every employee whatever team they are in,
       because one team buys for the whole firm. The amount above the limit
       is reported; the tax treatment is Finance's own system's to decide.
@@ -772,7 +774,7 @@ features:
       - Who is past the limit?
       - What has been referred to Finance?
       - What is the allowance, and when did it change?
-      - What is going to payroll this year?
+      - Who has crossed the threshold this year?
 
     forms:
       - id: set_thresholds

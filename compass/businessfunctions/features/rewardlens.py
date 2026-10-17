@@ -129,26 +129,30 @@ def _address_for_employee(employee_id: str) -> str:
 #: notices until the year end.
 SEED: list[dict[str, Any]] = [
     # The worked example from the requirement: three gifts, three teams,
-    # ₹20,000 in total, nobody aware of the other two.
+    # ₹52,000 in total, nobody aware of the other two. Each is ordinary on
+    # its own; together they are past the ₹50,000 threshold, which is the
+    # whole problem this function exists to make visible.
     {"id": "G-2201", "employee_id": "E-1007", "recipient": "John Mathew",
-     "kind": "gift", "what": "Diwali hamper", "value": 8000, "given": "2026-10-12",
+     "kind": "gift", "what": "Diwali hamper", "value": 12000, "given": "2026-10-12",
      "source": "Procurement · Chennai", "channel": "procured", "acknowledged": True},
     {"id": "G-2238", "employee_id": "E-1007", "recipient": "John Mathew",
-     "kind": "voucher", "what": "Retail voucher", "value": 5000, "given": "2026-11-03",
+     "kind": "voucher", "what": "Retail voucher", "value": 14000, "given": "2026-11-03",
      "source": "Service line · Advisory", "channel": "procured", "acknowledged": True},
     {"id": "G-2290", "employee_id": "E-1007", "recipient": "John Mathew",
-     "kind": "award", "what": "Long service award", "value": 7000, "given": "2026-12-01",
+     "kind": "award", "what": "Long service award", "value": 26000, "given": "2026-12-01",
      "source": "People team", "channel": "procured", "acknowledged": False},
 
-    # The threshold example: 5,000 + 4,000 + 7,000 = 16,000.
+    # The near miss: 15,000 + 10,000 + 18,000 = 43,000, under by 7,000.
+    # Worth having, because a screen that only ever shows breaches teaches
+    # nobody what the ordinary case looks like.
     {"id": "G-2211", "employee_id": "E-1019", "recipient": "Priya Nair",
-     "kind": "gift", "what": "Festival box", "value": 5000, "given": "2026-10-14",
+     "kind": "gift", "what": "Festival box", "value": 15000, "given": "2026-10-14",
      "source": "Procurement · Bengaluru", "channel": "procured", "acknowledged": True},
     {"id": "G-2255", "employee_id": "E-1019", "recipient": "Priya Nair",
-     "kind": "gift", "what": "Client dinner gift", "value": 4000, "given": "2026-11-20",
+     "kind": "gift", "what": "Client dinner gift", "value": 10000, "given": "2026-11-20",
      "source": "Service line · Tax", "channel": "disclosed", "acknowledged": True},
     {"id": "G-2301", "employee_id": "E-1019", "recipient": "Priya Nair",
-     "kind": "award", "what": "Quarter award", "value": 7000, "given": "2026-12-09",
+     "kind": "award", "what": "Quarter award", "value": 18000, "given": "2026-12-09",
      "source": "People team", "channel": "procured", "acknowledged": True},
 
     {"id": "G-2240", "employee_id": "E-1033", "recipient": "Rahul Desai",

@@ -52,7 +52,11 @@ _store = Collection("bf_policy", "business_function_policy.json", shape="map")
 #: `at()` can answer for any record however old.
 SHIPPED: dict[str, Any] = {
     "version": 1,
-    "annual_limit": 15_000,
+    # ONE THRESHOLD, and it is a flag rather than a limit. The firm does
+    # not refuse a gift for crossing it: it records that somebody has, so
+    # the tax teams can pick that up in their own systems. ₹50,000 is the
+    # figure the business named.
+    "annual_limit": 50_000,
     "big": 10_000,
     "counts": ["gift", "award", "voucher"],
     "effective_from": 0.0,

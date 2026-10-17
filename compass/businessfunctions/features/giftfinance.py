@@ -118,24 +118,25 @@ def _taxable(scope: Scope) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: -r["above_limit"])
 
 
-def _payroll_rows(scope: Scope) -> list[dict[str, Any]]:
-    """What payroll is handed: one line per employee, for the year.
+def _flagged_rows(scope: Scope) -> list[dict[str, Any]]:
+    """Who has crossed the threshold this year, and by how much.
 
-    THE OUTPUT OF THE WHOLE FUNCTION. Everything upstream — the chain, the
-    register, the allowance, the referrals — exists so that this list is
-    true, and a firm that cannot produce it is the firm the requirement
-    describes: one that finds out at the year end, from a spreadsheet
-    somebody assembled by hand.
+    THE OUTPUT OF THE WHOLE FUNCTION, and the limit of its
+    responsibility. Everything upstream — the chain, the register, the
+    allocation, the acknowledgements — exists so that this list is true,
+    because the firm the requirement describes is one that finds out at
+    the year end from a spreadsheet somebody assembled by hand.
 
-    Payroll used to be a step in the chain, third of seven, confirming the
-    tax treatment of a single gift before it was bought. That is the wrong
-    end: what is taxable is a property of the recipient's YEAR, and the
-    third hamper is what takes somebody over, not the first. So this is
-    read once a year rather than signed off one gift at a time.
+    IT FLAGS; IT DOES NOT ASSESS. Nothing here is a tax figure. There is
+    no GST, no perquisite value, no rate and no liability, and the word
+    "taxable" does not appear on a row — the tool's job is the cumulative
+    value somebody received and whether it crossed the threshold, and the
+    treatment of that is the tax teams' own, in their own systems. A
+    column headed "taxable" is this module deciding tax by the back door,
+    which is the one thing the business put out of scope in writing.
 
-    The TAXABLE VALUE is the amount above the allowance. The amount, never
-    a rate — what payroll does with it is payroll's own system's to decide,
-    and a rate computed here would be this module deciding tax.
+    So: what they received, what the threshold was, how far past it they
+    are, and when they crossed. Four facts, no judgement.
     """
     out = []
     for row in rewardlens.totals(_firm(scope)):
@@ -146,20 +147,17 @@ def _payroll_rows(scope: Scope) -> list[dict[str, Any]]:
             "employee_id": row["employee_id"],
             "recipient": row["recipient"],
             "received": row["total"],
-            "allowance": row["limit"],
-            # The one number payroll acts on.
-            "taxable": row["excess"],
+            "threshold": row["limit"],
+            # How far past it. An amount, not an assessment.
+            "above_threshold": row["excess"],
             "items": row["items_counted"],
             "crossed_on": row["crossed_on"],
-            "status": ("Finance has recorded the treatment" if handled
+            "status": ("Finance has seen it" if handled
                        else "with Finance" if row["referred"]
                        else "not yet with Finance"),
-            # Said plainly, because a line payroll processes before Finance
-            # has looked at it is the sequence this function exists to end.
-            "ready": "yes" if handled else "no",
             "can": [],
         })
-    return sorted(out, key=lambda r: -r["taxable"])
+    return sorted(out, key=lambda r: -r["above_threshold"])
 
 
 def _thresholds(scope: Scope) -> list[dict[str, Any]]:
@@ -314,13 +312,13 @@ class GiftFinance(Feature):
             # figure every other one on this screen is measured against.
             Figure("allowance", rewardlens.rupees(rewardlens.limit()),
                    "allowed per employee, per year"),
-            # And what leaves for payroll. The figure the whole function
-            # exists to produce, so it is on the screen rather than only in
+            # What leaves this function: how many people the firm has to
+            # tell its tax teams about. On the screen rather than only in
             # a tab somebody has to find.
-            Figure("payroll",
-                   rewardlens.rupees(sum(r["taxable"]
-                                         for r in _payroll_rows(scope))),
-                   "taxable, for payroll to process"),
+            Figure("flagged", str(len(_flagged_rows(scope))),
+                   "flagged for the tax teams"
+                   if _flagged_rows(scope) else "nobody to flag",
+                   "warn" if _flagged_rows(scope) else "good"),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -332,7 +330,8 @@ class GiftFinance(Feature):
             Tab("taxable", "Past the limit", len(_taxable(scope))),
             # What leaves this function. Payroll's own tab, because payroll
             # is a reader here and not a desk in the chain.
-            Tab("payroll", "For payroll", len(_payroll_rows(scope))),
+            Tab("flagged", "Over the threshold",
+                len(_flagged_rows(scope)), key_field="employee_id"),
             # Visible to everybody who can read this screen: the rule you
             # are judged by is not a secret. Only `admin` can add to it.
             Tab("thresholds", "Thresholds", len(_thresholds(scope)),
@@ -344,8 +343,8 @@ class GiftFinance(Feature):
             return []
         if tab == "taxable":
             return _taxable(scope)
-        if tab == "payroll":
-            return _payroll_rows(scope)
+        if tab == "flagged":
+            return _flagged_rows(scope)
         if tab == "thresholds":
             return _thresholds(scope)
         return _referrals(scope)

@@ -216,10 +216,17 @@ def _team_spend(scope: Scope) -> list[dict[str, Any]]:
 
 
 def _notable(scope: Scope, above: int) -> list[dict[str, Any]]:
-    """Everybody whose year is past the watch level, biggest first."""
+    """Everybody whose year is past the threshold, biggest first.
+
+    `items_counted`, not `items`: the register's row has no `items` key,
+    so this raised the moment anybody actually crossed — and because
+    nothing in the fixture ever did, nothing caught it. The first person
+    in the firm to cross the threshold would have taken the whole
+    Dashboard down with them, which is the day it is most needed.
+    """
     return sorted(
         [{"employee_id": r["employee_id"], "recipient": r["recipient"],
-          "total": r["total"], "items": r["items"],
+          "total": r["total"], "items": r["items_counted"],
           "over_limit_by": r["excess"], "status": r["status"]}
          for r in rewardlens.totals(_firm(scope)) if r["total"] > above],
         key=lambda r: -r["total"])
@@ -300,7 +307,15 @@ class Oversight(Feature):
     # annual limit, which is the compliance line and lives in `policy`:
     # this is the "who is unusually expensive" watch level, and the two
     # being different numbers is deliberate.
-    NOTABLE = 50_000
+    #: Read from the rulebook rather than kept here. It WAS a second
+    #: number — a dashboard "watch level" of ₹50,000 sitting beside a
+    #: compliance limit of ₹15,000 — and two thresholds for one question
+    #: is one threshold too many: a reader seeing "3 over the limit" on
+    #: one screen and "0 past ₹50,000" on another cannot tell which is the
+    #: firm's rule. There is one, it is versioned, and it is ₹50,000.
+    @property
+    def NOTABLE(self) -> int:
+        return rewardlens.limit()
 
     def charts(self, scope: Scope) -> list[Chart]:
         """The four pictures leadership reads the position from.

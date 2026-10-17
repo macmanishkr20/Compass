@@ -837,38 +837,43 @@ def check_the_health_endpoint_advertises_the_section() -> None:
 def check_rewardlens_totals_a_person_not_a_purchase() -> None:
     """The arithmetic, against the worked example in the requirement.
 
-        John:   8,000 + 5,000 + 7,000 = 20,000   over a 15,000 limit by 5,000
-        Priya:  5,000 + 4,000 + 7,000 = 16,000   over by 1,000
+        John:   12,000 + 14,000 + 26,000 = 52,000  over the 50,000
+                                                   threshold by 2,000
+        Priya:  15,000 + 10,000 + 18,000 = 43,000  under it by 7,000
 
-    Both are written down in the document this was built from, which is why
-    they are the fixture: the numbers can be checked against something a
-    person wrote rather than against a recorded run.
+    The requirement's worked example, scaled to the threshold the business
+    actually named: three gifts from three teams, each unremarkable on its
+    own, and nobody aware of the other two until they are added up here.
+    Priya is the near miss, because a screen that only ever shows breaches
+    teaches nobody what the ordinary case looks like.
     """
     _, feat, h = registry.feature_of("scs", "register")
     s = as_("compliance", period="FY 2026-27")
     by_name = {r["recipient"]: r for r in h.rows(s, "all")}
 
     john = by_name.get("John Mathew")
-    ok("John's three gifts come to 20,000", john and john["total"] == 20000,
+    ok("John's three gifts come to 52,000", john and john["total"] == 52000,
        str(john and john["total"]))
-    ok("which is 5,000 over the limit", john and john["excess"] == 5000,
+    ok("which is 2,000 past the threshold", john and john["excess"] == 2000,
        str(john and john["excess"]))
-    ok("and he is flagged over", john and john["over_limit"])
+    ok("and he is flagged", john and john["over_limit"])
 
     priya = by_name.get("Priya Nair")
-    ok("Priya's three come to 16,000", priya and priya["total"] == 16000,
+    ok("Priya's three come to 43,000", priya and priya["total"] == 43000,
        str(priya and priya["total"]))
-    ok("over by 1,000", priya and priya["excess"] == 1000)
+    ok("which is under it, so she is not flagged",
+       priya and priya["excess"] == 0 and not priya["over_limit"],
+       str(priya and priya["excess"]))
 
     vikram = by_name.get("Vikram Rao")
     ok("somebody inside the limit has headroom, not an excess",
-       vikram and vikram["excess"] == 0 and vikram["headroom"] == 12500,
+       vikram and vikram["excess"] == 0 and vikram["headroom"] == 47500,
        str(vikram and (vikram["excess"], vikram["headroom"])))
 
     # A limit that silently omits a category is worse than one that says what
     # it covers. Hospitality is recorded against John and left out of his total.
     ok("hospitality is recorded but not counted",
-       john and "hospitality" in john["not_counted"] and john["total"] == 20000,
+       john and "hospitality" in john["not_counted"] and john["total"] == 52000,
        str(john and john["not_counted"]))
 
     ok("the row is a person, not a purchase",
@@ -917,8 +922,12 @@ def check_nobody_clears_their_own_breach() -> None:
        not h.act(mine, "record_exception", ["E-1041"]).ok)
     ok("they can still act on somebody else",
        h.act(mine, "refer_to_finance", ["E-1007"]).ok)
-    ok("and somebody else can act on them",
-       h.act(others, "refer_to_finance", ["E-1041"]).ok)
+    # ...when there is something to refer. Manish is comfortably under the
+    # threshold, so the refusal names the headroom rather than acting.
+    ok("and somebody else is not stopped by the conflict rule",
+       "inside the limit" in h.act(others, "refer_to_finance",
+                                   ["E-1041"]).said,
+       h.act(others, "refer_to_finance", ["E-1041"]).said)
 
 
 def check_a_referral_is_one_person_at_a_time() -> None:
@@ -932,7 +941,8 @@ def check_a_referral_is_one_person_at_a_time() -> None:
        o.said)
     first = h.act(s, "refer_to_finance", ["E-1007"])
     ok("one over the limit succeeds, naming the figures",
-       first.ok and "₹20,000" in first.said and "₹5,000" in first.said, first.said)
+       first.ok and "₹52,000" in first.said and "₹2,000" in first.said,
+       first.said)
     ok("referring the same person twice is refused",
        not h.act(s, "refer_to_finance", ["E-1007"]).ok)
     ok("chasing somebody with nothing outstanding is refused",
@@ -1172,14 +1182,14 @@ def check_a_bulk_order_becomes_people() -> None:
 
 
 def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
-    """What is taxable is a property of a YEAR, not of a purchase.
+    """The tool FLAGS a crossing; it never assesses one.
 
     Payroll was third of seven in the chain, confirming the tax treatment
-    of one gift before it was bought. That is the wrong end: the third
-    hamper is what takes somebody over, not the first, and nobody can
-    answer "is this taxable" at the point of purchase. So payroll is not a
-    desk here at all — it reads the employee-level taxable position once a
-    year and processes it in its own system.
+    of one gift before it was bought. That is the wrong end twice over:
+    the third hamper is what takes somebody over, not the first, and the
+    treatment is not this tool's to decide at all. Tax is out of scope in
+    writing — so what leaves here is who crossed the threshold and by how
+    much, and the tax teams do the rest in their own systems.
     """
     ok("payroll is not a stage in the chain",
        "payroll_tax" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
@@ -1195,28 +1205,29 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
 
     # What they get instead.
     _, _f, fin = registry.feature_of("scs", "finance")
-    rows = fin.rows(_fin(), "payroll")
-    ok("payroll gets a line per employee who is over", rows, str(len(rows)))
+    rows = fin.rows(_fin(), "flagged")
+    ok("there is a line per employee who crossed", rows, str(len(rows)))
     for row in rows:
-        ok(f"{row['employee_id']}: the taxable value is the amount above the "
-           f"allowance",
-           row["taxable"] == row["received"] - row["allowance"],
-           f"{row['received']} - {row['allowance']} != {row['taxable']}")
-        ok(f"{row['employee_id']}: and it says whether Finance has looked yet",
-           row["ready"] in ("yes", "no"), row["ready"])
-    ok("nobody within their allowance is on it",
-       all(r["taxable"] > 0 for r in rows))
+        ok(f"{row['employee_id']}: how far over is received minus threshold",
+           row["above_threshold"] == row["received"] - row["threshold"],
+           f"{row['received']} - {row['threshold']} != {row['above_threshold']}")
+        ok(f"{row['employee_id']}: and it says whether Finance has seen it",
+           "Finance" in row["status"], row["status"])
+    ok("nobody under the threshold is on it",
+       all(r["above_threshold"] > 0 for r in rows))
 
-    # It is a rupee amount and never a rate: what to do with it is
-    # payroll's own system's to decide.
+    # TAX IS OUT OF SCOPE, in writing. Nothing here may read as an
+    # assessment: no rate, and not even the word.
     ok("no rate is computed anywhere on it",
        not any("%" in str(v) for r in rows for v in r.values()), str(rows[:1]))
+    ok("and nothing on a row calls itself taxable",
+       not any("tax" in str(k).lower() or "tax" in str(v).lower()
+               for r in rows for k, v in r.items()), str(rows[:1]))
 
-    # And the figure is on the screen, not only in a tab.
-    figure = next(f for f in fin.figures(_fin()) if f.key == "payroll")
-    ok("the screen says what is leaving for payroll",
-       figure.value == rl_mod.rupees(sum(r["taxable"] for r in rows)),
-       figure.value)
+    # And the count is on the screen, not only in a tab.
+    figure = next(f for f in fin.figures(_fin()) if f.key == "flagged")
+    ok("the screen says how many the tax teams are being told about",
+       figure.value == str(len(rows)), figure.value)
 
 
 def check_the_tracker_issues_the_reference_and_emails_it() -> None:
@@ -2083,9 +2094,9 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
 
     said = h.preview(admin, "disclose", entry).said
     ok("the preview gives the resulting total, not the entry",
-       "₹16,000" in said and "₹15,000" in said, said)
-    ok("and says that this is the one that crosses",
-       "takes you over" in said, said)
+       "₹16,000" in said and "₹50,000" in said, said)
+    ok("and says how much room is left, since this one does not cross",
+       "inside the limit" in said, said)
     ok("previewing changed nothing",
        [r["total"] for r in h.rows(admin, "all") if r["employee_id"] == "E-1052"] == [12000])
 
@@ -3595,10 +3606,13 @@ def check_the_trail_says_who_and_when() -> None:
     """An audit trail with no name or time on it is a list of rumours."""
     _, _f, h = registry.feature_of("scs", "register")
     c = as_("compliance")
-    h.act(c, "refer_to_finance", ["E-1019"])
+    # Both on John: he is the one past the threshold, so he is the one
+    # there is anything to refer about, and he has a gift nobody has
+    # confirmed receiving.
+    h.act(c, "refer_to_finance", ["E-1007"])
     h.act(c, "chase_acknowledgement", ["E-1007"])
 
-    for subject, kind in (("E-1019", "referred"), ("E-1007", "chased")):
+    for subject, kind in (("E-1007", "referred"), ("E-1007", "chased")):
         event = ledger.latest(subject, kind)
         ok(f"{kind} is on the trail", event is not None)
         ok(f"{kind} names who did it", event and event["by"] == "compliance")
@@ -3843,8 +3857,8 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
 
     said = h.preview(asking, "request_gift", watch).said
     ok("the preview adds it to what he already has",
-       "\u20b926,000" in said, said)
-    ok("and says how far over that is", "\u20b911,000 over" in said, said)
+       "\u20b958,000" in said, said)
+    ok("and says how far over that is", "\u20b98,000 over" in said, said)
     ok("but does not refuse it — somebody senior decides knowingly",
        "cannot be approved" not in said, said)
 
@@ -4467,11 +4481,14 @@ def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:
             ok(f"{c.key}: every slice says what it is worth", sl.said,
                str(sl))
 
-    ok("the watch level is not the compliance limit",
-       h.NOTABLE != rl_mod.limit(), str(h.NOTABLE))
-    ok("and the caption says which is which",
-       "compliance limit" in next(c.caption for c in charts
-                                  if c.key == "notable"))
+    # ONE THRESHOLD. It was two — a dashboard "watch level" of ₹50,000
+    # beside a compliance limit of ₹15,000 — and two numbers for one
+    # question meant a reader seeing "3 over the limit" on one screen and
+    # "0 past ₹50,000" on another could not tell which was the firm's rule.
+    ok("the dashboard watches the one threshold the rulebook holds",
+       h.NOTABLE == rl_mod.limit(), f"{h.NOTABLE} vs {rl_mod.limit()}")
+    ok("and moving the rulebook moves the dashboard with it",
+       h.NOTABLE == policy.limit(), f"{h.NOTABLE} vs {policy.limit()}")
 
     # Nobody who cannot read the screen gets charts off it either.
     for who in ("finance", "enduser", "procurement"):
@@ -4673,7 +4690,7 @@ def check_only_the_administrator_moves_a_threshold() -> None:
     ok("and the refusal says whose it is",
        "Administrator" in h.submit(_fin("finance"), form, asking).said)
     ok("the limit did not move",
-       policy.current()["annual_limit"] == 15_000,
+       policy.current()["annual_limit"] == 50_000,
        str(policy.current()["annual_limit"]))
 
     ok("the administrator must say why",
@@ -4687,7 +4704,7 @@ def check_only_the_administrator_moves_a_threshold() -> None:
 
     said = h.preview(_fin("admin"), form, asking).said
     ok("the preview says what would change",
-       "\u20b915,000" in said and "\u20b920,000" in said, said)
+       "\u20b950,000" in said and "\u20b920,000" in said, said)
     ok("and that it does not reach back",
        "stays judged by v1" in said or "already recorded" in said, said)
 
@@ -4704,7 +4721,7 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
     before = policy.current()
     ok("it starts on the version it shipped with", before["version"] == 1)
     ok("at the limit the module was built against",
-       before["annual_limit"] == 15_000)
+       before["annual_limit"] == 50_000)
 
     was_at = time.time()
     time.sleep(0.01)
@@ -4718,9 +4735,9 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
        str([v["version"] for v in policy.versions()]))
     ok("the new rule is in force now", policy.limit() == 20_000)
     ok("and the OLD rule still answers for the moment it governed",
-       policy.limit(was_at) == 15_000, str(policy.limit(was_at)))
+       policy.limit(was_at) == 50_000, str(policy.limit(was_at)))
     ok("v1 is untouched",
-       policy.version(1)["annual_limit"] == 15_000)
+       policy.version(1)["annual_limit"] == 50_000)
     ok("the version says who moved it", fresh["by"] == "admin")
     ok("and why", "Board raised it" in fresh["why"])
     ok("it takes effect from the moment it was set, not retrospectively",
@@ -4751,7 +4768,7 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
     ok("both versions are on the screen", len(shown) == 2, str(len(shown)))
     ok("newest first", shown[0]["version"] == "v2")
     ok("and it says what that version changed",
-       "15,000" in shown[0]["changed"] and "20,000" in shown[0]["changed"],
+       "50,000" in shown[0]["changed"] and "20,000" in shown[0]["changed"],
        shown[0]["changed"])
     ok("the shipped one says so", "as shipped" in shown[1]["changed"])
     ok("everybody who can read the screen can read the rule",
@@ -4769,7 +4786,7 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
        str(policy.limit()))
     ok("with both versions still there", len(policy.versions()) == 2)
     ok("and v1 still answering for what it governed",
-       policy.version(1)["annual_limit"] == 15_000)
+       policy.version(1)["annual_limit"] == 50_000)
 
 
 def check_a_moved_threshold_judges_only_what_comes_after() -> None:
@@ -4782,18 +4799,18 @@ def check_a_moved_threshold_judges_only_what_comes_after() -> None:
     ok("somebody is over the limit under v1", over, "nobody is over")
     person = over[0]
     ok("and the screen says by how much",
-       person["excess"] == person["total"] - 15_000,
+       person["excess"] == person["total"] - 50_000,
        f"{person['excess']} vs {person['total']} - 15000")
 
     h.submit(_fin("admin"), "set_thresholds",
-             {"annual_limit": "40000", "why": "Raised well above everybody."})
+             {"annual_limit": "90000", "why": "Raised well above everybody."})
     ok("under the new rule the same person is inside it",
        not next(r for r in bench.rows(seen, "all")
                 if r["employee_id"] == person["employee_id"])["over_limit"])
 
     # The judgement that was MADE under v1 is still on the trail, unchanged.
     ok("but what was recorded under the old rule is still recorded",
-       policy.version(1)["annual_limit"] == 15_000)
+       policy.version(1)["annual_limit"] == 50_000)
     ok("and the trail still says the referral happened",
        any(e["kind"] in ("referred", "excepted") for e in ledger.events())
        or True)
@@ -5153,9 +5170,8 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
     tabs = [t.key for t in h.tabs(_fin())]
     ok("Tax & budget no longer has a team budgets tab",
        "budgets" not in tabs, str(tabs))
-    ok("it reports referrals, who is past the limit, what payroll gets, "
-       "and the rule itself",
-       tabs == ["referred", "taxable", "payroll", "thresholds"], str(tabs))
+    ok("it reports referrals, who is past it, who is flagged, and the rule",
+       tabs == ["referred", "taxable", "flagged", "thresholds"], str(tabs))
 
     ok("the rulebook holds no team budgets",
        "budgets" not in policy.current(), str(sorted(policy.current())))

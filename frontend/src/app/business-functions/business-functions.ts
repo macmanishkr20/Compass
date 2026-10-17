@@ -1046,13 +1046,17 @@ export class BusinessFunctions {
       const tab = this.feature()?.tab;
       // What leaves the function. The taxable amount is the column payroll
       // acts on, so it is the one that reads as a figure.
-      if (tab === 'payroll') {
+      if (tab === 'flagged') {
+        // What the firm tells its tax teams: what somebody received, what
+        // the threshold was, and how far past it they are. No column here
+        // is a tax figure, because none of this is a tax judgement.
         return [
           { key: 'employee_id', label: 'Employee' },
           { key: 'recipient', label: 'Person' },
           { key: 'received', label: 'Received', numeric: true },
-          { key: 'allowance', label: 'Allowance', numeric: true },
-          { key: 'taxable', label: 'Taxable', numeric: true },
+          { key: 'threshold', label: 'Threshold', numeric: true },
+          { key: 'above_threshold', label: 'Over by', numeric: true },
+          { key: 'crossed_on', label: 'Crossed on' },
           { key: 'status', label: 'Finance' },
         ];
       }
