@@ -1220,23 +1220,24 @@ def _day(when: float) -> str:
 def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
     """Whether this request is sitting in THIS person's queue.
 
-    The six stages that are a CONTROL are routed by PERSONA: the stage has
-    to be owned by one the person holds, it must not be a request they
+    The three stages that are a CONTROL are routed by PERSONA: the stage
+    has to be owned by one the person holds, it must not be a request they
     raised, and it must not be a gift to them.
 
-    The two that are not controls are routed by IDENTITY instead, and the
-    persona gate does not apply to them at all — being one named person is
-    already narrower than holding a role:
+    The last two are not controls and are routed by IDENTITY instead, with
+    the persona gate relaxed — being one named person is already narrower
+    than holding a role:
 
-      * DISTRIBUTION is whoever RAISED it. They handed it over, so they are
-        the only one who can say what was actually given and where it
-        differed. Anybody may raise a request — a Business Requester whose
-        job it is, or an employee who wants to thank somebody — so gating
-        this on the `requester` persona stranded every request an ordinary
-        employee raised: five desks signed it off and then nobody on earth
-        could record the distribution.
-      * ACKNOWLEDGEMENT is whoever it is FOR. Confirming you received
-        something is not deciding your own case.
+      * DISTRIBUTION is Operations / SPOC, who have the boxes, OR whoever
+        raised the order, who handed it over. Both happen, and the second
+        is why the persona alone will not do: anybody may raise a request
+        — a Business Requester whose job it is, or an employee who wants
+        to thank somebody — so gating this on a role stranded every
+        request an ordinary employee raised, with every desk signed off
+        and nobody on earth able to record the distribution.
+      * ACKNOWLEDGEMENT is whoever was ALLOCATED one, not whoever the
+        request named. Confirming you received something is not deciding
+        your own case.
     """
     if stage == "distribution":
         # OPERATIONS HANDS THINGS OUT, and so may whoever raised it. Both,
