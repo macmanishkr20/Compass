@@ -119,11 +119,12 @@ features:
     short: Ask · check · sign off · give
     blurb: >-
       The chain, from asking to closing. A request sits with exactly one
-      team at a time — Service Line, Finance, Procurement, Accounts
-      Payable, then back to the requester to allocate and hand over, and
-      to each recipient to confirm. Payroll is not a step: what is taxable
-      is a property of somebody's year, not of a purchase, so it is read
-      once a year on Tax & budget.
+      team at a time — Service Line, Finance, Procurement, then
+      Operations and the requester to allocate and hand over, and each
+      recipient to confirm what they were given. Neither Payroll nor
+      Accounts Payable is a step: nothing here raises, orders or pays for
+      anything, and what is taxable is a property of somebody's year
+      rather than of a purchase, so it is read on Tax & budget.
     handler: gift_requests
     scope: [period]
     choices:

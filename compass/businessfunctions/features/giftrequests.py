@@ -1051,8 +1051,16 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "last_step": (stage_label(done[-1].get("stage", "")).lower()
                           if done and done[-1].get("stage") in STAGES else "—"),
             "last_by": done[-1]["by"] if done else "—",
-            "waiting_days": max(0, int((time.time() - at) // 86_400))
-                            if stage not in ENDED else 0,
+            # NO MOMENT MEANS NO WAIT. Aged from `at`, and a request that
+            # carries none — the seeds a fresh deployment starts with are
+            # `at: 0.0` — aged from the epoch and reported 20,744 days.
+            # A queue claiming something has been waiting fifty-six years
+            # is a queue nobody reads the rest of, and the figure it feeds
+            # ("something has been waiting too long") fired on every empty
+            # deployment. Guarded the way `oversight._days_since` already
+            # guards it.
+            "waiting_days": (max(0, int((time.time() - at) // 86_400))
+                             if at and stage not in ENDED else 0),
             "acknowledged_on": row["acknowledged_on"],
             # The chain's own answer about what this desk may do, carried
             # through rather than worked out again. The Tracker is where

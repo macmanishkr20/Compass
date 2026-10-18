@@ -4157,6 +4157,42 @@ def check_policy_blocks_where_tax_only_warns() -> None:
        == "service_line")
 
 
+def check_a_queue_does_not_age_from_the_epoch() -> None:
+    """A request with no recorded moment has not been waiting since 1970.
+
+    The seeds a fresh deployment starts with carry `at: 0.0`, and the
+    Tracker aged from it: every empty deployment opened on a queue saying
+    something had been waiting 20,744 days, and the "waiting too long"
+    finding fired on fixtures nobody had touched. A figure that absurd is
+    not a cosmetic problem — it is the one that makes a reader stop
+    believing the rest of the screen.
+    """
+    # The TRACKER is where the column is drawn, so the Tracker is what is
+    # measured — the requests screen never carried this field.
+    rows = {r["id"]: r for r in _desk("servicelead", "orders")}
+    seen = 0
+    for seed in gr_mod.SEED:
+        row = rows.get(seed["id"])
+        if row is None:
+            continue
+        seen += 1
+        ok(f"{seed['id']}: carries no moment to age from",
+           not seed.get("at"), str(seed.get("at")))
+        ok(f"{seed['id']}: so it has been waiting no days",
+           row["waiting_days"] == 0, str(row["waiting_days"]))
+    ok("the seeded requests are on the Tracker to be measured at all",
+       seen == len(gr_mod.SEED), f"{seen} of {len(gr_mod.SEED)}")
+
+    # And one that DOES carry a moment is still aged, so the guard did not
+    # quietly turn the column off for everybody.
+    fresh = _ask(what="Something new", value="3000")
+    row = _order("servicelead", fresh)
+    ok("a request raised just now has been waiting no days either",
+       row["waiting_days"] == 0, str(row["waiting_days"]))
+    ok("but it is aged from its own moment, not from nothing",
+       next(r for r in ledger.requests() if r["id"] == fresh)["at"] > 0)
+
+
 def check_the_two_thresholds_do_different_jobs() -> None:
     """One is about tax, one is about governance, and they are not the same
     number any more.
@@ -5960,6 +5996,8 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_a_queue_does_not_age_from_the_epoch()
     with fixtures():
         check_the_two_thresholds_do_different_jobs()
     with fixtures():

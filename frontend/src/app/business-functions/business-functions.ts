@@ -753,8 +753,21 @@ export class BusinessFunctions {
     this.aimed.set(new Set());
   }
 
-  setField(id: string, value: string): void {
-    this.entered.update((v) => ({ ...v, [id]: value }));
+  setField(id: string, value: unknown): void {
+    // COERCED HERE, once, because the controls do not all hand back a
+    // string. `<input type="number">` gives ngModel a NUMBER, and
+    // `entered` is a Record<string, string> that everything downstream
+    // trims — so one quantity typed into "How many" made `formReady`
+    // throw on `.trim()`, change detection died, and both of the form's
+    // buttons stayed disabled for ever. The form could not be submitted
+    // at all, which is the whole point of the screen.
+    //
+    // TypeScript could not catch it: `$event` out of a template is `any`,
+    // so the declared `string` was a promise the compiler never checked.
+    // The gate is this function rather than every reader of the signal,
+    // because there is one writer and a dozen readers.
+    const text = value === null || value === undefined ? '' : String(value);
+    this.entered.update((v) => ({ ...v, [id]: text }));
     // What they were told no longer describes what is in the boxes.
     this.previewed.set(null);
   }
