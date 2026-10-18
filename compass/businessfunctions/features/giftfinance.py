@@ -227,8 +227,8 @@ class GiftFinance(Feature):
                      "every gift that comes after it, which is the one "
                      "change nobody should be able to make quietly.")
         changes: dict[str, Any] = {}
-        for field, label in (("annual_limit", "the annual limit"),
-                             ("big", "the single-gift threshold")):
+        for field, label in (("annual_limit", "the cumulative annual limit"),
+                             ("big", "the tax-free limit per gift")):
             raw = values.get(field, "").strip()
             if not raw:
                 continue

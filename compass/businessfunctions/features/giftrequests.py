@@ -108,8 +108,20 @@ DISTRIBUTOR = "operations"
 MODES = ("in person", "at an event", "by courier", "sent digitally")
 
 
-def BIG_now() -> int:
+def TAX_FREE_now() -> int:
+    """The per-gift tax-free limit in force. Above it a gift is TAXABLE —
+    which is a fact recorded about the gift, not a gate in front of it."""
     return policy.big()
+
+
+#: Above this, a CLIENT COURTESY is a conversation rather than a form.
+#: Its own number, deliberately not the tax-free limit: those were the same
+#: figure by accident, and when the tax-free limit came down to ₹5,000 the
+#: courtesy rule would have silently started refusing two thirds of what it
+#: used to allow. One is about what a gift costs the recipient in tax; the
+#: other is about who the firm is giving to. They move for different
+#: reasons, so they are different constants.
+CONVERSATION_ABOVE = 10_000
 
 #: Two requests waiting on a fresh deployment, written only into an empty
 #: queue. The second is the whole argument of the requirement in one row: a
@@ -464,17 +476,27 @@ def _policy_check(request: dict[str, Any]) -> dict[str, Any]:
     if request["kind"] == "hospitality":
         return {"ok": False,
                 "said": "hospitality is not requested through this yet"}
-    if request["occasion"] == "client courtesy" and request["value"] > BIG_now():
+    if (request["occasion"] == "client courtesy"
+            and request["value"] > CONVERSATION_ABOVE):
         return {"ok": False,
-                "said": f"client courtesy above {rewardlens.rupees(BIG_now())} "
-                        f"needs a conversation, not a form"}
+                "said": f"client courtesy above "
+                        f"{rewardlens.rupees(CONVERSATION_ABOVE)} needs a "
+                        f"conversation, not a form"}
     if request["for"] and request["for"] == request["by_employee"]:
         return {"ok": False, "said": "you cannot request a gift for yourself"}
-    if request["value"] > BIG_now():
+    if request["value"] > TAX_FREE_now():
+        # NOT a refusal and not a different approver. Above the tax-free
+        # limit a gift is taxable, which is something the tax teams act on
+        # offline; the order carries on down the chain exactly as it would
+        # have. Said here so it is on the row and on the trail rather than
+        # discovered by somebody reconciling at the year end.
         return {"ok": True,
-                "said": f"over {rewardlens.rupees(BIG_now())}, so compliance "
-                        f"approves rather than a line manager"}
-    return {"ok": True, "said": "within policy"}
+                "said": f"above the {rewardlens.rupees(TAX_FREE_now())} "
+                        f"tax-free limit, so this gift is taxable — the "
+                        f"tax teams' own to work out, not Compass's"}
+    return {"ok": True,
+            "said": f"within policy, and inside the "
+                    f"{rewardlens.rupees(TAX_FREE_now())} tax-free limit"}
 
 
 def intended_list(request_id: str) -> list[str]:
@@ -1248,12 +1270,22 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
 
     can: list[str] = []
 
-    # The exception branch. A blocked order is not a dead end: whoever is
+    # The exception branch. A flagged order is not a dead end: whoever is
     # holding it may ask Finance to take responsibility for it, and
-    # Finance may grant that or refuse it. Offered only while it IS
-    # blocked and nobody has decided yet, because an exception to a rule
+    # Finance may grant that or refuse it. Offered only while something IS
+    # biting and nobody has decided yet, because an exception to a rule
     # that is not biting is not an exception.
-    if (verdict["blocked"] and exception_on(request["id"]) is None
+    #
+    # TWO ROUTES PAST THE CUMULATIVE THRESHOLD, which is what the business
+    # asked for: a sign-off made knowingly, or an exception somebody puts
+    # their name to. A crossing used to offer only the first — the signer
+    # could wave it through on their own authority but could not escalate
+    # it, so the desk that wanted cover for an ordinary ₹6,000 watch that
+    # happened to take somebody past ₹50,000 had nowhere to go but out of
+    # Compass. `warns` is that crossing; `blocked` is a rule that refuses
+    # outright. Both are things Finance can be asked to own.
+    if ((verdict["blocked"] or verdict["warns"])
+            and exception_on(request["id"]) is None
             and not ledger.happened(request["id"], "exception_refused")):
         if mine_to_sign(scope, request, stage) or request["by"] == scope.user:
             can.append("request_exception")
@@ -1589,7 +1621,7 @@ class GiftRequests(Feature):
             if ledger.happened(row["id"], "exception_refused"):
                 return Outcome(ok=False, said="Finance has already refused an "
                                               "exception on this one.")
-            if not row["blocked"]:
+            if not (row["blocked"] or row["warns"]):
                 return Outcome(
                     ok=False,
                     said="Nothing is blocking this, so there is no exception "
@@ -1631,12 +1663,20 @@ class GiftRequests(Feature):
                          value=request["value"])
         told = self._tell_the_asker(scope, row, request, granted=True,
                                     note=note.strip())
+        # What granting actually CHANGED depends on which rule was biting.
+        # A blocked order could not be signed off and now can; a crossing
+        # could always be signed off, and what it gains is somebody other
+        # than the signer carrying it. Saying "it can now be signed off"
+        # about the second would be telling the reader they had been
+        # stopped by something that never stopped them.
+        now = (" — and it can now be signed off" if row["blocked"]
+               else " — and the crossing is yours rather than the "
+                    "signer's")
         return Outcome(
             ok=True,
-            said=f"Exception granted, in your name. {row['policy']} — and it "
-                 f"can now be signed off. The rule stays on the record "
-                 f"alongside your decision; neither replaces the other. "
-                 f"{told}",
+            said=f"Exception granted, in your name. {row['policy']}{now}. "
+                 f"The rule stays on the record alongside your decision; "
+                 f"neither replaces the other. {told}",
             touched=[row["id"]])
 
     def _tell_the_asker(self, scope: Scope, row: dict[str, Any],
@@ -1670,12 +1710,14 @@ class GiftRequests(Feature):
                   f"({request['quantity']} \u00d7 {request['what']}).\n\n"
                   f"Their reason: {note}\n\n"
                   f"The rule that was biting: {row['policy']}\n\n"
-                  + ("The order can now be signed off and carries on down "
-                     "the chain. The rule stays on the record alongside the "
-                     "decision; neither replaces the other."
+                  + ("The order carries on down the chain, and the "
+                     "decision is Finance's rather than the signing desk's. "
+                     "The rule stays on the record alongside it; neither "
+                     "replaces the other."
                      if granted else
-                     "The order stays blocked. It can be sent back for a "
-                     "smaller amount, or closed.")),
+                     "Nothing has moved. A rule that refuses leaves the "
+                     "order blocked; a crossing still needs a sign-off made "
+                     "knowingly, by whoever holds it.")),
             about=row["id"])
         if notice.state == "held":
             return f"{notice.name} was not told: {notice.detail}."

@@ -810,9 +810,9 @@ features:
         label: Set thresholds
         submit_label: Put it in force
         blurb: >-
-          The annual limit and the single-gift threshold every request is
-          judged against. Leave a field empty to keep it as it is. "What
-          would this do?" shows the change before anything moves.
+          The cumulative annual limit and the per-gift tax-free limit every
+          request is judged against. Leave a field empty to keep it as it
+          is. "What would this do?" shows the change before anything moves.
         confirm: >-
           Puts a NEW VERSION in force from this moment. Nothing already
           recorded changes: a gift inside the limit on the day it was given
@@ -820,17 +820,23 @@ features:
           the audit trail with your name and your reason.
         fields:
           - id: annual_limit
-            label: Annual limit per person
-            kind: money
-            required: false
-            help: Past this, Finance decides the tax treatment.
-          - id: big
-            label: Single-gift threshold
+            label: Cumulative annual limit per person
             kind: money
             required: false
             help: >-
-              Above this, one gift needs compliance rather than a line
-              manager, whatever the running total says.
+              Every gift in the year added together. Past this, an order
+              needs either a sign-off made knowingly or an exception
+              somebody puts their name to — and compliance is told the day
+              it crosses.
+          - id: big
+            label: Tax-free limit per gift
+            kind: money
+            required: false
+            help: >-
+              At or below this, a gift is tax-free. Above it, the gift is
+              taxable and is marked as such — what that means for the
+              recipient is the tax teams' own work, offline. Not a gate:
+              nothing is refused or re-routed for being above it.
           - id: why
             label: Why are you changing it?
             kind: text

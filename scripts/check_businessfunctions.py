@@ -3950,7 +3950,7 @@ def check_an_exception_decision_reaches_whoever_asked() -> None:
     ok("and the decision itself", "refused" in told[0].subject.lower(),
        told[0].subject)
     ok("and what it means for the order",
-       "stays blocked" in told[0].body, told[0].body[-120:])
+       "Nothing has moved" in told[0].body, told[0].body[-140:])
     ok("the order is still blocked", row("requester", rid)["blocked"])
 
     # The other way, on a fresh order.
@@ -4155,6 +4155,121 @@ def check_policy_blocks_where_tax_only_warns() -> None:
     ok("so it never reaches the next desk",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
        == "service_line")
+
+
+def check_the_two_thresholds_do_different_jobs() -> None:
+    """One is about tax, one is about governance, and they are not the same
+    number any more.
+
+    ₹5,000 PER GIFT is the tax-free limit: at or below it a gift is
+    tax-free, above it the gift is taxable. That is a FACT RECORDED about
+    the gift and nothing else — no refusal, no different approver, no
+    arithmetic. What taxable means for the recipient is the tax teams' own
+    work, offline, which is the business's own scope decision.
+
+    ₹50,000 CUMULATIVE is the governance threshold: every gift in the year
+    added together, and past it an order needs either a sign-off made
+    knowingly or an exception somebody puts their name to.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    asking = _req()
+    said = lambda **over: h.preview(asking, "request_gift", dict(
+        {"recipient": "Vikram Rao", "what": "Hamper", "kind": "gift",
+         "value": "3000", "occasion": "festival", "quantity": "1",
+         "purpose": "Thanking the team."}, **over)).said
+
+    ok("the tax-free limit is the ₹5,000 the business named",
+       policy.big() == 5_000, str(policy.big()))
+    ok("the cumulative limit is ₹50,000", policy.limit() == 50_000,
+       str(policy.limit()))
+
+    # AT the limit is inside it. An off-by-one here is a gift wrongly
+    # called taxable, which somebody then has to unpick with Payroll.
+    at = said(value="5000")
+    ok("a gift at exactly the limit is tax-free",
+       "inside the ₹5,000 tax-free limit" in at, at)
+    over = said(value="5001")
+    ok("a rupee above it is taxable", "taxable" in over, over)
+    ok("and says whose job that is, which is not Compass's",
+       "tax teams" in over, over)
+    ok("and is not refused for it", "cannot be approved" not in over, over)
+    ok("and needs no different approver",
+       "compliance approves" not in over and "line manager" not in over, over)
+
+    # NOT A GATE. The whole order runs, exactly as a ₹3,000 one would.
+    rid = _ask(value="9000", what="Festival hamper")
+    row = _order("servicelead", rid)
+    ok("an above-the-tax-free-limit order can be signed off",
+       "sign_off" in row["can"], str(row["can"]))
+    ok("and is not blocked", not row["blocked"], str(row))
+    ok("and offers no exception, because nothing is biting",
+       "request_exception" not in row["can"], str(row["can"]))
+    ok("and it runs to the end", not _walk(rid), "")
+
+    # THE COURTESY GATE DID NOT MOVE WITH IT. These were one number, and
+    # dropping the tax-free limit to ₹5,000 would have quietly started
+    # refusing ordinary client courtesies.
+    ok("a client courtesy above the tax-free limit is still a form",
+       "conversation" not in said(value="6000", occasion="client courtesy"),
+       said(value="6000", occasion="client courtesy"))
+    ok("and above its own threshold it is still a conversation",
+       "conversation" in said(value="12000", occasion="client courtesy"),
+       said(value="12000", occasion="client courtesy"))
+    ok("which is a number of its own, not the tax-free one",
+       gr_mod.CONVERSATION_ABOVE != policy.big(),
+       f"{gr_mod.CONVERSATION_ABOVE} vs {policy.big()}")
+
+
+def check_crossing_the_cumulative_limit_has_two_ways_past_it() -> None:
+    """Sign it off knowing, or ask Finance to own it.
+
+    The crossing used to offer only the first: the desk holding it could
+    wave through an ordinary ₹6,000 watch that happened to take somebody
+    past ₹50,000 on its own authority, but could not escalate it — so a
+    desk that wanted cover had nowhere to go inside Compass. That is the
+    failure this function exists to end, so both routes are open.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    row = lambda who, rid: next(r for r in gr_mod._rows(_req(who))
+                                if r["id"] == rid)
+
+    # Take somebody most of the way there, then one ordinary gift more.
+    first = _ask(value="48000", what="Milestone award", recipient="Vikram Rao")
+    ok("the first order runs", not _walk(first), "")
+    rid = _ask(value="6000", what="A watch", recipient="Vikram Rao")
+
+    r = row("servicelead", rid)
+    ok("the crossing is flagged", r["warns"], str(r["tax"]))
+    ok("and it is not a refusal", not r["blocked"], str(r["policy"]))
+    ok("route one: it can still be signed off",
+       "sign_off" in r["can"], str(r["can"]))
+    ok("route two: and an exception can be asked for",
+       "request_exception" in r["can"], str(r["can"]))
+
+    asked = h.act(_req("servicelead"), "request_exception", [rid],
+                  "Twenty years' service, and the partner asked for it.")
+    ok("asking is accepted", asked.ok, asked.said)
+    ok("Finance can decide it",
+       {"grant_exception", "refuse_exception"} <= set(row("finance", rid)["can"]),
+       str(row("finance", rid)["can"]))
+
+    out = h.act(_req("finance"), "grant_exception", [rid],
+                "Allowed once, on the partner's authority.")
+    ok("Finance grants it", out.ok, out.said)
+    ok("and does not claim it unblocked something that was never blocked",
+       "can now be signed off" not in out.said, out.said)
+    ok("it says what granting actually changed",
+       "crossing is yours" in out.said, out.said)
+    ok("and it still runs to the end", not _walk(rid), "")
+
+    # A SIGN-OFF STILL SAYS SO. Whichever route was taken, the sentence the
+    # signer reads names the crossing rather than passing it silently.
+    second = _ask(value="7000", what="A pen", recipient="Vikram Rao")
+    signed = h.act(_req("servicelead"), "sign_off", [second],
+                   "Checked, and I know what it does to his year.")
+    ok("signing a crossing off knowingly is allowed", signed.ok, signed.said)
+    ok("and the sentence says what was signed",
+       "over the annual limit" in signed.said, signed.said)
 
 
 def check_nobody_approves_their_own() -> None:
@@ -5845,6 +5960,10 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_the_two_thresholds_do_different_jobs()
+    with fixtures():
+        check_crossing_the_cumulative_limit_has_two_ways_past_it()
     with fixtures():
         check_nobody_approves_their_own()
     with fixtures():

@@ -1,6 +1,6 @@
 """The rules every gift is judged against, and the versions they had.
 
-The annual limit, what counts towards it and the single-gift threshold are
+The annual limit, what counts towards it and the tax-free limit are
 the ONE source of truth: every policy check and every tax sentence reads
 them. They were Python constants, which meant the firm's own compliance
 rule could only be changed by editing code and deploying — and that nobody
@@ -52,12 +52,24 @@ _store = Collection("bf_policy", "business_function_policy.json", shape="map")
 #: `at()` can answer for any record however old.
 SHIPPED: dict[str, Any] = {
     "version": 1,
-    # ONE THRESHOLD, and it is a flag rather than a limit. The firm does
-    # not refuse a gift for crossing it: it records that somebody has, so
-    # the tax teams can pick that up in their own systems. ₹50,000 is the
-    # figure the business named.
+    # THE CUMULATIVE THRESHOLD, and it is a flag rather than a limit. The
+    # firm does not refuse a gift for crossing it: it records that somebody
+    # has, so the tax teams can pick that up in their own systems. Past it,
+    # an order needs either a sign-off made knowingly or an exception
+    # somebody puts their name to. ₹50,000 is the figure the business
+    # named, across every gift in the year rather than per gift.
     "annual_limit": 50_000,
-    "big": 10_000,
+    # THE TAX-FREE LIMIT, per gift. At or below it a gift is tax-free; above
+    # it, it is taxable — and what taxable MEANS is not this module's to say.
+    # RewardLens marks the gift and stops; the tax teams do the rest in
+    # their own systems, offline. ₹5,000 is the figure the business named.
+    #
+    # It is not a gate. Nothing is refused for being above it, and nothing
+    # needs a different approver because of it: a ₹6,000 watch is an
+    # ordinary gift that happens to be taxable, and treating it as a
+    # governance event would put compliance in the way of half the firm's
+    # Diwali.
+    "big": 5_000,
     "counts": ["gift", "award", "voucher"],
     "effective_from": 0.0,
     "by": "shipped with Compass",
@@ -115,9 +127,10 @@ def describe(a: dict[str, Any], b: dict[str, Any]) -> list[str]:
     """What changed between two versions, in words somebody can read."""
     said = []
     if a["annual_limit"] != b["annual_limit"]:
-        said.append(f"annual limit ₹{a['annual_limit']:,} → ₹{b['annual_limit']:,}")
+        said.append(f"cumulative annual limit ₹{a['annual_limit']:,} → "
+                    f"₹{b['annual_limit']:,}")
     if a["big"] != b["big"]:
-        said.append(f"single-gift threshold ₹{a['big']:,} → ₹{b['big']:,}")
+        said.append(f"tax-free limit per gift ₹{a['big']:,} → ₹{b['big']:,}")
     if set(a["counts"]) != set(b["counts"]):
         said.append(f"counts towards the limit: {', '.join(sorted(b['counts']))}")
     return said
