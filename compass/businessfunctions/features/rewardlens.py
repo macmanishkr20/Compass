@@ -923,6 +923,11 @@ class RewardLens(Feature):
                      "request_exception", "grant_exception",
                      "refuse_exception")
 
+    #: And the chain's FORMS, for the same reason: every persona but the
+    #: raiser signs an order off here, so the two the distribution step
+    #: needs have to open here. Aliased in the manifest, delegated below.
+    CHAIN_FORMS = ("allocate", "revise_list")
+
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
         if scope.period in _CLOSED:
@@ -1268,7 +1273,58 @@ class RewardLens(Feature):
             return set(self.FIELDS)
         if form_id == self.ANSWER_FORM:
             return set(self.ANSWER_FIELDS)
+        if form_id in self.CHAIN_FORMS:
+            # READ OFF THE CHAIN'S OWN CLASS, not out of the registry:
+            # this is called BY the catalog loader while it validates the
+            # manifest, so asking the registry for a feature re-enters the
+            # scan and recurses until the stack gives out. The fields are
+            # a property of the chain's handler class, which is importable
+            # on its own.
+            from compass.businessfunctions.features.giftrequests import (
+                GiftRequests,
+            )
+
+            if form_id == "allocate":
+                return set(GiftRequests.ALLOCATE_FIELDS)
+            return set(GiftRequests.LIST_FIELDS)
         return set()
+
+    def _chain_handler(self):
+        """Gift requests' feature and handler, or (None, None).
+
+        The chain's rules live there and are not copied here, exactly as
+        `_chain` already arranges for the chain's actions. Safe to call at
+        REQUEST time; see `accepts` for why not at load time.
+        """
+        from compass.businessfunctions import registry as _registry
+
+        found = _registry.feature_of("scs", "requests")
+        return (found[1], found[2]) if found[1] is not None else (None, None)
+
+    def _chain_form(self, scope: Scope, form_id: str, values: dict[str, str],
+                    about: str, *, commit: bool) -> Outcome:
+        """Open one of the chain's own forms from the Tracker.
+
+        THE DESK THAT SIGNS OFF IS THE DESK THAT NEEDS THE FORM. Every
+        persona but the raiser works the chain from this screen, so
+        Operations were told to name who received the other two and then
+        offered no way to name anybody: the form was declared on Gift
+        requests, the row was drawn here, and the surface only draws a
+        form the feature in front of it declares. The words are aliased
+        from the chain's own manifest entry rather than copied, and the
+        judgement is the chain's too — scope rebuilt against its feature,
+        because breadth is declared per feature and this one is self-only
+        for an employee where the chain is not.
+        """
+        from compass.businessfunctions import people as _people
+
+        feature, handler = self._chain_handler()
+        if feature is None or handler is None:
+            return Outcome(ok=False, said="The chain is not loaded.")
+        theirs = _people.scope_for(scope.user, feature, period=scope.period)
+        if commit:
+            return handler.submit(theirs, form_id, values, about)
+        return handler.preview(theirs, form_id, values, about)
 
     def _read(self, scope: Scope, form_id: str,
               values: dict[str, str]) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -1626,6 +1682,9 @@ class RewardLens(Feature):
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
+        if form_id in self.CHAIN_FORMS:
+            return self._chain_form(scope, form_id, values, about,
+                                    commit=False)
         if form_id == self.ANSWER_FORM:
             return self._answer(scope, values, about, commit=False)
         item, refused = self._read(scope, form_id, values)
@@ -1636,6 +1695,9 @@ class RewardLens(Feature):
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
+        if form_id in self.CHAIN_FORMS:
+            return self._chain_form(scope, form_id, values, about,
+                                    commit=True)
         if form_id == self.ANSWER_FORM:
             return self._answer(scope, values, about, commit=True)
         # Validated again from scratch rather than trusting what the preview

@@ -1529,17 +1529,148 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
                 {"recipients": "Vikram Rao, Aisha Khan",
                  "mode": "at an event"}, about=rid).ok)
 
-    # Once it is on the register, the list is history.
-    ok("the list cannot be revised after anything is recorded",
+    # WRITE-ONCE IS ABOUT A PERSON, NOT ABOUT THE ORDER. Whoever has
+    # received theirs is on the register and cannot come off the list;
+    # the gifts nobody has received yet are still a plan, and Operations
+    # are the desk the business put in charge of keeping it straight. The
+    # old rule froze the whole list the moment the first gift was handed
+    # out, which left a bulk order half-allocated and unfixable.
+    ok("somebody already on the register cannot be unlisted",
        not h.submit(asking, "revise_list",
-                    {"add": "Manish K.", "why": "late addition"},
+                    {"remove": "Vikram Rao", "why": "changed my mind"},
                     about=rid).ok)
+    ok("and the refusal says where a wrong record is put right",
+       "superseded on the Tracker" in h.submit(
+           asking, "revise_list",
+           {"remove": "Vikram Rao", "why": "changed my mind"},
+           about=rid).said)
+    ok("but the list can still be changed for those nobody has received",
+       h.submit(_req("spoc"), "revise_list",
+                {"add": "Manish K.", "why": "Replacing somebody who left."},
+                about=rid).ok)
 
     # And every change is on the trail, in words.
     said = {ledger.reads_as(e["kind"]) for e in ledger.events(rid)}
     ok("adding and removing are both on the trail",
        {ledger.reads_as("listed"), ledger.reads_as("unlisted")} <= said,
        str(said))
+
+
+def check_every_on_row_form_has_a_door() -> None:
+    """A form the surface will not draw is a form nobody can reach.
+
+    THE BUG THIS EXISTS FOR. `formsFor(row)` filters the on-row forms by
+    the row's own `can`, and `can` held only action ids — so "Name who
+    received them", "Change the recipient list" and "Link the PR/PO" had
+    no button anywhere in the UI. Operations were told to name who
+    received the other two and offered no way to name anybody. Every
+    check drove `submit` directly and so passed over a screen with no
+    door in it; this one asks the ROW.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    on_row = [f.id for f in feat.forms if f.on_row]
+    ok("the feature has on-row forms at all", len(on_row) == 3, str(on_row))
+
+    # Raised by the Service Line Approver, because pasting the list up
+    # front is theirs — which also makes them the raiser here.
+    rid = _ask(by="servicelead", quantity="3",
+               recipient_list="Vikram Rao, Priya Nair, Aisha Khan")
+    row = lambda who: next(r for r in gr_mod._rows(_req(who))
+                           if r["id"] == rid)
+
+    # THE LIST, from the start, for whoever raised it and their approver.
+    # Operations are not shown the order at all until it reaches them,
+    # which is the narrowing working rather than the form missing.
+    for who in ("servicelead", "leadtwo"):
+        ok(f"{who} is offered the list form",
+           "revise_list" in row(who)["can"], str(row(who)["can"]))
+    ok("somebody with no part in it is not",
+       "revise_list" not in row("enduser")["can"], str(row("enduser")["can"]))
+
+    # THE PURCHASE, at procurement and not before. Asked of the raiser,
+    # because Procurement are not shown an order that has not reached
+    # them — "no row" and "no button" are different answers and only one
+    # of them is this check's business.
+    ok("the purchase form is not offered before procurement",
+       "link_purchase" not in row("servicelead")["can"],
+       str(row("servicelead")["can"]))
+    ok("walking to procurement works",
+       not _walk(rid, upto="procurement", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+    ok("and there it is Procurement's",
+       "link_purchase" in row("procurement")["can"],
+       str(row("procurement")["can"]))
+    ok("and nobody else's",
+       "link_purchase" not in row("finance")["can"], str(row("finance")["can"]))
+
+    # ALLOCATION, at distribution, for the desk that hands things over.
+    ok("the allocate form is not offered before distribution",
+       "allocate" not in row("servicelead")["can"],
+       str(row("servicelead")["can"]))
+    ok("walking to distribution works",
+       not _walk(rid, upto="distribution", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+    ok("Operations are offered it there",
+       "allocate" in row("spoc")["can"], str(row("spoc")["can"]))
+    ok("and the list form with it, which is the desk's own job",
+       "revise_list" in row("spoc")["can"], str(row("spoc")["can"]))
+    at_desk = next(r for r in _desk("spoc", "orders") if r["id"] == rid)
+    ok("and both reach them on the Tracker, where they sign off",
+       {"allocate", "revise_list"} <= set(at_desk["can"]), str(at_desk["can"]))
+    ok("and so is whoever raised it",
+       "allocate" in row("servicelead")["can"], str(row("servicelead")["can"]))
+
+    # AND IT CLOSES WHEN THERE IS NOBODY LEFT TO NAME, so the button never
+    # outlives the thing it does.
+    ok("naming two of three works",
+       h.submit(_req("spoc"), "allocate",
+                {"recipients": "Vikram Rao, Priya Nair",
+                 "mode": "in person"}, about=rid).ok)
+    ok("the form is still offered with one left",
+       "allocate" in row("spoc")["can"], str(row("spoc")["can"]))
+    ok("and the sign-off refusal names the form rather than the task",
+       "Name who received them" in h.act(
+           _req("spoc"), "sign_off", [rid], "Handed over.").said)
+    ok("naming the third works",
+       h.submit(_req("spoc"), "allocate",
+                {"recipients": "Aisha Khan", "mode": "by courier"},
+                about=rid).ok)
+    ok("and then the form is gone",
+       "allocate" not in row("spoc")["can"], str(row("spoc")["can"]))
+
+    # AND THE DESK THAT SIGNS OFF MUST BE ABLE TO OPEN THEM. Every persona
+    # but the raiser works the chain from the TRACKER, so a form declared
+    # only on Gift requests is a form Operations cannot reach: the surface
+    # draws what the feature in front of it declares. This is the half of
+    # the bug that survived naming the forms in `can`.
+    _, reg_feat, reg = registry.feature_of("scs", "register")
+    tracker = [f.id for f in reg_feat.forms if f.on_row]
+    ok("the Tracker carries the chain's own forms",
+       {"allocate", "revise_list"} <= set(tracker), str(tracker))
+    ok("and its handler accepts them",
+       reg.accepts("allocate") and reg.accepts("revise_list"))
+    ok("the words are the chain's, not a second copy",
+       next(f.label for f in reg_feat.forms if f.id == "allocate")
+       == next(f.label for f in feat.forms if f.id == "allocate"))
+    # Read on the Tracker as it stands NOW — everything is allocated by
+    # this point, so `allocate` has correctly closed and the list form is
+    # the one still open. That it was open earlier is what the assertions
+    # above measured.
+    desk = next(r for r in _desk("spoc", "orders") if r["id"] == rid)
+    ok("Operations are offered the list form on the row they sign off from",
+       "revise_list" in desk["can"], str(desk["can"]))
+    ok("and it is the Tracker that drew that row",
+       desk.get("progress") is not None, str(sorted(desk)[:6]))
+
+    # EVERY BUTTON A ROW OFFERS MUST BE ONE THE SUBMIT WOULD TAKE. A form
+    # that refuses when pressed teaches people the screen lies.
+    for who in ("servicelead", "spoc", "procurement"):
+        for form_id in [f for f in on_row if f in row(who)["can"]]:
+            out = h.preview(_req(who), form_id, {}, about=rid)
+            ok(f"{who}'s {form_id} refuses on its values, not on who they are",
+               "keep the list straight" not in out.said
+               and "they are the ones who can say" not in out.said
+               and "is Procurement's" not in out.said, out.said)
 
 
 def check_what_was_actually_given_is_what_counts() -> None:
@@ -5996,6 +6127,8 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_every_on_row_form_has_a_door()
     with fixtures():
         check_a_queue_does_not_age_from_the_epoch()
     with fixtures():

@@ -154,11 +154,11 @@ features:
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
-          request to the next team. Finance and Payroll must say what they
+          request to the next team. Finance must say what they
           checked; at distribution this is what puts it on the register,
           and at acknowledgement it is the recipient confirming receipt.
         reversible: false
-      # The five desks whose step is a CHECK. Not the requester and not the
+      # The three desks whose step is a CHECK. Not Operations and not the
       # recipient: by the time it reaches them it has been approved, bought
       # and paid for, and their job is to record what happened rather than
       # to reopen a decision five other desks already took.
@@ -305,7 +305,8 @@ features:
             kind: text
             required: false
 
-      - id: revise_list
+      - &chain_revise_list
+        id: revise_list
         label: Change the recipient list
         on_row: true
         submit_label: Change the list
@@ -337,7 +338,8 @@ features:
               Somebody left, somebody was missed, the event changed. One
               line is enough; nothing is enough.
 
-      - id: allocate
+      - &chain_allocate
+        id: allocate
         label: Name who received them
         on_row: true
         submit_label: Record them
@@ -475,7 +477,7 @@ features:
         note_label: What did you check?
         confirm: >-
           Signs off this stage with your name against it and moves the
-          order to the next team. Finance and Payroll must say what they
+          order to the next team. Finance must say what they
           checked; at distribution this is what puts it on the register,
           and at acknowledgement it is the recipient confirming receipt.
         reversible: false
@@ -602,6 +604,16 @@ features:
         note_label: Why was this not permitted?
 
     forms:
+      # THE CHAIN'S OWN FORMS, aliased rather than copied. Every persona
+      # but the raiser signs an order off HERE, so the two forms the
+      # distribution step needs have to be openable here — and a second
+      # copy of their words in this file would be two vocabularies for one
+      # form, which is the failure the manifest exists to prevent. The
+      # handler delegates them to Gift requests exactly as it already
+      # delegates the chain's actions: the Tracker is where the buttons
+      # are; Gift requests is still where the rules are.
+      - *chain_allocate
+      - *chain_revise_list
       - id: answer_query
         label: Answer
         on_row: true

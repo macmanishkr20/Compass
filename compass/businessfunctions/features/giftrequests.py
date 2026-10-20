@@ -1315,7 +1315,52 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
     if request["by"] == scope.user and stage in (
             "service_line", "finance_policy"):
         can.append("cancel_request")
+
+    # THE FORMS A ROW MAY OPEN, named here beside the actions because the
+    # surface draws what a row says it allows and nothing else. These were
+    # missing, and missing meant unreachable: `formsFor` filters the
+    # on-row forms by this list, so a form nobody names here has no
+    # button anywhere in the UI. Operations were told "name who received
+    # the other 2 before signing this off" by a chain that then offered
+    # them no way to name anybody — the handler accepted the submit all
+    # along, and every check drives `submit` directly, so 1,558 of them
+    # passed over a screen with no door in it.
+    can.extend(_forms_open(scope, request, stage))
     return can
+
+
+def _forms_open(scope: Scope, request: dict[str, Any],
+                stage: str) -> list[str]:
+    """Which on-row forms this person may open on this order, right now.
+
+    Each condition MIRRORS the guard the matching `_read_*` applies, so a
+    button appears exactly when the submit behind it would be accepted. A
+    button that refuses when pressed is worse than no button: it teaches
+    people that the screen lies.
+    """
+    open_now: list[str] = []
+    mine = request["by"] == scope.user
+    hands_over = mine or DISTRIBUTOR in scope.roles
+
+    # Naming who received them. Distribution only, and only while there is
+    # anybody left to name.
+    if (stage == "distribution" and hands_over
+            and len(allocated_to(request["id"])) < request.get("quantity", 1)):
+        open_now.append("allocate")
+
+    # Keeping the recipient list straight. Whoever raised it, their
+    # approver, or Operations — and not once the order has ended.
+    if (stage not in ENDED
+            and (hands_over or "service_line" in scope.roles)):
+        open_now.append("revise_list")
+
+    # The purchase, linked back. Procurement's, and only once there is a
+    # reference to have quoted on the requisition.
+    if (stage == "procurement" and STAGES[stage]["owner"] in scope.roles
+            and reference_issued(request["id"]) is not None):
+        open_now.append("link_purchase")
+
+    return open_now
 
 
 class GiftRequests(Feature):
@@ -1503,20 +1548,25 @@ class GiftRequests(Feature):
                 if not request["for"]:
                     return Outcome(
                         ok=False,
-                        said=f"Name who received them first — "
-                             f"{request['quantity']} to allocate, and the "
-                             f"register cannot hold a gift without a person "
-                             f"to hold it against.")
+                        said=f"Use “Name who received them” on this "
+                             f"row first — {request['quantity']} to "
+                             f"allocate, and the register cannot hold a gift "
+                             f"without a person to hold it against.")
                 given = [_record(request, request["for"], row["recipient"],
                                  dt.date.today().isoformat(), "")]
 
             short = request["quantity"] - len(given)
             if short > 0:
+                # NAMES THE DOOR, not just the task. This said what to do
+                # and not where, which is the same as saying nothing when
+                # the person reading it is looking at a row and cannot
+                # find the form.
                 return Outcome(
                     ok=False,
                     said=f"{len(given)} of {request['quantity']} allocated. "
-                         f"Name who received the other {short} before "
-                         f"signing this off.")
+                         f"Name who received the other {short} on this row "
+                         f"— “Name who received them” — "
+                         f"before signing it off.")
             names = ", ".join(sorted({i["recipient"] for i in given}))
             said_extra = (f" {len(given)} record"
                           f"{'s are' if len(given) > 1 else ' is'} on the "
@@ -1794,12 +1844,6 @@ class GiftRequests(Feature):
                 ok=False,
                 said=f"{request['id']} is {stage_label(stage).lower()}. The "
                      f"list of an order that has ended does not change.")
-        if allocated_to(request["id"]):
-            return None, Outcome(
-                ok=False,
-                said="Some of these are already on the register, and the "
-                     "register is write-once. A record that was wrong is "
-                     "superseded there, not unlisted here.")
         if (request["by"] != scope.user and DISTRIBUTOR not in scope.roles
                 and "service_line" not in scope.roles):
             return None, Outcome(
@@ -1823,9 +1867,25 @@ class GiftRequests(Feature):
                     said=f"{_name_of(known)} is already on the list.")
             if known not in adding:
                 adding.append(known)
+        # ALREADY ON THE REGISTER is the thing that cannot change, and it
+        # is a fact about a PERSON rather than about the order. A list
+        # frozen the moment the first gift was handed out was the wrong
+        # rule: at one of three allocated, Operations could neither add
+        # the person they had been told to add nor take off somebody who
+        # had left, for two gifts nobody had received. The register is
+        # write-once for the one who received theirs; the other two are
+        # still a plan, and a plan is what this form is for.
+        held = {i["employee_id"] for i in allocated_to(request["id"])}
         for name in [n.strip() for n in values.get("remove", "").split(",")
                      if n.strip()]:
             known = _employee_named(name)
+            if known in held:
+                return None, Outcome(
+                    ok=False,
+                    said=f"{_name_of(known)} has already received one from "
+                         f"this order, and the register is write-once. A "
+                         f"record that was wrong is superseded on the "
+                         f"Tracker, not unlisted here.")
             if known not in now:
                 return None, Outcome(
                     ok=False,
