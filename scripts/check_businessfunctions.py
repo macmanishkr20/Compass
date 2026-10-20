@@ -1497,9 +1497,24 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
        next(r for r in gr_mod._rows(asking)
             if r["id"] == rid)["list_changes"] == 3)
 
-    ok("it cannot be taken past the quantity",
-       not h.submit(asking, "revise_list",
-                    {"add": "Manish K.", "why": "one more"}, about=rid).ok)
+    # THE QUANTITY DOES NOT CAP THE LIST. It is how many were bought, and
+    # the Service Line Approver orders with a buffer precisely so a late
+    # addition does not go round the chain again — capped, the fourth
+    # name on a three-gift order was refused and the spare stock could
+    # not be given to anybody.
+    before = len(gr_mod.planned_list(rid))
+    ok("somebody can be added even past the quantity",
+       h.submit(asking, "revise_list",
+                {"add": "Manish K.", "why": "One more from the buffer."},
+                about=rid).ok)
+    ok("and the list really grew",
+       len(gr_mod.planned_list(rid)) == before + 1,
+       f"{before} then {len(gr_mod.planned_list(rid))}")
+    ok("without asking anybody to approve anything again — it has not "
+       "moved back a step",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "service_line",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid)))
     ok("somebody already on it cannot be added twice",
        not h.submit(asking, "revise_list",
                     {"add": "Aisha Khan", "why": "again"}, about=rid).ok)
@@ -1544,16 +1559,91 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
            asking, "revise_list",
            {"remove": "Vikram Rao", "why": "changed my mind"},
            about=rid).said)
+    out = h.submit(_req("spoc"), "revise_list",
+                   {"add": "Rahul Desai",
+                    "why": "Replacing somebody who left."}, about=rid)
     ok("but the list can still be changed for those nobody has received",
-       h.submit(_req("spoc"), "revise_list",
-                {"add": "Manish K.", "why": "Replacing somebody who left."},
-                about=rid).ok)
+       out.ok, out.said)
 
     # And every change is on the trail, in words.
     said = {ledger.reads_as(e["kind"]) for e in ledger.events(rid)}
     ok("adding and removing are both on the trail",
        {ledger.reads_as("listed"), ledger.reads_as("unlisted")} <= said,
        str(said))
+
+
+def check_a_late_recipient_draws_on_the_buffer() -> None:
+    """A fourth name on a three-gift order, without going round again.
+
+    The Service Line Approver orders with spare stock, so somebody added
+    at the last moment — one who left, one who was missed — is not a new
+    approval. Capped at the quantity, the list refused the fourth name and
+    then the allocation refused to give them anything, so the desk holding
+    the spare boxes could not write down who had them. Both caps are gone
+    from the desk's own forms; what is NOT gone is the fact, which is
+    counted and said wherever the number appears.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    rid = _ask(by="servicelead", quantity="3", what="Gift card",
+               recipient_list="Vikram Rao, Priya Nair, Aisha Khan")
+    ok("it reaches distribution",
+       not _walk(rid, upto="distribution", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+
+    # One handed over, then a fourth person turns up.
+    ok("the first is recorded",
+       h.submit(_req("spoc"), "allocate",
+                {"recipients": "Vikram Rao", "mode": "in person"},
+                about=rid).ok)
+    added = h.submit(_req("spoc"), "revise_list",
+                     {"add": "Manish K.",
+                      "why": "Joined the team this week; buffer covers it."},
+                     about=rid)
+    ok("Operations can add the fourth name", added.ok, added.said)
+    ok("and the list carries four for three gifts",
+       len(gr_mod.planned_list(rid)) == 4,
+       str(len(gr_mod.planned_list(rid))))
+    ok("nothing went back for re-approval",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "distribution")
+
+    # AND THEY CAN ACTUALLY BE GIVEN ONE. This is the half that mattered:
+    # a name on the list nobody may allocate to is a name on a list.
+    out = h.submit(_req("spoc"), "allocate",
+                   {"recipients": "Priya Nair, Aisha Khan, Manish K.",
+                    "mode": "at an event"}, about=rid)
+    ok("all four end up with one", out.ok, out.said)
+    ok("and the sentence says the extra came from the buffer",
+       "buffer" in out.said, out.said)
+    ok("four records are on the register",
+       len(gr_mod.allocated_to(rid)) == 4,
+       str(len(gr_mod.allocated_to(rid))))
+
+    # SAID, NOT SWALLOWED. More given than approved is a fact somebody
+    # should be able to read off the row.
+    row = _order("spoc", rid)
+    ok("the row says how many are past what was approved",
+       "past the 3 approved" in row["allocation"], row["allocation"])
+    ok("and the trail counted it too",
+       any(e.get("beyond") for e in ledger.events(rid)
+           if e["kind"] == "allocated"),
+       str([e.get("beyond") for e in ledger.events(rid)
+            if e["kind"] == "allocated"]))
+
+    ok("and it signs off", h.act(_req("spoc"), "sign_off", [rid],
+                                 "All four handed over at the event.").ok)
+
+    # The one cap that STAYS: asking for fewer gifts than the people you
+    # name, at the moment of asking. The buffer covers a late addition,
+    # not an order that did not add up when it was raised.
+    refused = h.preview(_req("servicelead"), "request_gift", {
+        "what": "Hamper", "kind": "gift", "quantity": "2", "value": "1000",
+        "occasion": "festival", "purpose": "Thanks.",
+        "recipient_list": "Vikram Rao, Priya Nair, Aisha Khan"})
+    ok("naming three people for two gifts up front is still refused",
+       not refused.ok, refused.said)
+    ok("and it says where the late case is handled instead",
+       "buffer" in refused.said, refused.said)
 
 
 def check_every_on_row_form_has_a_door() -> None:
@@ -6127,6 +6217,8 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_a_late_recipient_draws_on_the_buffer()
     with fixtures():
         check_every_on_row_form_has_a_door()
     with fixtures():

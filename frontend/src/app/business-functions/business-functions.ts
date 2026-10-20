@@ -836,7 +836,20 @@ export class BusinessFunctions {
   }
 
   private say(text: string): void {
-    this.turns.update((t) => [...t, { who: 'assistant', text }]);
+    // A REFUSAL REPEATED IS STILL ONE REFUSAL. Row actions echo their
+    // outcome here, so pressing a button that refuses four times wrote
+    // the same sentence into the rail four times — which reads as four
+    // separate problems and buries whatever was said before them. The
+    // same words twice in a row collapse into the one that is already
+    // there; anything else said in between keeps them apart, because
+    // then they really are two things.
+    this.turns.update((t) => {
+      const last = t[t.length - 1];
+      if (last && last.who === 'assistant' && last.text === text && !last.plan) {
+        return t;
+      }
+      return [...t, { who: 'assistant', text }];
+    });
   }
 
   /** Mark every waiting plan as no longer answerable, and say why. */

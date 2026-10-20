@@ -48,14 +48,43 @@ export class NoticeService {
 
   dismiss(id: number): void {
     this.notices.update((list) => list.filter((n) => n.id !== id));
+    const timer = this.timers.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.timers.delete(id);
+    }
   }
 
+  /** The timer that will retire each live notice, so a repeat can restart
+   *  one rather than leaving the first copy to expire on its own clock. */
+  private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
+
   private push(partial: Omit<Notice, 'id'>): void {
+    // THE SAME COMPLAINT TWICE IS ONE COMPLAINT. Pressing a button that
+    // refuses four times produced four identical toasts and filled the
+    // cap with copies of one sentence — which reads as four things going
+    // wrong, and pushes anything else out. A repeat moves the notice it
+    // already is back to the front and restarts its clock instead.
+    const same = this.notices().find(
+      (n) => n.text === partial.text && n.tone === partial.tone,
+    );
+    if (same) {
+      this.notices.update((list) => [same, ...list.filter((n) => n !== same)]);
+      this.hold(same);
+      return;
+    }
     const notice: Notice = { ...partial, id: this.next++ };
     // Newest first, and capped: a burst of failures should not become a
     // column of toasts that covers the thing they are about.
     this.notices.update((list) => [notice, ...list].slice(0, 4));
+    this.hold(notice);
+  }
+
+  /** Start, or restart, the clock that retires this notice. */
+  private hold(notice: Notice): void {
+    const running = this.timers.get(notice.id);
+    if (running !== undefined) clearTimeout(running);
     const ms = notice.tone === 'error' ? NoticeService.ERROR_MS : NoticeService.OK_MS;
-    setTimeout(() => this.dismiss(notice.id), ms);
+    this.timers.set(notice.id, setTimeout(() => this.dismiss(notice.id), ms));
   }
 }

@@ -830,14 +830,26 @@ def _alert_on_crossing(scope: Scope, request: dict[str, Any],
 
 
 def _allocation_said(request: dict[str, Any]) -> str:
-    """How far an order has got towards knowing whose gifts these are."""
+    """How far an order has got towards knowing whose gifts these are.
+
+    Counted against the LIST when there is one, because that is what the
+    desk handing things out is working through, and the approved quantity
+    carries a buffer. Says both numbers when more have been given than
+    were approved: that is drawn from the spare stock rather than
+    something going wrong, and it is still a fact somebody should see
+    rather than one the screen rounds away.
+    """
     wanted = request.get("quantity", 1)
     done = len(allocated_to(request["id"]))
+    listed = len(planned_list(request["id"]))
     if wanted == 1 and request["for"]:
         return "named when asked for"
+    target = listed if listed else wanted
+    if done > wanted:
+        return f"{done} of {target} named · {done - wanted} past the {wanted} approved"
     if not done:
-        return f"none of {wanted} named"
-    return f"{done} of {wanted} named"
+        return f"none of {target} named"
+    return f"{done} of {target} named"
 
 
 def _record(request: dict[str, Any], employee_id: str, name: str,
@@ -1555,6 +1567,11 @@ class GiftRequests(Feature):
                 given = [_record(request, request["for"], row["recipient"],
                                  dt.date.today().isoformat(), "")]
 
+            # EVERY APPROVED GIFT NEEDS SOMEBODY AGAINST IT, and no more
+            # than that is asked for. Somebody on the list who received
+            # nothing is ordinary — the list is who MIGHT get one and the
+            # quantity carries a buffer — so this counts the gifts, not
+            # the names.
             short = request["quantity"] - len(given)
             if short > 0:
                 # NAMES THE DOOR, not just the task. This said what to do
@@ -1897,12 +1914,15 @@ class GiftRequests(Feature):
             return None, Outcome(ok=False, said="Name somebody to add or to "
                                                 "take off.")
         after = len(now) + len(adding) - len(removing)
-        if after > request.get("quantity", 1):
-            return None, Outcome(
-                ok=False,
-                said=f"That would be {after} people for "
-                     f"{request.get('quantity', 1)} gifts. The quantity is "
-                     f"what was approved.")
+        # NOT CAPPED BY THE QUANTITY. The list is who MIGHT receive one;
+        # the quantity is how many were bought, and the Service Line
+        # Approver orders with a buffer precisely so a late addition does
+        # not have to go round the chain again. Capped at the quantity,
+        # adding the fourth name to a three-gift order was refused, which
+        # made the buffer unusable: the desk holding the spare stock
+        # could not write down who it was for. Adding somebody is a
+        # recorded change with a reason against it, not a new approval —
+        # nothing about it asks Procurement to order anything more.
         if not values.get("why", "").strip():
             return None, Outcome(
                 ok=False,
@@ -1937,11 +1957,26 @@ class GiftRequests(Feature):
                      "are the ones who can say who actually received it.")
 
         already = allocated_to(request["id"])
-        room = request.get("quantity", 1) - len(already)
+        wanted = request.get("quantity", 1)
+        planned = planned_list(request["id"])
+        # HOW MANY ARE LEFT TO NAME. Bounded by the LIST when there is
+        # one, and by the approved quantity only when there is not.
+        #
+        # The list is the real bound: nothing may be allocated to somebody
+        # who is not on it, and putting somebody on it is a recorded
+        # change with a reason. So a fourth name on a three-gift order —
+        # the buffer the Service Line Approver ordered against — can
+        # actually be given their gift, rather than the desk holding the
+        # spare stock being told everything is allocated. What it cannot
+        # do is go unremarked: anything past the approved quantity is
+        # counted and said, on the row, in the sentence and on the trail.
+        room = (len(planned) if planned else wanted) - len(already)
         if room <= 0:
             return None, Outcome(
                 ok=False,
-                said=f"All {request.get('quantity', 1)} are allocated.")
+                said=(f"Everybody on the list has one. Put somebody on it "
+                      f"first with “Change the recipient list”."
+                      if planned else f"All {wanted} are allocated."))
 
         names = [n.strip() for n in values.get("recipients", "").split(",")
                  if n.strip()]
@@ -1955,9 +1990,6 @@ class GiftRequests(Feature):
                      f"more than were asked for.")
 
         held = {i["employee_id"] for i in already}
-        # What was approved. Empty means nobody was named up front, and
-        # then distribution is where the names come from.
-        planned = planned_list(request["id"])
         people_named: list[tuple[str, str]] = []
         for name in names:
             employee = _employee_named(name)
@@ -2008,8 +2040,13 @@ class GiftRequests(Feature):
             if actual > rewardlens.most_per_item():
                 return None, Outcome(ok=False, said="That is past what this "
                                                     "form takes.")
+        # Past what was approved, after this allocation. A fact rather
+        # than a refusal, and carried out of here so the sentence, the row
+        # and the trail all say the same number.
+        beyond = max(0, len(already) + len(people_named) - wanted)
         return {"request": request, "people": people_named, "given": given,
-                "mode": mode, "room": room, "actual": actual}, None
+                "mode": mode, "room": room, "actual": actual,
+                "beyond": beyond}, None
 
     def _read(self, scope: Scope, values: dict[str, str]
               ) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -2120,11 +2157,18 @@ class GiftRequests(Feature):
                          f"It knows: {', '.join(_known_names())}.")
             if known not in intended:
                 intended.append(known)
+        # STILL CAPPED HERE, and deliberately not where the list is
+        # revised. At the moment of ASKING, more names than gifts is a
+        # mismatch worth catching: say how many you mean to give. The
+        # buffer the Service Line Approver orders is what covers a LATER
+        # addition — somebody who left, somebody who was missed — and
+        # that is why "Change the recipient list" has no such cap.
         if len(intended) > quantity:
             return None, Outcome(
                 ok=False,
                 said=f"{len(intended)} names for {quantity}. Ask for as many "
-                     f"as you mean to give.")
+                     f"as you mean to give — somebody added later draws "
+                     f"on the buffer and does not come back here.")
 
         value = rewardlens.whole_rupees(values.get("value", ""))
         if value is None or value <= 0:
@@ -2204,7 +2248,11 @@ class GiftRequests(Feature):
                        f"{rewardlens.rupees(read['request']['value'])}."
                        if differs else "")
                     + (f" {left} still to allocate after this." if left else
-                       " That allocates the order in full."))
+                       " That allocates the order in full.")
+                    + (f" {read['beyond']} past the "
+                       f"{read['request'].get('quantity', 1)} approved — "
+                       f"from the buffer, and said on the row."
+                       if read["beyond"] else ""))
             if crossing:
                 said += (" Over the annual limit: " + "; ".join(crossing)
                          + ". It still records — the limit is reported, not "
@@ -2277,8 +2325,12 @@ class GiftRequests(Feature):
             ledger.add_event(subject=request["id"], kind="allocated",
                              by=scope.user, stage="distribution",
                              items=len(read["people"]),
+                             beyond=read["beyond"],
                              note=", ".join(n for _e, n in read["people"]))
-            left = request.get("quantity", 1) - len(allocated_to(request["id"]))
+            done = len(allocated_to(request["id"]))
+            wanted = request.get("quantity", 1)
+            listed = len(planned_list(request["id"]))
+            left = (listed if listed else wanted) - done
             return Outcome(
                 ok=True,
                 said=f"Recorded against "
@@ -2286,8 +2338,11 @@ class GiftRequests(Feature):
                      f"{rewardlens.rupees(read['actual'])} each, "
                      f"{read['mode']}, on {read['given']}."
                      + (f" {left} still to allocate." if left else
-                        " Everything in this order now has somebody against "
-                        "it, so it can be signed off."),
+                        " Everybody on this order has somebody against "
+                        "their gift, so it can be signed off.")
+                     + (f" {done} against {wanted} approved — the extra "
+                        f"came out of the buffer, and the row says so."
+                        if done > wanted else ""),
                 touched=[request["id"]])
         if form_id != self.REQUEST_FORM:
             return Outcome(ok=False, said=f"No form called {form_id!r}.")
