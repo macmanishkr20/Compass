@@ -1087,12 +1087,19 @@ export class BusinessFunctions {
         ];
       }
       if (tab === 'budgets') {
+        // NOT A BUDGET. The figure is the team's HEADCOUNT times the one
+        // annual allowance every employee has, so calling the column
+        // "Budget" named the very thing this stopped being — a number
+        // somebody typed per team — and read as though the firm still
+        // ran per-team budgets. The handler's own words for it are
+        // allowance and received.
         return [
           { key: 'source', label: 'Team' },
-          { key: 'budget', label: 'Budget', numeric: true },
-          { key: 'committed', label: 'Committed', numeric: true },
+          { key: 'people', label: 'People', numeric: true },
+          { key: 'budget', label: 'Allowance', numeric: true },
+          { key: 'committed', label: 'Received', numeric: true },
           { key: 'not_requested', label: 'Never requested', numeric: true },
-          { key: 'left', label: 'Left', numeric: true },
+          { key: 'left', label: 'Headroom', numeric: true },
           { key: 'status', label: 'Status' },
         ];
       }
@@ -1140,11 +1147,13 @@ export class BusinessFunctions {
       // behind a chart fell through to the default columns and showed a
       // column of dashes — a table claiming the chart had no numbers.
       if (tab === 'budgets') {
+        // See the note on the other copy: an allowance, not a budget.
         return [
           { key: 'source', label: 'Team' },
-          { key: 'budget', label: 'Budget', numeric: true },
-          { key: 'committed', label: 'Committed', numeric: true },
-          { key: 'left', label: 'Left', numeric: true },
+          { key: 'people', label: 'People', numeric: true },
+          { key: 'budget', label: 'Allowance', numeric: true },
+          { key: 'committed', label: 'Received', numeric: true },
+          { key: 'left', label: 'Headroom', numeric: true },
           { key: 'status', label: 'Status' },
         ];
       }

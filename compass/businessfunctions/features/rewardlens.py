@@ -924,9 +924,13 @@ class RewardLens(Feature):
                      "refuse_exception")
 
     #: And the chain's FORMS, for the same reason: every persona but the
-    #: raiser signs an order off here, so the two the distribution step
-    #: needs have to open here. Aliased in the manifest, delegated below.
-    CHAIN_FORMS = ("allocate", "revise_list")
+    #: raiser signs an order off here, so a form any step of the chain
+    #: needs has to open here. ALL of them, not the ones somebody
+    #: remembered: aliasing two of the three left Procurement with a row
+    #: that named "Link the PR/PO" in its own `can` and a screen that
+    #: would not draw it — the same bug one form further along. Aliased
+    #: in the manifest, delegated below.
+    CHAIN_FORMS = ("allocate", "revise_list", "link_purchase")
 
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
@@ -1284,9 +1288,11 @@ class RewardLens(Feature):
                 GiftRequests,
             )
 
-            if form_id == "allocate":
-                return set(GiftRequests.ALLOCATE_FIELDS)
-            return set(GiftRequests.LIST_FIELDS)
+            return {
+                "allocate": set(GiftRequests.ALLOCATE_FIELDS),
+                "revise_list": set(GiftRequests.LIST_FIELDS),
+                "link_purchase": set(GiftRequests.PURCHASE_FIELDS),
+            }[form_id]
         return set()
 
     def _chain_handler(self):

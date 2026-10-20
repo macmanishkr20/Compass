@@ -276,7 +276,8 @@ features:
               hampers at a time and the Service Line Approver is the one
               holding that list.
 
-      - id: link_purchase
+      - &chain_link_purchase
+        id: link_purchase
         label: Link the PR/PO
         on_row: true
         submit_label: Link it
@@ -614,6 +615,7 @@ features:
       # are; Gift requests is still where the rules are.
       - *chain_allocate
       - *chain_revise_list
+      - *chain_link_purchase
       - id: answer_query
         label: Answer
         on_row: true

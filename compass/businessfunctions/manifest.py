@@ -80,9 +80,17 @@ MAX_CHOICES = 40
 
 MAX_FEATURES = 16
 MAX_STARTERS = 6
-#: A form somebody fills in by hand. Both small on purpose: a long form is
-#: abandoned, and this is a declaration, not an application.
-MAX_FORMS = 4
+#: How many forms ONE SCREEN may offer. A ceiling on clutter rather than on
+#: length — the length of any one form is `MAX_FIELDS` below, and that is
+#: the limit the old comment here was really describing.
+#:
+#: Raised from four because the Tracker legitimately needs five: it is
+#: where every persona but the raiser signs the chain off, so it carries
+#: the chain's own three row forms beside its own two. A screen that is
+#: the desk for five steps is allowed more doors than one that is the desk
+#: for one; what it is not allowed is to become a drawer of every form
+#: anybody thought of, which is what this still stops.
+MAX_FORMS = 6
 MAX_FIELDS = 10
 
 #: What a field can be. The kind decides how it is drawn and how the value

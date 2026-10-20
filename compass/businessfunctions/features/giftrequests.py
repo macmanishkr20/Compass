@@ -1635,7 +1635,19 @@ class GiftRequests(Feature):
                          stage=stage, note=note.strip(), value=row["value"])
 
         nxt = STAGES[stage]["next"]
-        if nxt == "closed":
+        # CLOSED ONLY WHEN IT REALLY IS. One order can reach twenty people
+        # and each of them confirms their own, so the last stage being
+        # signed off is not the same as the order being finished:
+        # `stage_of` already keeps it at acknowledgement while anybody is
+        # still to confirm. This did not, and wrote a `closed` event to the
+        # trail the moment the FIRST recipient confirmed \u2014 so the audit
+        # trail said an order was closed while three people had yet to
+        # receive theirs, and the sentence managed "is closed" and "the
+        # order stays open" in the same breath. The fold defended the
+        # stage; nothing defended the RECORD of it, which is the worse
+        # half, because the trail is what somebody proves this with.
+        left = _unconfirmed(row["id"]) if stage == "acknowledgement" else []
+        if nxt == "closed" and not left:
             ledger.add_event(subject=row["id"], kind="closed", by=scope.user,
                              stage=stage)
             return Outcome(
@@ -1643,6 +1655,13 @@ class GiftRequests(Feature):
                 said=f"{row['what']} is closed \u2014 the last step in the "
                      f"chain.{said_extra} The order report, with every step "
                      f"and who took it, is on the row.",
+                touched=[row["id"]])
+        if nxt == "closed":
+            return Outcome(
+                ok=True,
+                said=f"Signed off: {step_name(stage)}.{said_extra} The order "
+                     f"report, with every step and who took it, is on the "
+                     f"row.",
                 touched=[row["id"]])
 
         crossing = (" It takes them over the annual limit, which you have "

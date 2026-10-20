@@ -1572,6 +1572,56 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
        str(said))
 
 
+def check_an_order_is_closed_only_when_it_really_is() -> None:
+    """One recipient confirming is not twenty recipients confirming.
+
+    `stage_of` already held a bulk order at acknowledgement while anybody
+    was still to confirm, but the SIGN-OFF wrote a `closed` event the
+    moment the first of them did — so the audit trail carried "closed"
+    against an order three people had yet to receive theirs from, and the
+    sentence said "is closed" and "the order stays open" in one breath.
+    The fold was defended; the record of it was not, and the record is
+    what somebody proves this with.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    rid = _ask(by="servicelead", quantity="2", what="Hamper", value="2000",
+               recipient_list="Vikram Rao, Manish K.")
+    ok("it reaches distribution",
+       not _walk(rid, upto="distribution", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+    ok("both are handed over",
+       h.submit(_req("spoc"), "allocate",
+                {"recipients": "Vikram Rao, Manish K.",
+                 "mode": "at an event"}, about=rid).ok)
+    ok("and Operations sign that off",
+       h.act(_req("spoc"), "sign_off", [rid], "Both handed over.").ok)
+
+    # ONE of the two confirms.
+    first = h.act(_req("enduser"), "sign_off", [rid], "")
+    ok("the first recipient can confirm", first.ok, first.said)
+    ok("and is not told the order is closed",
+       "is closed" not in first.said, first.said)
+    ok("but is told somebody else still has to",
+       "stays open" in first.said, first.said)
+    ok("nothing on the trail says closed yet",
+       not ledger.happened(rid, "closed"),
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("and the order is still at acknowledgement",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "acknowledgement")
+
+    # THEN the other one does.
+    second = h.act(_req("mk"), "sign_off", [rid], "")
+    ok("the last recipient can confirm too", second.ok, second.said)
+    ok("and that one IS the close", "is closed" in second.said, second.said)
+    ok("the trail says so once, and only now",
+       len([e for e in ledger.events(rid) if e["kind"] == "closed"]) == 1,
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("and the order has ended",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       in gr_mod.ENDED)
+
+
 def check_a_late_recipient_draws_on_the_buffer() -> None:
     """A fourth name on a three-gift order, without going round again.
 
@@ -1735,13 +1785,19 @@ def check_every_on_row_form_has_a_door() -> None:
     # the bug that survived naming the forms in `can`.
     _, reg_feat, reg = registry.feature_of("scs", "register")
     tracker = [f.id for f in reg_feat.forms if f.on_row]
-    ok("the Tracker carries the chain's own forms",
-       {"allocate", "revise_list"} <= set(tracker), str(tracker))
-    ok("and its handler accepts them",
-       reg.accepts("allocate") and reg.accepts("revise_list"))
-    ok("the words are the chain's, not a second copy",
-       next(f.label for f in reg_feat.forms if f.id == "allocate")
-       == next(f.label for f in feat.forms if f.id == "allocate"))
+    # EVERY one of them, not a remembered two. Aliasing `allocate` and
+    # `revise_list` and stopping there left Procurement with a row whose
+    # own `can` named "Link the PR/PO" and a screen that would not draw
+    # it — the identical bug, one form further along. Measured against
+    # the chain's own list so the next form added there cannot be
+    # forgotten here.
+    ok("the Tracker carries every one of the chain's row forms",
+       set(on_row) <= set(tracker), f"{on_row} vs {tracker}")
+    for form_id in on_row:
+        ok(f"and its handler accepts {form_id}", bool(reg.accepts(form_id)))
+        ok(f"with the chain's own words for {form_id}, not a second copy",
+           next(f.label for f in reg_feat.forms if f.id == form_id)
+           == next(f.label for f in feat.forms if f.id == form_id))
     # Read on the Tracker as it stands NOW — everything is allocated by
     # this point, so `allocate` has correctly closed and the list form is
     # the one still open. That it was open earlier is what the assertions
@@ -6217,6 +6273,8 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_an_order_is_closed_only_when_it_really_is()
     with fixtures():
         check_a_late_recipient_draws_on_the_buffer()
     with fixtures():
