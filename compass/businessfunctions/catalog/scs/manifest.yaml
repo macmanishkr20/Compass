@@ -155,8 +155,10 @@ features:
         confirm: >-
           Signs off this stage with your name against it and moves the
           request to the next team. Finance must say what they
-          checked; at distribution this is what puts it on the register,
-          and at acknowledgement it is the recipient confirming receipt.
+          checked; closing the recipient list settles who is getting one;
+          starting the distribution is what puts it on the register and
+          emails each of them; and at acknowledgement it is the recipient
+          confirming receipt.
         reversible: false
       # The three desks whose step is a CHECK. Not Operations and not the
       # recipient: by the time it reaches them it has been approved, bought
@@ -339,46 +341,6 @@ features:
               Somebody left, somebody was missed, the event changed. One
               line is enough; nothing is enough.
 
-      - &chain_allocate
-        id: allocate
-        label: Name who received them
-        on_row: true
-        submit_label: Record them
-        blurb: >-
-          The step the whole tracker exists for. An order is for a
-          quantity; this is where a quantity becomes people, and nothing
-          reaches anybody's annual total until it does. Name them by
-          comma, say when they were handed over and how.
-        confirm: >-
-          Puts one record on the register per person named, against their
-          year. The register is write-once — a correction supersedes a
-          record rather than editing it.
-        fields:
-          - id: recipients
-            label: Who received them
-            kind: text
-            help: Names separated by commas. One record each.
-          - id: given
-            label: When they were handed over
-            kind: date
-            required: false
-            help: Leave it empty for today.
-          - id: mode
-            label: How it reached them
-            kind: choice
-            options: [in person, at an event, by courier, sent digitally]
-            help: >-
-              An auditor asking how two hundred hampers were handed out
-              deserves better than silence.
-          - id: actual
-            label: What one ACTUALLY cost
-            kind: money
-            required: false
-            help: >-
-              Leave it empty if it came in at the estimate. The register
-              records what was received, and a limit measured against an
-              estimate is a limit measured against a guess.
-
     rules:
       - id: waiting_on_you
         headline: Something is waiting on you.
@@ -479,8 +441,10 @@ features:
         confirm: >-
           Signs off this stage with your name against it and moves the
           order to the next team. Finance must say what they
-          checked; at distribution this is what puts it on the register,
-          and at acknowledgement it is the recipient confirming receipt.
+          checked; closing the recipient list settles who is getting one;
+          starting the distribution is what puts it on the register and
+          emails each of them; and at acknowledgement it is the recipient
+          confirming receipt.
         reversible: false
       - id: decline
         label: Send it back
@@ -613,7 +577,6 @@ features:
       # handler delegates them to Gift requests exactly as it already
       # delegates the chain's actions: the Tracker is where the buttons
       # are; Gift requests is still where the rules are.
-      - *chain_allocate
       - *chain_revise_list
       - *chain_link_purchase
       - id: answer_query

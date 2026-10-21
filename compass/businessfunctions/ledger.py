@@ -109,6 +109,10 @@ EVENTS = ("reviewed", "answered", "superseded", "notified",
           # tell compliance" is a question with an answer and the same
           # person is not alerted twice for one crossing.
           "threshold_crossed",
+          # the recipients being told their gift is waiting to be
+          # confirmed. The step after distribution is theirs, and this is
+          # how they find out it is.
+          "recipients_told",
           # the rulebook itself. The highest-leverage change in the module,
           # so it lands on the same trail as every gift it will judge.
           "threshold_set",
@@ -139,6 +143,7 @@ READS_AS = {
     "unlisted": "took a recipient off",
     "purchase_linked": "linked the purchase to",
     "threshold_crossed": "was flagged past the threshold",
+    "recipients_told": "asked the recipients of",
     "cancelled": "withdrew",
     "reviewed": "decided",
     "answered": "answered a question about",

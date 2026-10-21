@@ -77,6 +77,13 @@ PROCUREMENT = "Procurement"
 #: in a quantity field cannot write ten thousand register records.
 MOST_PER_ORDER = 500
 
+#: The stages at which the recipient list is still open. Signing off
+#: `recipient_list` is what closes it, so distribution is already too
+#: late — the register is built from the list there and nothing may move
+#: underneath it afterwards.
+BEFORE_CLOSED = ("service_line", "finance_policy", "procurement",
+                 "recipient_list")
+
 #: How long a reference from another system may be. A guard, not a format:
 #: every firm numbers its own purchase orders differently and Compass has
 #: no business having an opinion about theirs.
@@ -102,10 +109,12 @@ EXCEPTION_OWNER = "finance"
 #: named here rather than spelled into three functions.
 DISTRIBUTOR = "operations"
 
-#: How a gift reached somebody. Asked at distribution because "we have no
-#: idea how it got there" is the honest answer otherwise, and an auditor
-#: asking how two hundred hampers were handed out deserves better.
-MODES = ("in person", "at an event", "by courier", "sent digitally")
+#: HOW a gift reached somebody is no longer asked. It was a field on the
+#: allocation form, and the allocation form is gone: the business hands a
+#: whole order out at once, so "in person or by courier" was one answer
+#: standing in for two hundred hand-offs — which is not a better record
+#: than no answer, it is a worse one, because it reads as though somebody
+#: checked. The register keeps an empty mode on records made this way.
 
 
 def TAX_FREE_now() -> int:
@@ -223,24 +232,52 @@ STAGES: dict[str, dict[str, Any]] = {
         "label": "With Procurement",
         "verb": "Record what it was bought on",
         "asks": "the requisition, order or invoice it was bought on",
+        "next": "recipient_list",
+    },
+    # THE LIST IS CLOSED BEFORE ANYTHING IS HANDED OUT. This used to be
+    # half of distribution: one step where Operations both decided who was
+    # getting one and recorded that they had. Those are two decisions and
+    # the business separates them, because between ordering and handing
+    # out is exactly when the list moves — somebody leaves, somebody is
+    # missed, the event changes — and the desk needs a moment where it can
+    # still be put right and a moment after which it cannot.
+    #
+    # Signing this off IS the closing. Past it the list is what the
+    # register will be built from, so nothing may add to it or take from
+    # it: a list that can still change after it was called final is not a
+    # list anybody can be held to.
+    "recipient_list": {
+        # Not a check and not refusable: Operations are not approving the
+        # order, they are settling who it reaches. A wrong list is fixed
+        # here rather than sent back three desks.
+        "back": False,
+        "ask": "",
+        "step": "the final recipient list",
+        "holder": "Operations / SPOC, to settle the list",
+        "owner": "operations",
+        "label": "With Operations for the list",
+        "verb": "Close the recipient list",
+        "asks": "who is actually getting one",
         "next": "distribution",
     },
     "distribution": {
-        # Whoever handed it over records what was ACTUALLY given, because
-        # they are the only ones who can say it differed from what was
-        # asked for. OPERATIONS or the raiser: the SPOC who has the boxes
-        # distributes a bulk order, the colleague who asked distributes a
-        # one-off. This is the moment it reaches the register and starts
-        # counting.
+        # DISTRIBUTION STARTED. One act, and the moment the order reaches
+        # the register: a record per name on the closed list, and an email
+        # to each of them telling them to come and confirm it.
+        #
+        # It asks for nothing, because by here there is nothing left to
+        # decide — the list was settled at the step before and the value
+        # was approved three steps before that. The click is the act, and
+        # what it leaves behind is the records rather than a sentence
+        # about them.
         "back": False,
-        "ask": "What was actually given, and anything different from what "
-               "was asked for?",
-        "step": "what was actually given",
-        "holder": "Operations or the requester, to hand it over",
+        "ask": "",
+        "step": "the distribution",
+        "holder": "Operations / SPOC, to hand them out",
         "owner": "operations",
         "label": "With Operations to distribute",
-        "verb": "Record what was given",
-        "asks": "the actual distribution, and any deviation from the request",
+        "verb": "Start the distribution",
+        "asks": "that the gifts have gone out to the people on the list",
         "next": "acknowledgement",
     },
     "acknowledgement": {
@@ -664,7 +701,7 @@ def _with(request: dict[str, Any], stage: str) -> str:
     "with Business Requester" is not who to chase when the person holding
     it is an employee who raised one gift and holds no persona at all.
     """
-    if stage == "distribution":
+    if stage in ("recipient_list", "distribution"):
         who = people.find(request["by"])
         raiser = who.name if who else request["by"]
         return f"{people.LABELS[DISTRIBUTOR]} or {raiser}"
@@ -842,14 +879,21 @@ def _allocation_said(request: dict[str, Any]) -> str:
     wanted = request.get("quantity", 1)
     done = len(allocated_to(request["id"]))
     listed = len(planned_list(request["id"]))
-    if wanted == 1 and request["for"]:
+    if wanted == 1 and request["for"] and not listed:
         return "named when asked for"
-    target = listed if listed else wanted
-    if done > wanted:
-        return f"{done} of {target} named · {done - wanted} past the {wanted} approved"
     if not done:
-        return f"none of {target} named"
-    return f"{done} of {target} named"
+        # BEFORE DISTRIBUTION there is a list and no records. Saying
+        # "none of 3 named" read as work outstanding when the naming was
+        # done — the list is settled and nothing has gone out yet, which
+        # is a different thing and the row should say which.
+        closed = stage_of(request) not in BEFORE_CLOSED
+        return (f"{listed} on the list, "
+                f"{'closed' if closed else 'still open'}" if listed
+                else "nobody on the list yet")
+    if done > wanted:
+        return (f"{done} given · {done - wanted} past the {wanted} "
+                f"approved")
+    return f"{done} given of {wanted} approved"
 
 
 def _record(request: dict[str, Any], employee_id: str, name: str,
@@ -973,6 +1017,15 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             # question, so the two cannot disagree about what is needed.
             "ask": {"sign_off": STAGES.get(stage, {}).get("ask", "")},
             "can": _allowed(scope, request, stage, verdict),
+            # WHAT THE BUTTON SAYS, when the stage's own words are better
+            # than the action's. One `sign_off` carries six different
+            # steps, and "Sign off" is the right word for a check and the
+            # wrong one for the act that puts two hundred gifts on the
+            # register — the business calls that starting the
+            # distribution, and the button should say what it does. On
+            # the row because only the row knows which step it is at.
+            "labels": {"sign_off": STAGES[stage]["verb"]}
+                      if stage in ("recipient_list", "distribution") else {},
         })
     # Whatever is with somebody comes before whatever is finished, and the
     # oldest first inside that — a queue, not a list.
@@ -1080,6 +1133,7 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             # be the ones `act` will accept — and there is exactly one
             # function that knows which those are.
             "can": row["can"],
+            "labels": row["labels"],
             "ask": row["ask"],
             "blocked": row["blocked"],
             "policy": row["policy"],
@@ -1251,14 +1305,16 @@ def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
         request named. Confirming you received something is not deciding
         your own case.
     """
-    if stage == "distribution":
-        # OPERATIONS HANDS THINGS OUT, and so may whoever raised it. Both,
-        # because both happen: a bulk order is distributed by the SPOC who
-        # has the boxes, and a one-off gift by the colleague who asked for
-        # it. Routed by identity OR by that one persona rather than by the
-        # persona alone — gating it on a role stranded every request an
-        # ordinary employee raised, which is the bug the comment below was
-        # written about.
+    if stage in ("recipient_list", "distribution"):
+        # OPERATIONS SETTLE THE LIST AND HAND THINGS OUT, and so may
+        # whoever raised it. Both, because both happen: a bulk order is
+        # listed and distributed by the SPOC who has the boxes, a one-off
+        # gift by the colleague who asked for it. Routed by identity OR by
+        # that one persona rather than by the persona alone — gating it on
+        # a role stranded every request an ordinary employee raised, which
+        # is the bug the comment below was written about. Both of
+        # Operations' steps route the same way: a desk that may hand an
+        # order out may certainly say who to.
         return request["by"] == scope.user or DISTRIBUTOR in scope.roles
     if stage == "acknowledgement":
         # Whoever was ALLOCATED one, not whoever the request named. A bulk
@@ -1341,6 +1397,21 @@ def _allowed(scope: Scope, request: dict[str, Any], stage: str,
     return can
 
 
+def list_reopened(request_id: str) -> bool:
+    """Whether Finance has reopened a closed list by granting an exception.
+
+    The closed list is the firm's own rule, so the way past it is the way
+    past any rule here: somebody senior takes responsibility for the
+    change, in their own name, with a reason, on the trail. Only an
+    exception granted AT or AFTER the list step counts — one granted three
+    desks earlier was about the order's value, and reusing it here would
+    let a decision about money quietly unlock a different control.
+    """
+    granted = exception_on(request_id)
+    return bool(granted
+                and granted.get("stage") in ("recipient_list", "distribution"))
+
+
 def _forms_open(scope: Scope, request: dict[str, Any],
                 stage: str) -> list[str]:
     """Which on-row forms this person may open on this order, right now.
@@ -1354,15 +1425,15 @@ def _forms_open(scope: Scope, request: dict[str, Any],
     mine = request["by"] == scope.user
     hands_over = mine or DISTRIBUTOR in scope.roles
 
-    # Naming who received them. Distribution only, and only while there is
-    # anybody left to name.
-    if (stage == "distribution" and hands_over
-            and len(allocated_to(request["id"])) < request.get("quantity", 1)):
-        open_now.append("allocate")
-
     # Keeping the recipient list straight. Whoever raised it, their
-    # approver, or Operations — and not once the order has ended.
-    if (stage not in ENDED
+    # approver, or Operations — and only up to the step where Operations
+    # CLOSE it. Past that the list is what the register was built from,
+    # and a list that can still change after it was called final is not a
+    # list anybody can be held to. An exception taken at the list step or
+    # after is the one thing that reopens it, because then somebody senior
+    # has put their name to the change.
+    if ((stage in BEFORE_CLOSED or list_reopened(request["id"]))
+            and stage not in ENDED
             and (hands_over or "service_line" in scope.roles)):
         open_now.append("revise_list")
 
@@ -1380,7 +1451,7 @@ class GiftRequests(Feature):
     row_key = "id"
     private = frozenset({"by_employee", "stage", "blocked", "warns", "can",
                          "steps_done", "ask", "allocated_ids",
-                         "list_changes"})
+                         "list_changes", "labels"})
 
     def step_label(self, step: str) -> str:
         """A stage on the trail, in the words the screen uses for it."""
@@ -1393,8 +1464,13 @@ class GiftRequests(Feature):
     REQUEST_FORM = "request_gift"
     FIELDS = frozenset({"recipient", "recipient_list", "kind", "what",
                         "value", "occasion", "quantity", "purpose"})
-    ALLOCATE_FORM = "allocate"
-    ALLOCATE_FIELDS = frozenset({"recipients", "given", "mode", "actual"})
+    # ALLOCATION IS NOT A FORM ANY MORE. Who receives one is the closed
+    # recipient list, settled and signed off at its own step, and asking
+    # again at distribution was asking the same question twice and
+    # inviting two answers to it. The per-person date, mode and actual
+    # cost went with it: the business keeps one date for the hand-out and
+    # the approved value, and a figure nobody fills in honestly is worse
+    # than a figure nobody is asked for.
     LIST_FORM = "revise_list"
     LIST_FIELDS = frozenset({"add", "remove", "why"})
     PURCHASE_FORM = "link_purchase"
@@ -1546,44 +1622,60 @@ class GiftRequests(Feature):
                      f"no record of it is one nobody can audit.")
 
         said_extra = ""
-        if stage == "distribution":
-            # Where a proposal becomes a record. Nothing before this is on
-            # anybody's total, and nothing after it can be taken off.
-            #
-            # ONE RECIPIENT IS A SPECIAL CASE OF MANY. An order raised for
-            # a named person is allocated to them here, exactly as it
-            # always was; anything else has to have been allocated first,
-            # because the quantity is the only thing the order knows and a
-            # number is not a list of people.
-            given = allocated_to(row["id"])
-            if not given:
-                if not request["for"]:
-                    return Outcome(
-                        ok=False,
-                        said=f"Use “Name who received them” on this "
-                             f"row first — {request['quantity']} to "
-                             f"allocate, and the register cannot hold a gift "
-                             f"without a person to hold it against.")
-                given = [_record(request, request["for"], row["recipient"],
-                                 dt.date.today().isoformat(), "")]
-
-            # EVERY APPROVED GIFT NEEDS SOMEBODY AGAINST IT, and no more
-            # than that is asked for. Somebody on the list who received
-            # nothing is ordinary — the list is who MIGHT get one and the
-            # quantity carries a buffer — so this counts the gifts, not
-            # the names.
-            short = request["quantity"] - len(given)
-            if short > 0:
-                # NAMES THE DOOR, not just the task. This said what to do
-                # and not where, which is the same as saying nothing when
-                # the person reading it is looking at a row and cannot
-                # find the form.
+        if stage == "recipient_list":
+            # A LIST WITH NOBODY ON IT IS NOT A FINAL LIST. Closing one
+            # would send the order to distribution with nothing to write
+            # the register against, and the refusal would land one step
+            # later on somebody who could no longer fix it — the list
+            # shuts when this is signed off.
+            final = planned_list(row["id"])
+            if not final and not request["for"]:
                 return Outcome(
                     ok=False,
-                    said=f"{len(given)} of {request['quantity']} allocated. "
-                         f"Name who received the other {short} on this row "
-                         f"— “Name who received them” — "
-                         f"before signing it off.")
+                    said=f"Nobody is on this list yet. Put the "
+                         f"{request['quantity']} recipients on it with "
+                         f"“Change the recipient list” before "
+                         f"closing it — closing it is what stops it "
+                         f"changing.")
+            held = len(final) or 1
+            said_extra = (f" The list is closed at {held} "
+                          f"{'people' if held > 1 else 'person'}, and "
+                          f"nothing changes it now.")
+            over = held - request.get("quantity", 1)
+            if over > 0:
+                said_extra += (f" {over} of them come out of the buffer, "
+                               f"past the {request.get('quantity', 1)} "
+                               f"approved.")
+
+        if stage == "distribution":
+            # DISTRIBUTION STARTED, and the one moment a proposal becomes
+            # a record. Nothing before this is on anybody's total and
+            # nothing after it can be taken off.
+            #
+            # BUILT FROM THE CLOSED LIST, not from a second naming. Who is
+            # getting one was settled and signed off at the step before,
+            # so asking again here would be asking the same question twice
+            # and inviting two answers. One record per name, at the value
+            # that was approved, dated today.
+            #
+            # ONE RECIPIENT IS A SPECIAL CASE OF MANY: an order raised for
+            # a named person has no list, and that person is the list.
+            given = allocated_to(row["id"])
+            if not given:
+                final = planned_list(row["id"]) or (
+                    [request["for"]] if request["for"] else [])
+                if not final:
+                    return Outcome(
+                        ok=False,
+                        said="Nobody is on this order's list, so there is "
+                             "nothing to hand out. Put the recipients on it "
+                             "first — the register cannot hold a gift "
+                             "without a person to hold it against.")
+                today = dt.date.today().isoformat()
+                given = [_record(request, employee, _name_of(employee),
+                                 today, "")
+                         for employee in final]
+
             names = ", ".join(sorted({i["recipient"] for i in given}))
             said_extra = (f" {len(given)} record"
                           f"{'s are' if len(given) > 1 else ' is'} on the "
@@ -1599,6 +1691,18 @@ class GiftRequests(Feature):
                 said_extra = (f" It is on the register against "
                               f"{given[0]['recipient']}, whose year is now "
                               f"{rewardlens.rupees(after)}.")
+            over = len(given) - request.get("quantity", 1)
+            if over > 0:
+                said_extra += (f" {len(given)} against "
+                               f"{request.get('quantity', 1)} approved — "
+                               f"{over} out of the buffer, and the row says "
+                               f"so.")
+            # EACH OF THEM IS TOLD, because the next step is theirs and
+            # nobody confirms a gift they were never told about. Written
+            # down before it is sent, like every other notice here, so an
+            # address nobody has is a held notice with a reason rather
+            # than a recipient who silently never hears.
+            said_extra += " " + self._tell_the_recipients(scope, request, given)
             # The records exist by now, so the totals are true and a
             # crossing is a fact rather than a projection. Said AFTER the
             # register is written for exactly that reason.
@@ -1671,6 +1775,64 @@ class GiftRequests(Feature):
             said=f"Signed off: {step_name(stage)}.{crossing}{said_extra} "
                  f"It is now with {STAGES[nxt]['holder']}.",
             touched=[row["id"]])
+
+    def _tell_the_recipients(self, scope: Scope, request: dict[str, Any],
+                             given: list[dict[str, Any]]) -> str:
+        """Tell everybody who has just been given one. Says who heard.
+
+        THE NEXT STEP IS THEIRS, and nobody confirms receiving something
+        they were never told to come and confirm. Without this the order
+        sat at acknowledgement waiting on people who had no reason to open
+        Compass at all, which is the stall the Dashboard's own
+        "nobody has confirmed" chart was drawn to show — and a chart of a
+        problem is not as good as not having it.
+
+        What it says is deliberately small: what they were given, what it
+        counts as against their year, and that confirming it is theirs to
+        do. It does not tell them what it means for their tax, because
+        that is not this module's to say.
+        """
+        heard, held, unsent = [], [], []
+        for item in given:
+            person = people.find_by_employee(item["employee_id"])
+            notice = notices.record(
+                to=person.email if person else "",
+                name=item["recipient"],
+                subject=f"{request['what']} — please confirm you received it",
+                body=(f"{request['what']}, recorded at "
+                      f"{rewardlens.rupees(item['value'])}, has been handed "
+                      f"out to you.\n\nIt is on the register against your "
+                      f"name and counts towards your annual limit. Open "
+                      f"RewardLens and confirm you received it, so the "
+                      f"record says you did rather than the firm saying it "
+                      f"for you.\n\nIf this is wrong, say so there rather "
+                      f"than confirming it."),
+                about=item["id"])
+            if notice.state != "held":
+                heard.append(item["recipient"])
+            elif "no email address" in notice.detail:
+                # WHY it was held is the whole point of holding it. "No
+                # address for Priya" is somebody's to go and fix; "no mail
+                # server" is the deployment's and says nothing about Priya
+                # at all. Reporting both as the first sent people looking
+                # for a missing address that was never missing.
+                held.append(item["recipient"])
+            else:
+                unsent.append(item["recipient"])
+        ledger.add_event(subject=request["id"], kind="recipients_told",
+                         by=scope.user, stage="distribution",
+                         told=len(heard), held=len(held) + len(unsent))
+        parts = []
+        if heard:
+            parts.append(f"{len(heard)} asked to confirm by email")
+        if unsent:
+            parts.append(f"{len(unsent)} not emailed — no mail server "
+                         f"configured")
+        if held:
+            parts.append(f"no address on file for {', '.join(held)}")
+        if not parts:
+            return "Nobody was emailed."
+        return "; ".join(parts) + ". They can confirm in RewardLens either way."
 
     def _issue_reference(self, scope: Scope, request: dict[str, Any]) -> str:
         """Mint the order's reference and email it. Says what happened."""
@@ -1823,8 +1985,6 @@ class GiftRequests(Feature):
     def accepts(self, form_id: str) -> set[str]:
         if form_id == self.REQUEST_FORM:
             return set(self.FIELDS)
-        if form_id == self.ALLOCATE_FORM:
-            return set(self.ALLOCATE_FIELDS)
         if form_id == self.LIST_FORM:
             return set(self.LIST_FIELDS)
         if form_id == self.PURCHASE_FORM:
@@ -1866,10 +2026,10 @@ class GiftRequests(Feature):
                                         Outcome | None]:
         """The change to the recipient list, or why it cannot be made.
 
-        Controlled: who may change it, when it may be changed, and never
-        past the quantity that was approved. A list somebody can rewrite
-        silently is not a control, and a list nobody can correct is a
-        control people work around.
+        Controlled: who may change it and when. A list somebody can
+        rewrite silently is not a control, and a list nobody can correct
+        is a control people work around — so the window is open right up
+        to the step where Operations close it, and shut from then on.
         """
         request = next((r for r in ledger.requests() if r["id"] == about), None)
         if request is None:
@@ -1880,6 +2040,19 @@ class GiftRequests(Feature):
                 ok=False,
                 said=f"{request['id']} is {stage_label(stage).lower()}. The "
                      f"list of an order that has ended does not change.")
+        # CLOSED IS CLOSED. Operations signed this list off as final, and
+        # the register at distribution is built from it — so a change
+        # after that point is a change to what the firm has already
+        # recorded giving away. Not a dead end: Finance may take the
+        # decision in their own name, and then it opens again.
+        if stage not in BEFORE_CLOSED and not list_reopened(request["id"]):
+            return None, Outcome(
+                ok=False,
+                said=f"The list was closed when Operations signed it off, "
+                     f"and {stage_label(stage).lower()} is past that. Ask "
+                     f"Finance for an exception if it has to change — "
+                     f"somebody has to put their name to moving a list the "
+                     f"register was built from.")
         if (request["by"] != scope.user and DISTRIBUTOR not in scope.roles
                 and "service_line" not in scope.roles):
             return None, Outcome(
@@ -1950,122 +2123,6 @@ class GiftRequests(Feature):
                      "difference is the one somebody will ask about.")
         return {"request": request, "add": adding, "remove": removing,
                 "why": values["why"].strip(), "after": after}, None
-
-    def _read_allocation(self, scope: Scope, values: dict[str, str],
-                         about: str) -> tuple[dict[str, Any] | None,
-                                              Outcome | None]:
-        """The allocation these values describe, or why they do not.
-
-        This is "Provide recipient list / allocation details": the step
-        where a quantity becomes people. Everything it refuses, it refuses
-        BEFORE anything is written, because a half-written allocation on a
-        write-once register is not something anybody can tidy up.
-        """
-        request = next((r for r in ledger.requests() if r["id"] == about), None)
-        if request is None:
-            return None, Outcome(ok=False, said="No order by that id.")
-        if stage_of(request) != "distribution":
-            return None, Outcome(
-                ok=False,
-                said=f"{request['id']} is {stage_label(stage_of(request)).lower()}. "
-                     f"Gifts are allocated when it reaches distribution.")
-        if request["by"] != scope.user and DISTRIBUTOR not in scope.roles:
-            return None, Outcome(
-                ok=False,
-                said="Whoever raised it hands it over, or Operations — they "
-                     "are the ones who can say who actually received it.")
-
-        already = allocated_to(request["id"])
-        wanted = request.get("quantity", 1)
-        planned = planned_list(request["id"])
-        # HOW MANY ARE LEFT TO NAME. Bounded by the LIST when there is
-        # one, and by the approved quantity only when there is not.
-        #
-        # The list is the real bound: nothing may be allocated to somebody
-        # who is not on it, and putting somebody on it is a recorded
-        # change with a reason. So a fourth name on a three-gift order —
-        # the buffer the Service Line Approver ordered against — can
-        # actually be given their gift, rather than the desk holding the
-        # spare stock being told everything is allocated. What it cannot
-        # do is go unremarked: anything past the approved quantity is
-        # counted and said, on the row, in the sentence and on the trail.
-        room = (len(planned) if planned else wanted) - len(already)
-        if room <= 0:
-            return None, Outcome(
-                ok=False,
-                said=(f"Everybody on the list has one. Put somebody on it "
-                      f"first with “Change the recipient list”."
-                      if planned else f"All {wanted} are allocated."))
-
-        names = [n.strip() for n in values.get("recipients", "").split(",")
-                 if n.strip()]
-        if not names:
-            return None, Outcome(ok=False, said="Name who received them, "
-                                                "separated by commas.")
-        if len(names) > room:
-            return None, Outcome(
-                ok=False,
-                said=f"{len(names)} names for {room} remaining. Allocate no "
-                     f"more than were asked for.")
-
-        held = {i["employee_id"] for i in already}
-        people_named: list[tuple[str, str]] = []
-        for name in names:
-            employee = _employee_named(name)
-            if not employee:
-                return None, Outcome(
-                    ok=False,
-                    said=f"Compass does not know anybody called {name!r}. "
-                         f"It knows: {', '.join(_known_names())}.")
-            if planned and employee not in planned:
-                return None, Outcome(
-                    ok=False,
-                    said=f"{name} is not on this order's recipient list. "
-                         f"Put them on it first — the list is what was "
-                         f"approved, and allocating round it is how a gift "
-                         f"ends up on somebody nobody signed off for.")
-            if employee in held or employee in {e for e, _ in people_named}:
-                return None, Outcome(
-                    ok=False,
-                    said=f"{name} is already down for one from this order. "
-                         f"One record per person per order, so a second "
-                         f"gift is a second order.")
-            people_named.append((employee, _name_of(employee)))
-
-        given = values.get("given", "").strip() or dt.date.today().isoformat()
-        try:
-            dt.date.fromisoformat(given)
-        except ValueError:
-            return None, Outcome(ok=False, said="Give the date they were "
-                                                "handed over as YYYY-MM-DD.")
-        mode = values.get("mode", "").strip().lower()
-        if mode not in MODES:
-            return None, Outcome(ok=False, said=f"How did it reach them? One "
-                                                f"of: {', '.join(MODES)}.")
-
-        # WHAT IT ACTUALLY COST, which is not what was estimated. The
-        # request carries an estimate made before anything was bought; the
-        # register has to carry what was really given, because that is the
-        # figure somebody's annual limit is measured against and the one a
-        # tax position rests on. Empty means it came in at the estimate.
-        actual = request["value"]
-        if values.get("actual", "").strip():
-            actual = rewardlens.whole_rupees(values["actual"])
-            if actual is None or actual <= 0:
-                return None, Outcome(ok=False, said="Give what one of them "
-                                                    "actually cost in whole "
-                                                    "rupees, or leave it "
-                                                    "empty for the estimate.")
-            if actual > rewardlens.most_per_item():
-                return None, Outcome(ok=False, said="That is past what this "
-                                                    "form takes.")
-        # Past what was approved, after this allocation. A fact rather
-        # than a refusal, and carried out of here so the sentence, the row
-        # and the trail all say the same number.
-        beyond = max(0, len(already) + len(people_named) - wanted)
-        return {"request": request, "people": people_named, "given": given,
-                "mode": mode, "room": room, "actual": actual,
-                "beyond": beyond}, None
 
     def _read(self, scope: Scope, values: dict[str, str]
               ) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -2247,36 +2304,6 @@ class GiftRequests(Feature):
                      + f" — {read['after']} of "
                        f"{read['request'].get('quantity', 1)} named after "
                        f"this. The original list stays on the trail.")
-        if form_id == self.ALLOCATE_FORM:
-            read, refused = self._read_allocation(scope, values, about)
-            if refused is not None:
-                return refused
-            assert read is not None
-            crossing = []
-            for employee, name in read["people"]:
-                verdict = _tax_check(scope, employee, read["request"]["value"],
-                                     read["request"]["kind"])
-                if not verdict["ok"]:
-                    crossing.append(f"{name} ({verdict['said']})")
-            left = read["room"] - len(read["people"])
-            differs = read["actual"] != read["request"]["value"]
-            said = (f"{len(read['people'])} to be recorded at "
-                    f"{rewardlens.rupees(read['actual'])} each, "
-                    f"{read['mode']}, on {read['given']}."
-                    + (f" The estimate was "
-                       f"{rewardlens.rupees(read['request']['value'])}."
-                       if differs else "")
-                    + (f" {left} still to allocate after this." if left else
-                       " That allocates the order in full.")
-                    + (f" {read['beyond']} past the "
-                       f"{read['request'].get('quantity', 1)} approved — "
-                       f"from the buffer, and said on the row."
-                       if read["beyond"] else ""))
-            if crossing:
-                said += (" Over the annual limit: " + "; ".join(crossing)
-                         + ". It still records — the limit is reported, not "
-                           "enforced at the door.")
-            return Outcome(ok=True, said=said)
         if form_id != self.REQUEST_FORM:
             return Outcome(ok=False, said=f"No form called {form_id!r}.")
         request, refused = self._read(scope, values)
@@ -2332,37 +2359,6 @@ class GiftRequests(Feature):
                      f"on the trail with your reason, and the list as first "
                      f"approved is still there beside it.",
                 touched=[read["request"]["id"]])
-        if form_id == self.ALLOCATE_FORM:
-            read, refused = self._read_allocation(scope, values, about)
-            if refused is not None:
-                return refused
-            assert read is not None
-            request = read["request"]
-            for employee, name in read["people"]:
-                _record(request, employee, name, read["given"],
-                        read["mode"], read["actual"])
-            ledger.add_event(subject=request["id"], kind="allocated",
-                             by=scope.user, stage="distribution",
-                             items=len(read["people"]),
-                             beyond=read["beyond"],
-                             note=", ".join(n for _e, n in read["people"]))
-            done = len(allocated_to(request["id"]))
-            wanted = request.get("quantity", 1)
-            listed = len(planned_list(request["id"]))
-            left = (listed if listed else wanted) - done
-            return Outcome(
-                ok=True,
-                said=f"Recorded against "
-                     f"{', '.join(n for _e, n in read['people'])} at "
-                     f"{rewardlens.rupees(read['actual'])} each, "
-                     f"{read['mode']}, on {read['given']}."
-                     + (f" {left} still to allocate." if left else
-                        " Everybody on this order has somebody against "
-                        "their gift, so it can be signed off.")
-                     + (f" {done} against {wanted} approved — the extra "
-                        f"came out of the buffer, and the row says so."
-                        if done > wanted else ""),
-                touched=[request["id"]])
         if form_id != self.REQUEST_FORM:
             return Outcome(ok=False, said=f"No form called {form_id!r}.")
         request, refused = self._read(scope, values)

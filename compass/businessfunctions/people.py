@@ -235,6 +235,21 @@ def address_of(user: str) -> str:
     return person.email if person else ""
 
 
+def find_by_employee(employee_id: str) -> Person | None:
+    """The directory entry for an EMPLOYEE NUMBER, or None.
+
+    The directory is keyed by login, and a recipient is reached by their
+    employee id — they are somebody a gift was recorded against, which is
+    not the same as somebody who signs in. Several people on the register
+    have no login at all, so None here is an ordinary answer and the
+    caller holds the notice with a reason rather than guessing an address.
+    """
+    if not employee_id:
+        return None
+    return next((p for p in DIRECTORY.values()
+                 if p.employee_id == employee_id), None)
+
+
 def holders(role: str) -> list[Person]:
     """Who to write to when something is this role's to know.
 

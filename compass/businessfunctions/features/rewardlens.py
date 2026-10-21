@@ -759,7 +759,10 @@ class RewardLens(Feature):
                          # off from here: the question a step asks before
                          # it is taken, and whether policy stops it. Both
                          # drive buttons; neither is a thing to read.
-                         "ask", "blocked", "allocated_ids"})
+                         "ask", "blocked", "allocated_ids",
+                         # and the words a step wants on its own button,
+                         # which are machinery rather than a reading.
+                         "labels"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _totals(scope)
@@ -926,11 +929,10 @@ class RewardLens(Feature):
     #: And the chain's FORMS, for the same reason: every persona but the
     #: raiser signs an order off here, so a form any step of the chain
     #: needs has to open here. ALL of them, not the ones somebody
-    #: remembered: aliasing two of the three left Procurement with a row
-    #: that named "Link the PR/PO" in its own `can` and a screen that
-    #: would not draw it — the same bug one form further along. Aliased
-    #: in the manifest, delegated below.
-    CHAIN_FORMS = ("allocate", "revise_list", "link_purchase")
+    #: remembered: aliasing some and not others left Procurement with a
+    #: row that named "Link the PR/PO" in its own `can` and a screen that
+    #: would not draw it. Aliased in the manifest, delegated below.
+    CHAIN_FORMS = ("revise_list", "link_purchase")
 
     def act(self, scope: Scope, action: str, targets: list[str],
             note: str = "") -> Outcome:
@@ -1289,7 +1291,6 @@ class RewardLens(Feature):
             )
 
             return {
-                "allocate": set(GiftRequests.ALLOCATE_FIELDS),
                 "revise_list": set(GiftRequests.LIST_FIELDS),
                 "link_purchase": set(GiftRequests.PURCHASE_FIELDS),
             }[form_id]

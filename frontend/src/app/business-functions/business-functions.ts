@@ -518,7 +518,16 @@ export class BusinessFunctions {
     // rule, above the per-feature guessing.
     if (Array.isArray(row['can'])) {
       const can = row['can'] as string[];
-      return all.filter((a) => can.includes(a.id));
+      // THE ROW MAY NAME ITS OWN BUTTONS. One `sign_off` carries six
+      // different steps of the chain, and "Sign off" is the right word
+      // for a check and the wrong one for the act that puts an order on
+      // the register. Only the row knows which step it is at, so only
+      // the row can say — and when it says nothing the manifest's own
+      // label stands, which is every other feature.
+      const said = (row['labels'] ?? {}) as Record<string, string>;
+      return all
+        .filter((a) => can.includes(a.id))
+        .map((a) => (said[a.id] ? { ...a, label: said[a.id] } : a));
     }
     // A row that says nothing offers nothing. It used to offer EVERYTHING
     // the manifest declared, which held only while every feature either

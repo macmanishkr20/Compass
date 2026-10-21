@@ -1123,50 +1123,55 @@ def check_a_bulk_order_becomes_people() -> None:
        "when they are named" in row["tax"], row["tax"])
     ok("and it is not blocked for having nobody on it", not row["blocked"])
 
-    trouble = _walk(rid, upto="distribution")
-    ok("it reaches distribution", not trouble, str(trouble))
+    trouble = _walk(rid, upto="recipient_list")
+    ok("it reaches the list step", not trouble, str(trouble))
 
-    # Signing off without naming anybody is refused — a register record
-    # needs a person to hold it against.
-    refused = h.act(asking, "sign_off", [rid], "Handed them out")
-    ok("it cannot be signed off with nobody named", not refused.ok,
-       refused.said)
-    ok("and the refusal says how many are waiting",
-       "3 to allocate" in refused.said, refused.said)
+    # NOBODY ON THE LIST, so there is nothing to close and nothing to hand
+    # out. Closing an empty list would send an order to distribution with
+    # no one to record it against.
+    asking_spoc = _req("spoc")
+    refused = h.act(asking_spoc, "sign_off", [rid], "")
+    ok("an empty list cannot be closed", not refused.ok, refused.said)
 
-    # Allocate two of the three.
-    out = h.submit(asking, "allocate",
-                   {"recipients": "Vikram Rao, John Mathew",
-                    "given": "2026-10-14", "mode": "at an event"}, about=rid)
-    ok("two are allocated", out.ok, out.said)
-    ok("and it says one is still to go", "1 still to allocate" in out.said,
-       out.said)
-    ok("two records are on the register", len(gr_mod.allocated_to(rid)) == 2)
-    ok("each carries how it reached them",
-       all(i["mode"] == "at an event" for i in gr_mod.allocated_to(rid)))
-    ok("and the day it did",
-       all(i["given"] == "2026-10-14" for i in gr_mod.allocated_to(rid)))
+    out = h.submit(asking_spoc, "revise_list",
+                   {"add": "Vikram Rao, John Mathew",
+                    "why": "Who is actually getting one."}, about=rid)
+    ok("Operations put people on it", out.ok, out.said)
+    ok("and nothing is on the register yet",
+       not gr_mod.allocated_to(rid), str(gr_mod.allocated_to(rid)))
+
+    ok("the same person twice is refused",
+       not h.submit(asking_spoc, "revise_list",
+                    {"add": "Vikram Rao", "why": "again"}, about=rid).ok)
+
+    out = h.submit(asking_spoc, "revise_list",
+                   {"add": "Aisha Khan", "why": "The third one."}, about=rid)
+    ok("the third goes on", out.ok, out.said)
+    ok("the list is three people", len(gr_mod.planned_list(rid)) == 3,
+       str(gr_mod.planned_list(rid)))
+
+    ok("closing it is what Operations sign off",
+       h.act(asking_spoc, "sign_off", [rid], "").ok)
+    ok("and the list is shut to changes now",
+       not h.submit(asking_spoc, "revise_list",
+                    {"add": "Priya Nair", "why": "too late"}, about=rid).ok)
+
+    # STARTING THE DISTRIBUTION is what writes the register — one record
+    # per name on the closed list, at the value that was approved.
+    out = h.act(asking_spoc, "sign_off", [rid], "")
+    ok("starting the distribution signs off", out.ok, out.said)
+    ok("three records are on the register",
+       len(gr_mod.allocated_to(rid)) == 3,
+       str(len(gr_mod.allocated_to(rid))))
     ok("at the value of ONE, not the order",
        all(i["value"] == 2000 for i in gr_mod.allocated_to(rid)))
-
-    ok("the same person twice in one order is refused",
-       not h.submit(asking, "allocate",
-                    {"recipients": "Vikram Rao", "mode": "in person"},
-                    about=rid).ok)
-    ok("and more than were asked for is refused",
-       not h.submit(asking, "allocate",
-                    {"recipients": "Aisha Khan, Priya Nair",
-                     "mode": "in person"}, about=rid).ok)
-    ok("short of the quantity, it still cannot be signed off",
-       not h.act(asking, "sign_off", [rid], "Handed them out").ok)
-
-    out = h.submit(asking, "allocate",
-                   {"recipients": "Aisha Khan", "mode": "by courier"},
-                   about=rid)
-    ok("the last one allocates", out.ok, out.said)
-    ok("and says the order is covered", "signed off" in out.said, out.said)
-    ok("now it signs off",
-       h.act(asking, "sign_off", [rid], "Handed them out").ok)
+    ok("dated the day they went out",
+       len({i["given"] for i in gr_mod.allocated_to(rid)}) == 1,
+       str({i["given"] for i in gr_mod.allocated_to(rid)}))
+    ok("each knows which order it came from",
+       all(i["from_request"] == rid for i in gr_mod.allocated_to(rid)))
+    ok("and the recipients were asked to confirm",
+       "confirm" in out.said, out.said)
 
     # Three people, three acknowledgements. The first does not close it on
     # everybody else's behalf.
@@ -1174,10 +1179,7 @@ def check_a_bulk_order_becomes_people() -> None:
        h.act(_req("enduser"), "sign_off", [rid], "").ok
        and gr_mod.stage_of(next(r for r in ledger.requests()
                                 if r["id"] == rid)) == "acknowledgement")
-    ok("and it says who is still outstanding",
-       "have not confirmed" in h.act(_req("enduser"), "sign_off", [rid], "").said
-       or True)
-    ok("somebody not allocated one cannot confirm it",
+    ok("somebody not on the list cannot confirm it",
        not h.act(_req("leadtwo"), "sign_off", [rid], "").ok)
 
 
@@ -1195,8 +1197,8 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
        "payroll_tax" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
     ok("and no stage is owned by payroll",
        not [k for k, v in gr_mod.STAGES.items() if v.get("owner") == "payroll"])
-    ok("the chain is five steps",
-       len([k for k in gr_mod.STAGES if k != "closed"]) == 5,
+    ok("the chain is six steps",
+       len([k for k in gr_mod.STAGES if k != "closed"]) == 6,
        str(list(gr_mod.STAGES)))
 
     rid = _ask(what="A hamper", value="1200")
@@ -1291,7 +1293,7 @@ def check_the_tracker_issues_the_reference_and_emails_it() -> None:
     # Procurement signs off that it bought, with nothing to type.
     ok("procurement's step needs no data entry in a second system",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
-       == "distribution")
+       == "recipient_list")
 
 
 def check_a_blocked_order_can_ask_for_an_exception() -> None:
@@ -1529,47 +1531,115 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
                 {"remove": "Priya Nair", "why": "On leave that week."},
                 about=rid).ok)
 
-    # Allocation may only name people the list carries.
-    _walk(rid, upto="distribution")
-    ok("allocating to somebody off the list is refused",
-       not h.submit(asking, "allocate",
-                    {"recipients": "Rahul Desai", "mode": "in person"},
-                    about=rid).ok)
-    ok("and the refusal says to put them on it first",
-       "Put them on it first" in h.submit(
-           asking, "allocate", {"recipients": "Rahul Desai",
-                                "mode": "in person"}, about=rid).said)
-    ok("allocating to somebody on it works",
-       h.submit(asking, "allocate",
-                {"recipients": "Vikram Rao, Aisha Khan",
-                 "mode": "at an event"}, about=rid).ok)
+    # THE LIST IS THE ALLOCATION NOW, so "allocating to somebody off the
+    # list" cannot happen: there is nothing to allocate with. What takes
+    # its place is the register being built from exactly these names.
+    _walk(rid, upto="recipient_list")
+    settled = gr_mod.planned_list(rid)
+    ok("the list reaching the close is what it was revised to",
+       len(settled) == 3, str(settled))
 
-    # WRITE-ONCE IS ABOUT A PERSON, NOT ABOUT THE ORDER. Whoever has
-    # received theirs is on the register and cannot come off the list;
-    # the gifts nobody has received yet are still a plan, and Operations
-    # are the desk the business put in charge of keeping it straight. The
-    # old rule froze the whole list the moment the first gift was handed
-    # out, which left a bulk order half-allocated and unfixable.
-    ok("somebody already on the register cannot be unlisted",
-       not h.submit(asking, "revise_list",
+    ok("Operations close it",
+       h.act(_req("spoc"), "sign_off", [rid], "").ok)
+    ok("starting the distribution writes one record per name",
+       h.act(_req("spoc"), "sign_off", [rid], "").ok
+       and len(gr_mod.allocated_to(rid)) == len(settled),
+       f"{len(gr_mod.allocated_to(rid))} for {len(settled)} names")
+    ok("and each record is against somebody who was on it",
+       {i["employee_id"] for i in gr_mod.allocated_to(rid)} == set(settled),
+       str({i["employee_id"] for i in gr_mod.allocated_to(rid)}))
+
+    # WRITE-ONCE IS ABOUT A PERSON. Whoever has received theirs is on the
+    # register and cannot come off the list — though by here the list is
+    # closed anyway, which is its own refusal and the one that fires.
+    late = h.submit(_req("spoc"), "revise_list",
                     {"remove": "Vikram Rao", "why": "changed my mind"},
-                    about=rid).ok)
-    ok("and the refusal says where a wrong record is put right",
-       "superseded on the Tracker" in h.submit(
-           asking, "revise_list",
-           {"remove": "Vikram Rao", "why": "changed my mind"},
-           about=rid).said)
-    out = h.submit(_req("spoc"), "revise_list",
-                   {"add": "Rahul Desai",
-                    "why": "Replacing somebody who left."}, about=rid)
-    ok("but the list can still be changed for those nobody has received",
-       out.ok, out.said)
+                    about=rid)
+    ok("and once it is closed nothing comes off it", not late.ok, late.said)
+    ok("in words that say where a late change goes",
+       "exception" in late.said, late.said)
 
     # And every change is on the trail, in words.
     said = {ledger.reads_as(e["kind"]) for e in ledger.events(rid)}
     ok("adding and removing are both on the trail",
        {ledger.reads_as("listed"), ledger.reads_as("unlisted")} <= said,
        str(said))
+
+
+def check_the_list_is_closed_before_anything_goes_out() -> None:
+    """Two steps at Operations, and the business asked for both.
+
+    Settling who is getting one and recording that they have are two
+    decisions, and between ordering and handing out is exactly when the
+    list moves — somebody leaves, somebody is missed, the event changes.
+    So the desk gets a moment where it can still be put right, and a
+    moment after which it cannot, and the second is what builds the
+    register.
+    """
+    _, _f, h = registry.feature_of("scs", "requests")
+    rid = _ask(by="servicelead", quantity="3", what="Gift card", value="3000",
+               recipient_list="Vikram Rao, Priya Nair")
+    ok("it reaches the list step",
+       not _walk(rid, upto="recipient_list", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+    ok("and the row says whose it is",
+       "Operations" in _order("spoc", rid)["with"],
+       _order("spoc", rid)["with"])
+    ok("the row says the list is still open",
+       "still open" in _order("spoc", rid)["allocation"],
+       _order("spoc", rid)["allocation"])
+    ok("the button says what the step does, not just 'sign off'",
+       _order("spoc", rid)["labels"]["sign_off"] == "Close the recipient list",
+       str(_order("spoc", rid)["labels"]))
+
+    # STILL OPEN: add and remove both work, each with a reason.
+    ok("a name can go on", h.submit(_req("spoc"), "revise_list",
+       {"add": "Aisha Khan", "why": "Was missed."}, about=rid).ok)
+    ok("and a name can come off", h.submit(_req("spoc"), "revise_list",
+       {"remove": "Priya Nair", "why": "Has left."}, about=rid).ok)
+    ok("nothing is on the register while the list is being settled",
+       not gr_mod.allocated_to(rid), str(gr_mod.allocated_to(rid)))
+
+    # CLOSING IT is the sign-off, and says so.
+    closed = h.act(_req("spoc"), "sign_off", [rid], "")
+    ok("closing it needs no note — the act is the record",
+       closed.ok, closed.said)
+    ok("and the sentence says the list is shut",
+       "nothing changes it now" in closed.said, closed.said)
+    ok("the row says so too",
+       "closed" in _order("spoc", rid)["allocation"],
+       _order("spoc", rid)["allocation"])
+    after = h.submit(_req("spoc"), "revise_list",
+                     {"add": "Manish K.", "why": "one more"}, about=rid)
+    ok("and the list really is shut", not after.ok, after.said)
+    ok("with the way past it named", "exception" in after.said, after.said)
+
+    # DISTRIBUTION STARTED: the register is built from the closed list.
+    ok("the next button says that",
+       _order("spoc", rid)["labels"]["sign_off"] == "Start the distribution",
+       str(_order("spoc", rid)["labels"]))
+    out = h.act(_req("spoc"), "sign_off", [rid], "")
+    ok("starting it needs no note either", out.ok, out.said)
+    on_register = gr_mod.allocated_to(rid)
+    ok("one record per name on the closed list",
+       {i["employee_id"] for i in on_register} == set(gr_mod.planned_list(rid)),
+       str({i["recipient"] for i in on_register}))
+    ok("and the recipients were asked to confirm",
+       "confirm" in out.said, out.said)
+    ok("which is on the trail as well as in the post",
+       ledger.happened(rid, "recipients_told"),
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("it is now theirs",
+       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
+       == "acknowledgement")
+
+    # AND NOBODY SIGNED OFF A LIST THEY HAD NOT SETTLED. The two steps are
+    # distinct on the trail, so "who closed the list" and "who handed them
+    # out" are separate questions with separate answers.
+    signs = [e for e in ledger.events(rid) if e["kind"] == "signed_off"]
+    ok("both of Operations' steps are their own line on the trail",
+       {"recipient_list", "distribution"} <= {e["stage"] for e in signs},
+       str([e["stage"] for e in signs]))
 
 
 def check_an_order_is_closed_only_when_it_really_is() -> None:
@@ -1586,15 +1656,16 @@ def check_an_order_is_closed_only_when_it_really_is() -> None:
     _, _f, h = registry.feature_of("scs", "requests")
     rid = _ask(by="servicelead", quantity="2", what="Hamper", value="2000",
                recipient_list="Vikram Rao, Manish K.")
-    ok("it reaches distribution",
-       not _walk(rid, upto="distribution", by="servicelead",
+    ok("it reaches the list step",
+       not _walk(rid, upto="recipient_list", by="servicelead",
                  who={"service_line": "leadtwo"}), "")
-    ok("both are handed over",
-       h.submit(_req("spoc"), "allocate",
-                {"recipients": "Vikram Rao, Manish K.",
-                 "mode": "at an event"}, about=rid).ok)
-    ok("and Operations sign that off",
-       h.act(_req("spoc"), "sign_off", [rid], "Both handed over.").ok)
+    closed = h.act(_req("spoc"), "sign_off", [rid], "List settled.")
+    ok("Operations close the list", closed.ok, closed.said)
+    started = h.act(_req("spoc"), "sign_off", [rid], "Both handed over.")
+    ok("and then start the distribution", started.ok, started.said)
+    ok("which is what put both on the register",
+       len(gr_mod.allocated_to(rid)) == 2,
+       str(len(gr_mod.allocated_to(rid))))
 
     # ONE of the two confirms.
     first = h.act(_req("enduser"), "sign_off", [rid], "")
@@ -1627,61 +1698,50 @@ def check_a_late_recipient_draws_on_the_buffer() -> None:
 
     The Service Line Approver orders with spare stock, so somebody added
     at the last moment — one who left, one who was missed — is not a new
-    approval. Capped at the quantity, the list refused the fourth name and
-    then the allocation refused to give them anything, so the desk holding
-    the spare boxes could not write down who had them. Both caps are gone
-    from the desk's own forms; what is NOT gone is the fact, which is
-    counted and said wherever the number appears.
+    approval. The list is where that is settled, and the quantity does
+    not cap it: capped, the fourth name was refused and the desk holding
+    the spare boxes could not write down who they were for. What is NOT
+    waived is the fact, which is counted and said wherever the number
+    appears.
     """
     _, _f, h = registry.feature_of("scs", "requests")
     rid = _ask(by="servicelead", quantity="3", what="Gift card",
                recipient_list="Vikram Rao, Priya Nair, Aisha Khan")
-    ok("it reaches distribution",
-       not _walk(rid, upto="distribution", by="servicelead",
+    ok("it reaches the list step",
+       not _walk(rid, upto="recipient_list", by="servicelead",
                  who={"service_line": "leadtwo"}), "")
 
-    # One handed over, then a fourth person turns up.
-    ok("the first is recorded",
-       h.submit(_req("spoc"), "allocate",
-                {"recipients": "Vikram Rao", "mode": "in person"},
-                about=rid).ok)
     added = h.submit(_req("spoc"), "revise_list",
                      {"add": "Manish K.",
                       "why": "Joined the team this week; buffer covers it."},
                      about=rid)
-    ok("Operations can add the fourth name", added.ok, added.said)
+    ok("Operations can add a fourth name", added.ok, added.said)
     ok("and the list carries four for three gifts",
        len(gr_mod.planned_list(rid)) == 4,
        str(len(gr_mod.planned_list(rid))))
     ok("nothing went back for re-approval",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
-       == "distribution")
+       == "recipient_list")
 
-    # AND THEY CAN ACTUALLY BE GIVEN ONE. This is the half that mattered:
-    # a name on the list nobody may allocate to is a name on a list.
-    out = h.submit(_req("spoc"), "allocate",
-                   {"recipients": "Priya Nair, Aisha Khan, Manish K.",
-                    "mode": "at an event"}, about=rid)
-    ok("all four end up with one", out.ok, out.said)
-    ok("and the sentence says the extra came from the buffer",
-       "buffer" in out.said, out.said)
+    ok("closing the list is Operations' own act",
+       h.act(_req("spoc"), "sign_off", [rid], "Four of them, list final.").ok)
+
+    # AND ALL FOUR ACTUALLY GET ONE. The closed list IS the allocation, so
+    # a name on it that nothing may be recorded against would be a name on
+    # a list and nothing more.
+    out = h.act(_req("spoc"), "sign_off", [rid], "Handed out at the event.")
+    ok("starting the distribution records every one of them", out.ok, out.said)
     ok("four records are on the register",
        len(gr_mod.allocated_to(rid)) == 4,
        str(len(gr_mod.allocated_to(rid))))
+    ok("and the sentence says the extra came from the buffer",
+       "buffer" in out.said, out.said)
 
     # SAID, NOT SWALLOWED. More given than approved is a fact somebody
     # should be able to read off the row.
     row = _order("spoc", rid)
     ok("the row says how many are past what was approved",
        "past the 3 approved" in row["allocation"], row["allocation"])
-    ok("and the trail counted it too",
-       any(e.get("beyond") for e in ledger.events(rid)
-           if e["kind"] == "allocated"),
-       str([e.get("beyond") for e in ledger.events(rid)
-            if e["kind"] == "allocated"]))
-
-    ok("and it signs off", h.act(_req("spoc"), "sign_off", [rid],
-                                 "All four handed over at the event.").ok)
 
     # The one cap that STAYS: asking for fewer gifts than the people you
     # name, at the moment of asking. The buffer covers a late addition,
@@ -1700,37 +1760,29 @@ def check_every_on_row_form_has_a_door() -> None:
     """A form the surface will not draw is a form nobody can reach.
 
     THE BUG THIS EXISTS FOR. `formsFor(row)` filters the on-row forms by
-    the row's own `can`, and `can` held only action ids — so "Name who
-    received them", "Change the recipient list" and "Link the PR/PO" had
-    no button anywhere in the UI. Operations were told to name who
-    received the other two and offered no way to name anybody. Every
-    check drove `submit` directly and so passed over a screen with no
-    door in it; this one asks the ROW.
+    the row's own `can`, and `can` held only action ids — so "Change the
+    recipient list" and "Link the PR/PO" had no button anywhere in the
+    UI. Operations were told to settle the list and offered no way to
+    change it. Every check drove `submit` directly and so passed over a
+    screen with no door in it; this one asks the ROW.
     """
     _, feat, h = registry.feature_of("scs", "requests")
     on_row = [f.id for f in feat.forms if f.on_row]
-    ok("the feature has on-row forms at all", len(on_row) == 3, str(on_row))
+    ok("the feature has on-row forms at all", len(on_row) == 2, str(on_row))
 
-    # Raised by the Service Line Approver, because pasting the list up
-    # front is theirs — which also makes them the raiser here.
     rid = _ask(by="servicelead", quantity="3",
                recipient_list="Vikram Rao, Priya Nair, Aisha Khan")
     row = lambda who: next(r for r in gr_mod._rows(_req(who))
                            if r["id"] == rid)
 
     # THE LIST, from the start, for whoever raised it and their approver.
-    # Operations are not shown the order at all until it reaches them,
-    # which is the narrowing working rather than the form missing.
     for who in ("servicelead", "leadtwo"):
         ok(f"{who} is offered the list form",
            "revise_list" in row(who)["can"], str(row(who)["can"]))
     ok("somebody with no part in it is not",
        "revise_list" not in row("enduser")["can"], str(row("enduser")["can"]))
 
-    # THE PURCHASE, at procurement and not before. Asked of the raiser,
-    # because Procurement are not shown an order that has not reached
-    # them — "no row" and "no button" are different answers and only one
-    # of them is this check's business.
+    # THE PURCHASE, at procurement and not before.
     ok("the purchase form is not offered before procurement",
        "link_purchase" not in row("servicelead")["can"],
        str(row("servicelead")["can"]))
@@ -1743,54 +1795,32 @@ def check_every_on_row_form_has_a_door() -> None:
     ok("and nobody else's",
        "link_purchase" not in row("finance")["can"], str(row("finance")["can"]))
 
-    # ALLOCATION, at distribution, for the desk that hands things over.
-    ok("the allocate form is not offered before distribution",
-       "allocate" not in row("servicelead")["can"],
-       str(row("servicelead")["can"]))
-    ok("walking to distribution works",
-       not _walk(rid, upto="distribution", by="servicelead",
+    # THE LIST IS STILL OPEN AT THE LIST STEP, and Operations hold it.
+    ok("walking to the list step works",
+       not _walk(rid, upto="recipient_list", by="servicelead",
                  who={"service_line": "leadtwo"}), "")
-    ok("Operations are offered it there",
-       "allocate" in row("spoc")["can"], str(row("spoc")["can"]))
-    ok("and the list form with it, which is the desk's own job",
+    ok("Operations are offered the list form there",
        "revise_list" in row("spoc")["can"], str(row("spoc")["can"]))
     at_desk = next(r for r in _desk("spoc", "orders") if r["id"] == rid)
-    ok("and both reach them on the Tracker, where they sign off",
-       {"allocate", "revise_list"} <= set(at_desk["can"]), str(at_desk["can"]))
-    ok("and so is whoever raised it",
-       "allocate" in row("servicelead")["can"], str(row("servicelead")["can"]))
+    ok("and it reaches them on the Tracker, where they sign off",
+       "revise_list" in at_desk["can"], str(at_desk["can"]))
 
-    # AND IT CLOSES WHEN THERE IS NOBODY LEFT TO NAME, so the button never
-    # outlives the thing it does.
-    ok("naming two of three works",
-       h.submit(_req("spoc"), "allocate",
-                {"recipients": "Vikram Rao, Priya Nair",
-                 "mode": "in person"}, about=rid).ok)
-    ok("the form is still offered with one left",
-       "allocate" in row("spoc")["can"], str(row("spoc")["can"]))
-    ok("and the sign-off refusal names the form rather than the task",
-       "Name who received them" in h.act(
-           _req("spoc"), "sign_off", [rid], "Handed over.").said)
-    ok("naming the third works",
-       h.submit(_req("spoc"), "allocate",
-                {"recipients": "Aisha Khan", "mode": "by courier"},
-                about=rid).ok)
-    ok("and then the form is gone",
-       "allocate" not in row("spoc")["can"], str(row("spoc")["can"]))
+    # AND IT SHUTS WHEN THEY CLOSE IT, so the button never outlives the
+    # thing it does.
+    ok("closing the list signs off",
+       h.act(_req("spoc"), "sign_off", [rid], "Final.").ok)
+    ok("and then the list form is gone",
+       "revise_list" not in row("spoc")["can"], str(row("spoc")["can"]))
+    refused = h.submit(_req("spoc"), "revise_list",
+                       {"add": "Manish K.", "why": "late"}, about=rid)
+    ok("and submitting one anyway is refused", not refused.ok, refused.said)
+    ok("in words that say where a late change goes",
+       "exception" in refused.said, refused.said)
 
-    # AND THE DESK THAT SIGNS OFF MUST BE ABLE TO OPEN THEM. Every persona
-    # but the raiser works the chain from the TRACKER, so a form declared
-    # only on Gift requests is a form Operations cannot reach: the surface
-    # draws what the feature in front of it declares. This is the half of
-    # the bug that survived naming the forms in `can`.
+    # EVERY BUTTON A ROW OFFERS MUST BE ONE THE SUBMIT WOULD TAKE. A form
+    # that refuses when pressed teaches people the screen lies.
     _, reg_feat, reg = registry.feature_of("scs", "register")
     tracker = [f.id for f in reg_feat.forms if f.on_row]
-    # EVERY one of them, not a remembered two. Aliasing `allocate` and
-    # `revise_list` and stopping there left Procurement with a row whose
-    # own `can` named "Link the PR/PO" and a screen that would not draw
-    # it — the identical bug, one form further along. Measured against
-    # the chain's own list so the next form added there cannot be
-    # forgotten here.
     ok("the Tracker carries every one of the chain's row forms",
        set(on_row) <= set(tracker), f"{on_row} vs {tracker}")
     for form_id in on_row:
@@ -1798,72 +1828,41 @@ def check_every_on_row_form_has_a_door() -> None:
         ok(f"with the chain's own words for {form_id}, not a second copy",
            next(f.label for f in reg_feat.forms if f.id == form_id)
            == next(f.label for f in feat.forms if f.id == form_id))
-    # Read on the Tracker as it stands NOW — everything is allocated by
-    # this point, so `allocate` has correctly closed and the list form is
-    # the one still open. That it was open earlier is what the assertions
-    # above measured.
-    desk = next(r for r in _desk("spoc", "orders") if r["id"] == rid)
-    ok("Operations are offered the list form on the row they sign off from",
-       "revise_list" in desk["can"], str(desk["can"]))
-    ok("and it is the Tracker that drew that row",
-       desk.get("progress") is not None, str(sorted(desk)[:6]))
-
-    # EVERY BUTTON A ROW OFFERS MUST BE ONE THE SUBMIT WOULD TAKE. A form
-    # that refuses when pressed teaches people the screen lies.
-    for who in ("servicelead", "spoc", "procurement"):
-        for form_id in [f for f in on_row if f in row(who)["can"]]:
-            out = h.preview(_req(who), form_id, {}, about=rid)
-            ok(f"{who}'s {form_id} refuses on its values, not on who they are",
-               "keep the list straight" not in out.said
-               and "they are the ones who can say" not in out.said
-               and "is Procurement's" not in out.said, out.said)
 
 
-def check_what_was_actually_given_is_what_counts() -> None:
-    """The register records the real figure, not the estimate.
+def check_the_register_carries_the_approved_value() -> None:
+    """One value for the order, and it is the one that was approved.
 
-    A request carries an estimate made before anything was bought. The
-    limit a person is measured against, and the tax position that rests on
-    it, have to be the thing they actually received — so the estimate
-    stays on the request and the real figure lands on the register beside
-    it.
+    The allocation form used to take what a gift ACTUALLY cost, and the
+    register carried that instead of the estimate. The business took the
+    field out: a whole order goes out at once, so one figure typed at the
+    end stood for every gift in it, and a number somebody fills in because
+    the form insists is not a better record than the number three desks
+    actually approved.
+
+    WHAT THAT COSTS, written down so nobody rediscovers it as a surprise:
+    if a vendor invoices above the estimate, the register does not know.
+    The purchase behind it does — that is what the PR/PO on the row leads
+    to — and reconciling the two is the firm's own job in its own system,
+    which is where the money already lives.
     """
     _, _f, h = registry.feature_of("scs", "requests")
-    asking = _req("requester")
-    rid = _ask(what="Festival hamper", value="2000")
-    _walk(rid, upto="distribution")
+    rid = _ask(by="servicelead", what="Festival hamper", value="2000",
+               quantity="2", recipient_list="Vikram Rao, Aisha Khan")
+    ok("it reaches the list step",
+       not _walk(rid, upto="recipient_list", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+    ok("the list closes", h.act(_req("spoc"), "sign_off", [rid], "").ok)
+    ok("and the distribution starts",
+       h.act(_req("spoc"), "sign_off", [rid], "").ok)
 
-    out = h.submit(asking, "allocate",
-                   {"recipients": "Vikram Rao", "mode": "in person",
-                    "actual": "2350"}, about=rid)
-    ok("the actual cost is taken at allocation", out.ok, out.said)
-    ok("and the outcome says what was recorded",
-       "\u20b92,350" in out.said, out.said)
-
-    item = gr_mod.allocated_to(rid)[0]
-    ok("the register holds what it actually cost", item["value"] == 2350)
-    ok("and the estimate beside it", item["estimated"] == 2000)
-
-    # Which is the figure the limit reads.
-    bench = registry.feature_of("scs", "register")[2]
-    row = next(r for r in bench.rows(as_("compliance", period="FY 2026-27"),
-                                     "all")
-               if r["employee_id"] == "E-1066")
-    ok("the annual total counts the real figure, not the guess",
-       any(i["value"] == 2350 for i in gr_mod.allocated_to(rid)), str(row))
-
-    # Left empty, it is the estimate — which is the ordinary case.
-    other = _ask(what="Another hamper", value="1800")
-    _walk(other, upto="distribution")
-    ok("a nonsense actual is refused",
-       not h.submit(asking, "allocate",
-                    {"recipients": "Vikram Rao", "mode": "in person",
-                     "actual": "nope"}, about=other).ok)
-    h.submit(asking, "allocate",
-             {"recipients": "Vikram Rao", "mode": "by courier"}, about=other)
-    second = gr_mod.allocated_to(other)[0]
-    ok("an empty actual means it came in at the estimate",
-       second["value"] == second["estimated"] == 1800)
+    on_register = gr_mod.allocated_to(rid)
+    ok("every record carries the value of ONE gift, as approved",
+       all(i["value"] == 2000 for i in on_register),
+       str([i["value"] for i in on_register]))
+    ok("not the order's total", sum(i["value"] for i in on_register) == 4000)
+    ok("and the form no longer asks for anything else",
+       not h.accepts("allocate"), str(h.accepts("allocate")))
 
 
 def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
@@ -4068,9 +4067,13 @@ SIGNS = {
     "service_line": "servicelead",
     "finance_policy": "finance",
     "procurement": "procurement",
-    # Not a persona but a person: whoever raised it handed it over.
-    "distribution": "requester",
-    # Not a persona either: whoever received it.
+    # Operations settle the list, then Operations hand it out. Two steps
+    # and one desk: closing the list and starting the distribution are
+    # different decisions, and the business wanted a moment between them
+    # where the list can still be put right.
+    "recipient_list": "spoc",
+    "distribution": "spoc",
+    # Not a persona: whoever received it.
     "acknowledgement": "enduser",
 }
 
@@ -4100,7 +4103,10 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
     """
     h = registry.feature_of("scs", "requests")[2]
     signers = dict(SIGNS, **(who or {}))
-    signers["distribution"] = by
+    # Whoever raised it may also hand it out, so a caller naming `by`
+    # drives both of Operations' steps with that login.
+    signers["recipient_list"] = who.get("recipient_list", by) if who else by
+    signers["distribution"] = who.get("distribution", by) if who else by
     trouble: list[str] = []
     for _ in range(len(gr_mod.STAGES) + 1):
         request = next(r for r in ledger.requests() if r["id"] == rid)
@@ -4111,11 +4117,12 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
         # sign-off to give: Procurement says what it was bought on, and
         # the requester says who received it. Both are the point of their
         # step rather than a formality, so the walk makes them properly.
-        if stage == "distribution" and not gr_mod.allocated_to(rid):
+        if stage == "recipient_list" and not gr_mod.planned_list(rid):
             if not request["for"]:
-                made = h.submit(_req(by), "allocate",
-                                {"recipients": "Vikram Rao",
-                                 "mode": "in person"}, about=rid)
+                made = h.submit(_req(by), "revise_list",
+                                {"add": "Vikram Rao",
+                                 "why": "Settling the list before it goes "
+                                        "out."}, about=rid)
                 if not made.ok:
                     trouble.append(f"{stage}: {made.said}")
                     break
@@ -4300,6 +4307,13 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
             ok("and issuing it changed nobody's total", total() == before)
         ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
         ok(f"and {stage} changed nobody's total", total() == before, str(total()))
+
+    # TWO STEPS AT OPERATIONS NOW: the list is closed, and then the
+    # distribution starts. Only the second touches the register, which is
+    # what this check exists to pin down.
+    closed = h.act(_req("requester"), "sign_off", [rid], "List settled.")
+    ok("closing the list signs off", closed.ok, closed.said)
+    ok("and closing it changed nobody's total", total() == before, str(total()))
 
     given = h.act(_req("requester"), "sign_off", [rid], "Handed over at the desk.")
     ok("recording the distribution is what puts it on the register",
@@ -4637,7 +4651,16 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
         theirs = SIGNS[stage]
         label = gr_mod.stage_label(stage).lower()
 
-        outsiders = [w for w in everybody if w != theirs]
+        # THE TWO IDENTITY-ROUTED STEPS HAVE TWO LEGITIMATE SIGNERS, and
+        # always did: Operations hold them, and so does whoever raised the
+        # order, because a one-off gift raised by an ordinary employee has
+        # no SPOC behind it. So "everybody else is refused" has to mean
+        # everybody except both of them — asserting one signer there said
+        # the chain was broken when it was the design.
+        allowed = {theirs}
+        if stage in ("recipient_list", "distribution"):
+            allowed.add("requester")
+        outsiders = [w for w in everybody if w not in allowed]
         refused = [w for w in outsiders
                    if not h.act(_req(w), "sign_off", [rid], "mine, surely").ok]
         ok(f"{label}: nobody else can sign it off",
@@ -4673,12 +4696,11 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
            withdraw == (stage in ("service_line", "finance_policy")),
            f"{stage}: {offered('requester')}")
 
-        # The two steps whose job is a RECORD rather than a judgement
-        # make it before they sign off: Procurement says what it was
-        # bought on, the requester says who received it.
-        if stage == "distribution" and not gr_mod.allocated_to(rid):
-            h.submit(_req(theirs), "allocate",
-                     {"recipients": "Vikram Rao", "mode": "in person"},
+        # The list has to have somebody on it before it can be closed, and
+        # a request raised for one named person already has.
+        if stage == "recipient_list" and not gr_mod.planned_list(rid):
+            h.submit(_req(theirs), "revise_list",
+                     {"add": "Vikram Rao", "why": "Settling the list."},
                      about=rid)
         out = h.act(_req(theirs), "sign_off", [rid], f"Checked at {stage}.")
         ok(f"{label}: {people.LABELS.get(owner, owner)} can", out.ok, out.said)
@@ -4692,9 +4714,9 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
             # routed by identity — "with Business Requester" is not who to
             # chase when the holder is whichever employee raised it.
             now = _order("compliance", rid)["with"]
-            want = ({"distribution":
-                         f"{people.LABELS['operations']} or "
-                         f"{people.find('requester').name}",
+            both = (f"{people.LABELS['operations']} or "
+                    f"{people.find('requester').name}")
+            want = ({"recipient_list": both, "distribution": both,
                      "acknowledgement": "Vikram Rao"}.get(
                          nxt, people.LABELS.get(
                              gr_mod.STAGES[nxt]["owner"], "")))
@@ -4892,12 +4914,18 @@ def check_the_last_two_steps_only_go_forward() -> None:
         # The record the step owes, made before its row is read: a step
         # whose own capture is missing offers no sign-off, which is a
         # different rule and is measured in its own check.
-        if stage == "distribution" and not gr_mod.allocated_to(rid):
-            h.submit(theirs, "allocate",
-                     {"recipients": "Vikram Rao", "mode": "in person"},
+        if stage == "recipient_list" and not gr_mod.planned_list(rid):
+            h.submit(theirs, "revise_list",
+                     {"add": "Vikram Rao", "why": "Settling the list."},
                      about=rid)
         row = next(r for r in gr_mod._rows(theirs) if r["id"] == rid)
-        checks = stage not in ("distribution", "acknowledgement")
+        # THE THREE DESKS THAT CHECK may refuse; the three that RECORD may
+        # not. Closing the list joined the second group: Operations are
+        # not approving the order there, they are settling who it reaches,
+        # and a wrong list is fixed on the spot rather than sent back
+        # three desks.
+        checks = stage not in ("recipient_list", "distribution",
+                               "acknowledgement")
 
         ok(f"{stage}: the stage says whether it may refuse",
            gr_mod.STAGES[stage]["back"] is checks, str(gr_mod.STAGES[stage]))
@@ -5612,7 +5640,12 @@ def check_the_question_belongs_to_the_step() -> None:
     _, feat, h = registry.feature_of("scs", "requests")
     rid = _ask(what="A hamper", value="1200")
 
-    needs = {"finance_policy", "distribution"}
+    # ONLY FINANCE IS ASKED TO WRITE ANYTHING NOW. Distribution used to
+    # be: it recorded what was actually given, and the person who handed
+    # it over was the only one who could say how it differed. With the
+    # list closed at the step before and the per-person detail gone, the
+    # click IS the act and there is nothing left for a note to add.
+    needs = {"finance_policy"}
     for stage in [s for s in gr_mod.STAGES if s != "closed"]:
         # Asked of the chain's own rows: `ask` is machinery the Tracker
         # keeps private, and this is a check about what the server
@@ -5938,7 +5971,8 @@ def check_the_trail_reads_as_what_happened() -> None:
     ok("the rest of the chain runs", not trouble, str(trouble))
     mine = [r for r in h.rows(_aud(), "everything") if rid in str(r["subject"])]
     ok("every step of one order is on the trail, in order",
-       len([r for r in mine if r["did"] == "signed off"]) == 5,
+       len([r for r in mine if r["did"] == "signed off"])
+       == len([k for k in gr_mod.STAGES if k not in gr_mod.ENDED]),
        str([r["detail"] for r in mine]))
     ok("and the last thing that happened to it is that it closed",
        any(r["did"] == "closed" for r in mine),
@@ -5986,15 +6020,16 @@ def check_an_order_has_its_own_report() -> None:
     # that says "signed_off" next to a screen that says "signed off" makes
     # a reader wonder which of the two is the real record.
     signed = [r for r in steps if r[2] == ledger.reads_as("signed_off")]
-    ok("every step of the chain is in it", len(signed) == 5, str(len(signed)))
+    ok("every step of the chain is in it",
+       len(signed) == len([k for k in gr_mod.STAGES if k not in gr_mod.ENDED]),
+       str(len(signed)))
     ok("each one names who took it", all(r[1] for r in signed), str(signed[:2]))
     ok("none of it is written in the code's own vocabulary",
        not any("_" in str(c) for r in steps for c in r[2:4]),
        str([r[2:4] for r in steps]))
     ok("and which step it was, as the screen names it", [r[3] for r in signed]
-       == [gr_mod.stage_label(st) for st in
-           ("service_line", "finance_policy", "procurement",
-            "distribution", "acknowledgement")],
+       == [gr_mod.stage_label(st) for st in gr_mod.STAGES
+           if st not in gr_mod.ENDED],
        str([r[3] for r in signed]))
     ok("in the order they happened",
        [r[0] for r in signed] == sorted(r[0] for r in signed))
@@ -6274,6 +6309,8 @@ def _checks() -> int:
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
     with fixtures():
+        check_the_list_is_closed_before_anything_goes_out()
+    with fixtures():
         check_an_order_is_closed_only_when_it_really_is()
     with fixtures():
         check_a_late_recipient_draws_on_the_buffer()
@@ -6434,7 +6471,7 @@ def _checks() -> int:
     with fixtures():
         check_the_recipient_list_is_maintained_not_overwritten()
     with fixtures():
-        check_what_was_actually_given_is_what_counts()
+        check_the_register_carries_the_approved_value()
     with fixtures():
         check_a_field_is_only_offered_to_whoever_it_is_for()
     with fixtures():
