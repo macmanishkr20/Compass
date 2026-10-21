@@ -1566,6 +1566,85 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
        str(said))
 
 
+def check_a_recipient_reads_their_gift_and_not_the_order() -> None:
+    """Being one name on a list is not a seat at the table.
+
+    Breadth decided which ROWS somebody sees and said nothing about which
+    FIELDS, so a recipient opening Gift requests was handed the whole
+    order sheet: the other three recipients by name, how many were
+    bought, what each one cost, the purchase reference, who raised it and
+    whose desk it had crossed. None of that is theirs, and "who else got
+    one" is the other recipients' own business.
+
+    What they keep is the gift: what it is, why they have it, where it
+    has got to and whether they have confirmed it. Their annual position
+    is theirs too — on the Tracker, which is the screen for it.
+    """
+    _, feat, h = registry.feature_of("scs", "requests")
+    rid = _ask(by="servicelead", quantity="3", what="Gift card", value="3000",
+               recipient_list="Manish K., Vikram Rao, Aisha Khan")
+    # Walked to acknowledgement, not past it: the recipient's own view is
+    # what this is about, and past it there is nobody waiting.
+    ok("it reaches the recipients",
+       not _walk(rid, upto="acknowledgement", by="servicelead",
+                 who={"service_line": "leadtwo"}), "")
+
+    # mk is Manish K. — who in this directory ALSO holds compliance, so
+    # the plain-recipient view is read with a scope that holds only what a
+    # recipient holds. That is the persona being measured, not the login.
+    theirs = Scope(user="mk", period="FY 2026-27", sees="self",
+                   employee=people.employee_of("mk"),
+                   roles=frozenset({"employee"}))
+    mine = [r for r in h.rows(theirs, "all") if r["id"] == rid]
+    ok("a recipient sees the order they are on", len(mine) == 1, str(len(mine)))
+    row = mine[0]
+
+    ok("their own gift is named", row["what"] == "Gift card", str(row))
+    ok("and it says it is THEIRS, not the order's first name",
+       row["recipient"] == "Manish K.", row["recipient"])
+    ok("with their own employee number on it",
+       row["employee_id"] == people.employee_of("mk"), row["employee_id"])
+    ok("and whose move it is, without naming who else is waiting",
+       row["with"] == "you, to confirm you received it", row["with"])
+    ok("why they have it is theirs to read",
+       row["occasion"] == "festival" and row["purpose"], str(row.get("purpose")))
+    ok("and where it has got to", "status" in row, str(sorted(row)))
+
+    # WHO ELSE. The thing the business asked for by name.
+    for leak in ("for_list", "listed_as", "for"):
+        ok(f"nobody else's name reaches them via {leak}",
+           leak not in row, f"{leak}={row.get(leak)!r}")
+    ok("and no other recipient is anywhere in the row",
+       not any("Vikram" in str(v) or "Aisha" in str(v) for v in row.values()),
+       str({k: v for k, v in row.items()
+            if "Vikram" in str(v) or "Aisha" in str(v)}))
+
+    # THE ORDER'S OWN NUMBERS AND PAPERWORK.
+    for leak in ("quantity", "allocation", "allocated", "bought_on",
+                 "purchase", "policy", "tax", "requested_by", "source",
+                 "last_signed_by", "list_changes", "allocated_ids",
+                 "by_employee"):
+        ok(f"the order's {leak} is not theirs to read",
+           leak not in row, f"{leak}={row.get(leak)!r}")
+
+    # AND THE SURFACE IS TOLD TO LAY IT OUT THAT WAY, so the table draws
+    # their four columns rather than ten columns of dashes.
+    ok("the payload says how much of the screen is theirs",
+       theirs.sees == "self")
+
+    # A RAISER IS NOT A RECIPIENT. Somebody reading their own request back
+    # chose every figure in it, and hiding it from them would be absurd —
+    # what they still may not read is the recipient's year, which is
+    # masked on its own and always was.
+    own = _ask(by="enduser", recipient="John Mathew", what="A hamper",
+               value="6000", occasion="long service")
+    raiser = people.scope_for("enduser", feat, period="FY 2026-27")
+    r = next(x for x in h.rows(raiser, "all") if x["id"] == own)
+    ok("a raiser still reads the request they made",
+       r.get("quantity") is not None and "policy" in r, str(sorted(r)))
+    ok("but not the recipient's figures", "\u20b9" not in r["tax"], r["tax"])
+
+
 def check_the_list_is_closed_before_anything_goes_out() -> None:
     """Two steps at Operations, and the business asked for both.
 
@@ -6308,6 +6387,8 @@ def _checks() -> int:
         check_the_breach_is_caught_before_it_is_bought()
     with fixtures():
         check_policy_blocks_where_tax_only_warns()
+    with fixtures():
+        check_a_recipient_reads_their_gift_and_not_the_order()
     with fixtures():
         check_the_list_is_closed_before_anything_goes_out()
     with fixtures():

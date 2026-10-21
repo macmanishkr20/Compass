@@ -309,7 +309,14 @@ async def get_feature(
         "id": feature.id,
         "name": feature.name,
         "short": feature.short,
-        "scope": {"entity": scope.entity, "period": scope.period},
+        "scope": {"entity": scope.entity, "period": scope.period,
+                  # HOW MUCH OF THIS IS THEIRS, so the surface can lay out
+                  # a reader's own row rather than a desk's. The handler
+                  # has already cut the fields a recipient may not see;
+                  # this is how the table knows not to draw columns of
+                  # dashes where they used to be. It says the breadth and
+                  # never the roles behind it.
+                  "sees": scope.sees},
         "figures": [
             {"key": f.key, "value": f.value, "caption": f.caption, "tone": f.tone}
             for f in handler.figures(scope)

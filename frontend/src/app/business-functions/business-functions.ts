@@ -1134,6 +1134,22 @@ export class BusinessFunctions {
     // Gift requests: what is being asked for, with the three answers the
     // approver needs on the row rather than a click away.
     if (this.featureId() === 'requests') {
+      // A RECIPIENT'S OWN ROW IS A SHORT ROW. The server has already cut
+      // the fields that are not theirs — the other names, the quantity,
+      // the reference, whose desk it crossed — so drawing the desk's ten
+      // columns would print a line of dashes where somebody else's gift
+      // used to be. Their gift, why they have it, and where it has got
+      // to is the whole of what this screen owes them; their year is on
+      // the Tracker, which is the screen for it.
+      if (this.feature()?.scope?.sees === 'self') {
+        return [
+          { key: 'what', label: 'What' },
+          { key: 'occasion', label: 'Occasion' },
+          { key: 'purpose', label: 'Why' },
+          { key: 'status', label: 'Status' },
+          { key: 'acknowledged_on', label: 'You confirmed' },
+        ];
+      }
       return [
         { key: 'what', label: 'What' },
         { key: 'for_list', label: 'For' },

@@ -1040,6 +1040,79 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
     return [r for r in out if rule(scope, r)]
 
 
+#: What a RECIPIENT is shown of an order they are on. Breadth decided
+#: which rows they see and said nothing about which fields, so being one
+#: name on a list handed somebody the whole order sheet: the other three
+#: recipients, the quantity, what each one cost, the purchase reference,
+#: who raised it and who signed it.
+#:
+#: None of that is theirs. What they are given, why, where it has got to
+#: and whether they have confirmed it is theirs — the rest is the firm's
+#: own business with itself, and "who else got one" is the other
+#: recipients'. Their own annual position is theirs too, and it is on the
+#: Tracker, which is the screen for it.
+#:
+#: A WHITELIST rather than a list of things to strip, because the failure
+#: mode of the other shape is a field added later that nobody remembers to
+#: hide. A new field is invisible to a recipient until somebody says
+#: otherwise, which is the safe direction for it to be wrong in.
+MINE_ONLY = frozenset({
+    # what it is and why they have it
+    "id", "what", "kind", "occasion", "purpose", "value",
+    # where it has got to, and their own part in it
+    "status", "acknowledged_on",
+    # machinery the surface needs to draw their one button. `allocated_ids`
+    # is deliberately NOT here: it is every recipient's employee number,
+    # the surface never reads it, and `private` only keeps a field out of
+    # the workbook — the values still cross the wire.
+    "stage", "steps_done", "can", "labels", "ask", "blocked", "warns",
+})
+
+
+def _theirs_only(scope: Scope, row: dict[str, Any]) -> dict[str, Any]:
+    """Cut a row to what the reader is entitled to, when all they are is
+    a recipient of it.
+
+    TWO KINDS OF "THEIRS" at self breadth, and only one of them is small.
+    Somebody who RAISED an order may read it in full: they chose the
+    quantity, the value, the occasion and the names, and hiding their own
+    request back from them would be absurd — what they still may not read
+    is the recipient's year, which `_tax_check` masks on its own and has
+    always masked. Somebody who is on it because a gift is coming to them
+    is in a different position entirely: the order is the firm's business
+    with itself, and the only part of it that is theirs is the gift.
+
+    `value` survives the cut because the gift's own worth is not a secret
+    from the person holding it — they can read it off the card. What goes
+    is everything about the ORDER: how many, who else is on it, what it
+    was bought on, and whose desks it crossed.
+    """
+    if scope.sees != "self":
+        return row
+    if row.get("requested_by") == scope.user or (
+            scope.employee and row.get("by_employee") == scope.employee):
+        return row
+
+    cut = {k: v for k, v in row.items() if k in MINE_ONLY}
+    # THEIR NAME, not the order's. `recipient` is whoever the order named
+    # when it was raised, which on a bulk order is somebody else entirely
+    # — so the row told Manish K. that the gift was Vikram Rao's. Rewritten
+    # rather than dropped, because "is this mine" is the first thing they
+    # will ask of it.
+    cut["recipient"] = _name_of(scope.employee) or "you"
+    cut["employee_id"] = scope.employee
+    # AND WHOSE DESK IT IS ON, without naming the other people standing on
+    # it. At acknowledgement `with` lists everybody still to confirm, which
+    # is the one place on this row where the other recipients were named
+    # in words.
+    owes = scope.employee in {i["employee_id"]
+                              for i in _unconfirmed(row["id"])}
+    cut["with"] = ("you, to confirm you received it" if owes
+                   else row.get("with") if row.get("stage") in ENDED
+                   else "others, to confirm theirs")
+    return cut
+
+
 def _within_breadth(scope: Scope, row: dict[str, Any]) -> bool:
     """How much of this screen is theirs, for a row about several people."""
     if scope.sees == "firm":
@@ -1520,14 +1593,25 @@ class GiftRequests(Feature):
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        """The rows this reader may see, cut to the part that is theirs.
+
+        THE CUT IS HERE, at the edge, and not inside `_rows`. Everything
+        that reads the chain reads it through `_rows` — the Tracker's own
+        progress rows, the Dashboard's count of where orders are, the
+        assistant's brief — and those are the chain asking itself a
+        question rather than a person being shown an answer. Cutting
+        inside it took fields off rows that were never going anywhere
+        near a screen, and the first symptom was the Tracker failing on a
+        key it had always had.
+        """
         rows = _rows(scope, _is_yours)
         if tab == "mine":
-            return _my_step(rows)
-        if tab == "moving":
-            return [r for r in rows if r["stage"] not in ENDED]
-        if tab == "closed":
-            return _closed(scope, rows)
-        return rows
+            rows = _my_step(rows)
+        elif tab == "moving":
+            rows = [r for r in rows if r["stage"] not in ENDED]
+        elif tab == "closed":
+            rows = _closed(scope, rows)
+        return [_theirs_only(scope, r) for r in rows]
 
     def rules(self, scope: Scope) -> list[str]:
         if scope.sees == "none":

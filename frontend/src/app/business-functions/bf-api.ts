@@ -205,7 +205,10 @@ export interface FeatureView {
   /** Fields a row carries for this screen to use, not for anybody to read.
    *  The handler's list, so it cannot drift from the one the export uses. */
   private?: string[];
-  scope?: { entity: string; period: string };
+  /** `sees` is how much of the screen is this reader's: self, team or
+   *  firm. The server has already cut the row to match, so this only
+   *  tells the table which columns are worth drawing. */
+  scope?: { entity: string; period: string; sees?: string };
   figures?: Figure[];
   tabs?: TabSpec[];
   /** Pictures of what this screen holds, each naming the tab behind it. */
