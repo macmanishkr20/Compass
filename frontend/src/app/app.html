@@ -1,5 +1,7 @@
 @if (auth.checking()) {
   <p class="booting">Starting up…</p>
+} @else if (unreachable()) {
+  <p class="booting bad">{{ unreachable() }}</p>
 } @else if (auth.authEnabled() && !auth.user()) {
   <div class="gate">
     <form class="card" (ngSubmit)="signIn()">

@@ -97,6 +97,13 @@ async def healthz() -> dict:
     settings = get_settings()
     return {
         "ok": True,
+        # WHETHER A SIGN-IN IS REQUIRED, which the browser needs before it
+        # can decide what to render. Compass answered this from its own
+        # much larger health endpoint and the shell read `auth` off it; the
+        # shell here reads the same key off this one, because a browser
+        # that cannot tell "no session yet" from "auth is off" either shows
+        # a login nobody can satisfy or skips one that was required.
+        "auth": settings.auth.enabled,
         "estimate_enabled": settings.estimate.enabled,
         "gateway_configured": bool(settings.azure.endpoint),
         "storage_backend": settings.storage.backend,

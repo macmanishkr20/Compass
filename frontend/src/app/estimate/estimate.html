@@ -106,7 +106,7 @@
         <p class="emptylist">
           @if (loading()) { Loading… }
           @else if (estimates().length) { Nothing matches that filter. }
-          @else { Nothing estimated yet. Describe a project and Compass will score its
+          @else { Nothing estimated yet. Describe a project and Estimator will score its
             feasibility, price the build and model the return. }
         </p>
       }
@@ -155,7 +155,7 @@
       @if (catalog()?.draft) {
         <div class="card" id="s-describe">
           <div class="card-h"><span class="sec-lab">Describe it</span><span class="tk"></span></div>
-          <p class="help">A paragraph is enough. Compass fills the form in below and you
+          <p class="help">A paragraph is enough. Estimator fills the form in below and you
             correct it — nothing is costed until you do.</p>
           <textarea class="inp" style="min-height:104px" [value]="prose()"
             [disabled]="drafting()"
@@ -177,7 +177,7 @@
                asked of the person afterwards, because no document knows them. -->
           <div class="brd">
             <div class="brd-or"><span class="tk"></span><span>or upload the BRD</span><span class="tk"></span></div>
-            <p class="help">Upload the business requirements document. Compass reads all of it the way a
+            <p class="help">Upload the business requirements document. Estimator reads all of it the way a
               senior architect would — requirements, scenarios, edge cases, risks and open questions — and
               fills the form below. You then add who is available and how well they know the stack.</p>
             <div class="brd-row">
@@ -606,7 +606,7 @@
             </span>
           </label>
           <div class="note">Changing these re-costs every estimate you open from now on, not
-            the ones already saved. <b>Compass never edits the rate card itself.</b></div>
+            the ones already saved. <b>Estimator never edits the rate card itself.</b></div>
           <div style="display:flex;align-items:center;gap:12px;margin-top:11px">
             <button class="btn sm" type="button" [class.dis]="savingRates()" (click)="saveRates()">
               {{ savingRates() ? 'Saving…' : 'Save as my default' }}

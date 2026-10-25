@@ -1,4 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 
 import { Estimate } from './estimate/estimate';
@@ -27,11 +29,40 @@ import { NoticeService } from './notice.service';
   styleUrl: './app.css',
 })
 export class App {
+  private readonly http = inject(HttpClient);
   readonly auth = inject(AuthService);
   readonly notice = inject(NoticeService);
 
   readonly username = signal('');
   readonly password = signal('');
+  readonly unreachable = signal('');
+
+  constructor() {
+    void this.start();
+  }
+
+  /** Ask the server whether a sign-in is needed, then restore the session.
+   *
+   *  `checking` starts true so the app renders nothing until this answers —
+   *  without it the login flashes up for anybody who already has a cookie.
+   *  It is cleared in `finally` whatever happened, because a backend that
+   *  is down should produce a message rather than a spinner that never
+   *  stops. */
+  private async start(): Promise<void> {
+    try {
+      const health = await firstValueFrom(
+        this.http.get<{ auth?: boolean }>('/healthz'),
+      );
+      await this.auth.restore(health.auth ?? true);
+    } catch {
+      this.unreachable.set(
+        'Backend unreachable. Start it with: ' +
+          'PYTHONPATH=. uvicorn estimator.api.server:app --port 8000',
+      );
+    } finally {
+      this.auth.checking.set(false);
+    }
+  }
 
   async signIn(): Promise<void> {
     await this.auth.login(this.username().trim(), this.password());
