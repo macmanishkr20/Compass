@@ -22,25 +22,37 @@ import logging
 logger = logging.getLogger("estimator.persistence")
 
 
+# Where each store's getter lives. A pair rather than a direct import so the
+# list can name a store this build doesn't have: the Estimator carries the
+# estimate module alone, so the chat store and the memory store simply are not
+# here, and importing all four in one statement meant one absent module took
+# the whole list down — shutdown then closed *nothing*, including the stores
+# that did exist, and ended every run with a traceback.
+_STORE_GETTERS = (
+    ("estimator.common.persistence.factory", "get_transcript_store"),
+    ("estimator.home.engine", "get_chat_store"),
+    ("estimator.common.persistence.session_meta", "get_meta_store"),
+    ("estimator.common.memory", "get_memory_store"),
+)
+
+
 def _stores() -> list:
-    """Every store that might be holding a connection.
+    """Every store this build has that might be holding a connection.
 
     Imported here rather than at module scope: this is called at shutdown, and
     importing the world to close it would be a way of starting it instead. The
     getters build a store if none exists, which on these is cheap — a client is
     only opened on first use — so asking is never worse than guessing.
     """
-    from estimator.common.memory import get_memory_store
-    from estimator.common.persistence.factory import get_transcript_store
-    from estimator.common.persistence.session_meta import get_meta_store
-    from estimator.home.engine import get_chat_store
+    from importlib import import_module
 
-    return [
-        get_transcript_store(),
-        get_chat_store(),
-        get_meta_store(),
-        get_memory_store(),
-    ]
+    found = []
+    for module, getter in _STORE_GETTERS:
+        try:
+            found.append(getattr(import_module(module), getter)())
+        except (ImportError, AttributeError):
+            continue  # not part of this build
+    return found
 
 
 async def close_all() -> None:

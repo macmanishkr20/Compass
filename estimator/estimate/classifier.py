@@ -89,8 +89,10 @@ def _build_prompt(items: list[tuple[str, str]]) -> str:
         f"{', '.join(TASK_TYPES)}.\n\n"
         "Use cases:\n"
         f"{listing}\n\n"
-        'Respond with ONLY a JSON object mapping the index (as a string) to the task type, '
-        'e.g. {"0": "rag_qa", "1": "summarization"}. No prose.'
+        'Respond with ONLY a JSON object holding one array, "labels", with one '
+        "task type per use case in the order listed above — "
+        f"{len(items)} of them, no more and no fewer — "
+        'e.g. {"labels": ["rag_qa", "summarization"]}. No prose.'
     )
 
 
@@ -100,15 +102,27 @@ def _parse_label_map(raw: str, items: list[tuple[str, str]]) -> dict[int, str]:
     Any label not in TASK_TYPES (or any parse glitch for a row) is replaced by
     the deterministic keyword heuristic, so a sloppy model can never inject an
     unpriceable task type.
+
+    Two shapes are accepted: the ordered `{"labels": [...]}` the schema asks
+    for, and the index map `{"0": ...}` an unconstrained deployment may answer
+    with instead. The schema is only a guarantee where it is enforced, and the
+    gateway drops it on a deployment that won't — so the shape it would have
+    guaranteed cannot be the only one read here.
     """
     raw = raw.strip()
     if raw.startswith("```"):  # tolerate fenced output
         raw = raw.strip("`").split("\n", 1)[-1]
     start, end = raw.find("{"), raw.rfind("}")
     parsed = json.loads(raw[start : end + 1])
+    labels = parsed.get("labels") if isinstance(parsed, dict) else None
+    pairs = (
+        enumerate(labels) if isinstance(labels, list)
+        else ((int(k), v) for k, v in parsed.items())
+    )
     out: dict[int, str] = {}
-    for k, v in parsed.items():
-        idx = int(k)
+    for idx, v in pairs:
+        if not 0 <= idx < len(items):  # a row that isn't ours to label
+            continue
         out[idx] = v if v in TASK_TYPES else heuristic_task_type(items[idx][0] + " " + items[idx][1])
     return out
 
@@ -120,10 +134,24 @@ async def _classify_with_model(items: list[tuple[str, str]]) -> dict[int, str] |
             _SYSTEM_PROMPT,
             _build_prompt(items),
             max_tokens=1_000,
+            # One ordered array rather than a map keyed by index. Strict
+            # structured outputs require `properties` and forbid open
+            # `additionalProperties`, so a map from arbitrary index strings is
+            # exactly what it cannot express: Azure refused the old schema
+            # outright ("object schema missing properties") on every call, and
+            # the classifier fell through to the keyword rules every time
+            # without ever labelling anything.
             schema={
                 "type": "object",
-                "description": "index (as a string) -> task type",
-                "additionalProperties": {"type": "string", "enum": list(TASK_TYPES)},
+                "properties": {
+                    "labels": {
+                        "type": "array",
+                        "description": "one task type per use case, in the order given",
+                        "items": {"type": "string", "enum": list(TASK_TYPES)},
+                    },
+                },
+                "required": ["labels"],
+                "additionalProperties": False,
             },
             schema_name="task_types",
         )
