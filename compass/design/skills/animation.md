@@ -1,1 +1,0 @@
-Design an animated piece using CSS keyframes; it must move on load.

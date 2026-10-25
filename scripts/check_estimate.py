@@ -47,9 +47,9 @@ os.environ["COMPASS_ESTIMATE_LIVE_PRICING"] = "0"
 os.environ["COMPASS_ESTIMATE_CLASSIFIER"] = "0"
 os.environ["COMPASS_ESTIMATE_ARCHITECT"] = "0"
 
-from compass.estimate import engine  # noqa: E402
-from compass.estimate.pipeline import run_estimate  # noqa: E402
-from compass.estimate.types import Estimation, ProjectInput  # noqa: E402
+from estimator.estimate import engine  # noqa: E402
+from estimator.estimate.pipeline import run_estimate  # noqa: E402
+from estimator.estimate.types import Estimation, ProjectInput  # noqa: E402
 
 FAILURES: list[str] = []
 
@@ -494,43 +494,57 @@ def check_wire_shape() -> None:
 def check_isolation() -> None:
     """The module keeps to itself, and costs nothing when it is off.
 
-    Both halves decay silently. An import of `compass.pipelines` added to reach
+    Both halves decay silently. An import of `estimator.pipelines` added to reach
     one convenient helper does not break anything today and makes the module
     unremovable tomorrow; a route registered outside the flag's conditional
     keeps answering on a deployment that switched costing off. Neither shows up
     in a passing test suite unless something looks.
     """
     print("\nthe module keeps to itself")
-    pkg = ROOT / "compass" / "estimate"
+    pkg = ROOT / "estimator" / "estimate"
     siblings = ("code", "design", "home", "pipelines")
 
     reaching_out = []
     for path in sorted(pkg.glob("*.py")):
         body = path.read_text()
         for sib in siblings:
-            if f"compass.{sib}" in body:
-                reaching_out.append(f"{path.name} -> compass.{sib}")
+            if f"estimator.{sib}" in body:
+                reaching_out.append(f"{path.name} -> estimator.{sib}")
     ok(not reaching_out,
-       "it imports no other module — only compass.common, for settings, auth, "
+       "it imports no other module — only estimator.common, for settings, auth, "
        f"ownership and the model client{'' if not reaching_out else f': {reaching_out}'}")
 
     reaching_in = []
-    for path in sorted((ROOT / "compass").rglob("*.py")):
+    for path in sorted((ROOT / "estimator").rglob("*.py")):
         if "estimate" in path.parts or path.parent.name == "api":
             continue
-        if "compass.estimate" in path.read_text():
+        if "estimator.estimate" in path.read_text():
             reaching_in.append(str(path.relative_to(ROOT)))
     ok(not reaching_in,
        "and nothing but the server's mount imports it, so switching it off "
        f"cannot break a neighbour{'' if not reaching_in else f': {reaching_in}'}")
 
-    server = (ROOT / "compass" / "api" / "server.py").read_text()
-    mount = server[server.index("if get_settings().estimate.enabled:"):]
-    ok("from compass.estimate.routes import router" in mount.split("\n\n")[0],
-       "the import sits inside the conditional, not at the top of the file — a "
-       "module that is off should cost nothing, and nothing includes import time")
+    server = (ROOT / "estimator" / "api" / "server.py").read_text()
+    # IN COMPASS this was mounted behind `if get_settings().estimate.enabled`,
+    # because it was one of nine modules a deployment could switch off and a
+    # module that is off should cost nothing — not even import time. Standing
+    # on its own that conditional would let the application boot with no
+    # routes at all, which is not a smaller thing than a wasted import, so
+    # the mount is unconditional and the flag is reported by /healthz instead.
+    ok("app.include_router(estimate_router)" in server,
+       "the estimate router is mounted — it is the application, not one of "
+       "nine")
+    others = [name for name in ("code", "design", "home", "pipelines",
+                                "missions", "businessfunctions")
+              if f"{name}_router" in server]
+    ok(not others,
+       "and nothing else is mounted beside it"
+       f"{'' if not others else f': {others}'}")
+    ok("estimate_enabled" in server,
+       "with the enabled flag still answerable, on /healthz, so a deployment "
+       "that switched costing off can be told apart from one that is broken")
 
-    routes = (ROOT / "compass" / "estimate" / "routes.py").read_text()
+    routes = (ROOT / "estimator" / "estimate" / "routes.py").read_text()
     handlers = routes.count("@router.")
     guarded = routes.count("Depends(require_user)")
     eq(guarded, handlers, "every route requires a user")
@@ -547,7 +561,7 @@ def check_the_model_cannot_reach_the_arithmetic() -> None:
     correct as it does now.
     """
     print("\nthe model resolves labels; code computes money")
-    pkg = ROOT / "compass" / "estimate"
+    pkg = ROOT / "estimator" / "estimate"
 
     # Three, and the count is the point of the check rather than an incidental
     # fact: it was two, and adding the intake drafter made this fail until the
@@ -590,23 +604,25 @@ def check_the_section_is_removable() -> None:
     app_ts = (ROOT / "frontend/src/app/app.ts").read_text()
     ui = ROOT / "frontend/src/app/estimate"
 
-    ok("@if (health()?.estimate) {" in app_html,
-       "the nav entry exists only when the server says the module is mounted")
-    ok("@if (section() === 'estimate') {\n      <app-estimate />" in app_html,
-       "and the section is instantiated only when entered, so a build with the "
-       "flag off never calls an endpoint that is not there")
-    ok("if (!this.health()?.estimate) return;" in app_ts,
-       "with the same guard in the handler — the nav is the only way in today")
-
-    # Five copies of one condition, and this section would have made six.
-    ok("section() === 'design' || section() === 'pipelines'" not in app_html
-       and "section() !== 'design' && section() !== 'pipelines'" not in app_html,
-       "the sidebar-less test is a computed, not five literals in the template "
-       "— it read as one fact and behaved as five copies of it")
-    ok("readonly chromeless = computed(" in app_ts
-       and "readonly hasWorkspace = computed(" in app_ts,
-       "and it is two computeds rather than one: having no sidebar and having "
-       "no workspace agree today and are not the same fact")
+    # IN COMPASS the nav entry was gated on what the server reported, in the
+    # template AND in the handler, because a tab that appears on a build with
+    # no routes behind it makes the first click a 404. There is no nav here
+    # and no other section to switch between: the shell renders the estimate
+    # screen directly, so what is worth asserting is that it renders exactly
+    # that and has not quietly acquired a second one.
+    ok("<app-estimate />" in app_html,
+       "the shell renders the estimate screen — it is the application")
+    ok("imports: [Estimate" in app_ts,
+       "and declares it as its only section component")
+    others = [name for name in ("app-pipelines", "app-design", "app-home-chat",
+                                "app-missions", "app-business-functions")
+              if name in app_html]
+    ok(not others,
+       "with nothing else mounted beside it"
+       f"{'' if not others else f': {others}'}")
+    ok("auth.user()" in app_html,
+       "behind a sign-in, because every estimate route requires a user and a "
+       "screen that renders before one is a screen full of 401s")
 
     # The module's own files, again.
     stray = []
@@ -695,7 +711,7 @@ def check_the_screens_match_the_mockup() -> None:
     index_html = (ui / "estimate.html").read_text()
     report_html = (ui / "report.html").read_text()
     ts = (ui / "estimate.ts").read_text()
-    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
 
     # The measures that make it the mockup rather than something like it.
     for value, what in (
@@ -877,8 +893,8 @@ def check_the_brief_can_be_written_in_prose() -> None:
     they would remember.
     """
     print("\na brief can be written as a paragraph")
-    src = (ROOT / "compass/estimate/intake.py").read_text()
-    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    src = (ROOT / "estimator/estimate/intake.py").read_text()
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
     ui = (ROOT / "frontend/src/app/estimate/estimate.html").read_text()
     ts = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
 
@@ -990,16 +1006,16 @@ def check_an_estimate_can_leave_the_app() -> None:
     that cannot be shared.
     """
     print("\nan estimate can leave the app")
-    exp = (ROOT / "compass/estimate/export.py").read_text()
-    routes = (ROOT / "compass/estimate/routes.py").read_text()
-    common = (ROOT / "compass/common/screenshot.py").read_text()
+    exp = (ROOT / "estimator/estimate/export.py").read_text()
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
+    common = (ROOT / "estimator/common/screenshot.py").read_text()
 
     ok("reportlab" not in code_only(exp),
        "no second drawing engine — the PDF is the report printed")
-    ok("from compass.common.screenshot import html_to_pdf" in exp,
+    ok("from estimator.common.screenshot import html_to_pdf" in exp,
        "through the shared headless browser, which is where the one that "
        "already existed lives")
-    ok("compass.design" not in exp,
+    ok("estimator.design" not in exp,
        "and not through Design's, which prints one page per artboard and "
        "would have coupled two modules that are meant to be removable apart")
     ok("prefer_css_page_size=True" in common and 'emulate_media(media="print")' in common,
@@ -1048,7 +1064,7 @@ def check_the_architect_asks_once() -> None:
     84,329, in 18.5 seconds instead of about 40.
     """
     print("\nthe architect asks once")
-    src = (ROOT / "compass/estimate/architect.py").read_text()
+    src = (ROOT / "estimator/estimate/architect.py").read_text()
 
     ok("_MAX_ITERS" not in src and "Observation:" not in src,
        "the loop is gone, and so is the transcript format it needed")
@@ -1086,8 +1102,8 @@ def check_the_rate_card_is_kept() -> None:
     at somebody else's rates. A shared card wants a role to own it first.
     """
     print("\nthe rate card is remembered")
-    store = (ROOT / "compass/estimate/store.py").read_text()
-    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    store = (ROOT / "estimator/estimate/store.py").read_text()
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
     ts = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
 
     ok("class RateCardStore(_JsonStore):" in store and "BASELINE_RATES" in store,
@@ -1112,64 +1128,6 @@ def check_the_rate_card_is_kept() -> None:
        "and saving is a separate act from using: changing a rate for one "
        "estimate is not the same as changing what every future one assumes")
 
-
-def check_a_pipeline_can_name_its_estimate() -> None:
-    """The one link between the two modules, and the shape that keeps it safe.
-
-    A pipeline can say which estimate it implements. The link points one way
-    and carries one opaque string.
-
-    *The server never resolves it.* Pipelines does not import Estimate and does
-    not check the id against the estimate store, because the two modules
-    switch independently: a foreign key between them would mean a pipeline
-    that fails to load on a box where costing is off, which is a worse bug
-    than a link that resolves to nothing. The UI asks, gets nothing, and says
-    so.
-
-    *The dependency is one-directional and only in the UI.* Pipelines injects
-    the Estimate module's API service; Estimate has no idea Pipelines exists —
-    which is what the isolation check two sections above is still asserting.
-    Everything is gated on the health flag, so with the module off the
-    affordance is not merely inert, it is not rendered.
-    """
-    print("\na pipeline can name the estimate it implements")
-    store = (ROOT / "compass/pipelines/store.py").read_text()
-    routes = (ROOT / "compass/pipelines/routes.py").read_text()
-    ts = (ROOT / "frontend/src/app/pipelines/pipelines.ts").read_text()
-    html = (ROOT / "frontend/src/app/pipelines/pipelines.html").read_text()
-
-    ok("estimate_id: str = \"\"" in store,
-       "a pipeline carries an estimate id, defaulting to none")
-    ok("compass.estimate" not in code_only(store)
-       and "compass.estimate" not in code_only(routes),
-       "and Pipelines still imports nothing from Estimate — the id is opaque "
-       "on the server, so neither module can stop the other loading")
-    ok("pipeline.estimate_id = body.estimate_id.strip()[:64]" in routes,
-       "trimmed and length-capped rather than validated: it reaches a store "
-       "key, and an unbounded string from a patch body should not")
-
-    ok("private readonly estimateApi = inject(EstimateApi);" in ts,
-       "the UI injects the Estimate module's own service rather than "
-       "duplicating its URLs")
-    est_ui = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
-    ok("pipelines/" not in est_ui,
-       "and nothing points back the other way")
-    ok("readonly estimateEnabled = signal(false);" in ts
-       and "(await this.api.health()).estimate" in ts,
-       "availability comes from the health endpoint, the same source the nav "
-       "uses — with the flag off there are no costing routes to link to")
-    ok("@if (estimateEnabled()) {" in html,
-       "so with the module off the chip is not drawn at all")
-    ok('class="pl-estlink missing"' in html,
-       "and a link whose estimate is not on this server says that, rather "
-       "than rendering as though nothing were wrong")
-
-
-# ── The work breakdown ──────────────────────────────────────────────────────
-#
-# Five sub-features across two modules in two phases, chosen so every figure
-# below can be done in the head: 45 + 90 + 36 = 171 in phase one, 27 + 18 = 45
-# in phase two, 216 hours in all.
 
 WBS_BRIEF = {
     **BRIEF,
@@ -1197,6 +1155,15 @@ WBS_BRIEF = {
     ],
 }
 
+
+# THE PIPELINES LINK WENT WITH PIPELINES. Compass let a pipeline name the
+# estimate it implements — the id opaque on the server, the lookup only in
+# the UI — and a check here asserted that the dependency ran one way and
+# that neither module could stop the other loading. Standing alone there is
+# no Pipelines to depend on it, so the check asserts nothing and is gone
+# rather than left passing vacuously. If this application is ever embedded
+# somewhere that wants the same link, the shape to copy is in Compass's
+# history at scripts/check_estimate.py.
 
 def check_work_breakdown() -> None:
     """Where an estimate's accuracy actually comes from.
@@ -1519,12 +1486,12 @@ def check_a_brd_can_be_read() -> None:
     """
     import json
 
-    from compass.estimate import intake
+    from estimator.estimate import intake
 
     print("\na requirements document can be read")
-    src = (ROOT / "compass/estimate/intake.py").read_text()
+    src = (ROOT / "estimator/estimate/intake.py").read_text()
     joined = src.replace("\\\n", "")
-    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
 
     ok("async def analyse_brd(" in src,
        "reading a BRD is in the drafter, so model use stays in three files")
@@ -1651,7 +1618,6 @@ def main() -> int:
     check_an_estimate_can_leave_the_app()
     check_the_architect_asks_once()
     check_the_rate_card_is_kept()
-    check_a_pipeline_can_name_its_estimate()
 
     print()
     if FAILURES:

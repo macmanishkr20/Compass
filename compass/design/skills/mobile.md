@@ -1,1 +1,0 @@
-Design mobile app screens at 390x844, shown side by side in a row.

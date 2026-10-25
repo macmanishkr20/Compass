@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "compass-ui": {
+    "estimator-ui": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:class": {
@@ -63,8 +63,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumWarning": "16kB",
+                  "maximumError": "24kB"
                 }
               ],
               "outputHashing": "all"
@@ -84,10 +84,10 @@
           },
           "configurations": {
             "production": {
-              "buildTarget": "compass-ui:build:production"
+              "buildTarget": "estimator-ui:build:production"
             },
             "development": {
-              "buildTarget": "compass-ui:build:development"
+              "buildTarget": "estimator-ui:build:development"
             }
           },
           "defaultConfiguration": "development"

@@ -8,6 +8,10 @@ venv/
 # one that gets committed by accident.
 .env
 .env.*
+# ...but not the template. `.env.*` catches a `.env.bak` written before
+# editing, which is the file that gets committed by accident; it also caught
+# the one file here that MUST be committed, so the example is named back in.
+!.env.example
 data/
 .DS_Store
 # Written when something builds a session-file path out of a SQLite
@@ -18,3 +22,6 @@ data/
 # teaser, the script that drew one. Output, not source: it belongs on the
 # disk it was made on, and it is how a 120KB PNG ends up in a code review.
 assets/
+
+# server logs written beside the app during local runs
+*.log

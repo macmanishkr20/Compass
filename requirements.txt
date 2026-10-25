@@ -1,34 +1,29 @@
+# Estimator — the Estimate module standing on its own.
+#
+# Trimmed against Compass's own list: what went is what the other six
+# modules needed. MCP, video rendering, PDF/docx ingestion and the slide
+# exporter all left with them.
+
 # Core
 fastapi>=0.115
 uvicorn[standard]>=0.30
-openai>=1.55
+openai>=1.55              # the model gateway talks to Azure OpenAI through it
 pydantic>=2.7
-httpx>=0.27               # GitHub API calls (also an openai dependency)
+httpx>=0.27
 python-dotenv>=1.0        # auto-loads .env so credentials work without `source`
 
-# MCP (Model Context Protocol) client + sample server
-mcp>=1.2
+# Storage. Cosmos and Blob only when COMPASS_STORAGE_BACKEND=cosmos; the
+# local JSON backend needs neither, which is what `local` is for.
+azure-cosmos>=4.5
+azure-storage-blob>=12.19
+azure-identity>=1.17
 
-# Attachment ingestion (Home/Chat + Agent Console file uploads)
-pypdf>=4.0                # PDF text extraction
-pypdfium2>=4.0            # PDF page rendering, so charts and scans are seen
-                          # and not only read. Optional at runtime: without it
-                          # attachments fall back to text extraction alone.
-python-docx>=1.1          # .docx text extraction
+# Exports
+openpyxl>=3.1             # the estimate workbook
+# The PDF export renders the same HTML through Playwright. It is optional:
+# without it that one endpoint answers 501 and says why, rather than the
+# application failing to start.
+playwright>=1.44
 
-# Video rendering (Home's make_video). ffmpeg itself is a system install, not
-# a wheel — the tool says how to get it when it is missing.
-uharfbuzz>=0.39           # shaping, so a caption in Kannada, Devanagari or
-freetype-py>=2.4          # Arabic joins and reorders the way the script does.
-                          # Optional: without them compass.common.textkit uses
-                          # Pillow's own layout, which is right for Latin and
-                          # visibly broken for the rest, and the render says so.
-
-# Design exports — optional; a missing one answers 501 rather than failing late
-python-pptx>=1.0          # slide decks (PDF/PNG come from Playwright)
-openpyxl>=3.1             # Estimate's workbook export (its PDF is Playwright too)
-
-# Azure integrations — imported lazily, active only when configured in .env
-azure-cosmos>=4.7            # transcript persistence (COMPASS_STORAGE_BACKEND=cosmos)
-azure-storage-blob>=12.20    # large tool-result artifacts
-azure-monitor-opentelemetry>=1.6  # Application Insights telemetry
+# Telemetry, when an Application Insights connection string is configured.
+opencensus-ext-azure>=1.1 ; python_version >= "3.9"

@@ -1,1 +1,0 @@
-Design an HTML email using table layout and inline styles for client support.
