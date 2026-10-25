@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from estimator.common.auth import router as auth_router
 from estimator.common.config import get_settings
@@ -111,13 +111,32 @@ async def healthz() -> dict:
 
 
 @app.get("/{path:path}")
-async def web_ui(path: str) -> FileResponse:
+async def web_ui(path: str):
     """The built Angular app, with every unknown path falling to index.html.
 
     A single-page app owns its own routing, so a deep link the server has
     never heard of is the app's to resolve rather than a 404 to hand back.
+
+    WITH NO BUILD PRESENT this used to raise, and the raise came out as a
+    500 with a stack trace — on every mistyped API path, because this
+    route catches them all. "File at path …/static/index.html does not
+    exist" is a true sentence about a file and a useless one about what
+    went wrong, which is either that the UI was never built or that the
+    path was wrong. It says which now, and says it as a 404.
     """
     candidate = (STATIC_DIR / path).resolve()
     if path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
         return FileResponse(candidate)
-    return FileResponse(STATIC_DIR / "index.html")
+    index = STATIC_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": (
+                f"No route {path!r}, and no built UI to fall back to. "
+                f"Build it with `cd frontend && npm run build`, or run "
+                f"`npm start` and use the dev server on :4200."
+            )
+        },
+    )

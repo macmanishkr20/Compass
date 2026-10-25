@@ -672,14 +672,19 @@ class LoopSettings(BaseModel):
 class EstimateSettings(BaseModel):
     """The Estimate module — feasibility and cost for a proposed build.
 
-    Off by default, which is the opposite of Pipelines and deliberate. The
-    numbers this module produces are opinionated: rate cards, loaded hourly
-    rates, model prices and scale tiers that were set for one organisation.
-    They are defensible once someone has read them and agreed they describe
-    *their* costs, and misleading before that — so a deployment opts in, rather
-    than finding a costing section it never asked for quoting figures it has
-    never seen. `COMPASS_ESTIMATE=1` turns it on; off, nothing is imported, no
-    routes are mounted and no section appears.
+    ON by default here, and off by default in Compass — the same setting
+    meaning different things because the applications do. There, a costing
+    section nobody asked for would quote opinionated figures (rate cards,
+    loaded rates, model prices, scale tiers, all set for one organisation)
+    at a deployment that had never read them, so it opted in. Here the
+    application IS the costing section: defaulting it off gave a server
+    that mounts its routes, serves its screen and reports itself disabled,
+    which is not a safer answer, only a confusing one.
+
+    What has NOT changed is why the figures deserve a reading: they are
+    defensible once somebody has agreed they describe their costs, and
+    misleading before that. That is now the rate card's job to make
+    obvious, not a flag's.
 
     The two model-touching stages have their own switches because they fail in
     different directions. With `classifier` off, a use case left unlabelled
@@ -696,7 +701,7 @@ class EstimateSettings(BaseModel):
     setting when you need two runs a month apart to be comparable.
     """
 
-    enabled: bool = False
+    enabled: bool = True
     classifier: bool = True
     architect: bool = True
     #: Drafting a brief from a paragraph. Its own switch because it is the one
