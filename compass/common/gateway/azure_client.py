@@ -807,10 +807,15 @@ class AzureModelClient:
             wanted = settings.thinking.normalize_effort(asked, deployment)
             if wanted and settings.thinking.reasons(deployment):
                 base["reasoning_effort"] = wanted
+            # The output budget travels in a dict because its name is the one
+            # parameter here that two generations of deployment disagree about,
+            # and the retry below must be able to change it without changing
+            # whether it is sent.
+            budget: dict[str, int] = {"max_completion_tokens": max_tokens}
             try:
                 try:
                     response = await self._get_client().chat.completions.create(
-                        **base, max_completion_tokens=max_tokens
+                        **base, **budget
                     )
                 except BadRequestError as err:
                     low = str(err).lower()
@@ -824,8 +829,18 @@ class AzureModelClient:
                             "%s will not enforce a JSON schema; falling back to "
                             "parsing the reply", deployment,
                         )
+                    # Rename the budget only when the deployment asked for it.
+                    # This retry used to rename it every time, so a first
+                    # attempt refused over its *schema* came back carrying
+                    # `max_tokens` to a deployment that had just accepted
+                    # `max_completion_tokens` — turning a dropped schema, which
+                    # the line above has already survived, into a 400 that lost
+                    # the call. Every caller with a schema a deployment won't
+                    # enforce was silently getting nothing.
+                    if "max_completion_tokens" in low:
+                        budget = {"max_tokens": max_tokens}
                     response = await self._get_client().chat.completions.create(
-                        **base, max_tokens=max_tokens
+                        **base, **budget
                     )
                 content = response.choices[0].message.content or ""
                 _warn_if_reasoning_ate_the_budget(
