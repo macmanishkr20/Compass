@@ -4,7 +4,7 @@ RewardLens records what the firm GAVE. This is the half that happens first,
 and it is where the money and the breach are still preventable:
 
     requested → policy · tax · budget → approved or declined
-              → purchased → given → acknowledged
+              → purchased → list closed → given
 
 THE CHECKS RUN BEFORE THE DECISION, NOT AFTER IT. The whole complaint in
 the requirement is that the firm finds out afterwards — that John is at
@@ -30,10 +30,19 @@ one that was never handed over is a total that is wrong in the other
 direction. Nothing reaches the register until somebody says it was GIVEN.
 
 WHO DOES WHAT. A service line lead asks. A manager or compliance approves —
-never their own request, and never a gift to themselves. Procurement buys
-and hands over. The recipient acknowledges, which is the only part of this
-whole feature the recipient can do, and the thing that makes the register
-something they have agreed to rather than something done to them.
+never their own request, and never a gift to themselves. Procurement buys.
+Operations settle who is getting one and then hand them out.
+
+THE RECIPIENT DOES NOTHING, and that is deliberate. This chain used to end
+with the recipient confirming receipt, on the argument that it made the
+register something they had agreed to. The business does not work that way:
+the list Operations close IS the acknowledgement, signed by the desk that
+handed the gifts over and can be held to it. Asking a hundred thousand
+people to log in and agree to a record the firm already holds adds no fact
+the firm did not have — it only adds the people who never answer, and a
+register that reads as a permanent backlog of their silence.
+
+So recipients are TOLD, once, at distribution. Nothing is expected back.
 
 NOT HERE, on purpose: vendors, external recipients and multi-currency are
 the later phases the requirement names, and a budget that is a number per
@@ -74,8 +83,17 @@ OCCASIONS = ("festival", "long service", "performance", "client courtesy",
 PROCUREMENT = "Procurement"
 
 #: The most gifts one order may be for. Not a policy — a guard, so a typo
-#: in a quantity field cannot write ten thousand register records.
-MOST_PER_ORDER = 500
+#: in a quantity field cannot write more records than the firm could ever
+#: mean. It was 500, which was the typo guard and a scale assumption
+#: wearing one hat: a festival order reaches the whole firm, and the
+#: business puts the ceiling at a lakh. Fifty, two hundred and a hundred
+#: thousand are all ordinary numbers here, so the guard has to sit above
+#: the largest of them rather than in the middle of the range.
+#:
+#: SEE `_tell_the_recipients` before raising this further. The guard is
+#: cheap; what it admits is not, and the limit that actually binds a big
+#: distribution is the outbox, not this number.
+MOST_PER_ORDER = 100_000
 
 #: The stages at which the recipient list is still open. Signing off
 #: `recipient_list` is what closes it, so distribution is already too
@@ -83,6 +101,10 @@ MOST_PER_ORDER = 500
 #: underneath it afterwards.
 BEFORE_CLOSED = ("service_line", "finance_policy", "procurement",
                  "recipient_list")
+
+#: How many people one sentence may name before it stops being a sentence
+#: and starts being a list. Past this the count carries the fact.
+_NAMES_IN_A_SENTENCE = 5
 
 #: How long a reference from another system may be. A guard, not a format:
 #: every firm numbers its own purchase orders differently and Compass has
@@ -260,10 +282,16 @@ STAGES: dict[str, dict[str, Any]] = {
         "asks": "who is actually getting one",
         "next": "distribution",
     },
+    # DISTRIBUTION IS THE LAST STEP. It used to hand off to the recipient,
+    # who confirmed receipt and closed the order. That stage is gone: the
+    # list Operations closed at the step before is the acknowledgement, so
+    # there is nobody left to wait for and the click that sends the gifts
+    # out is the click that finishes the order.
     "distribution": {
         # DISTRIBUTION STARTED. One act, and the moment the order reaches
-        # the register: a record per name on the closed list, and an email
-        # to each of them telling them to come and confirm it.
+        # the register: a record per name on the closed list, and one email
+        # to each of them saying they have received a gift. The email tells
+        # them; it asks them for nothing.
         #
         # It asks for nothing, because by here there is nothing left to
         # decide — the list was settled at the step before and the value
@@ -278,17 +306,6 @@ STAGES: dict[str, dict[str, Any]] = {
         "label": "With Operations to distribute",
         "verb": "Start the distribution",
         "asks": "that the gifts have gone out to the people on the list",
-        "next": "acknowledgement",
-    },
-    "acknowledgement": {
-        "back": False,
-        "ask": "",
-        "step": "receipt",
-        "holder": "the recipient",
-        "owner": "employee",
-        "label": "With the recipient",
-        "verb": "Confirm receipt",
-        "asks": "the recipient's confirmation that they received it",
         "next": "closed",
     },
     "closed": {
@@ -330,14 +347,13 @@ def stage_of(request: dict[str, Any]) -> str:
     done = {e.get("stage") for e in ledger.events(request["id"])
             if e["kind"] == SIGN_OFF}
     stage = FIRST_STAGE
+    # Every stage in this chain is now signed off by a DESK, so the walk is
+    # a plain one. It used to break at acknowledgement while any recipient
+    # had yet to confirm, because a sign-off there was one of twenty people
+    # answering for themselves rather than the order being finished. With
+    # the recipient out of the chain there is no stage where one sign-off
+    # speaks for part of an order.
     while stage != "closed" and stage in done:
-        # One order can reach several people. A sign-off at acknowledgement
-        # is ONE of them confirming, so the order is not closed until there
-        # is nobody left who has not — otherwise the first person to
-        # confirm would close it on everybody else's behalf, which is the
-        # firm asserting receipt again by a different route.
-        if stage == "acknowledgement" and _unconfirmed(request["id"]):
-            break
         stage = STAGES[stage]["next"]
     return stage
 
@@ -352,11 +368,6 @@ def allocated_to(request_id: str) -> list[dict[str, Any]]:
     second answer.
     """
     return [i for i in ledger.items() if i.get("from_request") == request_id]
-
-
-def _unconfirmed(request_id: str) -> list[dict[str, Any]]:
-    """The allocated records nobody has confirmed receiving yet."""
-    return [i for i in allocated_to(request_id) if not i["acknowledged"]]
 
 
 #: Stages the chain no longer has, and the words they used while it did.
@@ -375,6 +386,10 @@ RETIRED_STAGES: dict[str, dict[str, str]] = {
     "payroll_tax": {"label": "With Payroll", "step": "the tax treatment"},
     "accounts_payable": {"label": "With Accounts Payable",
                          "step": "payment"},
+    # The recipient's own step, while the chain had one. Orders closed
+    # under it carry `signed_off · acknowledgement` on their trail, and the
+    # whole point of this table is that those still read.
+    "acknowledgement": {"label": "With the recipient", "step": "receipt"},
 }
 
 
@@ -705,13 +720,6 @@ def _with(request: dict[str, Any], stage: str) -> str:
         who = people.find(request["by"])
         raiser = who.name if who else request["by"]
         return f"{people.LABELS[DISTRIBUTOR]} or {raiser}"
-    if stage == "acknowledgement":
-        waiting = sorted({i["recipient"] for i in _unconfirmed(request["id"])})
-        if waiting:
-            return waiting[0] if len(waiting) == 1 else (
-                f"{waiting[0]} and {len(waiting) - 1} other"
-                f"{'s' if len(waiting) > 2 else ''}")
-        return _name_of(request["for"])
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
@@ -919,7 +927,15 @@ def _record(request: dict[str, Any], employee_id: str, name: str,
         "given": given,
         "source": request["source"],
         "channel": "procured",
-        "acknowledged": False,
+        # SETTLED THE MOMENT IT IS WRITTEN. This was False and waited for
+        # the recipient to say otherwise. Nobody is asked now: the record
+        # is made from a list Operations closed and signed off, which is
+        # what the business means by the gift being acknowledged, so a
+        # record that arrives already settled is the truth rather than a
+        # shortcut. Left False it would have made every procured record on
+        # the register permanently unconfirmed — a backlog of silence from
+        # people who were never asked to speak.
+        "acknowledged": True,
         "from_request": request["id"],
         # How it reached them. Empty for an order raised in one person's
         # name and handed over without an allocation step.
@@ -956,8 +972,16 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
         last = signed[-1] if signed else None
         ended = next((e for e in trail
                       if e["kind"] in ("declined", "cancelled")), None)
-        ack = next((e for e in trail if e["kind"] == SIGN_OFF
-                    and e.get("stage") == "acknowledgement"), None)
+        # WHEN THE GIFTS WENT OUT. This was the day the recipient confirmed,
+        # read off the acknowledgement sign-off. With that stage gone the
+        # order's own closing act is distribution, which is also the day
+        # the register records were written — so it is the honest date for
+        # a report to be cut on and the one a reader means by "when did
+        # they get it". `acknowledgement` is still read for orders closed
+        # under the old chain, whose trail has no distribution sign-off.
+        out_on = next((e for e in trail if e["kind"] == SIGN_OFF
+                       and e.get("stage") in ("distribution",
+                                              "acknowledgement")), None)
         out.append({
             "id": request["id"],
             "employee_id": request["for"],
@@ -984,7 +1008,7 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
             "last_signed_at": _day(last["at"]) if last else "—",
             "why": ((ended.get("note") if ended else None)
                     or (last.get("note") if last else None) or "—"),
-            "acknowledged_on": _day(ack["at"]) if ack else "—",
+            "distributed_on": _day(out_on["at"]) if out_on else "—",
             # How many were asked for, and how many have a person against
             # them. "3 of 200 allocated" is the sentence a bulk order is
             # read for, and no status word carries it.
@@ -1046,11 +1070,10 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
 #: recipients, the quantity, what each one cost, the purchase reference,
 #: who raised it and who signed it.
 #:
-#: None of that is theirs. What they are given, why, where it has got to
-#: and whether they have confirmed it is theirs — the rest is the firm's
-#: own business with itself, and "who else got one" is the other
-#: recipients'. Their own annual position is theirs too, and it is on the
-#: Tracker, which is the screen for it.
+#: None of that is theirs. What they are given, why and where it has got
+#: to — the rest is the firm's own business with itself, and "who else got
+#: one" is the other recipients'. Their own annual position is theirs too,
+#: and it is on the Tracker, which is the screen for it.
 #:
 #: A WHITELIST rather than a list of things to strip, because the failure
 #: mode of the other shape is a field added later that nobody remembers to
@@ -1059,8 +1082,8 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
 MINE_ONLY = frozenset({
     # what it is and why they have it
     "id", "what", "kind", "occasion", "purpose", "value",
-    # where it has got to, and their own part in it
-    "status", "acknowledged_on",
+    # where it has got to, and the day it was handed out
+    "status", "distributed_on",
     # machinery the surface needs to draw their one button. `allocated_ids`
     # is deliberately NOT here: it is every recipient's employee number,
     # the surface never reads it, and `private` only keeps a field out of
@@ -1102,14 +1125,11 @@ def _theirs_only(scope: Scope, row: dict[str, Any]) -> dict[str, Any]:
     cut["recipient"] = _name_of(scope.employee) or "you"
     cut["employee_id"] = scope.employee
     # AND WHOSE DESK IT IS ON, without naming the other people standing on
-    # it. At acknowledgement `with` lists everybody still to confirm, which
-    # is the one place on this row where the other recipients were named
-    # in words.
-    owes = scope.employee in {i["employee_id"]
-                              for i in _unconfirmed(row["id"])}
-    cut["with"] = ("you, to confirm you received it" if owes
-                   else row.get("with") if row.get("stage") in ENDED
-                   else "others, to confirm theirs")
+    # it. There is no longer a stage where that desk is the recipient's
+    # own, so this is the chain's answer or nothing — and a recipient is
+    # never asked to do anything to it.
+    cut["with"] = (row.get("with") if row.get("stage") in ENDED
+                   else "the firm, nothing for you to do")
     return cut
 
 
@@ -1199,7 +1219,7 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             # guards it.
             "waiting_days": (max(0, int((time.time() - at) // 86_400))
                              if at and stage not in ENDED else 0),
-            "acknowledged_on": row["acknowledged_on"],
+            "distributed_on": row["distributed_on"],
             # The chain's own answer about what this desk may do, carried
             # through rather than worked out again. The Tracker is where
             # the signing off happens now, so the buttons it draws have to
@@ -1329,18 +1349,24 @@ def _closed(scope: Scope, rows: list[dict[str, Any]]
 
 def _in_range(scope: Scope, rows: list[dict[str, Any]]
               ) -> list[dict[str, Any]]:
-    """The closed orders inside the chosen window, by ACKNOWLEDGEMENT date.
+    """The closed orders inside the chosen window, by DISTRIBUTION date.
 
-    The date a consolidated report should be cut on is the day the person
-    confirmed receiving it — not when it was asked for, approved or bought.
-    Those can be months apart, and a report cut on the wrong one omits
-    exactly the orders that crossed the boundary.
+    The date a consolidated report should be cut on is the day the gifts
+    actually went out — not when the order was asked for, approved or
+    bought. Those can be months apart, and a report cut on the wrong one
+    omits exactly the orders that crossed the boundary.
+
+    It used to cut on the day the recipient confirmed, which was the same
+    argument pointed at a date the firm did not control: an order sat
+    outside every window until somebody who did not have to answer
+    answered. Distribution is the firm's own act and the day the register
+    records carry, so the report and the register now agree.
     """
     if not scope.since and not scope.until:
         return rows
     out = []
     for row in rows:
-        when = row["acknowledged_on"]
+        when = row["distributed_on"]
         if when == "—":
             continue
         if scope.since and when < scope.since:
@@ -1389,14 +1415,6 @@ def mine_to_sign(scope: Scope, request: dict[str, Any], stage: str) -> bool:
         # Operations' steps route the same way: a desk that may hand an
         # order out may certainly say who to.
         return request["by"] == scope.user or DISTRIBUTOR in scope.roles
-    if stage == "acknowledgement":
-        # Whoever was ALLOCATED one, not whoever the request named. A bulk
-        # order names nobody when it is raised; the people who received it
-        # are known only once it has been handed out, and each of them
-        # confirms their own.
-        return bool(scope.employee) and scope.employee in {
-            i["employee_id"] for i in _unconfirmed(request["id"])}
-
     owner = STAGES.get(stage, {}).get("owner")
     if not owner or owner not in scope.roles:
         return False
@@ -1801,41 +1819,18 @@ class GiftRequests(Feature):
             # back, which is why there is no integration to build.
             said_extra = " " + self._issue_reference(scope, request)
 
-        if stage == "acknowledgement":
-            # THEIRS, not the order's. One order can reach twenty people,
-            # and each of them confirms what they themselves were given.
-            mine = [i for i in _unconfirmed(row["id"])
-                    if i["employee_id"] == scope.employee]
-            for item in mine:
-                item["acknowledged"] = True
-                ledger.touch_item(item["id"])
-                ledger.add_event(subject=item["id"], kind="acknowledged",
-                                 by=scope.user)
-            still = len(_unconfirmed(row["id"]))
-            said_extra = (" The record now says you confirmed receiving it, "
-                          "rather than the firm saying you did.")
-            if still:
-                said_extra += (f" {still} other"
-                               f"{'s have' if still > 1 else ' has'} not "
-                               f"confirmed yet, so the order stays open.")
-
         ledger.add_event(subject=row["id"], kind=SIGN_OFF, by=scope.user,
                          stage=stage, note=note.strip(), value=row["value"])
 
         nxt = STAGES[stage]["next"]
-        # CLOSED ONLY WHEN IT REALLY IS. One order can reach twenty people
-        # and each of them confirms their own, so the last stage being
-        # signed off is not the same as the order being finished:
-        # `stage_of` already keeps it at acknowledgement while anybody is
-        # still to confirm. This did not, and wrote a `closed` event to the
-        # trail the moment the FIRST recipient confirmed \u2014 so the audit
-        # trail said an order was closed while three people had yet to
-        # receive theirs, and the sentence managed "is closed" and "the
-        # order stays open" in the same breath. The fold defended the
-        # stage; nothing defended the RECORD of it, which is the worse
-        # half, because the trail is what somebody proves this with.
-        left = _unconfirmed(row["id"]) if stage == "acknowledgement" else []
-        if nxt == "closed" and not left:
+        # CLOSED WHEN THE LAST DESK SIGNS. This used to be guarded: the old
+        # last stage was the recipient's, one order could reach twenty of
+        # them, and a sign-off there was one person answering for
+        # themselves \u2014 so writing `closed` on the first confirmation put an
+        # order on the trail as finished while three people had yet to
+        # receive theirs. Every stage is a desk's now, and a desk signs for
+        # the whole order, so the guard has nothing left to defend.
+        if nxt == "closed":
             ledger.add_event(subject=row["id"], kind="closed", by=scope.user,
                              stage=stage)
             return Outcome(
@@ -1843,13 +1838,6 @@ class GiftRequests(Feature):
                 said=f"{row['what']} is closed \u2014 the last step in the "
                      f"chain.{said_extra} The order report, with every step "
                      f"and who took it, is on the row.",
-                touched=[row["id"]])
-        if nxt == "closed":
-            return Outcome(
-                ok=True,
-                said=f"Signed off: {step_name(stage)}.{said_extra} The order "
-                     f"report, with every step and who took it, is on the "
-                     f"row.",
                 touched=[row["id"]])
 
         crossing = (" It takes them over the annual limit, which you have "
@@ -1864,59 +1852,90 @@ class GiftRequests(Feature):
                              given: list[dict[str, Any]]) -> str:
         """Tell everybody who has just been given one. Says who heard.
 
-        THE NEXT STEP IS THEIRS, and nobody confirms receiving something
-        they were never told to come and confirm. Without this the order
-        sat at acknowledgement waiting on people who had no reason to open
-        Compass at all, which is the stall the Dashboard's own
-        "nobody has confirmed" chart was drawn to show — and a chart of a
-        problem is not as good as not having it.
+        ONE EMAIL, NOTHING ASKED. It used to ask them to come and confirm,
+        because the chain's last stage was theirs. That stage is gone: the
+        closed list is the acknowledgement, so this tells them they have
+        received a gift and stops. Nothing in RewardLens waits on a reply,
+        and the email no longer implies one is due.
 
-        What it says is deliberately small: what they were given, what it
-        counts as against their year, and that confirming it is theirs to
-        do. It does not tell them what it means for their tax, because
-        that is not this module's to say.
+        What it says is deliberately small: what they were given and that
+        it counts against their year. It does not tell them what it means
+        for their tax, because that is not this module's to say.
+
+        THE OUTBOX IS THE CEILING, not this loop. `notices.KEEP` is how
+        many notices the process holds, and `notices.record` evicts the
+        oldest past it — so a list longer than that would queue a hundred
+        thousand notices, keep the last few hundred, send those, and say
+        nothing about the rest. A distribution that silently fails to tell
+        most of the people it was for is the worst failure this feature
+        has, so the shortfall is counted, recorded on the trail and said
+        out loud. See `MOST_PER_ORDER`: an order may be for a lakh, and
+        the register holds a lakh of records without complaint; it is the
+        TELLING that needs a real queue before it reaches that size.
         """
-        heard, held, unsent = [], [], []
-        for item in given:
-            person = people.find_by_employee(item["employee_id"])
+        # Taken once. One scan of the directory per recipient is the
+        # quadratic the big lists would have found first.
+        directory = people.by_employee()
+        # Room for this distribution's own notices, so the count is what
+        # the outbox can still carry rather than what it holds empty.
+        room = max(0, notices.KEEP - notices.waiting())
+        told = heard = addressless = unsent = 0
+        held_names: list[str] = []
+        for item in given[:room]:
+            person = directory.get(item["employee_id"])
             notice = notices.record(
                 to=person.email if person else "",
                 name=item["recipient"],
-                subject=f"{request['what']} — please confirm you received it",
+                subject=f"{request['what']} — you have received a gift",
                 body=(f"{request['what']}, recorded at "
                       f"{rewardlens.rupees(item['value'])}, has been handed "
                       f"out to you.\n\nIt is on the register against your "
-                      f"name and counts towards your annual limit. Open "
-                      f"RewardLens and confirm you received it, so the "
-                      f"record says you did rather than the firm saying it "
-                      f"for you.\n\nIf this is wrong, say so there rather "
-                      f"than confirming it."),
+                      f"name and counts towards your annual limit. There is "
+                      f"nothing for you to do — this is to tell you, not to "
+                      f"ask you.\n\nIf anything here is wrong, tell the team "
+                      f"who gave it to you."),
                 about=item["id"])
+            told += 1
             if notice.state != "held":
-                heard.append(item["recipient"])
+                heard += 1
             elif "no email address" in notice.detail:
                 # WHY it was held is the whole point of holding it. "No
                 # address for Priya" is somebody's to go and fix; "no mail
                 # server" is the deployment's and says nothing about Priya
                 # at all. Reporting both as the first sent people looking
                 # for a missing address that was never missing.
-                held.append(item["recipient"])
+                addressless += 1
+                # Named only while naming them is readable. Past that the
+                # count is the fact and the register is where the names
+                # are — a sentence listing four thousand people is not a
+                # sentence anybody reads.
+                if len(held_names) < _NAMES_IN_A_SENTENCE:
+                    held_names.append(item["recipient"])
             else:
-                unsent.append(item["recipient"])
+                unsent += 1
+        missed = len(given) - told
         ledger.add_event(subject=request["id"], kind="recipients_told",
                          by=scope.user, stage="distribution",
-                         told=len(heard), held=len(held) + len(unsent))
+                         told=heard, held=addressless + unsent,
+                         not_queued=missed)
         parts = []
         if heard:
-            parts.append(f"{len(heard)} asked to confirm by email")
+            parts.append(f"{heard} told by email")
         if unsent:
-            parts.append(f"{len(unsent)} not emailed — no mail server "
-                         f"configured")
-        if held:
-            parts.append(f"no address on file for {', '.join(held)}")
+            parts.append(f"{unsent} not emailed — no mail server configured")
+        if addressless:
+            named = ", ".join(held_names)
+            more = addressless - len(held_names)
+            parts.append(f"no address on file for {named}"
+                         + (f" and {more} others" if more > 0 else ""))
+        if missed:
+            # SAID FIRST, because it is the one that matters: these people
+            # have a gift on the register and no idea.
+            parts.insert(0, f"{missed} NOT notified — the outbox holds "
+                            f"{notices.KEEP} and this list is longer")
         if not parts:
             return "Nobody was emailed."
-        return "; ".join(parts) + ". They can confirm in RewardLens either way."
+        return "; ".join(parts) + "."
 
     def _issue_reference(self, scope: Scope, request: dict[str, Any]) -> str:
         """Mint the order's reference and email it. Says what happened."""

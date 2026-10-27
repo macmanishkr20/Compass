@@ -246,8 +246,30 @@ def find_by_employee(employee_id: str) -> Person | None:
     """
     if not employee_id:
         return None
-    return next((p for p in DIRECTORY.values()
-                 if p.employee_id == employee_id), None)
+    return by_employee().get(employee_id)
+
+
+def by_employee() -> dict[str, Person]:
+    """The directory keyed the other way: employee number to person.
+
+    Built on every call rather than cached, because the directory is
+    rebuilt when a deployment's users change and a stale index would hand
+    back somebody who is no longer there.
+
+    It exists because `find_by_employee` is a SCAN, and a distribution
+    calls it once per recipient: at a hundred thousand recipients against
+    a directory of any size that is the one place in this module where an
+    ordinary-looking loop turns into a quadratic one. Callers with a list
+    of ids take this once and read it instead.
+
+    First entry wins on a duplicate employee number, which matches what
+    the scan returned.
+    """
+    out: dict[str, Person] = {}
+    for person in DIRECTORY.values():
+        if person.employee_id and person.employee_id not in out:
+            out[person.employee_id] = person
+    return out
 
 
 def holders(role: str) -> list[Person]:

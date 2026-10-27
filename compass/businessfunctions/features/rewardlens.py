@@ -365,20 +365,18 @@ def _allowed_person(scope: Scope, row: dict[str, Any]) -> list[str]:
     if scope.period in _CLOSED:
         return []
 
-    # Nobody decides their own case. Acknowledging is the exception and not
-    # a loophole: confirming you received something is not a decision about
-    # a case, it is the one act here that is only ever about yourself.
+    # NOBODY DECIDES THEIR OWN CASE, and there is no longer an exception to
+    # it. Acknowledging your own gift was the one act here that was only
+    # ever about yourself, so it was exempt; with the recipient out of the
+    # chain there is nothing on this screen a person does to their own row.
     if row["yours"]:
-        return (["acknowledge"] if row["unacknowledged"]
-                and _may(scope, "acknowledge") else [])
+        return []
 
     # Referring comes first where it applies: it is the forward move, and
     # the surface reads the first action as the primary one.
     open_now = []
     if row["over_limit"] and not row["referred"]:
         open_now.append("refer_to_finance")
-    if row["unacknowledged"]:
-        open_now.append("chase_acknowledgement")
     if row["over_limit"]:
         open_now.append("record_exception")
     return [a for a in open_now if _may(scope, a)]
@@ -585,7 +583,6 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             if running > limit():
                 crossed = item["given"]
                 break
-        unack = [i for i in row["items"] if not i["acknowledged"]]
         disclosed = [i for i in row["items"] if i["channel"] == "disclosed"]
         over = total > limit()
         out.append({
@@ -603,7 +600,6 @@ def _totals(scope: Scope) -> list[dict[str, Any]]:
             # Whether this row is the reader's own. On the row because the
             # surface cannot know: it decides which buttons are theirs.
             "yours": scope.mine(row["employee_id"]),
-            "unacknowledged": len(unack),
             "disclosed": len(disclosed),
             "referred": ledger.happened(row["employee_id"], "referred"),
             "exception": ledger.happened(row["employee_id"], "excepted"),
@@ -784,17 +780,11 @@ class RewardLens(Feature):
                        "left before the limit" if headroom
                        else "over the limit",
                        "good" if headroom else "bad"),
-                Figure("unacknowledged",
-                       str(me["unacknowledged"] if me else 0),
-                       "for you to acknowledge" if me and me["unacknowledged"]
-                       else "nothing to acknowledge",
-                       "warn" if me and me["unacknowledged"] else "good"),
                 Figure("to_review", str(len(_awaiting(scope))),
                        "of yours waiting on compliance" if _awaiting(scope)
                        else "nothing waiting on compliance"),
             ]
 
-        unack = sum(r["unacknowledged"] for r in rows)
         counted = sum(r["total"] for r in rows)
         return [
             Figure("recipients", str(len(rows)), "people tracked"),
@@ -802,9 +792,6 @@ class RewardLens(Feature):
             Figure("over", str(len(over)),
                    "over the annual limit" if over else "all within limit",
                    "bad" if over else "good"),
-            Figure("unacknowledged", str(unack),
-                   "not yet acknowledged" if unack else "all acknowledged",
-                   "warn" if unack else "good"),
             Figure("to_review", str(len(waiting := _awaiting(scope))),
                    "declarations to review" if waiting else "every declaration reviewed",
                    "warn" if waiting else "good"),
@@ -823,8 +810,6 @@ class RewardLens(Feature):
                     key_field="id"),
                 Tab("all", "Your year", len(rows)),
                 Tab("over", "Over the limit", len(over)),
-                Tab("unacknowledged", "To acknowledge",
-                    len([r for r in rows if r["unacknowledged"]])),
                 Tab("disclosed", "What you declared", len(_awaiting(scope)),
                     key_field="id"),
             ]
@@ -847,8 +832,6 @@ class RewardLens(Feature):
                 key_field="id"),
             Tab("over", "Over the limit", len(over)),
             Tab("all", "Everyone", len(rows)),
-            Tab("unacknowledged", "Awaiting acknowledgement",
-                len([r for r in rows if r["unacknowledged"]])),
             # Items, not people — so it carries its own key. The count is
             # what is still waiting, because a tab badge showing everything
             # ever declared is a badge nobody looks at twice.
@@ -867,8 +850,6 @@ class RewardLens(Feature):
         rows = _totals(scope)
         if tab == "over":
             return [r for r in rows if r["over_limit"]]
-        if tab == "unacknowledged":
-            return [r for r in rows if r["unacknowledged"]]
         if tab == "disclosed":
             return _disclosed_rows(scope)
         return rows
@@ -968,15 +949,13 @@ class RewardLens(Feature):
         # because a reviewer acting on their own year is not a smaller problem
         # when the action happens to be a reasonable one.
         #
-        # Acknowledging is the exception, and it is not a loophole: the rule
-        # says nobody DECIDES their own case, and confirming you received
-        # something is not a decision about a case — it is the one act on
-        # this screen that is only ever about yourself. Written as an
-        # exemption rather than by moving the guard, so the next action
-        # added is covered by default.
+        # It used to carry one exemption, for acknowledging your own gift:
+        # the rule says nobody DECIDES their own case, and confirming you
+        # received something was not a decision about a case. That act is
+        # gone, so the guard applies to everything again, which is the
+        # shape it wanted in the first place.
         mine = _employee(scope.user)
-        if action != "acknowledge" and mine and any(
-                r["employee_id"] == mine for r in chosen):
+        if mine and any(r["employee_id"] == mine for r in chosen):
             return Outcome(
                 ok=False,
                 said="That is your own record. Someone else has to decide it.",
@@ -1013,71 +992,14 @@ class RewardLens(Feature):
                 touched=[row["employee_id"]],
             )
 
-        if action == "acknowledge":
-            # The only thing on this screen the recipient themselves does,
-            # and the one that makes the register something they have agreed
-            # to rather than something done to them.
-            row = chosen[0] if len(chosen) == 1 else None
-            if row is None:
-                return Outcome(ok=False, said="Acknowledge your own record.")
-            if not scope.mine(row["employee_id"]):
-                # Name them. "You can only acknowledge what you were given"
-                # is true and leaves somebody looking at an unacknowledged
-                # row with nowhere to go — the useful half of the sentence
-                # is WHOSE it is, which is the row they are already on.
-                return Outcome(
-                    ok=False,
-                    said=f"Only {row['recipient']} can confirm this — a "
-                         f"record the firm ticks off on somebody's behalf "
-                         f"is the firm asserting it, not them agreeing to "
-                         f"it. It stays waiting until they sign in.")
-            outstanding = [i for i in _items_for(scope)
-                           if i["employee_id"] == row["employee_id"]
-                           and not i["acknowledged"]
-                           and _superseded_by(i["id"]) is None]
-            if not outstanding:
-                return Outcome(ok=False, said="There is nothing of yours "
-                                              "waiting to be acknowledged.")
-            for item in outstanding:
-                item["acknowledged"] = True
-                ledger.touch_item(item["id"])
-                ledger.add_event(subject=item["id"], kind="acknowledged",
-                                 by=scope.user)
-            return Outcome(
-                ok=True,
-                said=f"Acknowledged {len(outstanding)} item"
-                     f"{'s' if len(outstanding) > 1 else ''}. The record now "
-                     f"says you confirmed receiving "
-                     f"{'them' if len(outstanding) > 1 else 'it'}.",
-                touched=[row["employee_id"]],
-            )
-
-        if action == "chase_acknowledgement":
-            if len(chosen) > 1:
-                return Outcome(
-                    ok=False,
-                    said="Each chase is an email to one person. Name the one "
-                         "you mean.",
-                )
-            row = chosen[0]
-            if not row["unacknowledged"]:
-                return Outcome(
-                    ok=False,
-                    said=f"{row['recipient']} has acknowledged everything.",
-                )
-            # Recorded, like every other outward act. This one left no
-            # trace at all before: an email went to an employee and nothing
-            # in Compass could say it had, which is the gap the notices
-            # outbox was built to close for queries and this was missed in.
-            ledger.add_event(subject=row["employee_id"], kind="chased",
-                             by=scope.user, items=row["unacknowledged"])
-            return Outcome(
-                ok=True,
-                said=f"Asked {row['recipient']} to acknowledge "
-                     f"{row['unacknowledged']} item"
-                     f"{'s' if row['unacknowledged'] > 1 else ''}.",
-                touched=[row["employee_id"]],
-            )
+        # ACKNOWLEDGE AND CHASE ARE GONE. They were the recipient's own act
+        # and the chasing of it, and both rested on the chain's last stage
+        # being theirs. The closed recipient list is the acknowledgement
+        # now, so there is nothing for a recipient to confirm and nothing
+        # for anybody to chase them about. The `acknowledged` field stays
+        # on the register because records written under the old rule carry
+        # it and the audit trail reads it — see `RETIRED_STAGES` in
+        # giftrequests for the same argument about the stage itself.
 
         if action == "record_exception":
             row = chosen[0] if len(chosen) == 1 else None

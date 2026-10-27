@@ -214,7 +214,7 @@ export interface FeatureView {
   /** Pictures of what this screen holds, each naming the tab behind it. */
   charts?: ChartSpec[];
   tab?: string;
-  /** Which date this screen's window is about — "acknowledged on". Absent
+  /** Which date this screen's window is about — "distributed on". Absent
    *  when the screen has no window, which is most of them. */
   date_range?: string;
   window?: { since: string; until: string };

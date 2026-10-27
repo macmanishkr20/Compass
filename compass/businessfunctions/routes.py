@@ -345,7 +345,7 @@ async def get_feature(
         ],
         "tab": chosen,
         # Whether this screen has a date window, and which date it is about.
-        # The UI cannot invent either: "acknowledged on" rather than
+        # The UI cannot invent either: "distributed on" rather than
         # "requested on" decides which orders fall inside a month, and a
         # selector that did not say so would be a report nobody could check.
         "date_range": feature.date_range,

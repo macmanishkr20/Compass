@@ -350,7 +350,7 @@ class FeatureManifest(BaseModel):
     #: is empty in this feature's own terms.
     scope_why: str = ""
     #: When set, the screen offers a from/to date window and this is what
-    #: it is about — "acknowledged on". Declared rather than assumed,
+    #: it is about — "distributed on". Declared rather than assumed,
     #: because a date range over the wrong date is worse than none: a
     #: consolidated report filtered by request date would quietly omit
     #: everything requested in September and received in October.

@@ -58,9 +58,9 @@ class Scope:
     team: frozenset[str] = field(default_factory=frozenset)
     #: An optional window, as ISO dates. Only features that declare a date
     #: range read them, and what the window is ABOUT is the feature's own
-    #: business: here it is the day the recipient acknowledged, because
-    #: "what did we give in October" means what people confirmed receiving,
-    #: not what somebody raised a request for.
+    #: business: here it is the day the gifts were handed out, because
+    #: "what did we give in October" means what actually went out that
+    #: month, not what somebody raised a request for.
     since: str = ""
     until: str = ""
     #: How much of this screen is theirs — "firm", "team", "self" or "none".

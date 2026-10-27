@@ -232,7 +232,7 @@ def to_excel(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
         # A consolidated report is defined by its window, and said nothing
         # about it — two files cut on different months were indistinguishable
         # once they were off the screen and in somebody's inbox. It also has
-        # to say WHICH date, because "acknowledged on" and "requested on"
+        # to say WHICH date, because "distributed on" and "requested on"
         # include different orders at a boundary.
         facts.append((
             "Window",

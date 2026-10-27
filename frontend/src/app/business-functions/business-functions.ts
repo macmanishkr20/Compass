@@ -1049,7 +1049,6 @@ export class BusinessFunctions {
         { key: 'items_counted', label: 'Items', numeric: true },
         { key: 'total', label: 'Total', numeric: true },
         { key: 'excess', label: 'Over by', numeric: true },
-        { key: 'unacknowledged', label: 'Unack.', numeric: true },
         { key: 'status', label: 'Status' },
       ];
     }
@@ -1147,7 +1146,7 @@ export class BusinessFunctions {
           { key: 'occasion', label: 'Occasion' },
           { key: 'purpose', label: 'Why' },
           { key: 'status', label: 'Status' },
-          { key: 'acknowledged_on', label: 'You confirmed' },
+          { key: 'distributed_on', label: 'Handed out' },
         ];
       }
       return [

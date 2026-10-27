@@ -32,8 +32,8 @@ services:
 
 starters:
   - Who is over the gift limit this year?
-  - What has nobody acknowledged yet?
   - Where has something been stuck longest?
+  - Which orders went out this year?
 
 tools:
   - read_rows
@@ -93,8 +93,8 @@ features:
         headline: Something has been waiting too long.
         detail: >-
           Not a breach — a process that stopped. Whoever was supposed to
-          answer or acknowledge has not, and no amount of chasing the
-          totals will fix that.
+          answer has not, and no amount of chasing the totals will fix
+          that.
         tone: limit
       - id: nothing_outstanding
         headline: Nothing is waiting on anybody.
@@ -133,9 +133,9 @@ features:
       The allowance is annual, so the year is what makes "does this take
       them over" answerable.
 
-    # Cut on the day the recipient confirmed receiving it — not when it was
+    # Cut on the day the gifts actually went out — not when the order was
     # asked for, approved or bought, which can be months earlier.
-    date_range: acknowledged on
+    date_range: distributed on
 
     # Everybody can raise one and sees what they raised or what is for them.
     # A service line lead sees their team's. The teams in the chain see the
@@ -155,10 +155,10 @@ features:
         confirm: >-
           Signs off this stage with your name against it and moves the
           request to the next team. Finance must say what they
-          checked; closing the recipient list settles who is getting one;
-          starting the distribution is what puts it on the register and
-          emails each of them; and at acknowledgement it is the recipient
-          confirming receipt.
+          checked; closing the recipient list settles who is getting one
+          and is what the firm treats as the acknowledgement; and starting
+          the distribution puts it on the register, emails every recipient
+          and finishes the order.
         reversible: false
       # The three desks whose step is a CHECK. Not Operations and not the
       # recipient: by the time it reaches them it has been approved, bought
@@ -441,10 +441,10 @@ features:
         confirm: >-
           Signs off this stage with your name against it and moves the
           order to the next team. Finance must say what they
-          checked; closing the recipient list settles who is getting one;
-          starting the distribution is what puts it on the register and
-          emails each of them; and at acknowledgement it is the recipient
-          confirming receipt.
+          checked; closing the recipient list settles who is getting one
+          and is what the firm treats as the acknowledgement; and starting
+          the distribution puts it on the register, emails every recipient
+          and finishes the order.
         reversible: false
       - id: decline
         label: Send it back
@@ -497,22 +497,6 @@ features:
           Sends this person's cumulative total and the items behind it to
           Finance to decide the tax treatment. Compass cannot take it back.
         reversible: false
-        outward: true
-      - id: acknowledge
-        label: I received these
-        roles: [employee]
-        confirm: >-
-          Confirms you received what is recorded against you. It does not
-          change any figure — it changes the record from something the firm
-          says happened to something you have agreed happened.
-        reversible: false
-      - id: chase_acknowledgement
-        label: Chase acknowledgement
-        roles: [compliance, procurement]
-        confirm: >-
-          Asks the recipient to confirm they received the items that are
-          still unacknowledged. Can be sent again later.
-        reversible: true
         outward: true
       - id: record_exception
         label: Record an exception
@@ -716,7 +700,6 @@ features:
     starters:
       - Who is over the limit?
       - Why is John over?
-      - What has nobody acknowledged?
       - What is waiting to be reviewed?
       - Refer John to Finance
 

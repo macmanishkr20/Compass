@@ -166,8 +166,32 @@ def _orders(scope: Scope) -> list[dict[str, Any]]:
     that number is the row.
     """
     from compass.businessfunctions.features.giftrequests import (
-        stage_label, stage_of,
+        SIGN_OFF, stage_label, stage_of,
     )
+
+    def received(request_id: str, item: dict[str, Any] | None) -> str:
+        """The day the gifts went out, as this screen dates receipt.
+
+        DISTRIBUTION, not an acknowledgement. It read the recipient's own
+        `acknowledged` event, which no longer exists: receipt is dated by
+        the act Operations take and sign for. The old event is still read
+        first for orders that have one, because an order closed under the
+        previous chain was genuinely confirmed on that day and an audit
+        screen must not restate history to match the current rule.
+        """
+        if item is not None:
+            ack = next((e for e in ledger.events(item["id"])
+                        if e["kind"] == "acknowledged"), None)
+            if ack and ack.get("at"):
+                return dt.datetime.fromtimestamp(ack["at"]).strftime(
+                    "%Y-%m-%d %H:%M")
+        out = next((e for e in ledger.events(request_id)
+                    if e["kind"] == SIGN_OFF
+                    and e.get("stage") == "distribution"), None)
+        if out and out.get("at"):
+            return dt.datetime.fromtimestamp(out["at"]).strftime(
+                "%Y-%m-%d %H:%M")
+        return "not yet"
 
     out = []
     for request in ledger.requests():
@@ -190,9 +214,7 @@ def _orders(scope: Scope) -> list[dict[str, Any]]:
             "status": stage_label(stage_of(request)),
             "steps": len(steps),
             "decisions": len(decisions),
-            "received_on": next(
-                (s["when"] for s in steps if s["did"] == ledger.reads_as(
-                    "acknowledged")), "not yet"),
+            "received_on": received(request["id"], item),
             # The whole history, carried on the row so opening it opens the
             # trail. Private: a list does not go in a spreadsheet cell, and
             # the workbook has the events tab for exactly this.
@@ -215,20 +237,18 @@ class GiftAudit(Feature):
         decisions = [r for r in rows if r["kind"] in DECISIONS]
         items = rewardlens.items(Scope(user=scope.user, period=scope.period,
                                        sees="firm"))
-        unacknowledged = [i for i in items if not i["acknowledged"]
-                          and i["id"] not in rewardlens.superseded()]
+        # THE "UNCONFIRMED" FIGURE IS GONE. It counted records the
+        # recipient had not confirmed and called that a finding: something
+        # the firm asserts and the recipient has not. The closed recipient
+        # list is the confirmation now, so the count would be zero on
+        # every deployment for ever — and a finding that can only ever
+        # read "all confirmed" is not a finding, it is decoration on an
+        # audit screen, which is the one place that costs something.
         return [
             Figure("events", str(len(rows)), "things recorded"),
             Figure("decisions", str(len(decisions)),
                    "with somebody answerable"),
             Figure("records", str(len(items)), "gifts on the register"),
-            # The one figure here that is a finding rather than a count: a
-            # record nobody has confirmed receiving is a record the firm
-            # asserts and the recipient has not.
-            Figure("unconfirmed", str(len(unacknowledged)),
-                   "not confirmed by the recipient" if unacknowledged
-                   else "all confirmed",
-                   "warn" if unacknowledged else "good"),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:

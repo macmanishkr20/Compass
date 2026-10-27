@@ -106,9 +106,14 @@ def _unreached(scope: Scope) -> list[tuple[dict[str, Any], Any]]:
 def _stuck(scope: Scope) -> list[dict[str, Any]]:
     """Everything the process has dropped, as one list.
 
-    Three different failures — never reached, never answered, never
-    acknowledged — on one screen because to leadership they are the same
-    thing: somebody was supposed to do something and it did not happen.
+    Two different failures — never reached, never answered — on one screen
+    because to leadership they are the same thing: somebody was supposed
+    to do something and it did not happen.
+
+    It was three. The third was a gift the recipient had never
+    acknowledged, which stopped being a failure when the closed recipient
+    list became the acknowledgement: nobody is waiting on a recipient, so
+    nothing can be dropped by one.
     """
     out: list[dict[str, Any]] = []
     unreached = {row["id"] for row, _ in _unreached(scope)}
@@ -134,17 +139,6 @@ def _stuck(scope: Scope) -> list[dict[str, Any]]:
             "problem": "asked, no answer yet",
             "waiting": _days_since(row.get("asked_at", 0.0)),
         })
-
-    for person in rewardlens.totals(scope):
-        if person["unacknowledged"]:
-            out.append({
-                "id": f"{person['employee_id']}:ack",
-                "who": person["recipient"],
-                "what": f"{person['unacknowledged']} item"
-                        f"{'s' if person['unacknowledged'] > 1 else ''}",
-                "problem": "not acknowledged by the recipient",
-                "waiting": 0,
-            })
 
     return sorted(out, key=lambda r: (-r["waiting"], r["who"]))
 
@@ -258,29 +252,15 @@ def _where_orders_are(scope: Scope) -> list[dict[str, Any]]:
     return out
 
 
-def _unconfirmed(scope: Scope) -> list[dict[str, Any]]:
-    """Gifts on the register that nobody has confirmed receiving.
-
-    The requirement asks for this by name: gifts that have not reached
-    confirmed receipt. It is the quietest way for this process to fail —
-    the money is spent, the record exists, and whether it ever reached a
-    person is a thing nobody has written down.
-    """
-    out = []
-    for item in rewardlens.items(_firm(scope)):
-        if item["acknowledged"] or item["id"] in rewardlens.superseded():
-            continue
-        out.append({
-            "id": item["id"],
-            "recipient": item["recipient"],
-            "employee_id": item["employee_id"],
-            "what": item["what"],
-            "value": item["value"],
-            "given": item["given"],
-            "waiting": _days_since_day(item["given"]),
-            "can": [],
-        })
-    return sorted(out, key=lambda r: -r["waiting"])
+# NOT YET CONFIRMED IS NO LONGER A FAILURE MODE. This screen used to
+# carry a chart and a tab of gifts nobody had confirmed receiving, on the
+# argument that it was the quietest way for the process to fail: the money
+# spent, the record written, and whether it reached a person nobody had
+# written down. The business answered that differently — the recipient
+# list Operations close and sign off IS the record of receipt — so there
+# is no longer a population of unconfirmed gifts to chart. Leaving the
+# chart would have drawn a flat zero for ever, which reads as "nothing
+# wrong" in a place a reader expects a finding.
 
 
 def _days_since_day(day: str) -> int:
@@ -411,7 +391,6 @@ class Oversight(Feature):
         over = _notable(scope, self.NOTABLE)
         taxed = _team_tax(scope)
         where = _where_orders_are(scope)
-        unconfirmed = _unconfirmed(scope)
 
         return [
             Chart(
@@ -482,20 +461,6 @@ class Oversight(Feature):
                                       if w["longest_wait"] else ""))
                         for w in where],
                 empty="Nothing is in flight."),
-            Chart(
-                key="unconfirmed", kind="bars", tab="unconfirmed",
-                title="Given, but nobody has confirmed receiving it",
-                caption=f"{money(sum(u['value'] for u in unconfirmed))} across "
-                        f"{len(unconfirmed)} record"
-                        f"{'' if len(unconfirmed) == 1 else 's'}, longest "
-                        f"waiting {max((u['waiting'] for u in unconfirmed), default=0)} "
-                        f"days. The money is spent and the record exists; "
-                        f"whether it reached a person is not written down.",
-                slices=[Slice(label=u["recipient"], value=u["waiting"],
-                              said=f"{u['what']} \u00b7 {money(u['value'])} "
-                                   f"\u00b7 {u['waiting']}d")
-                        for u in unconfirmed[:12]],
-                empty="Everything on the register has been confirmed."),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -522,8 +487,6 @@ class Oversight(Feature):
                 key_field="source"),
             Tab("where", "Where the orders are",
                 len(_where_orders_are(scope)), key_field="stage"),
-            Tab("unconfirmed", "Not yet confirmed",
-                len(_unconfirmed(scope)), key_field="id"),
         ]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
@@ -539,8 +502,6 @@ class Oversight(Feature):
             return _team_tax(scope)
         if tab == "where":
             return _where_orders_are(scope)
-        if tab == "unconfirmed":
-            return _unconfirmed(scope)
         return _budget_rows(scope)
 
     def rules(self, scope: Scope) -> list[str]:

@@ -945,7 +945,8 @@ def check_a_referral_is_one_person_at_a_time() -> None:
        first.said)
     ok("referring the same person twice is refused",
        not h.act(s, "refer_to_finance", ["E-1007"]).ok)
-    ok("chasing somebody with nothing outstanding is refused",
+    # Chasing an acknowledgement went with the acknowledgement itself.
+    ok("chasing a recipient is no longer an action at all",
        not h.act(s, "chase_acknowledgement", ["E-1019"]).ok)
 
 
@@ -998,9 +999,8 @@ def check_a_row_says_which_actions_it_takes() -> None:
     ok("the Tracker's people carry a list each",
        people_rows and all(isinstance(r.get("can"), list) for r in people_rows))
 
-    within = next((r for r in people_rows
-                   if not r["over_limit"] and not r["unacknowledged"]), None)
-    ok("somebody within the limit with nothing outstanding offers nothing",
+    within = next((r for r in people_rows if not r["over_limit"]), None)
+    ok("somebody within the limit offers nothing",
        within is not None and within["can"] == [], str(within and within["can"]))
 
     over = next((r for r in people_rows
@@ -1009,15 +1009,17 @@ def check_a_row_says_which_actions_it_takes() -> None:
        over is not None and over["can"][:1] == ["refer_to_finance"],
        str(over and over["can"]))
 
-    # Their own row: the one act on this screen that is only ever about
-    # yourself, and the only one offered on it.
+    # THEIR OWN ROW OFFERS NOTHING. Acknowledging your own gift was the one
+    # act on this screen that was only ever about yourself, and so the one
+    # exemption from "nobody decides their own case". It is gone, and the
+    # rule applies to everything again.
     mine = as_("admin", period="FY 2026-27")
     own = next((r for r in tracker.rows(mine, "all") if r["yours"]), None)
-    ok("your own row offers acknowledging and nothing else",
-       own is not None and own["can"] == ["acknowledge"], str(own and own["can"]))
-    ok("and the handler agrees it is open",
+    ok("your own row offers nothing",
+       own is not None and own["can"] == [], str(own and own["can"]))
+    ok("and the handler refuses what it no longer has",
        own is not None
-       and tracker.act(mine, "acknowledge", [own["employee_id"]]).ok)
+       and not tracker.act(mine, "acknowledge", [own["employee_id"]]).ok)
 
     # The orders tab tracks; it does not decide. The chain's own screen has
     # the sign-off buttons, with the chain's own guards behind them.
@@ -1170,17 +1172,24 @@ def check_a_bulk_order_becomes_people() -> None:
        str({i["given"] for i in gr_mod.allocated_to(rid)}))
     ok("each knows which order it came from",
        all(i["from_request"] == rid for i in gr_mod.allocated_to(rid)))
-    ok("and the recipients were asked to confirm",
-       "confirm" in out.said, out.said)
+    # A notice EACH, which holds whether or not this deployment has a mail
+    # server: `notices.record` writes the notice down either way, and
+    # whether it then went is the outbox's business, not this step's.
+    ok("and every recipient was told, one notice each",
+       all(len(notices.for_item(i["id"])) == 1
+           for i in gr_mod.allocated_to(rid)),
+       str([(i["id"], len(notices.for_item(i["id"])))
+            for i in gr_mod.allocated_to(rid)]))
 
-    # Three people, three acknowledgements. The first does not close it on
-    # everybody else's behalf.
-    ok("one recipient confirming does not close the order",
-       h.act(_req("enduser"), "sign_off", [rid], "").ok
-       and gr_mod.stage_of(next(r for r in ledger.requests()
-                                if r["id"] == rid)) == "acknowledgement")
-    ok("somebody not on the list cannot confirm it",
-       not h.act(_req("leadtwo"), "sign_off", [rid], "").ok)
+    # THE DISTRIBUTION IS THE END. There used to be a stage after it, the
+    # recipients confirming one by one, and the order stayed open until the
+    # last of them had. Nothing waits on a recipient now.
+    ok("starting the distribution closes the order",
+       gr_mod.stage_of(next(r for r in ledger.requests()
+                            if r["id"] == rid)) == "closed")
+    ok("and the trail says so, once",
+       len([e for e in ledger.events(rid) if e["kind"] == "closed"]) == 1,
+       str([e["kind"] for e in ledger.events(rid)]))
 
 
 def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
@@ -1197,8 +1206,11 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
        "payroll_tax" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
     ok("and no stage is owned by payroll",
        not [k for k, v in gr_mod.STAGES.items() if v.get("owner") == "payroll"])
-    ok("the chain is six steps",
-       len([k for k in gr_mod.STAGES if k != "closed"]) == 6,
+    # Five. It was six until the recipient's own step went: the closed
+    # recipient list is the acknowledgement, so the chain ends at the desk
+    # that hands the gifts out.
+    ok("the chain is five steps",
+       len([k for k in gr_mod.STAGES if k != "closed"]) == 5,
        str(list(gr_mod.STAGES)))
 
     rid = _ask(what="A hamper", value="1200")
@@ -1541,6 +1553,19 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
 
     ok("Operations close it",
        h.act(_req("spoc"), "sign_off", [rid], "").ok)
+
+    # CLOSED MEANS CLOSED, and this is the moment to ask: the list has
+    # shut and the order has not ended, so the refusal under test is the
+    # list's own rather than the one every ended order gives. Asked after
+    # the distribution it is a different refusal with different words —
+    # true, but not this rule.
+    late = h.submit(_req("spoc"), "revise_list",
+                    {"remove": "Vikram Rao", "why": "changed my mind"},
+                    about=rid)
+    ok("and once it is closed nothing comes off it", not late.ok, late.said)
+    ok("in words that say where a late change goes",
+       "exception" in late.said, late.said)
+
     ok("starting the distribution writes one record per name",
        h.act(_req("spoc"), "sign_off", [rid], "").ok
        and len(gr_mod.allocated_to(rid)) == len(settled),
@@ -1549,15 +1574,11 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
        {i["employee_id"] for i in gr_mod.allocated_to(rid)} == set(settled),
        str({i["employee_id"] for i in gr_mod.allocated_to(rid)}))
 
-    # WRITE-ONCE IS ABOUT A PERSON. Whoever has received theirs is on the
-    # register and cannot come off the list — though by here the list is
-    # closed anyway, which is its own refusal and the one that fires.
-    late = h.submit(_req("spoc"), "revise_list",
-                    {"remove": "Vikram Rao", "why": "changed my mind"},
-                    about=rid)
-    ok("and once it is closed nothing comes off it", not late.ok, late.said)
-    ok("in words that say where a late change goes",
-       "exception" in late.said, late.said)
+    # AND THE ENDED ORDER REFUSES TOO, in its own words.
+    after = h.submit(_req("spoc"), "revise_list",
+                     {"remove": "Vikram Rao", "why": "changed my mind"},
+                     about=rid)
+    ok("an order that has ended refuses as well", not after.ok, after.said)
 
     # And every change is on the trail, in words.
     said = {ledger.reads_as(e["kind"]) for e in ledger.events(rid)}
@@ -1583,10 +1604,11 @@ def check_a_recipient_reads_their_gift_and_not_the_order() -> None:
     _, feat, h = registry.feature_of("scs", "requests")
     rid = _ask(by="servicelead", quantity="3", what="Gift card", value="3000",
                recipient_list="Manish K., Vikram Rao, Aisha Khan")
-    # Walked to acknowledgement, not past it: the recipient's own view is
-    # what this is about, and past it there is nobody waiting.
+    # Walked the whole way: the recipient's own view is what this is
+    # about, and the order now closes at distribution, so there is no
+    # stage left to stop short of.
     ok("it reaches the recipients",
-       not _walk(rid, upto="acknowledgement", by="servicelead",
+       not _walk(rid, by="servicelead",
                  who={"service_line": "leadtwo"}), "")
 
     # mk is Manish K. — who in this directory ALSO holds compliance, so
@@ -1604,8 +1626,15 @@ def check_a_recipient_reads_their_gift_and_not_the_order() -> None:
        row["recipient"] == "Manish K.", row["recipient"])
     ok("with their own employee number on it",
        row["employee_id"] == people.employee_of("mk"), row["employee_id"])
-    ok("and whose move it is, without naming who else is waiting",
-       row["with"] == "you, to confirm you received it", row["with"])
+    # NAMING NOBODY ELSE is the invariant. `with` used to list every
+    # recipient still to confirm, which was the one place on this row that
+    # named the other people standing on it. There is no such stage now,
+    # so it is the chain's own answer and never a roll-call.
+    ok("and whose move it is, naming no other recipient",
+       row["with"] in ("\u2014", "the firm, nothing for you to do")
+       and not any(name in row["with"]
+                   for name in ("Vikram", "Aisha", "Rao", "Khan")),
+       row["with"])
     ok("why they have it is theirs to read",
        row["occasion"] == "festival" and row["purpose"], str(row.get("purpose")))
     ok("and where it has got to", "status" in row, str(sorted(row)))
@@ -1703,14 +1732,20 @@ def check_the_list_is_closed_before_anything_goes_out() -> None:
     ok("one record per name on the closed list",
        {i["employee_id"] for i in on_register} == set(gr_mod.planned_list(rid)),
        str({i["recipient"] for i in on_register}))
-    ok("and the recipients were asked to confirm",
-       "confirm" in out.said, out.said)
+    # A notice EACH, which holds whether or not this deployment has a mail
+    # server: `notices.record` writes the notice down either way, and
+    # whether it then went is the outbox's business, not this step's.
+    ok("and every recipient was told, one notice each",
+       all(len(notices.for_item(i["id"])) == 1
+           for i in gr_mod.allocated_to(rid)),
+       str([(i["id"], len(notices.for_item(i["id"])))
+            for i in gr_mod.allocated_to(rid)]))
     ok("which is on the trail as well as in the post",
        ledger.happened(rid, "recipients_told"),
        str([e["kind"] for e in ledger.events(rid)]))
-    ok("it is now theirs",
+    ok("and that is the end of it",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
-       == "acknowledgement")
+       == "closed")
 
     # AND NOBODY SIGNED OFF A LIST THEY HAD NOT SETTLED. The two steps are
     # distinct on the trail, so "who closed the list" and "who handed them
@@ -1721,16 +1756,16 @@ def check_the_list_is_closed_before_anything_goes_out() -> None:
        str([e["stage"] for e in signs]))
 
 
-def check_an_order_is_closed_only_when_it_really_is() -> None:
-    """One recipient confirming is not twenty recipients confirming.
+def check_the_distribution_is_the_end_of_the_chain() -> None:
+    """Operations start the distribution and the order is finished.
 
-    `stage_of` already held a bulk order at acknowledgement while anybody
-    was still to confirm, but the SIGN-OFF wrote a `closed` event the
-    moment the first of them did — so the audit trail carried "closed"
-    against an order three people had yet to receive theirs from, and the
-    sentence said "is closed" and "the order stays open" in one breath.
-    The fold was defended; the record of it was not, and the record is
-    what somebody proves this with.
+    This used to measure the opposite: an order reached the recipients and
+    stayed open until every one of them had confirmed, and the hard part
+    was that the first confirmation must not write `closed` on everybody
+    else's behalf. The business settled it the other way — the list
+    Operations close IS the acknowledgement — so what has to hold now is
+    that the last desk's sign-off ends it cleanly, exactly once, and that
+    a recipient has nothing left to sign.
     """
     _, _f, h = registry.feature_of("scs", "requests")
     rid = _ask(by="servicelead", quantity="2", what="Hamper", value="2000",
@@ -1745,31 +1780,31 @@ def check_an_order_is_closed_only_when_it_really_is() -> None:
     ok("which is what put both on the register",
        len(gr_mod.allocated_to(rid)) == 2,
        str(len(gr_mod.allocated_to(rid))))
+    ok("and told them both, one notice each",
+       all(len(notices.for_item(i["id"])) == 1
+           for i in gr_mod.allocated_to(rid)),
+       str([len(notices.for_item(i["id"])) for i in gr_mod.allocated_to(rid)]))
 
-    # ONE of the two confirms.
-    first = h.act(_req("enduser"), "sign_off", [rid], "")
-    ok("the first recipient can confirm", first.ok, first.said)
-    ok("and is not told the order is closed",
-       "is closed" not in first.said, first.said)
-    ok("but is told somebody else still has to",
-       "stays open" in first.said, first.said)
-    ok("nothing on the trail says closed yet",
-       not ledger.happened(rid, "closed"),
-       str([e["kind"] for e in ledger.events(rid)]))
-    ok("and the order is still at acknowledgement",
-       gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
-       == "acknowledgement")
-
-    # THEN the other one does.
-    second = h.act(_req("mk"), "sign_off", [rid], "")
-    ok("the last recipient can confirm too", second.ok, second.said)
-    ok("and that one IS the close", "is closed" in second.said, second.said)
-    ok("the trail says so once, and only now",
+    ok("that sign-off IS the close", "is closed" in started.said, started.said)
+    ok("the trail says so exactly once",
        len([e for e in ledger.events(rid) if e["kind"] == "closed"]) == 1,
        str([e["kind"] for e in ledger.events(rid)]))
     ok("and the order has ended",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
        in gr_mod.ENDED)
+
+    # AND THE RECORDS ARRIVE SETTLED. Left waiting on a recipient they
+    # would have sat unconfirmed for ever, because nobody is asked now.
+    ok("every record it wrote is settled",
+       all(i["acknowledged"] for i in gr_mod.allocated_to(rid)),
+       str([i["acknowledged"] for i in gr_mod.allocated_to(rid)]))
+
+    # NOBODY ON THE LIST HAS ANYTHING TO SIGN. Both of these are recipients
+    # of this very order.
+    ok("a recipient cannot sign off a closed order",
+       not h.act(_req("enduser"), "sign_off", [rid], "").ok)
+    ok("and neither can another one of them",
+       not h.act(_req("mk"), "sign_off", [rid], "").ok)
 
 
 def check_a_late_recipient_draws_on_the_buffer() -> None:
@@ -2110,8 +2145,8 @@ def check_the_dashboard_is_its_charts() -> None:
 
     tabs = [t.key for t in board.tabs(seeing)]
     charts = board.charts(seeing)
-    ok("there are six tabs", len(tabs) == 6, str(tabs))
-    ok("and a chart for each", len(charts) == 6, str([c.key for c in charts]))
+    ok("there are five tabs", len(tabs) == 5, str(tabs))
+    ok("and a chart for each", len(charts) == 5, str([c.key for c in charts]))
     ok("every chart lands on its own tab",
        [c.tab for c in charts] == tabs, f"{[c.tab for c in charts]} vs {tabs}")
     ok("and none of the retired ones is left",
@@ -2136,17 +2171,15 @@ def check_the_dashboard_is_its_charts() -> None:
     ok("and it says how long the longest has waited",
        all("longest_wait" in w for w in where))
 
-    unconfirmed = board.rows(seeing, "unconfirmed")
-    ok("nothing confirmed is on the unconfirmed list",
-       all(not i["acknowledged"]
-           for i in rl_mod.items(as_("compliance", period="FY 2026-27"))
-           if i["id"] in {u["id"] for u in unconfirmed}),
-       str(unconfirmed[:1]))
-    ok("the longest wait is first",
-       [u["waiting"] for u in unconfirmed]
-       == sorted((u["waiting"] for u in unconfirmed), reverse=True))
-    ok("and a superseded record is not chased",
-       not ({u["id"] for u in unconfirmed} & set(rl_mod.superseded())))
+    # THERE IS NO UNCONFIRMED TAB. It charted gifts nobody had confirmed
+    # receiving, which stopped being a population when the closed list
+    # became the acknowledgement — a chart that can only draw zero reads
+    # as "nothing wrong" where a reader expects a finding.
+    ok("the unconfirmed tab is gone rather than empty",
+       "unconfirmed" not in tabs, str(tabs))
+    ok("and so is its chart",
+       "unconfirmed" not in [c.key for c in charts],
+       str([c.key for c in charts]))
 
     # The findings survive the tabs.
     said = board.rules(seeing)
@@ -2179,8 +2212,9 @@ def check_the_trail_outlives_the_chain() -> None:
         ok(f"{stage or 'nothing'}: and not as a key",
            "_" not in label, label)
 
-    ok("the retired stages are the two that were removed",
-       set(gr_mod.RETIRED_STAGES) == {"payroll_tax", "accounts_payable"},
+    ok("the retired stages are the three that were removed",
+       set(gr_mod.RETIRED_STAGES) == {"payroll_tax", "accounts_payable",
+                                      "acknowledgement"},
        str(sorted(gr_mod.RETIRED_STAGES)))
     ok("and none of them is still in the chain",
        not set(gr_mod.RETIRED_STAGES) & set(gr_mod.STAGES))
@@ -2255,8 +2289,11 @@ def check_the_trail_is_read_by_the_order() -> None:
     said = [t["did"] for t in trail]
     ok("it starts at the first sign-off, under the request",
        ledger.reads_as("signed_off") in said, str(said))
-    ok("and carries through to the acknowledgement, under the item",
-       ledger.reads_as("acknowledged") in said, str(said))
+    # The second subject is still the register record: an order's history
+    # continues under the item once it is written, whether or not the
+    # recipient was ever asked anything about it.
+    ok("and reaches the register record, under the item",
+       any(t["did"] for t in trail), str(said))
 
     ok("and the trail stays out of the workbook, being a list",
        "trail" in registry.feature_of("scs", "audit")[2].private)
@@ -3353,7 +3390,7 @@ def check_a_firm_wide_view_is_for_the_role() -> None:
     ok("and no rows, on any tab",
        not any(board.rows(plain, tab)
                for tab in ("budgets", "teams", "notable", "tax", "where",
-                           "unconfirmed")))
+                           )))
     ok("and no charts either",
        not board.charts(plain), str([c.key for c in board.charts(plain)]))
     ok("they are told why rather than shown an empty screen",
@@ -4041,13 +4078,12 @@ def check_the_trail_says_who_and_when() -> None:
     """An audit trail with no name or time on it is a list of rumours."""
     _, _f, h = registry.feature_of("scs", "register")
     c = as_("compliance")
-    # Both on John: he is the one past the threshold, so he is the one
-    # there is anything to refer about, and he has a gift nobody has
-    # confirmed receiving.
+    # John: he is the one past the threshold, so he is the one there is
+    # anything to refer about. Chasing an acknowledgement used to be
+    # measured here too, and went with the acknowledgement itself.
     h.act(c, "refer_to_finance", ["E-1007"])
-    h.act(c, "chase_acknowledgement", ["E-1007"])
 
-    for subject, kind in (("E-1007", "referred"), ("E-1007", "chased")):
+    for subject, kind in (("E-1007", "referred"),):
         event = ledger.latest(subject, kind)
         ok(f"{kind} is on the trail", event is not None)
         ok(f"{kind} names who did it", event and event["by"] == "compliance")
@@ -4151,9 +4187,11 @@ SIGNS = {
     # different decisions, and the business wanted a moment between them
     # where the list can still be put right.
     "recipient_list": "spoc",
+    # The last step. There was one more — the recipient confirming receipt,
+    # driven by `enduser` — and it went when the closed list became the
+    # acknowledgement. Nothing in the chain is a recipient's any more, so
+    # the walk has no persona outside the firm to drive.
     "distribution": "spoc",
-    # Not a persona: whoever received it.
-    "acknowledgement": "enduser",
 }
 
 
@@ -4226,7 +4264,7 @@ def check_crossing_the_threshold_tells_somebody() -> None:
     notices.clear()
     big = rl_mod.limit() + 5_000
     rid = _ask(value=str(big), recipient="Vikram Rao")
-    trouble = _walk(rid, "acknowledgement")
+    trouble = _walk(rid)
     ok("an order big enough to cross is signed off", not trouble, str(trouble))
 
     vikram = people.employee_of("enduser")
@@ -4259,7 +4297,7 @@ def check_crossing_the_threshold_tells_somebody() -> None:
     was = len(notices.for_item(vikram))
     again = _ask(value="4000", recipient="Vikram Rao")
     ok("a second order to the same person goes through",
-       not _walk(again, "acknowledgement"))
+       not _walk(again))
     ok("and does not alert again", len(notices.for_item(vikram)) == was,
        f"{was} then {len(notices.for_item(vikram))}")
 
@@ -4400,9 +4438,12 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     ok("and the outcome says their new year", "\u20b95,500" in given.said, given.said)
     ok("the item knows which request it came from",
        any(i.get("from_request") == rid for i in ledger.items()))
-    ok("and it is not acknowledged yet, because they have not said so",
+    # SETTLED, because nobody is asked. It arrived unacknowledged while
+    # the recipient had a step of their own; the closed list is the
+    # acknowledgement now, so the record is settled by what wrote it.
+    ok("and it arrives settled, with nobody asked",
        next(i["acknowledged"] for i in ledger.items()
-            if i.get("from_request") == rid) is False)
+            if i.get("from_request") == rid) is True)
 
 
 def check_a_declined_request_never_becomes_a_gift() -> None:
@@ -4795,8 +4836,7 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
             now = _order("compliance", rid)["with"]
             both = (f"{people.LABELS['operations']} or "
                     f"{people.find('requester').name}")
-            want = ({"recipient_list": both, "distribution": both,
-                     "acknowledgement": "Vikram Rao"}.get(
+            want = ({"recipient_list": both, "distribution": both}.get(
                          nxt, people.LABELS.get(
                              gr_mod.STAGES[nxt]["owner"], "")))
             ok(f"{label}: the row says who it is with now", now == want,
@@ -4846,8 +4886,7 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
 
             # Distribution is theirs because they raised it, whatever
             # personas they do or do not hold.
-            trouble = _walk(rid, by=who,
-                            who={"acknowledgement": "admin", **hand_to})
+            trouble = _walk(rid, by=who, who=dict(hand_to))
             ok(f"and the chain they started runs to the end", not trouble,
                str(trouble))
             ok("recording the distribution was the raiser's to do",
@@ -4860,9 +4899,12 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
             item = next(i for i in ledger.items()
                         if i.get("from_request") == rid)
             ok("it reached the register", item["recipient"] == "Aisha Khan")
-            ok("and the recipient is the one who confirmed it",
-               item["acknowledged"] and any(
-                   e["kind"] == "acknowledged" and e["by"] == "admin"
+            # SETTLED ON ARRIVAL. The recipient used to confirm this one
+            # themselves; the closed list is the acknowledgement now, so
+            # the record is settled by the act that wrote it.
+            ok("and the record arrives settled, with nobody asked",
+               item["acknowledged"] and not any(
+                   e["kind"] == "acknowledged"
                    for e in ledger.events(item["id"])))
 
     # "Waiting on you" has to mean a step that is YOURS. The raiser keeps
@@ -4963,8 +5005,8 @@ def check_every_stage_reads_as_a_sentence() -> None:
             # own step and a next desk there is none of.
             ok(f"{stage}: the last one says it is the end of the chain",
                "closed" in out.said and "last step" in out.said, out.said)
-            ok(f"{stage}: and that the recipient is the one who said so",
-               "you confirmed" in out.said, out.said)
+            ok(f"{stage}: and that it was the register it wrote",
+               "on the register" in out.said, out.said)
 
     back = _ask(what="Another hamper", value="1000")
     said = h.act(_req("servicelead"), "decline", [back], "Not this year.").said
@@ -5003,8 +5045,7 @@ def check_the_last_two_steps_only_go_forward() -> None:
         # not approving the order there, they are settling who it reaches,
         # and a wrong list is fixed on the spot rather than sent back
         # three desks.
-        checks = stage not in ("recipient_list", "distribution",
-                               "acknowledgement")
+        checks = stage not in ("recipient_list", "distribution")
 
         ok(f"{stage}: the stage says whether it may refuse",
            gr_mod.STAGES[stage]["back"] is checks, str(gr_mod.STAGES[stage]))
@@ -5219,10 +5260,10 @@ def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:
 
     board = people.scope_for("compliance", feat, period="FY 2026-27")
     charts = h.charts(board)
-    ok("it draws six pictures", len(charts) == 6, str(len(charts)))
-    ok("the four the business asked for",
+    ok("it draws five pictures", len(charts) == 5, str(len(charts)))
+    ok("the ones the business asked for",
        [c.key for c in charts] == ["budget", "teams", "notable", "tax",
-                                   "where", "unconfirmed"],
+                                   "where"],
        str([c.key for c in charts]))
     ok("each is a shape a reader knows",
        all(c.kind in ("bars", "split") for c in charts),
@@ -5756,63 +5797,70 @@ def check_the_question_belongs_to_the_step() -> None:
             continue
         h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
 
-    ok("the recipient is never asked what they checked",
-       not gr_mod.STAGES["acknowledgement"]["ask"])
+    ok("neither of Operations' steps asks what they checked",
+       not gr_mod.STAGES["recipient_list"]["ask"]
+       and not gr_mod.STAGES["distribution"]["ask"])
     ok("declining still has its own question, from the manifest",
        next(a.note_label for a in feat.actions if a.id == "decline"))
 
 
-def check_the_recipient_acknowledges_their_own() -> None:
-    """The one step in the chain that belongs to the person it is about.
+def check_the_recipient_is_told_and_asked_nothing() -> None:
+    """The recipient has no step, no button and no obligation.
 
-    It is exempt from the rule that nobody acts on their own record, and
-    that is not a loophole: the rule says nobody DECIDES their own case,
-    and confirming you received something is not a decision about a case.
+    This measured the opposite for most of the feature's life: the last
+    stage of the chain belonged to the person it was about, and there were
+    two doors onto the same fact — that stage, and an acknowledge button
+    on their own register.
 
-    There are two doors onto the same fact — the last stage of the chain,
-    and the acknowledge button on the recipient's own register — and both
-    are checked here, because a fact with two doors is a fact that can end
-    up true through one and false through the other.
+    Both doors are closed. The firm acknowledges through the list
+    Operations settle and sign, and what reaches the recipient is one
+    email that tells them. So what has to hold is the absence: nothing
+    waits on them, nothing offers them a button, and the email does not
+    imply a reply is due.
     """
     _, _f, h = registry.feature_of("scs", "requests")
     _, _f2, bench = registry.feature_of("scs", "register")
+    notices.clear()
     rid = _ask(what="A hamper", value="1000")
-    trouble = _walk(rid, upto="acknowledgement")
-    ok("the chain reaches the recipient", not trouble, str(trouble))
+    trouble = _walk(rid)
+    ok("the chain runs to the end without them", not trouble, str(trouble))
+    ok("which is closed", gr_mod.stage_of(
+        next(r for r in ledger.requests() if r["id"] == rid)) == "closed")
 
     them = as_("enduser")
     row = next(r for r in bench.rows(them, "all")
                if r["employee_id"] == "E-1066")
-    ok("it arrives unacknowledged", row["unacknowledged"] >= 1,
-       str(row["unacknowledged"]))
     ok("the row knows it is theirs", row["yours"] is True)
-    ok("it is waiting on them, by name, and on nobody else",
-       _order("compliance", rid)["with"] == "Vikram Rao")
-    ok("somebody else cannot confirm receipt for them",
-       not any(h.act(_req(w), "sign_off", [rid], "on their behalf").ok
-               for w in ("procurement", "requester", "compliance", "admin")))
+    ok("and offers them nothing to do", row["can"] == [], str(row["can"]))
+    ok("the register record arrives settled",
+       all(i["acknowledged"] for i in gr_mod.allocated_to(rid)),
+       str([i["acknowledged"] for i in gr_mod.allocated_to(rid)]))
+    ok("with nobody's confirmation on the trail",
+       not any(e["kind"] == "acknowledged"
+               for i in gr_mod.allocated_to(rid)
+               for e in ledger.events(i["id"])))
 
-    ok("and nobody can decline on the recipient's behalf either",
-       not h.act(_req("compliance"), "decline", [rid], "no").ok)
-    out = h.act(_req("enduser"), "sign_off", [rid], "")
-    ok("they can", out.ok, out.said)
-    ok("and the outcome says it is theirs, not the firm's assertion",
-       "you confirmed" in out.said, out.said)
-    ok("which closes the order",
-       gr_mod.stage_of(next(r for r in ledger.requests()
-                            if r["id"] == rid)) == "closed")
-    ok("the register agrees",
-       next(r["unacknowledged"] for r in bench.rows(them, "all")
-            if r["employee_id"] == "E-1066") == 0)
-    ok("it is on the trail under the item, with their name",
-       any(e["kind"] == "acknowledged" and e["by"] == "enduser"
-           for e in ledger.events()))
-
-    # The other door: a gift that never came through a request.
-    ok("somebody else cannot acknowledge a declared gift for them",
-       not bench.act(as_("compliance"), "acknowledge", ["E-1066"]).ok)
-    ok("and there is nothing left for them to acknowledge either",
+    ok("a recipient cannot sign anything off",
+       not h.act(_req("enduser"), "sign_off", [rid], "").ok)
+    ok("and the acknowledge action is gone from the register",
        not bench.act(them, "acknowledge", ["E-1066"]).ok)
+    ok("nor can anybody chase them for one",
+       not bench.act(as_("compliance"), "chase_acknowledgement",
+                     ["E-1066"]).ok)
+
+    # WHAT THEY ACTUALLY GET. One email, and it asks for nothing.
+    item = next(i for i in gr_mod.allocated_to(rid))
+    posted = notices.for_item(item["id"])
+    ok("they were emailed, once", len(posted) == 1, str(len(posted)))
+    ok("and it tells them they received a gift",
+       posted and "received a gift" in posted[0].subject,
+       str(posted and posted[0].subject))
+    ok("and says there is nothing for them to do",
+       posted and "nothing for you to do" in posted[0].body,
+       str(posted and posted[0].body[:120]))
+    ok("and never asks them to confirm anything",
+       posted and "confirm" not in posted[0].body.lower(),
+       str(posted and posted[0].body[:160]))
 
 def _fin(user: str = "finance") -> Scope:
     return people.scope_for(user, registry.feature_of("scs", "finance")[1],
@@ -6147,8 +6195,12 @@ def check_an_order_has_its_own_report() -> None:
                                        "R-NOSUCH", asked_by="enduser")))
 
 
-def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
-    """The date a report is cut on is the day the recipient confirmed it.
+def check_the_consolidated_report_cuts_on_distribution() -> None:
+    """The date a report is cut on is the day the gifts went out.
+
+    It was the day the recipient confirmed, which was the same argument
+    pointed at a date the firm did not control: an order fell outside
+    every window until somebody under no obligation answered.
 
     Not when it was asked for, approved or bought. Those can be months
     apart, and a report cut on the wrong one omits exactly the orders that
@@ -6159,7 +6211,7 @@ def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
     # a consolidated report from it is a report of your own orders; the
     # firm-wide reading of the same records is the Tracker and the trail.
     ok("the screen says which date its window is about",
-       feature.date_range == "acknowledged on", str(feature.date_range))
+       feature.date_range == "distributed on", str(feature.date_range))
 
     rid = _ask(what="Festival hamper", value="1200")
     ok("walking it to the end", not _walk(rid), "")
@@ -6183,8 +6235,8 @@ def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
 
     row = next(r for r in h.rows(_req("requester"), "closed")
                if r["id"] == rid)
-    ok("and the row says the date it was cut on", row["acknowledged_on"] == today,
-       row["acknowledged_on"])
+    ok("and the row says the date it was cut on",
+       row["distributed_on"] == today, row["distributed_on"])
 
     # The count above the table has to mean the table. It did not: the tab
     # said "Closed 1" over "Nothing in this view", which teaches a reader
@@ -6209,19 +6261,19 @@ def check_the_consolidated_report_cuts_on_acknowledgement() -> None:
                "requester", feature, period="FY 2026-27",
                since=before, until=after)) if f.key == "closed"))
 
-    # The thing being distinguished: an order waiting at the last step has
-    # no acknowledgement date, so it is in no window at all rather than
+    # The thing being distinguished: an order that has not been handed out
+    # has no distribution date, so it is in no window at all rather than
     # silently falling in under the day it was requested.
     waiting = _ask(what="Another hamper", value="1100")
-    _walk(waiting, upto="acknowledgement")
-    ok("an unacknowledged order is in no window",
+    _walk(waiting, upto="distribution")
+    ok("an order not yet handed out is in no window",
        waiting not in closed(since=before, until=after),
        str(closed(since=before, until=after)))
     ok("and is not in the closed list at all, because it is not closed",
        waiting not in closed())
-    ok("it is still with the recipient, named",
+    ok("it is still with Operations to hand out",
        next(r["with"] for r in h.rows(_req("requester"), "all")
-            if r["id"] == waiting) == "Vikram Rao")
+            if r["id"] == waiting).startswith(people.LABELS["operations"]))
 
     book = export.to_excel(fn, feature, h, people.scope_for(
         "requester", feature, period="FY 2026-27", since=before, until=after),
@@ -6377,7 +6429,7 @@ def _checks() -> int:
     with fixtures():
         check_an_order_has_its_own_report()
     with fixtures():
-        check_the_consolidated_report_cuts_on_acknowledgement()
+        check_the_consolidated_report_cuts_on_distribution()
     check_the_new_screens_are_for_their_people()
     with fixtures():
         check_nothing_reaches_the_register_until_it_is_given()
@@ -6392,7 +6444,7 @@ def _checks() -> int:
     with fixtures():
         check_the_list_is_closed_before_anything_goes_out()
     with fixtures():
-        check_an_order_is_closed_only_when_it_really_is()
+        check_the_distribution_is_the_end_of_the_chain()
     with fixtures():
         check_a_late_recipient_draws_on_the_buffer()
     with fixtures():
@@ -6438,7 +6490,7 @@ def _checks() -> int:
     with fixtures():
         check_the_last_two_steps_only_go_forward()
     with fixtures():
-        check_the_recipient_acknowledges_their_own()
+        check_the_recipient_is_told_and_asked_nothing()
     with fixtures():
         check_every_persona_sees_its_own_breadth()
     with fixtures():
