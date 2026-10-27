@@ -723,27 +723,19 @@ def _with(request: dict[str, Any], stage: str) -> str:
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
-def reference_for(request: dict[str, Any]) -> str:
-    """The reference COMPASS mints for an approved order.
-
-    THE TRACKER ISSUES IT; the purchasing system quotes it. That is the
-    whole integration, and it is deliberately not one: when an order is
-    approved, Compass generates this and emails it, somebody carries it to
-    the PR/PO tool by hand, and the requisition they raise there carries
-    the reference. Nothing is read back.
-
-    It was the other way round for a day — Procurement typed their PO
-    number into Compass — which needs the purchasing team to do data entry
-    in a second system for no benefit to them, and leaves the order stuck
-    until they do.
-
-    Derived from the order id and the year rather than counted, so it
-    needs no sequence to keep and cannot be minted twice for one order.
-    """
-    raised = dt.date.fromtimestamp(request.get("at", 0) or 0)
-    # April to March, like every other year in this module.
-    start = raised.year if raised.month >= 4 else raised.year - 1
-    return f"GIFT-{start % 100:02d}{(start + 1) % 100:02d}-{request['id'][2:]}"
+# COMPASS MINTS NOTHING ANY MORE. It used to issue a `GIFT-2627-…`
+# reference the moment Finance approved an order, email it to whoever
+# raised it, and expect somebody to quote it on the requisition they then
+# raised in the purchasing system. The business does not need a second
+# number: an order already has its own id, and the purchasing system has
+# its own PR, PO and GRN. A reference that exists only to be copied from
+# one system into another is a number for the firm to keep in step, not a
+# fact about a gift.
+#
+# What remains is the thread BACK — `purchase_links` below — which is the
+# half that was always the point: a register record leads to a gift, to
+# an order, to the purchase behind it, using the purchasing system's own
+# numbers rather than one of ours.
 
 
 def purchase_links(request_id: str) -> dict[str, str]:
@@ -773,19 +765,6 @@ def _links_said(request_id: str) -> str:
     if not links:
         return "not linked yet"
     return " · ".join(f"{k.upper()} {v}" for k, v in links.items())
-
-
-def reference_issued(request_id: str) -> dict[str, Any] | None:
-    """When the reference was issued and what was said, or None."""
-    return ledger.latest(request_id, "referenced")
-
-
-def _ref_said(request_id: str) -> str:
-    """The reference as a row shows it."""
-    event = reference_issued(request_id)
-    if event is None:
-        return "not issued yet"
-    return str(event.get("reference", "")) or "issued"
 
 
 def _tell(role: str, *, subject: str, body: str, about: str) -> list[str]:
@@ -1026,10 +1005,12 @@ def _rows(scope: Scope, seen_by=None) -> list[dict[str, Any]]:
                                    for e in intended_list(request["id"]))
                          or "nobody named up front",
             "list_changes": len(list_revisions(request["id"])),
-            # The thread back to the system that bought it: the
-            # reference Compass issued, and the PR/PO the purchasing
-            # system raised against it.
-            "bought_on": _ref_said(request["id"]),
+            # The thread back to the system that bought it: the PR, PO or
+            # GRN the purchasing system raised. There were two fields
+            # here, `bought_on` carrying a reference Compass minted
+            # itself — a number whose only job was to be copied into the
+            # other system. With that gone the two said the same thing, so
+            # there is one.
             "purchase": _links_said(request["id"]),
             # Who actually got one. On the row because "is this mine" can
             # no longer be answered from the request alone: a bulk order
@@ -1239,7 +1220,6 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
             "occasion": row["occasion"],
             "quantity": row["quantity"],
             "allocation": row["allocation"],
-            "bought_on": row["bought_on"],
             "purchase": row["purchase"],
             "purpose": row["purpose"],
             "for_list": row["for_list"],
@@ -1528,10 +1508,11 @@ def _forms_open(scope: Scope, request: dict[str, Any],
             and (hands_over or "service_line" in scope.roles)):
         open_now.append("revise_list")
 
-    # The purchase, linked back. Procurement's, and only once there is a
-    # reference to have quoted on the requisition.
-    if (stage == "procurement" and STAGES[stage]["owner"] in scope.roles
-            and reference_issued(request["id"]) is not None):
+    # The purchase, linked back. Procurement's, and theirs as soon as the
+    # order reaches them: it was gated on a reference Compass had minted,
+    # which no longer exists, and gating it on that now would mean nobody
+    # could ever record what an order was bought on.
+    if stage == "procurement" and STAGES[stage]["owner"] in scope.roles:
         open_now.append("link_purchase")
 
     return open_now
@@ -1811,13 +1792,13 @@ class GiftRequests(Feature):
             if crossed := _alert_on_crossing(scope, request, given):
                 said_extra += " " + crossed
 
-        if stage == "finance_policy":
-            # APPROVED, so the reference is issued and emailed. This is the
-            # hand-off to purchasing and the whole of it: somebody takes
-            # the reference from that email to the PR/PO tool, and the
-            # requisition they raise there carries it. Nothing is read
-            # back, which is why there is no integration to build.
-            said_extra = " " + self._issue_reference(scope, request)
+        # APPROVAL MINTS NOTHING. Finance's sign-off used to issue a
+        # `GIFT-…` reference and email it to whoever raised the order, for
+        # them to quote on the requisition. A number that exists only to
+        # be copied between two systems is the firm's bookkeeping, not a
+        # fact about a gift, and the thread back is kept the other way
+        # round: Procurement writes down the PR/PO the purchasing system
+        # raised. The order id was always enough to quote.
 
         ledger.add_event(subject=row["id"], kind=SIGN_OFF, by=scope.user,
                          stage=stage, note=note.strip(), value=row["value"])
@@ -1936,33 +1917,6 @@ class GiftRequests(Feature):
         if not parts:
             return "Nobody was emailed."
         return "; ".join(parts) + "."
-
-    def _issue_reference(self, scope: Scope, request: dict[str, Any]) -> str:
-        """Mint the order's reference and email it. Says what happened."""
-        if reference_issued(request["id"]) is not None:
-            return ""
-        ref = reference_for(request)
-        raiser = people.find(request["by"])
-        notice = notices.record(
-            to=raiser.email if raiser else "",
-            name=raiser.name if raiser else request["by"],
-            subject=f"{ref} — approved, ready to order",
-            body=(f"{request['quantity']} \u00d7 {request['what']} at "
-                  f"{rewardlens.rupees(request['value'])} each has been "
-                  f"approved.\n\nQuote {ref} on the requisition when you "
-                  f"raise it in the purchasing system, so what is bought "
-                  f"can be matched back to this order.\n\nNothing is "
-                  f"ordered by this email. Compass does not raise, order "
-                  f"or pay for anything."),
-            about=request["id"])
-        ledger.add_event(subject=request["id"], kind="referenced",
-                         by=scope.user, stage="finance_policy",
-                         reference=ref, notice=notice.id)
-        if notice.state == "held":
-            return (f"Reference {ref} issued — not emailed: "
-                    f"{notice.detail}. Quote it on the requisition.")
-        return (f"Reference {ref} issued and emailed to "
-                f"{notice.name}. Quote it on the requisition.")
 
     def _exception(self, scope: Scope, action: str, row: dict[str, Any],
                    request: dict[str, Any], stage: str, note: str) -> Outcome:
@@ -2101,17 +2055,25 @@ class GiftRequests(Feature):
         request = next((r for r in ledger.requests() if r["id"] == about), None)
         if request is None:
             return None, Outcome(ok=False, said="No order by that id.")
-        if reference_issued(request["id"]) is None:
-            return None, Outcome(
-                ok=False,
-                said="Nothing has been issued to quote yet. The reference "
-                     "comes with approval, and the requisition is raised "
-                     "against it — not the other way round.")
         if STAGES["procurement"]["owner"] not in scope.roles:
             return None, Outcome(
                 ok=False,
                 said="Procurement raised it, so Procurement is who writes "
                      "its number down.")
+        # AND NOT BEFORE IT IS THEIRS. The row offers this button only at
+        # the procurement step, and a submit that took it at any other
+        # would be the screen and the server disagreeing about the same
+        # rule. The stage was never checked here: a reference Compass
+        # minted at approval did the job by accident, so dropping the
+        # reference left the form open from the moment an order was
+        # raised.
+        stage = stage_of(request)
+        if stage != "procurement":
+            return None, Outcome(
+                ok=False,
+                said=f"{request['id']} is {stage_label(stage).lower()}. The "
+                     f"purchase is written down at Procurement's own step, "
+                     f"once the order has reached it.")
 
         links = {k: values.get(k, "").strip()[:_REF_MAX]
                  for k in ("pr", "po", "grn")}
@@ -2386,9 +2348,8 @@ class GiftRequests(Feature):
                 ok=True,
                 said="Links " + " · ".join(f"{k.upper()} {v}" for k, v
                                            in read["links"].items())
-                     + f" to {reference_issued(read['request']['id'])['reference']}"
-                       f". Reference only — nothing is raised, amended or "
-                       f"paid from here.")
+                     + f" to {read['request']['id']}. Reference only — "
+                       f"nothing is raised, amended or paid from here.")
         if form_id == self.LIST_FORM:
             read, refused = self._read_list(scope, values, about)
             if refused is not None:

@@ -289,11 +289,11 @@ features:
           does not raise, approve, amend or pay anything, and nothing is
           read back.
         blurb: >-
-          The other half of the reference. Compass issued a GIFT- number
-          with the approval; somebody quoted it on the requisition in the
-          existing portal. Write that requisition's own numbers down here
-          and a register record leads to a gift, which leads to an order,
-          which leads to the purchase that paid for it.
+          The thread back to the system that bought it. Write the
+          requisition's own numbers down here and a register record leads
+          to a gift, which leads to an order, which leads to the purchase
+          that paid for it. Quote this order's id on the requisition;
+          Compass issues no number of its own.
         fields:
           - id: pr
             label: Requisition (PR)

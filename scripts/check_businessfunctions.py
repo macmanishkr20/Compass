@@ -1244,20 +1244,22 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
        figure.value == str(len(rows)), figure.value)
 
 
-def check_the_tracker_issues_the_reference_and_emails_it() -> None:
-    """Compass mints the reference; the purchasing system quotes it.
+def check_compass_mints_no_reference_of_its_own() -> None:
+    """Approval issues nothing. The order id is what gets quoted.
 
-    That is the whole integration, and it is deliberately not one. When an
-    order is approved the tracker generates a reference and emails it;
-    somebody carries that to the PR/PO tool by hand and the requisition
-    they raise there carries the reference. Nothing is read back.
+    The tracker used to generate a `GIFT-2627-…` reference when Finance
+    approved an order and email it to whoever raised it, for them to quote
+    on the requisition in the purchasing system. Nothing was read back, so
+    the number's whole job was to be copied from one system into another —
+    the firm's bookkeeping rather than a fact about a gift, and an order
+    already has an id that does the same work.
 
-    It ran the other way for a day — Procurement typed their PO number
-    into Compass — which asks the purchasing team to do data entry in a
-    second system for no benefit to them, and strands the order until they
-    do.
+    What survives is the thread BACK, which was always the half that
+    mattered: Procurement writes down the PR, PO and GRN the purchasing
+    system raised. See `check_the_purchase_is_linked_back`.
     """
     _, feat, h = registry.feature_of("scs", "requests")
+    notices.clear()
 
     ok("accounts payable is not a stage",
        "accounts_payable" not in gr_mod.STAGES, str(list(gr_mod.STAGES)))
@@ -1266,46 +1268,35 @@ def check_the_tracker_issues_the_reference_and_emails_it() -> None:
        str([f.id for f in feat.forms]))
 
     rid = _ask(what="A hamper", value="1400")
-    ok("no reference before it is approved",
-       gr_mod.reference_issued(rid) is None)
-
     h.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
-    ok("still none at the service line", gr_mod.reference_issued(rid) is None)
-
     out = h.act(_req("finance"), "sign_off", [rid], "Within policy.")
-    ok("Finance approving it issues the reference", out.ok, out.said)
-    issued = gr_mod.reference_issued(rid)
-    ok("and it is on the trail", issued is not None)
-    ref = str(issued.get("reference", ""))
-    ok("the reference names the year and the order",
-       ref.startswith("GIFT-") and rid[2:] in ref, ref)
-    ok("the outcome tells whoever signed what to quote",
-       ref in out.said and "requisition" in out.said, out.said)
+    ok("Finance approving it still signs off", out.ok, out.said)
 
-    # Emailed, or held with a reason — never silently nothing.
-    notice = notices.latest_for(rid)
-    ok("a notice was written for it", notice is not None)
-    ok("it carries the reference in the subject",
-       ref in notice.subject, notice.subject)
-    ok("and tells them to quote it on the requisition",
-       "requisition" in notice.body, notice.body[:80])
-    ok("and says plainly that Compass orders nothing",
-       "does not raise, order or pay" in notice.body, notice.body[-80:])
+    # NOTHING MINTED, at any step of the chain.
+    ok("approval writes no reference to the trail",
+       not [e for e in ledger.events(rid) if e["kind"] == "referenced"],
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("and says nothing about one",
+       "GIFT-" not in out.said and "reference" not in out.said.lower(),
+       out.said)
+    ok("and emails nobody a number to quote",
+       not notices.for_item(rid), str([n.subject for n in notices.for_item(rid)]))
+    ok("the module cannot mint one at all",
+       not hasattr(gr_mod, "reference_for"))
 
-    # Minted once. A second reference for one order is two threads back to
-    # one purchase, which is worse than none.
-    before = len([e for e in ledger.events(rid) if e["kind"] == "referenced"])
     h.act(_req("procurement"), "sign_off", [rid], "Bought it")
-    ok("it is not issued twice",
-       len([e for e in ledger.events(rid) if e["kind"] == "referenced"])
-       == before)
-    ok("and the row shows it", _order("procurement", rid)["bought_on"] == ref,
-       _order("procurement", rid)["bought_on"])
-
-    # Procurement signs off that it bought, with nothing to type.
-    ok("procurement's step needs no data entry in a second system",
+    ok("nor does any later step",
+       not [e for e in ledger.events(rid) if e["kind"] == "referenced"],
+       str([e["kind"] for e in ledger.events(rid)]))
+    ok("and the chain carries on without one",
        gr_mod.stage_of(next(r for r in ledger.requests() if r["id"] == rid))
        == "recipient_list")
+
+    # THE TRAIL STILL READS. Orders approved under the old rule carry a
+    # `referenced` event, and the vocabulary that explains it stays.
+    ok("the retired event still has words",
+       ledger.reads_as("referenced") == "recorded the purchase reference for",
+       ledger.reads_as("referenced"))
 
 
 def check_a_blocked_order_can_ask_for_an_exception() -> None:
@@ -1403,29 +1394,30 @@ def check_a_blocked_order_can_ask_for_an_exception() -> None:
 
 
 def check_the_purchase_is_linked_back() -> None:
-    """Compass issues the reference; Procurement writes its PR/PO beside it.
+    """Procurement writes the purchasing system's own numbers down.
 
-    The business asked for both halves: the tracker's approval and
-    reference must PRECEDE procurement, and the relevant PR/PO must be
-    linked back. One direction only — nothing here raises, approves,
-    amends or pays anything, and nothing is read back out of the
-    purchasing system.
+    The business asked for the PR/PO to be linked back to the tracker. One
+    direction only — nothing here raises, approves, amends or pays
+    anything, and nothing is read back out of the purchasing system.
+
+    It used to be gated on a reference Compass minted at approval, which
+    the order's own id now does instead; the gate is the STAGE, because an
+    order Procurement has not reached is not theirs to write on yet.
     """
     _, feat, h = registry.feature_of("scs", "requests")
     rid = _ask(what="A hamper", value="1800")
 
-    # Nothing to quote before approval, so nothing to link.
+    # Not theirs until the order reaches them.
     refused = h.submit(_req("procurement"), "link_purchase",
                        {"po": "PO-1"}, about=rid)
-    ok("there is nothing to link before the reference exists",
+    ok("there is nothing to link before it reaches Procurement",
        not refused.ok, refused.said)
-    ok("and the refusal says which way round it goes",
-       "not the other way round" in refused.said, refused.said)
 
     h.act(_req("servicelead"), "sign_off", [rid], "Business need is clear.")
     h.act(_req("finance"), "sign_off", [rid], "Within policy.")
-    ref = gr_mod.reference_issued(rid)["reference"]
-    ok("approval issued the reference", ref.startswith("GIFT-"), ref)
+    ok("and approval minted nothing to wait for",
+       not [e for e in ledger.events(rid) if e["kind"] == "referenced"],
+       str([e["kind"] for e in ledger.events(rid)]))
 
     ok("nobody but Procurement writes the purchase number down",
        not h.submit(_req("servicelead"), "link_purchase",
@@ -1441,11 +1433,14 @@ def check_the_purchase_is_linked_back() -> None:
     ok("all three are kept",
        links == {"pr": "PR-7781", "po": "PO-4410", "grn": "GRN-55"},
        str(links))
-    ok("the row shows the thread both ways",
-       ref in _order("procurement", rid)["bought_on"]
-       and "PO-4410" in _order("procurement", rid)["purchase"],
-       f"{_order('procurement', rid)['bought_on']} / "
-       f"{_order('procurement', rid)['purchase']}")
+    # ONE COLUMN NOW. There were two, the other carrying the reference
+    # Compass minted; with that gone they said the same thing.
+    ok("the row shows the thread back",
+       "PO-4410" in _order("procurement", rid)["purchase"],
+       _order("procurement", rid)["purchase"])
+    ok("and no longer carries a reference of our own",
+       "bought_on" not in _order("procurement", rid),
+       str(sorted(_order("procurement", rid))))
 
     ok("linking it is its own thing on the trail",
        ledger.reads_as("purchase_linked")
@@ -4417,11 +4412,11 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     for stage in ("service_line", "finance_policy", "procurement"):
         out = h.act(_req(SIGNS[stage]), "sign_off", [rid], f"Checked at {stage}.")
         if stage == "finance_policy":
-            # Approving it issues the reference and emails it. That is a
-            # notice, not a gift: nobody's total moves.
-            ok("approving it issues the reference",
-               gr_mod.reference_issued(rid) is not None)
-            ok("and issuing it changed nobody's total", total() == before)
+            # Approving it used to mint and email a reference. It mints
+            # nothing now, and either way nobody's total moves: approval
+            # is not a gift.
+            ok("approving it mints no reference",
+               not [e for e in ledger.events(rid) if e["kind"] == "referenced"])
         ok(f"{gr_mod.stage_label(stage).lower()} signs off", out.ok, out.said)
         ok(f"and {stage} changed nobody's total", total() == before, str(total()))
 
@@ -6598,7 +6593,7 @@ def _checks() -> int:
     with fixtures():
         check_payroll_is_read_at_the_end_not_signed_at_the_start()
     with fixtures():
-        check_the_tracker_issues_the_reference_and_emails_it()
+        check_compass_mints_no_reference_of_its_own()
     with fixtures():
         check_the_purchase_is_linked_back()
     with fixtures():
