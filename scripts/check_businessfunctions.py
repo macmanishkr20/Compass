@@ -1991,8 +1991,8 @@ def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
     form = next(f for f in feat.forms if f.id == "request_gift")
     bulk = next(x for x in form.fields if x.id == "recipient_list")
 
-    ok("the paste box is declared for the service line",
-       bulk.roles == ["service_line"], str(bulk.roles))
+    ok("the paste box is declared for both desks that hold a list",
+       bulk.roles == ["service_line", "operations"], str(bulk.roles))
     ok("and it is a list of names, not a line of text",
        bulk.kind == "names", bulk.kind)
     ok("the quantity is a count, so nothing draws money on it",
@@ -2117,6 +2117,49 @@ def check_a_recipient_list_can_be_uploaded() -> None:
         files={"file": ("x.csv", csv, "text/csv")})
     ok("and no field that is not a list takes one at all",
        got.status_code == 404, str(got.status_code))
+
+    # BOTH DESKS THAT HOLD A LIST. The Service Line Approver has it when
+    # the order is raised and Operations have it when the order reaches
+    # them, so both are offered the box and both may upload to it. Gated
+    # on the service line alone, an Operations SPOC raising a bulk order
+    # had two hundred names to type beside an upload box they could not
+    # see — and the two halves are checked together here, because a field
+    # that renders and refuses, or refuses and renders, is the screen and
+    # the server disagreeing about one rule.
+    _, feat, _h = registry.feature_of("scs", "requests")
+    field = next(x for f in feat.forms if f.id == "request_gift"
+                 for x in f.fields if x.id == "recipient_list")
+    for who, allowed in (("servicelead", True), ("spoc", True),
+                         ("finance", False), ("procurement", False),
+                         ("enduser", False)):
+        roles = people.roles_of(who)
+        offered = bool(roles & set(field.roles))
+        ok(f"{who} {'is' if allowed else 'is not'} offered the upload box",
+           offered == allowed, f"{sorted(roles)} against {field.roles}")
+
+    # AND THE ROUTE AGREES, for each of them. Called as its own coroutine
+    # rather than over HTTP: these checks run with auth disabled, so a
+    # login would not change who the request is from, and the guard under
+    # test is exactly the one that reads `field.roles`.
+    from fastapi import HTTPException, UploadFile
+
+    for who, allowed in (("servicelead", True), ("spoc", True),
+                         ("finance", False)):
+        async def upload(user=who):
+            return await routes.read_recipient_file(
+                "scs", "requests", "request_gift", field="recipient_list",
+                file=UploadFile(filename="team.csv", file=io.BytesIO(csv)),
+                user=user)
+        try:
+            got = asyncio.run(upload())
+            took = isinstance(got, dict) and got.get("read", 0) > 0
+        except HTTPException as err:                 # noqa: PERF203
+            took = False
+            code = err.status_code
+        else:
+            code = 200
+        ok(f"and the upload route {'takes' if allowed else 'refuses'} "
+           f"{who}'s list", took == allowed, f"status {code}")
 
     ok("reading a list records nothing",
        not [r for r in ledger.requests() if "xlsx" in r.get("what", "")])
