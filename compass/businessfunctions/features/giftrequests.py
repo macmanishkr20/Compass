@@ -1154,7 +1154,7 @@ def tracked(user: str, period: str = "") -> list[dict[str, Any]]:
     from compass.businessfunctions import people as _people
     from compass.businessfunctions import registry as _registry
 
-    feature = _registry.feature_of("scs", "requests")[1]
+    feature = _registry.feature_of(rewardlens.FUNCTION, "requests")[1]
     if feature is None:
         return []
     scope = _people.scope_for(user, feature, period=period)

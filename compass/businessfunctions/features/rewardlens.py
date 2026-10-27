@@ -55,6 +55,18 @@ from compass.businessfunctions.features.base import (
     register,
 )
 
+#: Which business function RewardLens is a service OF. These handlers read
+#: their own manifest back — for a feature's declared roles, its forms, its
+#: words — and a manifest is reached through its function, so the id has to
+#: be named somewhere.
+#:
+#: ONE PLACE, because it has already moved once. RewardLens was its own
+#: function, SCS, until the firm put it under Finance, and the id was
+#: written into six call sites across two modules: a move that should have
+#: been one line was six, and a missed one is a lookup that silently
+#: returns nothing rather than failing where somebody would see it.
+FUNCTION = "finance"
+
 #: The annual limit and what counts towards it now live in `policy`, which
 #: VERSIONS them: setting a new limit adds a version with a time it takes
 #: effect from rather than editing the old one, so a gift that was inside
@@ -102,7 +114,7 @@ def _may(scope: Scope, action_id: str) -> bool:
     because the two drifting apart is how a screen comes to offer a button
     the server refuses — or worse, accept one it should not have.
     """
-    feature = registry.feature_of("scs", "register")[1]
+    feature = registry.feature_of(FUNCTION, "register")[1]
     if feature is None:
         return False
     declared = next((a.roles for a in feature.actions if a.id == action_id), None)
@@ -1047,8 +1059,8 @@ class RewardLens(Feature):
         from compass.businessfunctions import registry as _registry
         from compass.businessfunctions.features import giftrequests
 
-        feature = _registry.feature_of("scs", "requests")[1]
-        handler = _registry.feature_of("scs", "requests")[2]
+        feature = _registry.feature_of(FUNCTION, "requests")[1]
+        handler = _registry.feature_of(FUNCTION, "requests")[2]
         if feature is None or handler is None:
             return Outcome(ok=False, said="The chain is not loaded.")
         theirs = _people.scope_for(scope.user, feature, period=scope.period)
@@ -1227,7 +1239,7 @@ class RewardLens(Feature):
         """
         from compass.businessfunctions import registry as _registry
 
-        found = _registry.feature_of("scs", "requests")
+        found = _registry.feature_of(FUNCTION, "requests")
         return (found[1], found[2]) if found[1] is not None else (None, None)
 
     def _chain_form(self, scope: Scope, form_id: str, values: dict[str, str],

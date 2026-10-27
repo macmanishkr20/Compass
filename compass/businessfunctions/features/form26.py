@@ -80,10 +80,37 @@ def _rupees(amount: int) -> str:
     return f"₹{amount / 100000:.1f}L"
 
 
+def _can(scope: Scope, row: dict[str, Any]) -> list[str]:
+    """What THIS line takes, which the surface draws and nothing else.
+
+    Every clause is the mirror of a refusal in `act`, in the same order, so
+    a button that is drawn is a button that works. Without it the surface
+    has to guess, and guessing means offering everything the manifest
+    declares: Undo on a line nobody has decided, Accept on one that already
+    matches — three buttons where the server takes one.
+
+    A closed period takes nothing, from anybody.
+    """
+    if scope.period in _CLOSED:
+        return []
+    if row["status"] == "short":
+        # Nothing to decide on a line that already matches.
+        return ["accept", "query"]
+    if row["status"] in _DECIDED:
+        # Decided, so the only move left is putting it back.
+        return ["undo"]
+    return []
+
+
 class Form26(Feature):
     key = "form26"
     #: A row is one credit line of the statement.
     row_key = "line"
+    #: Machinery the surface needs and a workbook has no use for. `can` is
+    #: the chain's answer about which buttons this line takes; a column of
+    #: `['accept', 'query']` in a spreadsheet is noise beside the numbers
+    #: somebody opened it for.
+    private = frozenset({"can"})
 
     def figures(self, scope: Scope) -> list[Figure]:
         rows = _rows_for(scope)
@@ -117,8 +144,11 @@ class Form26(Feature):
         elif tab == "resolved":
             rows = [r for r in rows if r["status"] in _DECIDED]
         # The difference is derived on the way out rather than stored, so it
-        # cannot drift from the two numbers it comes from.
-        return [dict(r, difference=r["ledger"] - r["credit"]) for r in rows]
+        # cannot drift from the two numbers it comes from. `can` likewise:
+        # what a row allows is a property of the row and the period, read
+        # off both at the moment it is sent.
+        return [dict(r, difference=r["ledger"] - r["credit"],
+                     can=_can(scope, r)) for r in rows]
 
     def rules(self, scope: Scope) -> list[str]:
         """Which rules are true now. A closed period says one thing only."""

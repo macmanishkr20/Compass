@@ -79,7 +79,7 @@ SHIPPED_DEFAULT = BusinessFunctionSettings.model_fields["enabled"].default
 FAILURES: list[str] = []
 
 
-def as_(user: str, feature: str = "register", *, fn: str = "scs",
+def as_(user: str, feature: str = "register", *, fn: str = "finance",
         period: str = "FY 2026-27", entity: str = "") -> Scope:
     """A scope the way a request builds one: roles and breadth resolved.
 
@@ -327,7 +327,7 @@ def check_mistakes_that_would_pass_silently_do_not() -> None:
 
 def check_the_shipped_catalog_is_clean() -> None:
     ids = sorted(fn.id for fn in registry.all_functions())
-    ok("the shipped catalog loads", ids == ["finance", "scs", "talent"], str(ids))
+    ok("the shipped catalog loads", ids == ["finance", "talent"], str(ids))
 
     fin, tal = registry.get("finance"), registry.get("talent")
     ok("finance holds form26", fin is not None and fin.feature("form26") is not None)
@@ -681,7 +681,7 @@ def check_the_surface_answers() -> None:
 
     r = c.get("/v1/business-functions")
     ok("the switcher lists the functions", r.status_code == 200
-       and {f["id"] for f in r.json()["functions"]} == {"finance", "scs", "talent"},
+       and {f["id"] for f in r.json()["functions"]} == {"finance", "talent"},
        f"{r.status_code} {r.text[:120]}")
 
     r = c.get("/v1/business-functions/finance",
@@ -689,7 +689,7 @@ def check_the_surface_answers() -> None:
     body = r.json()
     ok("the overview carries the function and its features",
        r.status_code == 200 and body["name"] == "Finance"
-       and len(body["features"]) == 1, f"{r.status_code}")
+       and len(body["features"]) == 6, f"{r.status_code}")
     ok("the overview's queue is built from live figures",
        any(q["feature"] == "form26" for q in body["queue"]), str(body["queue"]))
     ok("the rail scopes to the function at the overview",
@@ -717,7 +717,7 @@ def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
     # the reader's own queue, which is right for a desk and always empty
     # for Leadership, who hold no step — they opened the chain onto
     # "Waiting on you: 0" and read it as no data, three orders away.
-    r = c.get("/v1/business-functions/scs/features/requests",
+    r = c.get("/v1/business-functions/finance/features/requests",
               params={"period": "FY 2026-27"})
     body = r.json()
     counts = {t["key"]: t["count"] for t in body["tabs"]}
@@ -728,7 +728,7 @@ def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
        len(body["rows"]) == counts[body["tab"]],
        f"{len(body['rows'])} rows vs count {counts[body['tab']]}")
     ok("a tab asked for by name is still honoured",
-       c.get("/v1/business-functions/scs/features/requests",
+       c.get("/v1/business-functions/finance/features/requests",
              params={"period": "FY 2026-27", "tab": "mine"}).json()["tab"]
        == "mine")
 
@@ -736,10 +736,10 @@ def check_a_feature_says_what_scope_it_is_waiting_on() -> None:
     # read. Sent, because the alternative is the UI keeping its own copy of
     # the list — which it did, and which had drifted far enough that a
     # reader was shown a row's internal stage key.
-    r = c.get("/v1/business-functions/scs/features/requests",
+    r = c.get("/v1/business-functions/finance/features/requests",
               params={"period": "FY 2026-27"})
     body = r.json()
-    handler = registry.feature_of("scs", "requests")[2]
+    handler = registry.feature_of("finance", "requests")[2]
     ok("a feature says which of its fields are not for reading",
        body.get("private") == sorted(handler.private), str(body.get("private")))
     ok("and the rows really carry them, so the list is not aspirational",
@@ -847,7 +847,7 @@ def check_rewardlens_totals_a_person_not_a_purchase() -> None:
     Priya is the near miss, because a screen that only ever shows breaches
     teaches nobody what the ordinary case looks like.
     """
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     s = as_("compliance", period="FY 2026-27")
     by_name = {r["recipient"]: r for r in h.rows(s, "all")}
 
@@ -881,7 +881,7 @@ def check_rewardlens_totals_a_person_not_a_purchase() -> None:
 
 
 def check_rewardlens_figures_follow_the_rows() -> None:
-    _, _feat, h = registry.feature_of("scs", "register")
+    _, _feat, h = registry.feature_of("finance", "register")
     s = as_("compliance", period="FY 2026-27")
     fig = {f.key: f for f in h.figures(s)}
     rows = h.rows(s, "all")
@@ -905,7 +905,7 @@ def check_nobody_clears_their_own_breach() -> None:
     be right — but every action against it is refused, in code rather than by
     convention.
     """
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     mine = as_("mk", period="FY 2026-27")
     others = as_("compliance", period="FY 2026-27")
 
@@ -931,7 +931,7 @@ def check_nobody_clears_their_own_breach() -> None:
 
 
 def check_a_referral_is_one_person_at_a_time() -> None:
-    _, _feat, h = registry.feature_of("scs", "register")
+    _, _feat, h = registry.feature_of("finance", "register")
     s = as_("compliance", period="FY 2026-27")
 
     ok("two at once is refused",
@@ -967,7 +967,7 @@ def check_a_row_says_which_actions_it_takes() -> None:
     did not exist. Eight of the nine the server refuses, and the one that
     was real sat in the middle of them looking identical.
     """
-    function = registry.get("scs")
+    function = registry.get("finance")
     ok("the function loads", function is not None)
     if function is None:
         return
@@ -976,7 +976,7 @@ def check_a_row_says_which_actions_it_takes() -> None:
         if not feature.actions:
             continue
         declared = {a.id for a in feature.actions}
-        _, _f, h = registry.feature_of("scs", feature.id)
+        _, _f, h = registry.feature_of("finance", feature.id)
         # Compliance sees the firm on every screen here, so this walks the
         # widest set of rows any one person is shown.
         scope = as_("compliance", feature.id, period="FY 2026-27")
@@ -993,7 +993,7 @@ def check_a_row_says_which_actions_it_takes() -> None:
     # And the list is the truth, not a hint: what a row says it takes, the
     # handler takes. Walked against the Tracker's people, because that is
     # the screen the regression was on.
-    _, _feat, tracker = registry.feature_of("scs", "register")
+    _, _feat, tracker = registry.feature_of("finance", "register")
     firm = as_("compliance", period="FY 2026-27")
     people_rows = tracker.rows(firm, "all")
     ok("the Tracker's people carry a list each",
@@ -1041,8 +1041,8 @@ def check_gift_requests_is_yours_and_the_tracker_is_the_desk() -> None:
     see what is standing at their stage, sign it off there, and watch it
     land in Signed off.
     """
-    _, rf, chain = registry.feature_of("scs", "requests")
-    _, _tf, tracker = registry.feature_of("scs", "register")
+    _, rf, chain = registry.feature_of("finance", "requests")
+    _, _tf, tracker = registry.feature_of("finance", "register")
 
     # `servicelead` raises one FOR somebody else.
     rid = _ask(by="servicelead", recipient="Vikram Rao", what="A hamper",
@@ -1104,7 +1104,7 @@ def check_a_bulk_order_becomes_people() -> None:
     is the order and the recipients are an answer given at distribution,
     which is where they are actually known.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     asking = _req("requester")
 
     bulk = {"what": "Festival hamper", "kind": "gift", "value": "2000",
@@ -1218,7 +1218,7 @@ def check_payroll_is_read_at_the_end_not_signed_at_the_start() -> None:
     ok("and the chain still runs end to end without them", not _walk(rid), "")
 
     # What they get instead.
-    _, _f, fin = registry.feature_of("scs", "finance")
+    _, _f, fin = registry.feature_of("finance", "finance")
     rows = fin.rows(_fin(), "flagged")
     ok("there is a line per employee who crossed", rows, str(len(rows)))
     for row in rows:
@@ -1258,7 +1258,7 @@ def check_compass_mints_no_reference_of_its_own() -> None:
     mattered: Procurement writes down the PR, PO and GRN the purchasing
     system raised. See `check_the_purchase_is_linked_back`.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     notices.clear()
 
     ok("accounts payable is not a stage",
@@ -1308,7 +1308,7 @@ def check_a_blocked_order_can_ask_for_an_exception() -> None:
     Compass, which means it was done beside it, which is the whole failure
     this function exists to end.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
 
     # Client courtesy above the single-gift threshold: blocked.
     rid = _ask(what="Dinner out", value="12000", kind="gift",
@@ -1404,7 +1404,7 @@ def check_the_purchase_is_linked_back() -> None:
     the order's own id now does instead; the gate is the STAGE, because an
     order Procurement has not reached is not theirs to write on yet.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     rid = _ask(what="A hamper", value="1800")
 
     # Not theirs until the order reaches them.
@@ -1461,7 +1461,7 @@ def check_the_recipient_list_is_maintained_not_overwritten() -> None:
     received. A list somebody can rewrite silently is not a control; a
     list nobody can correct is a control people work around.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     asking = _req("requester")
 
     out = h.submit(asking, "request_gift",
@@ -1596,7 +1596,7 @@ def check_a_recipient_reads_their_gift_and_not_the_order() -> None:
     has got to and whether they have confirmed it. Their annual position
     is theirs too — on the Tracker, which is the screen for it.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     rid = _ask(by="servicelead", quantity="3", what="Gift card", value="3000",
                recipient_list="Manish K., Vikram Rao, Aisha Khan")
     # Walked the whole way: the recipient's own view is what this is
@@ -1679,7 +1679,7 @@ def check_the_list_is_closed_before_anything_goes_out() -> None:
     moment after which it cannot, and the second is what builds the
     register.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     rid = _ask(by="servicelead", quantity="3", what="Gift card", value="3000",
                recipient_list="Vikram Rao, Priya Nair")
     ok("it reaches the list step",
@@ -1762,7 +1762,7 @@ def check_the_distribution_is_the_end_of_the_chain() -> None:
     that the last desk's sign-off ends it cleanly, exactly once, and that
     a recipient has nothing left to sign.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     rid = _ask(by="servicelead", quantity="2", what="Hamper", value="2000",
                recipient_list="Vikram Rao, Manish K.")
     ok("it reaches the list step",
@@ -1813,7 +1813,7 @@ def check_a_late_recipient_draws_on_the_buffer() -> None:
     waived is the fact, which is counted and said wherever the number
     appears.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     rid = _ask(by="servicelead", quantity="3", what="Gift card",
                recipient_list="Vikram Rao, Priya Nair, Aisha Khan")
     ok("it reaches the list step",
@@ -1875,7 +1875,7 @@ def check_every_on_row_form_has_a_door() -> None:
     change it. Every check drove `submit` directly and so passed over a
     screen with no door in it; this one asks the ROW.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     on_row = [f.id for f in feat.forms if f.on_row]
     ok("the feature has on-row forms at all", len(on_row) == 2, str(on_row))
 
@@ -1928,7 +1928,7 @@ def check_every_on_row_form_has_a_door() -> None:
 
     # EVERY BUTTON A ROW OFFERS MUST BE ONE THE SUBMIT WOULD TAKE. A form
     # that refuses when pressed teaches people the screen lies.
-    _, reg_feat, reg = registry.feature_of("scs", "register")
+    _, reg_feat, reg = registry.feature_of("finance", "register")
     tracker = [f.id for f in reg_feat.forms if f.on_row]
     ok("the Tracker carries every one of the chain's row forms",
        set(on_row) <= set(tracker), f"{on_row} vs {tracker}")
@@ -1955,7 +1955,7 @@ def check_the_register_carries_the_approved_value() -> None:
     to — and reconciling the two is the firm's own job in its own system,
     which is where the money already lives.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     rid = _ask(by="servicelead", what="Festival hamper", value="2000",
                quantity="2", recipient_list="Vikram Rao, Aisha Khan")
     ok("it reaches the list step",
@@ -1987,7 +1987,7 @@ def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
     see is the kind of thing that gets filled in by something other than a
     person.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     form = next(f for f in feat.forms if f.id == "request_gift")
     bulk = next(x for x in form.fields if x.id == "recipient_list")
 
@@ -2003,7 +2003,7 @@ def check_a_field_is_only_offered_to_whoever_it_is_for() -> None:
     # What each reader is SENT.
     def fields_for(login: str) -> set[str]:
         scope = people.scope_for(login, feat, period="FY 2026-27")
-        card = routes._feature_card("scs", feat, scope.roles, every_field=False)
+        card = routes._feature_card("finance", feat, scope.roles, every_field=False)
         got = next(f for f in card["forms"] if f["id"] == "request_gift")
         return {x["id"] for x in got["fields"]}
 
@@ -2106,13 +2106,13 @@ def check_a_recipient_list_can_be_uploaded() -> None:
     # locked door is not a lock. Signed out, `guest` holds nothing.
     client = _client()
     got = client.post(
-        "/v1/business-functions/scs/features/requests/forms/"
+        "/v1/business-functions/finance/features/requests/forms/"
         "request_gift/upload?field=recipient_list",
         files={"file": ("x.csv", csv, "text/csv")})
     ok("somebody without the role cannot upload to that field",
        got.status_code == 403, f"{got.status_code} {got.text[:100]}")
     got = client.post(
-        "/v1/business-functions/scs/features/requests/forms/"
+        "/v1/business-functions/finance/features/requests/forms/"
         "request_gift/upload?field=what",
         files={"file": ("x.csv", csv, "text/csv")})
     ok("and no field that is not a list takes one at all",
@@ -2126,7 +2126,7 @@ def check_a_recipient_list_can_be_uploaded() -> None:
     # see — and the two halves are checked together here, because a field
     # that renders and refuses, or refuses and renders, is the screen and
     # the server disagreeing about one rule.
-    _, feat, _h = registry.feature_of("scs", "requests")
+    _, feat, _h = registry.feature_of("finance", "requests")
     field = next(x for f in feat.forms if f.id == "request_gift"
                  for x in f.fields if x.id == "recipient_list")
     for who, allowed in (("servicelead", True), ("spoc", True),
@@ -2147,7 +2147,7 @@ def check_a_recipient_list_can_be_uploaded() -> None:
                          ("finance", False)):
         async def upload(user=who):
             return await routes.read_recipient_file(
-                "scs", "requests", "request_gift", field="recipient_list",
+                "finance", "requests", "request_gift", field="recipient_list",
                 file=UploadFile(filename="team.csv", file=io.BytesIO(csv)),
                 user=user)
         try:
@@ -2178,7 +2178,7 @@ def check_the_dashboard_is_its_charts() -> None:
     finding is. The orders behind them are the Tracker's, which is where
     every desk already goes to ask what has got where.
     """
-    _, _f, board = registry.feature_of("scs", "oversight")
+    _, _f, board = registry.feature_of("finance", "oversight")
     seeing = as_("compliance", "oversight", period="FY 2026-27")
 
     tabs = [t.key for t in board.tabs(seeing)]
@@ -2224,7 +2224,7 @@ def check_the_dashboard_is_its_charts() -> None:
     ok("the screen still says what it finds", isinstance(said, list))
     for rule in said:
         ok(f"{rule}: and the manifest has words for it",
-           rule in {r.id for r in registry.feature_of("scs", "oversight")[1].rules},
+           rule in {r.id for r in registry.feature_of("finance", "oversight")[1].rules},
            rule)
 
 
@@ -2261,7 +2261,7 @@ def check_the_trail_outlives_the_chain() -> None:
        and gr_mod.stage_label("accounts_payable") == "With Accounts Payable")
 
     # And the screens that read stored stages survive one.
-    _, _f, h = registry.feature_of("scs", "audit")
+    _, _f, h = registry.feature_of("finance", "audit")
     rid = _ask(what="A hamper", value="1200")
     ledger.add_event(subject=rid, kind="signed_off", by="payroll",
                      stage="payroll_tax", value=1200)
@@ -2281,8 +2281,8 @@ def check_the_trail_outlives_the_chain() -> None:
     ok("its tabs count them", h.tabs(reader)[0].count is not None)
 
     # The workbook names them too, rather than printing the raw key.
-    _, feat, _hh = registry.feature_of("scs", "requests")
-    chain = registry.feature_of("scs", "requests")[2]
+    _, feat, _hh = registry.feature_of("finance", "requests")
+    chain = registry.feature_of("finance", "requests")[2]
     ok("a workbook names a retired step in words",
        chain.step_label("payroll_tax") == "With Payroll",
        chain.step_label("payroll_tax"))
@@ -2296,7 +2296,7 @@ def check_the_trail_is_read_by_the_order() -> None:
     because an order's history is filed under two subjects: the request
     until it is handed over, and the register record from then on.
     """
-    _, _f, h = registry.feature_of("scs", "audit")
+    _, _f, h = registry.feature_of("finance", "audit")
     reader = as_("compliance", "audit", period="FY 2026-27")
 
     ok("the trail opens on orders", h.tabs(reader)[0].key == "orders",
@@ -2334,11 +2334,11 @@ def check_the_trail_is_read_by_the_order() -> None:
        any(t["did"] for t in trail), str(said))
 
     ok("and the trail stays out of the workbook, being a list",
-       "trail" in registry.feature_of("scs", "audit")[2].private)
+       "trail" in registry.feature_of("finance", "audit")[2].private)
 
 
 def check_a_signed_off_year_is_closed_to_everyone() -> None:
-    _, _feat, h = registry.feature_of("scs", "register")
+    _, _feat, h = registry.feature_of("finance", "register")
     closed = as_("compliance", period="FY 2024-25")
     ok("a signed-off year says only that", h.rules(closed) == ["period_closed"],
        str(h.rules(closed)))
@@ -2348,13 +2348,13 @@ def check_a_signed_off_year_is_closed_to_everyone() -> None:
 
 def check_the_rail_can_work_rewardlens() -> None:
     """The assistant reaches it the same way it reaches the other two."""
-    fn, feat, h = registry.feature_of("scs", "register")
+    fn, feat, h = registry.feature_of("finance", "register")
     s = as_("compliance", period="FY 2026-27")
 
     # Named, because the rail resolves against the VIEW somebody is on and
     # the tracker now opens on its orders. A sentence about people is one
     # typed while looking at people.
-    r = assistant.interpret("scs", feat, h, s, "Refer John to Finance",
+    r = assistant.interpret("finance", feat, h, s, "Refer John to Finance",
                             "compliance", "all")
     ok("naming one person becomes a plan", isinstance(r, assistant.Proposal),
        type(r).__name__)
@@ -2367,14 +2367,14 @@ def check_the_rail_can_work_rewardlens() -> None:
     out = assistant.confirm(r.id, "compliance", h)
     ok("confirming it refers them", out.ok and "Finance" in out.said, out.said)
 
-    everyone = assistant.interpret("scs", feat, h, s, "refer all of them",
+    everyone = assistant.interpret("finance", feat, h, s, "refer all of them",
                                    "compliance", "all")
     ok("referring everybody is not proposed",
        isinstance(everyone, assistant.Clarify), type(everyone).__name__)
 
     unresolved = [st for st in feat.starters
                   if not isinstance(
-                      assistant.interpret("scs", feat, h, s, st, "compliance",
+                      assistant.interpret("finance", feat, h, s, st, "compliance",
                                           "all"),
                       (assistant.Proposal, assistant.Answer, assistant.Clarify))]
     ok("every RewardLens starter resolves", not unresolved, str(unresolved))
@@ -2394,7 +2394,7 @@ def check_every_feature_can_be_named() -> None:
     # deployment where nothing has happened — seeding fabricated history
     # into an audit trail to make a check pass would be the single worst
     # thing in this file.
-    registry.feature_of("scs", "register")[2].act(
+    registry.feature_of("finance", "register")[2].act(
         as_("compliance"), "refer_to_finance", ["E-1007"])
     every_named: list[tuple[str, str]] = []
     for fn in registry.all_functions():
@@ -2455,7 +2455,7 @@ def check_a_selector_is_never_offered_the_wrong_values() -> None:
                    len(feat.scope_why) > 20, feat.scope_why)
 
     _, form26, _h = registry.feature_of("finance", "form26")
-    _, rl, _h2 = registry.feature_of("scs", "register")
+    _, rl, _h2 = registry.feature_of("finance", "register")
     ok("a quarterly reconciliation and an annual limit do not share a period list",
        set(form26.choices["period"]).isdisjoint(rl.choices["period"]),
        f"{form26.choices['period']} vs {rl.choices['period']}")
@@ -2506,7 +2506,7 @@ def check_every_row_can_be_pointed_at() -> None:
 
     # And the id the table sends is the id the handler acts on, which is the
     # half that would otherwise only break at the moment somebody clicks.
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     s = as_("compliance", period="FY 2026-27")
     row = h.rows(s, "over")[0]
     ok("an action aimed with the declared key reaches the row",
@@ -2561,7 +2561,7 @@ def check_a_declaration_is_about_yourself() -> None:
     for it either: the only name in play is `scope.user`, which the route
     takes from the signed-in person.
     """
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     form = feat.forms[0]
     ok("the form has no field naming somebody else",
        not ({x.id for x in form.fields} & {"employee", "employee_id", "recipient",
@@ -2596,7 +2596,7 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
     its own and is the one that takes her over, and she cannot know that
     from the hamper.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     admin = as_("admin", period="FY 2026-27")
     entry = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
              "given": "2026-12-02", "source": "Acme Logistics"}
@@ -2620,7 +2620,7 @@ def check_the_preview_is_the_number_nobody_could_see() -> None:
 
 
 def check_a_declaration_cannot_be_nonsense() -> None:
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     s = as_("admin", period="FY 2026-27")
     base = {"what": "Vendor hamper", "kind": "gift", "value": "4000",
             "given": "2026-12-02", "source": "Acme Logistics"}
@@ -2656,7 +2656,7 @@ def check_a_declaration_cannot_be_nonsense() -> None:
 
 def check_what_was_declared_is_what_was_recorded() -> None:
     """A declaration is a statement, so it is kept as made and not improved."""
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     s = as_("enduser", period="FY 2026-27")
     entry = {"what": "Cricket tickets", "kind": "voucher", "value": "1,500",
              "given": "2026-09-30", "source": "Vendor · Northwind"}
@@ -2686,7 +2686,7 @@ def check_reviewing_never_changes_what_was_received() -> None:
     disagreed would be a total worth arguing with, and would give everybody
     a reason to contest rather than declare.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
 
     def totals() -> dict[str, int]:
@@ -2733,7 +2733,7 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
     one stops them deciding their own DECLARATION, which is not an action on
     their row and so slips past the first one entirely.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     admin = as_("admin", period="FY 2026-27")       # a reviewer
     other = as_("compliance", period="FY 2026-27")  # another reviewer
     plain = as_("enduser", period="FY 2026-27")     # not a reviewer
@@ -2783,7 +2783,7 @@ def check_a_declaration_is_decided_by_somebody_else() -> None:
 
 
 def check_a_decision_carries_a_reason_and_a_name() -> None:
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     by_id = {a.id: a for a in feat.actions}
 
@@ -2821,17 +2821,17 @@ def check_the_model_does_not_write_the_justification() -> None:
     model produced is the last thing that should sit on a compliance record
     under somebody else's name.
     """
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
 
     for sentence in ("Mark it not permitted", "record_breach", "Query it"):
-        r = assistant.interpret("scs", feat, h, c, sentence, "compliance", "disclosed")
+        r = assistant.interpret("finance", feat, h, c, sentence, "compliance", "disclosed")
         ok(f"{sentence!r} is not turned into a plan",
            isinstance(r, assistant.Clarify) and "your own words" in r.text,
            f"{type(r).__name__}: {getattr(r, 'text', '')[:60]}")
 
     # Accepting as declared carries no reason, so the rail may still do it.
-    r = assistant.interpret("scs", feat, h, c, "Accept Priya's declaration",
+    r = assistant.interpret("finance", feat, h, c, "Accept Priya's declaration",
                             "compliance", "disclosed")
     ok("accepting, which needs no reason, is still proposable",
        isinstance(r, assistant.Proposal), type(r).__name__)
@@ -2843,7 +2843,7 @@ def check_the_model_does_not_write_the_justification() -> None:
        assistant.confirm(r.id, "compliance", h).ok)
 
     # The same sentence on the people tab means a person, and still does.
-    person = assistant.interpret("scs", feat, h, c, "Refer John to Finance",
+    person = assistant.interpret("finance", feat, h, c, "Refer John to Finance",
                                  "compliance", "over")
     ok("a sentence on the people tab still resolves to a person",
        isinstance(person, assistant.Proposal)
@@ -2866,7 +2866,7 @@ def check_who_you_are_survives_an_alias() -> None:
     kept = dict(settings.auth.identity_aliases)
     try:
         settings.auth.identity_aliases = {"admin": "someone@example.test"}
-        _, _f, h = registry.feature_of("scs", "register")
+        _, _f, h = registry.feature_of("finance", "register")
         aliased = as_("someone@example.test", period="FY 2026-27")
 
         ok("an aliased login is still the employee it maps to",
@@ -2902,7 +2902,7 @@ def check_a_correction_is_a_new_record_not_an_edit() -> None:
     original stays, marked superseded, and a new record carries the right
     figure.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     e = as_("enduser", period="FY 2026-27")     # Vikram Rao, E-1066
     total = lambda: next((r["total"] for r in h.rows(c, "all")
@@ -2952,7 +2952,7 @@ def check_only_a_mistaken_record_stops_counting() -> None:
     never right. That difference is the lever somebody would reach for
     first, so it is the one worth checking hardest.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     e = as_("enduser", period="FY 2026-27")
     total = lambda: next((r["total"] for r in h.rows(c, "all")
@@ -2972,7 +2972,7 @@ def check_only_a_mistaken_record_stops_counting() -> None:
 
 
 def check_nobody_corrects_their_own_record_alone() -> None:
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     e = as_("enduser", period="FY 2026-27")
     a = as_("admin", period="FY 2026-27")
@@ -3003,7 +3003,7 @@ def check_nobody_corrects_their_own_record_alone() -> None:
 
 
 def check_an_answer_has_to_make_sense() -> None:
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     e = as_("enduser", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
@@ -3033,7 +3033,7 @@ def check_an_answer_has_to_make_sense() -> None:
 
 def check_asking_again_drops_the_old_answer() -> None:
     """A reply to a question nobody is asking any more is not a reply."""
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     e = as_("enduser", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
@@ -3066,7 +3066,7 @@ def check_the_row_and_the_handler_cannot_disagree() -> None:
     purpose: two lists would be two chances to disagree, and the symptom
     would be a button that exists and does not work.
     """
-    _, feat, h = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "register")
     everyone = [as_(u) for u in ("compliance", "admin", "enduser", "stranger")]
     review_actions = set(rl_mod.RewardLens.REVIEW_ACTIONS)
 
@@ -3120,7 +3120,7 @@ def check_asking_somebody_is_written_down_before_it_is_sent() -> None:
     was told and nobody was is the failure this exists to prevent.
     """
     notices.clear()
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
@@ -3148,7 +3148,7 @@ def check_a_notice_goes_to_the_person_and_nobody_else() -> None:
     colleagues would put one person's record in another's inbox.
     """
     notices.clear()
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
@@ -3188,7 +3188,7 @@ def check_a_notice_goes_to_the_person_and_nobody_else() -> None:
 def check_nobody_is_told_who_has_no_address() -> None:
     """A held notice is better than a confident one."""
     notices.clear()
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1019")
     ok("Priya has no address on file", not rl_mod._address_for_employee("E-1019"))
@@ -3218,7 +3218,7 @@ def check_nobody_is_told_who_has_no_address() -> None:
 def check_a_held_notice_can_be_tried_again() -> None:
     """Recording it rather than firing it is what makes a retry possible."""
     notices.clear()
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
@@ -3247,7 +3247,7 @@ def check_a_held_notice_can_be_tried_again() -> None:
 
 def check_a_mail_server_that_refuses_does_not_undo_the_decision() -> None:
     notices.clear()
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
     item = next(r for r in h.rows(c, "disclosed") if r["employee_id"] == "E-1066")
 
@@ -3282,8 +3282,8 @@ def check_the_dashboard_cannot_disagree_with_the_workbench() -> None:
     stop being usable. It reads the workbench's own rows, and this is that
     claim, checked against a screen that has been changed under it.
     """
-    _, _f, board = registry.feature_of("scs", "oversight")
-    _, _f2, bench = registry.feature_of("scs", "register")
+    _, _f, board = registry.feature_of("finance", "oversight")
+    _, _f2, bench = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
 
     def agree(why: str) -> None:
@@ -3330,8 +3330,8 @@ def check_the_dashboard_answers_a_different_question() -> None:
     dealing with it, and whether the thing we built is being used — which
     is the half the workbench cannot show.
     """
-    _, feat, board = registry.feature_of("scs", "oversight")
-    _, _f, bench = registry.feature_of("scs", "register")
+    _, feat, board = registry.feature_of("finance", "oversight")
+    _, _f, bench = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
 
     mine = {f.key for f in board.figures(c)}
@@ -3354,8 +3354,8 @@ def check_the_dashboard_answers_a_different_question() -> None:
 def check_the_dashboard_sees_the_process_stopping() -> None:
     """The reason it exists apart: a stalled process is not a breach."""
     notices.clear()
-    _, _f, board = registry.feature_of("scs", "oversight")
-    _, _f2, bench = registry.feature_of("scs", "register")
+    _, _f, board = registry.feature_of("finance", "oversight")
+    _, _f2, bench = registry.feature_of("finance", "register")
     c = as_("compliance", period="FY 2026-27")
 
     figures = lambda: {f.key: f.value for f in board.figures(c)}
@@ -3395,31 +3395,31 @@ def check_the_dashboard_sees_the_process_stopping() -> None:
 
 
 def check_leadership_can_look_and_not_touch() -> None:
-    _, feat, board = registry.feature_of("scs", "oversight")
+    _, feat, board = registry.feature_of("finance", "oversight")
     c = as_("compliance", "oversight", period="FY 2026-27")
 
     ok("the dashboard declares no actions", not feat.actions, str(feat.actions))
     ok("so the rail says it cannot operate here",
-       not assistant.view(registry.get("scs"), feat, c).can_act)
+       not assistant.view(registry.get("finance"), feat, c).can_act)
     ok("and acting is refused with the reason, not a shrug",
        not (o := board.act(c, "refer_to_finance", ["E-1007"])).ok
        and "decisions belong" in o.said, o.said)
     ok("no sentence turns into a plan here",
        not isinstance(
-           assistant.interpret("scs", feat, board, c,
+           assistant.interpret("finance", feat, board, c,
                                "refer John to Finance", "compliance"),
            assistant.Proposal))
 
     unresolved = [st for st in feat.starters
                   if not isinstance(
-                      assistant.interpret("scs", feat, board, c, st, "compliance"),
+                      assistant.interpret("finance", feat, board, c, st, "compliance"),
                       (assistant.Answer, assistant.Clarify))]
     ok("every starter it offers resolves to an answer", not unresolved, str(unresolved))
 
 
 def check_a_firm_wide_view_is_for_the_role() -> None:
     """It names people and their totals, so it is not for everybody."""
-    _, _f, board = registry.feature_of("scs", "oversight")
+    _, _f, board = registry.feature_of("finance", "oversight")
     plain = as_("enduser", "oversight", period="FY 2026-27")
     allowed = as_("compliance", "oversight", period="FY 2026-27")
 
@@ -3434,7 +3434,7 @@ def check_a_firm_wide_view_is_for_the_role() -> None:
     ok("they are told why rather than shown an empty screen",
        board.rules(plain) == ["oversight_is_a_role"], str(board.rules(plain)))
     ok("and nobody else's total leaks through the rail",
-       not assistant.interpret("scs", registry.feature_of("scs", "oversight")[1],
+       not assistant.interpret("finance", registry.feature_of("finance", "oversight")[1],
                                board, plain, "what are we exposed to?",
                                "enduser").facts.get("rows"))
 
@@ -3461,9 +3461,9 @@ def check_the_export_is_the_screen() -> None:
     people are over the limit while the screen says three, and the
     spreadsheet is the copy that gets emailed to a board and quoted back.
     """
-    _, feat, h = registry.feature_of("scs", "oversight")
+    _, feat, h = registry.feature_of("finance", "oversight")
     c = as_("compliance", period="FY 2026-27")
-    wb = _workbook("scs", "oversight", c)
+    wb = _workbook("finance", "oversight", c)
 
     tabs = h.tabs(c)
     ok("there is a summary and one sheet per tab",
@@ -3499,7 +3499,7 @@ def check_the_export_is_the_screen() -> None:
 def check_the_export_says_when_it_was_true() -> None:
     """It outlives the screen. Nothing else in the file admits that."""
     c = as_("compliance", period="FY 2026-27")
-    wb = _workbook("scs", "oversight", c)
+    wb = _workbook("finance", "oversight", c)
     said = {r[0]: r[1] for r in
             ([cell.value for cell in row] for row in wb["Summary"].iter_rows())
             if r and r[0]}
@@ -3511,7 +3511,7 @@ def check_the_export_says_when_it_was_true() -> None:
        "snapshot" in str(said.get("Note", "")).lower(), str(said.get("Note")))
 
     from compass.businessfunctions import export as exporter
-    fn, feat, _h = registry.feature_of("scs", "oversight")
+    fn, feat, _h = registry.feature_of("finance", "oversight")
     name = exporter.filename(fn, feat, c)
     ok("the filename carries the period, so two are not the same file",
        "fy-2026-27" in name and name.endswith(".xlsx"), name)
@@ -3527,7 +3527,7 @@ def check_the_export_cannot_see_what_the_screen_hides() -> None:
     check somebody remembered to add.
     """
     plain = as_("enduser", period="FY 2026-27")
-    wb = _workbook("scs", "oversight", plain)
+    wb = _workbook("finance", "oversight", plain)
 
     ok("somebody without the role gets only a summary",
        wb.sheetnames == ["Summary"], str(wb.sheetnames))
@@ -3550,7 +3550,7 @@ def check_a_workbook_is_worth_opening() -> None:
     # machinery that must not reach a spreadsheet. The Dashboard used to
     # carry one; it is four charts and their four tabs now.
     c = as_("compliance", period="FY 2026-27")
-    wb = _workbook("scs", "register", c)
+    wb = _workbook("finance", "register", c)
     sheet = wb["Everyone"]
     heads = [cell.value for cell in sheet[1]]
     row = {heads[i]: cell for i, cell in enumerate(sheet[2])}
@@ -3600,7 +3600,7 @@ def check_a_monthly_slot_lands_on_the_right_day() -> None:
     import datetime as dt
 
     def due_on(day: int, now: dt.datetime, at: str = "08:00") -> str:
-        sub = reports.Subscription(id="x", user="compliance", function_id="scs",
+        sub = reports.Subscription(id="x", user="compliance", function_id="finance",
                                    feature_id="oversight", period="FY 2026-27",
                                    day=day, time_of_day=at)
         slot = reports._slot(sub, now=now)
@@ -3631,7 +3631,7 @@ def check_a_slot_fires_once_and_is_not_missed_by_a_restart() -> None:
     import time as clock
 
     drive(reports.clear())
-    sub = drive(reports.subscribe(user="compliance", function_id="scs",
+    sub = drive(reports.subscribe(user="compliance", function_id="finance",
                                   feature_id="oversight", period="FY 2026-27"))
     slot = reports._slot(sub)
 
@@ -3662,9 +3662,9 @@ def check_a_report_cannot_see_more_than_its_reader() -> None:
     drive(reports.clear())
     notices.clear()
 
-    boss = drive(reports.subscribe(user="compliance", function_id="scs",
+    boss = drive(reports.subscribe(user="compliance", function_id="finance",
                                    feature_id="oversight", period="FY 2026-27"))
-    plain = drive(reports.subscribe(user="enduser", function_id="scs",
+    plain = drive(reports.subscribe(user="enduser", function_id="finance",
                                     feature_id="oversight", period="FY 2026-27"))
 
     _subject, body, figures = reports.render(boss)
@@ -3685,7 +3685,7 @@ def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
     # send it. `compliance` is a reviewer with no employee record — a real
     # state, checked below.
     with _Mailbox() as box:
-        sub = drive(reports.subscribe(user="admin", function_id="scs",
+        sub = drive(reports.subscribe(user="admin", function_id="finance",
                                       feature_id="oversight",
                                       period="FY 2026-27"))
         drive(reports.save(reports.run(sub)))
@@ -3701,7 +3701,7 @@ def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
     drive(reports.clear())
     notices.clear()
     held = drive(reports.save(reports.run(drive(reports.subscribe(
-        user="compliance", function_id="scs", feature_id="oversight",
+        user="compliance", function_id="finance", feature_id="oversight",
         period="FY 2026-27")))))
     ok("a reviewer the directory cannot place is held, and says so",
        "no email address on file" in held.runs[-1].said, held.runs[-1].said)
@@ -3710,27 +3710,27 @@ def check_a_report_goes_to_its_subscriber_and_nobody_else() -> None:
 
 def check_subscribing_is_something_you_do_to_yourself() -> None:
     drive(reports.clear())
-    drive(reports.subscribe(user="compliance", function_id="scs",
+    drive(reports.subscribe(user="compliance", function_id="finance",
                             feature_id="oversight", period="FY 2026-27"))
-    drive(reports.subscribe(user="compliance", function_id="scs",
+    drive(reports.subscribe(user="compliance", function_id="finance",
                             feature_id="oversight", period="FY 2025-26"))
     ok("subscribing twice leaves one subscription",
        len(drive(reports.all_subscriptions())) == 1,
        str(len(drive(reports.all_subscriptions()))))
     ok("and the second one replaced the first",
-       drive(reports.for_user("compliance", "scs", "oversight")).period
+       drive(reports.for_user("compliance", "finance", "oversight")).period
        == "FY 2025-26")
 
-    drive(reports.subscribe(user="enduser", function_id="scs",
+    drive(reports.subscribe(user="enduser", function_id="finance",
                             feature_id="oversight", period="FY 2026-27"))
     ok("two people have two subscriptions",
        len(drive(reports.all_subscriptions())) == 2)
     ok("stopping yours leaves theirs",
-       drive(reports.unsubscribe("compliance", "scs", "oversight"))
+       drive(reports.unsubscribe("compliance", "finance", "oversight"))
        and len(drive(reports.all_subscriptions())) == 1
-       and drive(reports.for_user("enduser", "scs", "oversight")) is not None)
+       and drive(reports.for_user("enduser", "finance", "oversight")) is not None)
     ok("stopping one you do not have is not an error",
-       not drive(reports.unsubscribe("compliance", "scs", "oversight")))
+       not drive(reports.unsubscribe("compliance", "finance", "oversight")))
 
     # The shape of the request itself: there is nowhere to name anybody.
     from compass.businessfunctions.routes import ReportBody
@@ -3767,7 +3767,7 @@ def check_a_subscription_outlives_the_process() -> None:
     off disk, which is what a restart does.
     """
     drive(reports.clear())
-    made = drive(reports.subscribe(user="admin", function_id="scs",
+    made = drive(reports.subscribe(user="admin", function_id="finance",
                                    feature_id="oversight",
                                    period="FY 2026-27", day=9,
                                    time_of_day="18:30"))
@@ -3786,7 +3786,7 @@ def check_a_subscription_outlives_the_process() -> None:
        stored and stored[0].get("owner") == stored[0].get("user") == "admin",
        str(stored and stored[0].get("owner")))
 
-    back = drive(reports.for_user("admin", "scs", "oversight"))
+    back = drive(reports.for_user("admin", "finance", "oversight"))
     ok("it is still there after the process forgets", back is not None)
     ok("with the same id", back and back.id == made.id)
     ok("and the day and time it was asked for",
@@ -3801,7 +3801,7 @@ def check_a_subscription_outlives_the_process() -> None:
        back and reports.due(back) is None)
 
     ok("stopping it removes it from disk as well",
-       drive(reports.unsubscribe("admin", "scs", "oversight")))
+       drive(reports.unsubscribe("admin", "finance", "oversight")))
     left = json.loads(written.read_text())
     ok("so a restart does not bring it back",
        not (list(left.values()) if isinstance(left, dict) else left),
@@ -3811,7 +3811,7 @@ def check_a_subscription_outlives_the_process() -> None:
 def check_an_unreadable_subscription_is_skipped_not_fatal() -> None:
     """One bad row is one bad row, not a section that will not load."""
     drive(reports.clear())
-    drive(reports.subscribe(user="admin", function_id="scs",
+    drive(reports.subscribe(user="admin", function_id="finance",
                             feature_id="oversight", period="FY 2026-27"))
     drive(reports._store.put({"id": "rubbish", "owner": "admin"}))
 
@@ -3835,9 +3835,9 @@ def check_every_persona_sees_its_own_breadth() -> None:
     There is no `audit` row. Auditing is Leadership and Compliance's, per
     the sheet, and a row for a persona nobody holds proved nothing.
     """
-    _, bench, h = registry.feature_of("scs", "register")
-    _, board, board_h = registry.feature_of("scs", "oversight")
-    _, chain, _ch = registry.feature_of("scs", "requests")
+    _, bench, h = registry.feature_of("finance", "register")
+    _, board, board_h = registry.feature_of("finance", "oversight")
+    _, chain, _ch = registry.feature_of("finance", "requests")
     everybody = len(h.rows(as_("compliance"), "all"))
 
     table = [
@@ -3905,7 +3905,7 @@ def check_an_employee_is_not_shown_a_colleague() -> None:
     not, which is the usual shape of it — the restricted screen gets the
     attention and the one people actually open does not.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     them = as_("enduser")
     mine = people.employee_of("enduser")
 
@@ -3958,7 +3958,7 @@ def check_what_a_feature_declares_is_what_is_enforced() -> None:
     applies, and a role nobody declared getting through is exactly how a
     read-only persona ends up able to decide somebody's record.
     """
-    _, bench, h = registry.feature_of("scs", "register")
+    _, bench, h = registry.feature_of("finance", "register")
     declared = {a.id: set(a.roles) for a in bench.actions if a.roles}
     ok("every review action names who may take it",
        set(rl_mod.RewardLens.REVIEW_ACTIONS) <= set(declared), str(sorted(declared)))
@@ -4007,13 +4007,27 @@ def check_a_role_cannot_be_claimed_by_a_caller() -> None:
        not as_("nobody-at-all").roles)
     ok("and sees nothing", as_("nobody-at-all").sees == "none")
 
-    # The oldest features declare no visibility and must be untouched by any
-    # of this.
-    for fn_id, feature_id in (("finance", "form26"), ("talent", "lms")):
+    # A feature that declares no visibility is unrestricted, and that has
+    # to keep working: it is what every feature did before breadth existed.
+    for fn_id, feature_id in (("talent", "lms"),):
         _fn, feature, _h = registry.feature_of(fn_id, feature_id)
         ok(f"{fn_id}/{feature_id} declares no visibility and so is unrestricted",
            not feature.visibility
            and people.breadth("anybody", feature.visibility) == "firm")
+
+    # FORM 26 USED TO BE ONE OF THEM, and the default stopped being safe
+    # the moment RewardLens moved into Finance: requesters, Procurement,
+    # Operations and ordinary employees arrived in a function whose other
+    # screen was the firm's tax-credit reconciliation, open to all of them.
+    _fn, form26, _h = registry.feature_of("finance", "form26")
+    ok("form26 declares its own visibility now that it shares a function",
+       form26.visibility == {"firm": ["finance", "payroll", "compliance",
+                                      "leadership"]},
+       str(form26.visibility))
+    for who in ("enduser", "requester", "procurement", "operations"):
+        ok(f"so {who} is not shown the firm's reconciliation",
+           people.breadth(who, form26.visibility) == "none",
+           people.breadth(who, form26.visibility))
 
 
 def check_the_register_and_the_trail_survive_a_restart() -> None:
@@ -4025,7 +4039,7 @@ def check_the_register_and_the_trail_survive_a_restart() -> None:
     them on the 9th" both have to be answerable after a restart, and an
     audit trail that empties on one answers neither.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance")
     e = as_("enduser")
 
@@ -4082,7 +4096,7 @@ def check_a_correction_still_supersedes_after_a_restart() -> None:
     a state on the item it would be one record that changed, which is the
     thing the disclosure form promises never happens.
     """
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance")
     e = as_("enduser")
 
@@ -4114,7 +4128,7 @@ def check_a_correction_still_supersedes_after_a_restart() -> None:
 
 def check_the_trail_says_who_and_when() -> None:
     """An audit trail with no name or time on it is a list of rumours."""
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance")
     # John: he is the one past the threshold, so he is the one there is
     # anything to refer about. Chasing an acknowledgement used to be
@@ -4138,7 +4152,7 @@ def check_the_trail_says_who_and_when() -> None:
 
 def check_seeding_only_fills_an_empty_register() -> None:
     """Seeding on every start would overwrite a year with a fixture."""
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance")
 
     h.submit(as_("enduser"), "disclose", {
@@ -4162,7 +4176,7 @@ def check_seeding_only_fills_an_empty_register() -> None:
 
 
 def check_a_notice_outlives_the_process() -> None:
-    _, _f, h = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "register")
     c = as_("compliance")
     notices.clear()
 
@@ -4186,7 +4200,7 @@ def check_a_notice_outlives_the_process() -> None:
 
 
 def _req(user: str = "requester", **over) -> Scope:
-    return people.scope_for(user, registry.feature_of("scs", "requests")[1],
+    return people.scope_for(user, registry.feature_of("finance", "requests")[1],
                             period="FY 2026-27")
 
 
@@ -4199,7 +4213,7 @@ def _desk(user: str, tab: str = "orders", period: str = "FY 2026-27"
     desk's queue off the requests screen would be checking a screen that
     persona no longer opens.
     """
-    handler = registry.feature_of("scs", "register")[2]
+    handler = registry.feature_of("finance", "register")[2]
     return handler.rows(as_(user, "register", period=period), tab)
 
 
@@ -4240,7 +4254,7 @@ def _ask(by: str = "requester", **over) -> str:
               "quantity": "1",
               "purpose": "Thanking the team for the quarter."}
     values.update(over)
-    h = registry.feature_of("scs", "requests")[2]
+    h = registry.feature_of("finance", "requests")[2]
     out = h.submit(_req(by), "request_gift", values)
     if not out.ok:
         raise AssertionError(f"could not raise a request: {out.said}")
@@ -4256,7 +4270,7 @@ def _walk(rid: str, upto: str = "closed", by: str = "requester",
     the right persona is the thing being measured, so this refuses to fudge
     a step it could not take.
     """
-    h = registry.feature_of("scs", "requests")[2]
+    h = registry.feature_of("finance", "requests")[2]
     signers = dict(SIGNS, **(who or {}))
     # Whoever raised it may also hand it out, so a caller naming `by`
     # drives both of Operations' steps with that login.
@@ -4354,7 +4368,7 @@ def check_an_exception_decision_reaches_whoever_asked() -> None:
     """Granted or refused, the row does not move — so without a notice the
     asker finds out by going back and looking, which is the same failure
     as the year end, one decision smaller."""
-    h = registry.feature_of("scs", "requests")[2]
+    h = registry.feature_of("finance", "requests")[2]
     row = lambda who, rid: next(r for r in gr_mod._rows(_req(who))
                                 if r["id"] == rid)
 
@@ -4441,8 +4455,8 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
     So the register is touched at exactly ONE stage — distribution — and
     this walks the chain measuring the total after every step to prove it.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
-    _, _f2, bench = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "requests")
+    _, _f2, bench = registry.feature_of("finance", "register")
     seen = as_("compliance")
     total = lambda: next((r["total"] for r in bench.rows(seen, "all")
                           if r["employee_id"] == "E-1066"), 0)
@@ -4485,8 +4499,8 @@ def check_nothing_reaches_the_register_until_it_is_given() -> None:
 
 
 def check_a_declined_request_never_becomes_a_gift() -> None:
-    _, _f, h = registry.feature_of("scs", "requests")
-    _, _f2, bench = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "requests")
+    _, _f2, bench = registry.feature_of("finance", "register")
     seen = as_("compliance")
     total = lambda: next((r["total"] for r in bench.rows(seen, "all")
                           if r["employee_id"] == "E-1066"), 0)
@@ -4518,7 +4532,7 @@ def check_the_breach_is_caught_before_it_is_bought() -> None:
     \u20b926,000 because of what three other teams already gave him — and that
     sentence is now said while it still costs nothing to say no.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     asking = _req()
     watch = {"recipient": "John Mathew", "what": "Long service watch",
              "kind": "gift", "value": "6000", "occasion": "long service",
@@ -4560,7 +4574,7 @@ def check_policy_blocks_where_tax_only_warns() -> None:
     and it went with the team budgets: the money IS the recipient's
     allowance, which is what the tax check already reads.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     asking = _req()
 
     hospitality = h.preview(asking, "request_gift", {
@@ -4656,7 +4670,7 @@ def check_the_two_thresholds_do_different_jobs() -> None:
     added together, and past it an order needs either a sign-off made
     knowingly or an exception somebody puts their name to.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     asking = _req()
     said = lambda **over: h.preview(asking, "request_gift", dict(
         {"recipient": "Vikram Rao", "what": "Hamper", "kind": "gift",
@@ -4714,7 +4728,7 @@ def check_crossing_the_cumulative_limit_has_two_ways_past_it() -> None:
     desk that wanted cover had nowhere to go inside Compass. That is the
     failure this function exists to end, so both routes are open.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     row = lambda who, rid: next(r for r in gr_mod._rows(_req(who))
                                 if r["id"] == rid)
 
@@ -4763,7 +4777,7 @@ def check_nobody_approves_their_own() -> None:
     With one exception that is not a loophole, and is measured below: the
     stage where the requester records what they actually handed over.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
 
     mine = _ask(by="servicelead", what="A hamper", value="2000")
     row = _order("servicelead", mine)
@@ -4798,7 +4812,7 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
     stage, every login that is NOT that stage's persona is refused, the one
     that is succeeds, and the stage then moves on by itself.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     everybody = ("servicelead", "finance", "payroll", "procurement",
                  "payments", "requester", "enduser", "compliance", "admin")
     rid = _ask(what="A hamper", value="1000")
@@ -4900,8 +4914,8 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
     over. The step is already pinned to one named person, which is
     narrower than any role, so the persona gate does not apply to it.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
-    _, _b, bench = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "requests")
+    _, _b, bench = registry.feature_of("finance", "register")
 
     # The third raiser also HOLDS the first persona in the chain, so their
     # own step has to be signed off by the other approver — which is the
@@ -5012,7 +5026,7 @@ def check_every_stage_reads_as_a_sentence() -> None:
     every stage rather than spot-checked, because the next stage somebody
     adds will be written by copying one of these.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
+    _, _f, h = registry.feature_of("finance", "requests")
     rid = _ask(what="A hamper", value="1000")
 
     for stage, nxt in [(s, gr_mod.STAGES[s]["next"])
@@ -5062,7 +5076,7 @@ def check_the_last_two_steps_only_go_forward() -> None:
     could decline their own gift would have a way to make a record
     disappear, which is the opposite of a control.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     rid = _ask(what="A hamper", value="1000")
 
     for stage in [s for s in gr_mod.STAGES if s != "closed"]:
@@ -5123,7 +5137,7 @@ def check_a_recipient_is_found_by_the_name_a_person_types() -> None:
     dead end that also did not say who it DID know, turning a typed name
     into a guessing game.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     asking = _req()
     base = {"what": "A hamper", "kind": "gift", "value": "1500",
             "occasion": "performance", "source": "Service line \u00b7 Advisory", "purpose": "Recognising the team.", "quantity": "1"}
@@ -5174,8 +5188,8 @@ def check_the_tracker_follows_orders_through_the_chain() -> None:
     to say, and a tracker deriving it again is a second place for a
     privacy rule to be wrong.
     """
-    _, feat, h = registry.feature_of("scs", "register")
-    _, _rf, chain = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "register")
+    _, _rf, chain = registry.feature_of("finance", "requests")
 
     board = people.scope_for("compliance", feat, period="FY 2026-27")
     orders = h.rows(board, "orders") or h.rows(board, "completed")
@@ -5248,45 +5262,58 @@ def check_the_tracker_follows_orders_through_the_chain() -> None:
 
 
 def check_the_firm_has_three_levels() -> None:
-    """SCS is a FUNCTION, RewardLens a SERVICE, the screens its SUB-SERVICES.
+    """Finance is a FUNCTION, RewardLens a SERVICE, its screens SUB-SERVICES.
 
     Flattened to two, five sub-services sat beside each other looking like
     five services — which is exactly what somebody reading the nav
     concluded, because nothing in the structure said otherwise.
+
+    RewardLens was its own function, SCS, until the firm put it under
+    Finance. So this also pins the shape that move produced: a function
+    with one service AND one screen of its own, Form 26, which belongs to
+    no service and must still be reachable.
     """
-    fn = registry.get("scs")
-    ok("the function is the department", fn.name == "SCS", fn.name)
+    fn = registry.get("finance")
+    ok("the function is the department", fn.name == "Finance", fn.name)
     ok("and it runs one named service",
        [s.name for s in fn.services] == ["RewardLens"],
        str([s.name for s in fn.services]))
 
     grouped = fn.grouped()
-    ok("every sub-service is filed under it", len(grouped) == 1, str(len(grouped)))
+    ok("the service and the unfiled screen are both groups",
+       len(grouped) == 2, str([(s.id if s else None) for s, _f in grouped]))
     service, feats = grouped[0]
-    ok("all five of them",
-       [f.name for f in feats] == ["Dashboard", "Gift requests", "Tracker",
-                                   "Tax & budget", "Audit trail"],
+    ok("the service is first, with all five of its desks",
+       service is not None
+       and [f.name for f in feats] == ["Dashboard", "Gift requests", "Tracker",
+                                       "Tax & budget", "Audit trail"],
        str([f.name for f in feats]))
-    ok("nothing is left outside a service",
-       all(f.service == "rewardlens" for f in fn.features),
-       str([f.id for f in fn.features if f.service != "rewardlens"]))
-    ok("and a mistyped service would show as unfiled rather than vanish",
-       sum(len(fs) for _s, fs in grouped) == len(fn.features))
+    loose_service, loose = grouped[1]
+    ok("and the function's own screen comes last, under no service",
+       loose_service is None and [f.id for f in loose] == ["form26"],
+       str([f.id for f in loose]))
+    ok("nothing vanished on the way into a group",
+       sum(len(fs) for _s, fs in grouped) == len(fn.features),
+       f"{sum(len(fs) for _s, fs in grouped)} of {len(fn.features)}")
 
     # The hierarchy reaches the screen, or the UI cannot draw it.
     c = _client()
-    body = c.get("/v1/business-functions/scs").json()
+    body = c.get("/v1/business-functions/finance").json()
     ok("the overview sends the services", body.get("services"),
        str(body.get("services"))[:80])
     ok("with their sub-services inside",
        [f["name"] for f in body["services"][0]["features"]]
-       == [f["name"] for f in body["features"]],
+       == ["Dashboard", "Gift requests", "Tracker", "Tax & budget",
+           "Audit trail"],
        str([f["name"] for f in body["services"][0]["features"]]))
+    ok("and the unfiled screen is still in the flat list",
+       "Form 26" in [f["name"] for f in body["features"]],
+       str([f["name"] for f in body["features"]]))
 
 
 def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:
     """One dashboard, for leadership, and every picture names its figures."""
-    _, feat, h = registry.feature_of("scs", "oversight")
+    _, feat, h = registry.feature_of("finance", "oversight")
 
     for who, allowed in (("compliance", True), ("admin", True),
                          ("finance", False), ("payroll", False),
@@ -5354,9 +5381,9 @@ def check_a_year_shows_that_year() -> None:
     ok("and neither does one nobody can parse",
        rl_mod.within("last Tuesday", "2020-01-01"))
 
-    _, bench, h = registry.feature_of("scs", "register")
-    _, _a, audit = registry.feature_of("scs", "audit")
-    _, _r, req = registry.feature_of("scs", "requests")
+    _, bench, h = registry.feature_of("finance", "register")
+    _, _a, audit = registry.feature_of("finance", "audit")
+    _, _r, req = registry.feature_of("finance", "requests")
 
     seen = lambda handler, feature, year, tab: len(handler.rows(
         people.scope_for("compliance", feature, period=year), tab))
@@ -5427,14 +5454,14 @@ def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
     is bounded by what is in there. That makes the brief the security
     boundary, and it is built through each reader's own scope.
     """
-    everything = chat.brief("scs", "compliance", period="FY 2026-27")
+    everything = chat.brief("finance", "compliance", period="FY 2026-27")
     ok("leadership's brief carries every screen",
        {s["screen"] for s in everything["screens"]}
-       == {"Dashboard", "Audit trail", "Tax & budget", "Gift requests",
-           "Tracker"},
+       == {"Form 26", "Dashboard", "Audit trail", "Tax & budget",
+           "Gift requests", "Tracker"},
        str([s["screen"] for s in everything["screens"]]))
 
-    theirs = chat.brief("scs", "enduser", period="FY 2026-27")
+    theirs = chat.brief("finance", "enduser", period="FY 2026-27")
     shown = {s["screen"] for s in theirs["screens"]}
     ok("an employee's brief carries only their own screens",
        shown == {"Gift requests", "Tracker"}, str(sorted(shown)))
@@ -5467,7 +5494,7 @@ def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
            for era in s.get("periods", [])))
 
     ok("a stranger gets nothing to answer from",
-       not chat.brief("scs", "stranger", period="FY 2026-27")["screens"])
+       not chat.brief("finance", "stranger", period="FY 2026-27")["screens"])
 
     # Nothing in the brief is the handler's own machinery.
     for screen in everything["screens"]:
@@ -5504,7 +5531,7 @@ def check_the_assistant_cannot_act() -> None:
 
     # The function-level route answers; it never returns a plan.
     c = _client()
-    r = c.post("/v1/business-functions/scs/ask",
+    r = c.post("/v1/business-functions/finance/ask",
                json={"text": "approve everything", "period": "FY 2026-27"})
     ok("the overview route answers rather than proposing",
        r.status_code == 200 and r.json()["kind"] == "answer",
@@ -5516,7 +5543,7 @@ def check_the_assistant_cannot_act() -> None:
 
 def check_only_the_administrator_moves_a_threshold() -> None:
     """The rule every other persona is judged by is not theirs to move."""
-    _, feat, h = registry.feature_of("scs", "finance")
+    _, feat, h = registry.feature_of("finance", "finance")
     form = "set_thresholds"
     asking = {"annual_limit": "20000", "why": "Board raised the limit."}
 
@@ -5554,7 +5581,7 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
     afterwards, and a breach does not stop being one because somebody
     raised it.
     """
-    _, feat, h = registry.feature_of("scs", "finance")
+    _, feat, h = registry.feature_of("finance", "finance")
     before = policy.current()
     ok("it starts on the version it shipped with", before["version"] == 1)
     ok("at the limit the module was built against",
@@ -5594,7 +5621,7 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
        "v1" in moved[0]["state"] and "v2" in moved[0]["state"],
        moved[0]["state"])
 
-    _, _a, audit = registry.feature_of("scs", "audit")
+    _, _a, audit = registry.feature_of("finance", "audit")
     rows = audit.rows(_aud(), "decisions")
     ok("and it reads as a decision somebody is answerable for",
        any(r["did"] == "moved a threshold" for r in rows),
@@ -5628,8 +5655,8 @@ def check_a_threshold_is_versioned_and_not_edited() -> None:
 
 def check_a_moved_threshold_judges_only_what_comes_after() -> None:
     """The point of versioning, measured on a real gift."""
-    _, feat, h = registry.feature_of("scs", "finance")
-    _, _b, bench = registry.feature_of("scs", "register")
+    _, feat, h = registry.feature_of("finance", "finance")
+    _, _b, bench = registry.feature_of("finance", "register")
     seen = as_("compliance")
 
     over = [r for r in bench.rows(seen, "all") if r["over_limit"]]
@@ -5667,23 +5694,23 @@ def check_an_employee_is_not_shown_the_firms_machinery() -> None:
         disclosure the register's breadth rules exist to prevent.
     """
     c = _client()
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
 
     # Over HTTP with auth OFF there is no identity to narrow by, every
     # route is open, and hiding the screens would leave a local
     # deployment with an empty section. The filter is a privacy boundary,
     # and a deployment with no sign-in has not drawn one.
-    offered = {f["id"] for f in c.get("/v1/business-functions/scs").json()["features"]}
+    offered = {f["id"] for f in c.get("/v1/business-functions/finance").json()["features"]}
     ok("with no sign-in, every screen is still listed",
-       offered == {f.id for f in registry.get("scs").features},
+       offered == {f.id for f in registry.get("finance").features},
        str(sorted(offered)))
 
     for login, wanted in (
             ("compliance", {"oversight", "audit", "finance", "requests",
-                            "register"}),
+                            "register", "form26"}),
             ("enduser", {"requests", "register"}),
             ("procurement", {"requests", "register", "audit"})):
-        shown = {f.id for f in registry.get("scs").features
+        shown = {f.id for f in registry.get("finance").features
                  if people.breadth(login, f.visibility) != "none"}
         ok(f"{login} is offered {', '.join(sorted(wanted))}",
            shown == wanted, str(sorted(shown)))
@@ -5732,7 +5759,7 @@ def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     now. Gift requests answers a different question — what did I ask for,
     and what was asked for me — and is checked as that below.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     sees = lambda u: ({r["id"] for r in _desk(u, "orders")}
                       | {r["id"] for r in _desk(u, "completed")})
 
@@ -5795,7 +5822,7 @@ def check_the_question_belongs_to_the_step() -> None:
     what the row says to ask, and the server requires an answer to exactly
     the same question, so the two cannot drift apart.
     """
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     rid = _ask(what="A hamper", value="1200")
 
     # ONLY FINANCE IS ASKED TO WRITE ANYTHING NOW. Distribution used to
@@ -5856,8 +5883,8 @@ def check_the_recipient_is_told_and_asked_nothing() -> None:
     waits on them, nothing offers them a button, and the email does not
     imply a reply is due.
     """
-    _, _f, h = registry.feature_of("scs", "requests")
-    _, _f2, bench = registry.feature_of("scs", "register")
+    _, _f, h = registry.feature_of("finance", "requests")
+    _, _f2, bench = registry.feature_of("finance", "register")
     notices.clear()
     rid = _ask(what="A hamper", value="1000")
     trouble = _walk(rid)
@@ -5901,7 +5928,7 @@ def check_the_recipient_is_told_and_asked_nothing() -> None:
        str(posted and posted[0].body[:160]))
 
 def _fin(user: str = "finance") -> Scope:
-    return people.scope_for(user, registry.feature_of("scs", "finance")[1],
+    return people.scope_for(user, registry.feature_of("finance", "finance")[1],
                             period="FY 2026-27")
 
 
@@ -5914,7 +5941,7 @@ def _aud(user: str = "compliance") -> Scope:
     be held to. Signed in as one, every row on this screen was empty and
     the checks below passed for the wrong reason.
     """
-    return people.scope_for(user, registry.feature_of("scs", "audit")[1],
+    return people.scope_for(user, registry.feature_of("finance", "audit")[1],
                             period="FY 2026-27")
 
 
@@ -5926,9 +5953,9 @@ def check_finance_reports_the_amount_and_not_a_tax_bill() -> None:
     would be believed — the rate and the heads of income belong to
     Finance's own system, and this hands it the number it needs.
     """
-    _, feat, h = registry.feature_of("scs", "finance")
+    _, feat, h = registry.feature_of("finance", "finance")
     rows = h.rows(_fin(), "taxable")
-    bench = registry.feature_of("scs", "register")[2]
+    bench = registry.feature_of("finance", "register")[2]
     over = [r for r in bench.rows(as_("compliance"), "all") if r["over_limit"]]
 
     ok("everybody past the limit is listed", len(rows) == len(over),
@@ -5953,8 +5980,8 @@ def check_finance_reports_the_amount_and_not_a_tax_bill() -> None:
 def check_finance_sees_what_nobody_referred() -> None:
     """Hearing only about the breaches compliance remembered to send is
     the shape of the problem this function exists to end."""
-    _, _f, h = registry.feature_of("scs", "finance")
-    bench = registry.feature_of("scs", "register")[2]
+    _, _f, h = registry.feature_of("finance", "finance")
+    bench = registry.feature_of("finance", "register")[2]
 
     taxable = h.rows(_fin(), "taxable")
     ok("somebody is past the limit", taxable)
@@ -5977,8 +6004,8 @@ def check_finance_sees_what_nobody_referred() -> None:
 
 
 def check_only_finance_records_the_treatment() -> None:
-    _, _f, h = registry.feature_of("scs", "finance")
-    bench = registry.feature_of("scs", "register")[2]
+    _, _f, h = registry.feature_of("finance", "finance")
+    bench = registry.feature_of("finance", "register")[2]
     bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
     row = next(r for r in h.rows(_fin(), "referred")
                if r["employee_id"] == "E-1007")
@@ -6015,7 +6042,7 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
     was a second, quieter limit that could refuse a gift the real rule
     allowed, and nothing on screen said which of the two had done it.
     """
-    _, _f, h = registry.feature_of("scs", "finance")
+    _, _f, h = registry.feature_of("finance", "finance")
     tabs = [t.key for t in h.tabs(_fin())]
     ok("Tax & budget no longer has a team budgets tab",
        "budgets" not in tabs, str(tabs))
@@ -6029,7 +6056,7 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
 
     # The allowance is the SAME number for everybody, and it is the one the
     # register measures against.
-    bench = registry.feature_of("scs", "register")[2]
+    bench = registry.feature_of("finance", "register")[2]
     rows = bench.rows(as_("compliance", period="FY 2026-27"), "all")
     ok("every person is measured against the same allowance",
        len({r["limit"] for r in rows}) == 1, str({r["limit"] for r in rows}))
@@ -6038,7 +6065,7 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
 
     # A team's allowance is its headcount times that number — derived, so a
     # team that hires has more the same day and nobody edits a figure.
-    _, _of, over = registry.feature_of("scs", "oversight")
+    _, _of, over = registry.feature_of("finance", "oversight")
     budget = next(c for c in over.charts(as_("admin", "oversight",
                                              period="FY 2026-27"))
                   if c.key == "budget")
@@ -6051,7 +6078,7 @@ def check_the_allowance_is_one_number_for_everybody() -> None:
 
 def check_one_team_buys_for_the_whole_firm() -> None:
     """Nobody is asked who pays, because the answer never varies."""
-    _, feat, h = registry.feature_of("scs", "requests")
+    _, feat, h = registry.feature_of("finance", "requests")
     form = next(f for f in feat.forms if f.id == "request_gift")
     ok("the request form does not ask which team is paying",
        "source" not in {f.id for f in form.fields},
@@ -6075,27 +6102,27 @@ def check_one_team_buys_for_the_whole_firm() -> None:
 
 def check_audit_reads_and_cannot_write() -> None:
     """A function that could alter what it audits is not one."""
-    _, feat, h = registry.feature_of("scs", "audit")
-    bench = registry.feature_of("scs", "register")[2]
+    _, feat, h = registry.feature_of("finance", "audit")
+    bench = registry.feature_of("finance", "register")[2]
     bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
 
     ok("the trail declares no actions", not feat.actions, str(feat.actions))
     ok("so the rail cannot operate here",
-       not assistant.view(registry.get("scs"), feat, _aud()).can_act)
+       not assistant.view(registry.get("finance"), feat, _aud()).can_act)
     out = h.act(_aud(), "refer_to_finance", ["E-1007"])
     ok("and acting is refused, including for Audit itself",
        not out.ok and "Audit reads" in out.said, out.said)
     ok("no sentence turns into a plan here",
-       not isinstance(assistant.interpret("scs", feat, h, _aud(),
+       not isinstance(assistant.interpret("finance", feat, h, _aud(),
                                           "refer John to Finance", "audit"),
                       assistant.Proposal))
 
 
 
 def check_the_trail_reads_as_what_happened() -> None:
-    _, _f, h = registry.feature_of("scs", "audit")
-    bench = registry.feature_of("scs", "register")[2]
-    req = registry.feature_of("scs", "requests")[2]
+    _, _f, h = registry.feature_of("finance", "audit")
+    bench = registry.feature_of("finance", "register")[2]
+    req = registry.feature_of("finance", "requests")[2]
 
     bench.act(as_("compliance"), "refer_to_finance", ["E-1007"])
     rid = _ask(what="Diwali hamper", value="3000")
@@ -6153,7 +6180,7 @@ def check_an_order_has_its_own_report() -> None:
     """
     from openpyxl import load_workbook
 
-    fn, feature, h = registry.feature_of("scs", "requests")
+    fn, feature, h = registry.feature_of("finance", "requests")
     rid = _ask(what="Long service award", value="2500")
     trouble = _walk(rid)
     ok("an order can be walked to the end", not trouble, str(trouble))
@@ -6244,7 +6271,7 @@ def check_the_consolidated_report_cuts_on_distribution() -> None:
     apart, and a report cut on the wrong one omits exactly the orders that
     crossed the boundary — which is the report somebody takes to a board.
     """
-    fn, feature, h = registry.feature_of("scs", "requests")
+    fn, feature, h = registry.feature_of("finance", "requests")
     # Read as the person who RAISED them. Gift requests is personal now, so
     # a consolidated report from it is a report of your own orders; the
     # firm-wide reading of the same records is the Tracker and the trail.
@@ -6323,8 +6350,8 @@ def check_the_consolidated_report_cuts_on_distribution() -> None:
 
 
 def check_the_new_screens_are_for_their_people() -> None:
-    _, fin_m, fin = registry.feature_of("scs", "finance")
-    _, aud_m, aud = registry.feature_of("scs", "audit")
+    _, fin_m, fin = registry.feature_of("finance", "finance")
+    _, aud_m, aud = registry.feature_of("finance", "audit")
 
     # Tax & budget is Finance's; the TRAIL is for everybody who handles an
     # order, which is the change: a history its own subjects cannot read is
