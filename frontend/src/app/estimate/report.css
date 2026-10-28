@@ -215,6 +215,12 @@ svg { fill: none; }
 .wfrow .b { flex: 1; height: 20px; border-radius: 5px; background: var(--rule); overflow: hidden; }
 .wfrow .b i { display: block; height: 100%; border-radius: 5px; }
 .wfrow .v { font-family: var(--mono); font-size: 12px; font-weight: 600; width: 92px; text-align: right; }
+/* A row in time rather than money: the weeks or the monthly rate under its
+   label, so the value column keeps the width the bars are aligned to. */
+.wfrow .l small { display: block; font-size: 10.5px; line-height: 1.35; color: var(--ink-3); margin-top: 1px; }
+/* Infrastructure with its cost hidden: a bill, not labour — nothing to draw. */
+.wfrow.nil .b { opacity: 0.45; }
+.wfrow.nil .v { color: var(--ink-3); font-weight: 400; }
 
 .kv { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
 .kv:last-child { border-bottom: none; }
@@ -279,6 +285,13 @@ svg { fill: none; }
 }
 .phase-m { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .phase-m.wks { color: var(--ink-2); font-weight: 700; }
+/* The plan's total effort, as a chip: the same figure the phase rows add up
+   to, marked as their sum rather than set in the same type as a rate. */
+.tot-chip {
+  display: inline-block; padding: 2px 9px; border-radius: 20px;
+  background: var(--brass-soft); color: var(--brass-2); border: 1px solid var(--brass);
+  font-family: var(--mono); font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
 
 .mod {
   display: grid; grid-template-columns: 14px 1fr 26px 110px 62px 58px 76px;

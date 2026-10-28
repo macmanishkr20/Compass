@@ -667,7 +667,7 @@ def build_plan_context(
     data_gb = vs.data_volume_gb if (vs and vs.data_volume_gb is not None) else 10.0
     requests = vs.requests_per_day if (vs and vs.requests_per_day is not None) else 1000
     users = vs.expected_daily_users if (vs and vs.expected_daily_users is not None) else 100
-    primary = (tp.azure_region if tp else None) or "eastus"
+    primary = (tp.azure_region if tp else None) or "northeurope"
     openai_region = (tp.azure_openai_region if tp else None) or primary
     search_region = (tp.azure_search_region if tp else None) or primary
     task_types = frozenset(uc.task_type for uc in (inp.ai_use_cases or []) if uc.task_type)

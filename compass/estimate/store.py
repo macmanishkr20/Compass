@@ -48,6 +48,7 @@ def _now() -> float:
 DISPLAY_DEFAULTS: dict[str, bool] = {
     "development_cost": True,
     "infrastructure_cost": True,
+    "maintenance_cost": True,
     "written_report": True,
 }
 

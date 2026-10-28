@@ -187,9 +187,14 @@ class TechnicalPreferences(EstimateModel):
     # Azure regions used to price infrastructure. A single primary region drives
     # every service, with dedicated overrides for the two services whose
     # availability/price varies most by region.
-    azure_region: str = "eastus"
-    azure_openai_region: str = "eastus"
-    azure_search_region: str = "eastus"
+    #: North Europe: where this organisation's builds are priced unless a
+    #: brief says otherwise. East US was the default only because the form
+    #: never asked.
+    azure_region: str = "northeurope"
+    #: Empty follows `azure_region` — a brief that moves its region should not
+    #: leave its model and its search index priced on another continent.
+    azure_openai_region: str = ""
+    azure_search_region: str = ""
     #: The Azure services the build will actually use, as catalog keys — an
     #: architect's Tech Stack tab. When given, these are what is priced, and
     #: nothing else: the planner's rules exist to guess a stack nobody stated,

@@ -106,6 +106,7 @@ export interface TechnicalPreferences {
 export interface DisplayFlags {
   development_cost: boolean;
   infrastructure_cost: boolean;
+  maintenance_cost: boolean;
   written_report: boolean;
 }
 

@@ -199,9 +199,9 @@ export class Estimate {
   readonly deployment = signal('cloud');
   readonly existingInfra = signal('');
   readonly compliance = signal('');
-  /** Where infrastructure is priced. East US was the only answer the form
-   *  could give, because it never asked. */
-  readonly azureRegion = signal('eastus');
+  /** Where infrastructure is priced — North Europe unless changed. East US
+   *  was once the only answer the form could give, because it never asked. */
+  readonly azureRegion = signal('northeurope');
   /** The stack as stated. Empty leaves the choice to the planner's rules. */
   readonly azureServices = signal<string[]>([]);
 
@@ -958,7 +958,7 @@ export class Estimate {
     this.useCases.set([]);
     this.existingInfra.set('');
     this.compliance.set('');
-    this.azureRegion.set('eastus');
+    this.azureRegion.set('northeurope');
     this.azureServices.set([]);
     this.budget.set(null);
     this.dailyUsers.set(null);

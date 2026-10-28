@@ -1918,6 +1918,16 @@ def check_the_stack_is_the_one_stated() -> None:
        "SQL is matched on its exact meter, in the region — 'contains' would also "
        "take the zone-redundant vCores and price the cheapest of the wrong thing")
 
+    from compass.estimate.types import TechnicalPreferences
+    tp = TechnicalPreferences()
+    eq((tp.azure_region, tp.azure_openai_region, tp.azure_search_region),
+       ("northeurope", "", ""),
+       "North Europe by default, and the AI regions follow it rather than "
+       "staying in East US when the brief moves")
+    ts_form = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
+    ok("readonly azureRegion = signal('northeurope');" in ts_form,
+       "and the form opens on it")
+
     unstated = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
                                         "est_rules", "2026-10-29T00:00:00+00:00"))
     ok("Azure Container Apps" in [s.service_name for s in unstated.cost_breakdown.infrastructure.services],
@@ -1937,7 +1947,8 @@ def check_the_report_shows_what_it_is_told() -> None:
                                    "est_flags", "2026-10-29T00:00:00+00:00"))
     money = f"{est.cost_breakdown.currency} {est.cost_breakdown.development.total_cost:,.0f}"
 
-    effort_only = {"development_cost": False, "infrastructure_cost": False}
+    effort_only = {"development_cost": False, "infrastructure_cost": False,
+                   "maintenance_cost": False}
     html = export.to_html(est, effort_only)
     ok(money not in html and "First year" not in html and "Infrastructure —" not in html
        and "1,683 h" in html,
@@ -1947,6 +1958,14 @@ def check_the_report_shows_what_it_is_told() -> None:
     ok(money in dev_only and "First year" not in dev_only and "Total (expected)" not in dev_only,
        "one cost shown, no total: the total would give the hidden one away")
     ok("First year" in export.to_html(est, None), "and everything, by default")
+    maint = f"{est.cost_breakdown.currency} {est.cost_breakdown.maintenance.annual_cost:,.0f}"
+    no_maint = export.to_html(est, {"maintenance_cost": False})
+    ok(maint not in no_maint and "Maintenance (annual)" not in no_maint
+       and "Infrastructure —" in no_maint and "Total (expected)" not in no_maint,
+       "maintenance has a switch of its own: its line goes, the services stay, "
+       "and so does the total — it would give the maintenance away")
+    ok("a month — infrastructure</div>" in no_maint,
+       "and \"to run\" says it is the services alone, not the services and the people")
 
     ws = load_workbook(io.BytesIO(export.to_excel(est, effort_only)))["Work Breakdown"]
     ok(ws.cell(row=1, column=7).value == "Cost (not shown)"
@@ -1954,7 +1973,8 @@ def check_the_report_shows_what_it_is_told() -> None:
        "the workbook's cost column stays where formulas expect it, and empty")
 
     eq(store.display_of({"written_report": False, "bogus": True}),
-       {"development_cost": True, "infrastructure_cost": True, "written_report": False},
+       {"development_cost": True, "infrastructure_cost": True, "maintenance_cost": True,
+        "written_report": False},
        "flags a record was saved without read as shown; unknown ones are dropped")
     routes = (ROOT / "compass/estimate/routes.py").read_text()
     ok('@router.patch("/v1/estimates/{estimate_id}/display")' in routes
@@ -1968,6 +1988,14 @@ def check_the_report_shows_what_it_is_told() -> None:
     ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
     ok("if (!this.showTotal()) hidden.push('- **Total expected');" in ts,
        "and on screen it drops the lines that would print a hidden cost")
+    ok("label: 'Development', amount: devHours, unit: 'hours'" in ts
+       and "label: 'First-year effort'" in ts,
+       "a hidden cost's row shows its time instead — development in hours and "
+       "weeks, maintenance in hours a year — and with both hidden the panel "
+       "totals effort, not money")
+    ok("new Set(parts.map((p) => p.unit)).size !== 1" in ts,
+       "the share bar is drawn only when every part is in one unit: a share "
+       "of dollars-plus-hours is not a share of anything")
 
 
 # ── Checked against a second architect ──────────────────────────────────────

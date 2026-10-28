@@ -119,16 +119,17 @@ td.ind .cov { font-size: 7.5pt; color: #8a8a90; margin-top: 0.6mm; }
 """
 
 
-def _shown(display: dict | None) -> tuple[bool, bool]:
-    """(development cost shown, infrastructure cost shown).
+def _shown(display: dict | None) -> tuple[bool, bool, bool]:
+    """(development, infrastructure, maintenance) — which costs are shown.
 
-    Infrastructure here means the running cost — the services and the
-    maintenance that keeps them up — because that is what the report groups
-    as "run" beside "build". A total is printed only when both are: a total
-    beside one hidden part gives the hidden part away by subtraction.
+    Infrastructure is the services, model usage included; maintenance is the
+    people who keep them up, and has its own switch. A total is printed only
+    when all three are: a total beside one hidden part gives that part away
+    by subtraction.
     """
     d = display or {}
-    return bool(d.get("development_cost", True)), bool(d.get("infrastructure_cost", True))
+    return (bool(d.get("development_cost", True)), bool(d.get("infrastructure_cost", True)),
+            bool(d.get("maintenance_cost", True)))
 
 
 def to_html(est: Estimation, display: dict | None = None) -> str:
@@ -142,8 +143,8 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
     cost = est.cost_breakdown
     roi = est.roi_projection
     mode = "Enhancement" if est.project_type == "enhancement" else "New build"
-    show_dev, show_infra = _shown(display)
-    show_total = show_dev and show_infra
+    show_dev, show_infra, show_maint = _shown(display)
+    show_total = show_dev and show_infra and show_maint
 
     parts: list[str] = [
         f"<style>{_PRINT_CSS}</style>",
@@ -191,7 +192,6 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
         hours = wbs.total_hours if wbs is not None and wbs.phases else sum(
             b.hours for b in cost.development.breakdown)
         weeks = wbs.total_weeks if wbs is not None and wbs.phases else 0
-        run = cost.infrastructure.monthly_cost + cost.maintenance.monthly_cost
         build_note = f"{money(cost.development.total_cost)} to build" if show_dev else "of work"
         kpis = (
             f'<div class="kpi"><span class="kicker">Effort</span>'
@@ -201,11 +201,16 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
             f'<div class="v">{_e(_num(weeks, " wks"))}</div>'
             f'<div class="n">{_e(_team_phrase(wbs, html=False)) if wbs is not None and wbs.phases else ""}</div></div>'
         )
-        if show_infra:
+        # What it costs to keep running, from whichever of its two parts is
+        # shown, and saying which — "to run" of the services alone is not the
+        # same figure as the services and the people.
+        run = [(cost.infrastructure.monthly_cost, "infrastructure")] if show_infra else []
+        run += [(cost.maintenance.monthly_cost, "maintenance")] if show_maint else []
+        if run:
             kpis += (
                 f'<div class="kpi"><span class="kicker">To run</span>'
-                f'<div class="v">{money(run)}</div>'
-                f'<div class="n">a month — infrastructure and maintenance</div></div>'
+                f'<div class="v">{money(sum(a for a, _ in run))}</div>'
+                f'<div class="n">a month — {" and ".join(w for _, w in run)}</div></div>'
             )
     first_year = (
         f'<div class="kpi"><span class="kicker">First year</span>'
@@ -221,7 +226,7 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
             ("Development", cost.development.total_cost, show_dev),
             ("Infrastructure (annual)", cost.infrastructure.annual_cost, show_infra),
             ("AI tokens (annual, expected)", cost.ai_tokens.annual_cost.expected, show_infra),
-            ("Maintenance (annual)", cost.maintenance.annual_cost, show_infra),
+            ("Maintenance (annual)", cost.maintenance.annual_cost, show_maint),
         )
         # A zero row for tokens on a system that calls no model reads as a
         # model that happens to be free.
@@ -437,8 +442,8 @@ def to_excel(est: Estimation, display: dict | None = None) -> bytes:
     from openpyxl.utils import get_column_letter
 
     cur = est.cost_breakdown.currency
-    show_dev, show_infra = _shown(display)
-    show_total = show_dev and show_infra
+    show_dev, show_infra, show_maint = _shown(display)
+    show_total = show_dev and show_infra and show_maint
     wb = Workbook()
 
     header_fill = PatternFill("solid", fgColor="1D1D1F")
@@ -526,6 +531,7 @@ def to_excel(est: Estimation, display: dict | None = None) -> bytes:
                                  ("expected", c.ai_tokens.annual_cost.expected),
                                  ("pessimistic", c.ai_tokens.annual_cost.pessimistic)):
                 ws.append(["AI tokens", f"Annual ({label})", "", "", value])
+    if show_maint:
         ws.append(["Maintenance",
                    f"{c.maintenance.monthly_hours}h/mo @ {_money(cur, c.maintenance.hourly_rate)}/h",
                    "", "", c.maintenance.annual_cost])

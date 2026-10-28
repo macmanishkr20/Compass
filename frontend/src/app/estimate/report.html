@@ -46,9 +46,12 @@
     <label class="show-t" title="Development cost: every money figure on the work breakdown. Hours stay.">
       <input type="checkbox" [checked]="showDev()" (change)="setDisplay('development_cost', $any($event.target).checked)" />
       Development cost</label>
-    <label class="show-t" title="Running cost: infrastructure services and maintenance.">
+    <label class="show-t" title="The Azure services, priced by region — model usage included.">
       <input type="checkbox" [checked]="showInfra()" (change)="setDisplay('infrastructure_cost', $any($event.target).checked)" />
       Infrastructure cost</label>
+    <label class="show-t" title="The monthly upkeep at the maintenance rate. Its hours stay.">
+      <input type="checkbox" [checked]="showMaint()" (change)="setDisplay('maintenance_cost', $any($event.target).checked)" />
+      Maintenance cost</label>
     <label class="show-t" title="The written report on the Assumptions view.">
       <input type="checkbox" [checked]="display().written_report" (change)="setDisplay('written_report', $any($event.target).checked)" />
       Written report</label>
@@ -101,33 +104,33 @@
         <div class="note" style="margin-top:16px">{{ weakest() }}</div>
       </div>
 
-      @if (showDev() || showInfra()) {
       <div class="panel">
-        <h3>Where the money goes<span class="tk"></span></h3>
+        <h3>{{ panelTitle() }}<span class="tk"></span></h3>
         <!-- Part-to-whole first, magnitudes second. The stack is the shape
              the four numbers make; the rows below compare them. Same four
              colours in the same fixed order in both. -->
-        <div class="stack">
-          @for (p of composition(); track p.label) {
-            <i [style.flex]="p.flex" [style.background]="p.colour" [title]="p.label + ' — ' + money(p.amount) + ' (' + p.share + '%)'"></i>
-          }
-        </div>
-        <div class="slegend">
-          @for (p of composition(); track p.label) {
-            <span><i [style.background]="p.colour"></i>{{ p.label }} <b>{{ p.share }}%</b></span>
-          }
-        </div>
+        @if (composition().length) {
+          <div class="stack">
+            @for (p of composition(); track p.label) {
+              <i [style.flex]="p.flex" [style.background]="p.colour" [title]="p.label + ' — ' + p.text + ' (' + p.share + '%)'"></i>
+            }
+          </div>
+          <div class="slegend">
+            @for (p of composition(); track p.label) {
+              <span><i [style.background]="p.colour"></i>{{ p.label }} <b>{{ p.share }}%</b></span>
+            }
+          </div>
+        }
         <div class="wf">
           @for (row of waterfall(); track row.label) {
-            <div class="wfrow" [class.tot]="row.total">
-              <span class="l">{{ row.label }}</span>
+            <div class="wfrow" [class.tot]="row.total" [class.time]="row.unit === 'hours'" [class.nil]="row.unit === 'none'">
+              <span class="l">{{ row.label }}@if (row.note) {<small>{{ row.note }}</small>}</span>
               <span class="b"><i [style.width.%]="row.width" [style.background]="row.colour"></i></span>
-              <span class="v">{{ money(row.amount) }}</span>
+              <span class="v">{{ row.text }}</span>
             </div>
           }
         </div>
       </div>
-      }
     </div>
 
     @if (hasWbs()) {
@@ -266,9 +269,10 @@
       <div class="panel">
         <h3>What this assumes<span class="tk"></span></h3>
         <div class="kv"><span class="k">{{ showDev() ? 'Delivery rate' : 'Effort' }}</span>
-          <span class="v mono">@if (showDev()) {{{ money(cost.development.hourly_rate) }} / hour · }{{ devHours() }} hours</span></div>
+          <span class="v mono">@if (showDev()) {{{ money(cost.development.hourly_rate) }} / hour · }<span class="tot-chip"
+            title="The whole plan: every phase, its delivery rows included">{{ devHours() }} h@if (hasWbs()) { · {{ wbs().total_weeks }} wks}</span></span></div>
         <div class="kv"><span class="k">Maintenance</span>
-          <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo@if (showInfra()) { at
+          <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo@if (showMaint()) { at
             {{ money(cost.maintenance.hourly_rate) }}}</span></div>
         @if (ai()) {
           <div class="kv"><span class="k">Tokens / month</span>

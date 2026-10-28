@@ -386,6 +386,7 @@ class DisplayPatch(BaseModel):
 
     development_cost: bool | None = None
     infrastructure_cost: bool | None = None
+    maintenance_cost: bool | None = None
     written_report: bool | None = None
 
 

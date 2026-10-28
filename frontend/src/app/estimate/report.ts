@@ -18,6 +18,22 @@ import { DisplayFlags, EstimateRecord, ProjectType } from './models';
  *  screen is one page with the working folded behind a single control. */
 type Tab = 'summary' | 'detail';
 
+/** What a row of the money panel is measured in. 'none' is a row with
+ *  nothing to measure once its cost is hidden — infrastructure is a bill,
+ *  and the hours that stand it up are counted in development. */
+type Unit = 'money' | 'hours' | 'none';
+
+interface Part {
+  label: string;
+  amount: number;
+  unit: Unit;
+  /** The figure as shown: "$9,516", or "1,683 h". */
+  text: string;
+  /** What a time figure means, under the label: "17.53 wks". */
+  note?: string;
+  colour: string;
+}
+
 /**
  * One estimate, read — the mockup's result screen.
  *
@@ -61,16 +77,18 @@ export class EstimateReport {
    *  shows that one's choice; set here first, so a toggle answers at once
    *  while the record catches up. */
   readonly display = linkedSignal<DisplayFlags>(() => ({
-    development_cost: true, infrastructure_cost: true, written_report: true,
+    development_cost: true, infrastructure_cost: true, maintenance_cost: true, written_report: true,
     ...(this.record().display ?? {}),
   }));
   readonly showDev = computed(() => this.display().development_cost);
-  /** Infrastructure here is the running cost: the services and the
-   *  maintenance that keeps them up, which the report calls "run". */
+  /** The services, model usage included. */
   readonly showInfra = computed(() => this.display().infrastructure_cost);
+  /** The people who keep them up — a switch of its own, because a rate card
+   *  is as much in the maintenance line as in the development one. */
+  readonly showMaint = computed(() => this.display().maintenance_cost);
   /** A total beside one hidden part gives that part away by subtraction, so
-   *  every total needs both. */
-  readonly showTotal = computed(() => this.showDev() && this.showInfra());
+   *  every total needs all three. */
+  readonly showTotal = computed(() => this.showDev() && this.showInfra() && this.showMaint());
 
   async setDisplay(key: keyof DisplayFlags, on: boolean): Promise<void> {
     const before = this.display();
@@ -89,7 +107,8 @@ export class EstimateReport {
   readonly writtenReport = computed(() => {
     const hidden: string[] = [];
     if (!this.showDev()) hidden.push('- Development:');
-    if (!this.showInfra()) hidden.push('- Infrastructure:', '- AI tokens:', '- Maintenance:');
+    if (!this.showInfra()) hidden.push('- Infrastructure:', '- AI tokens:');
+    if (!this.showMaint()) hidden.push('- Maintenance:');
     if (!this.showTotal()) hidden.push('- **Total expected');
     return (this.est().report_markdown ?? '').split('\n')
       .filter((line) => !hidden.some((p) => line.startsWith(p)))
@@ -102,9 +121,13 @@ export class EstimateReport {
     const c = this.est().cost_breakdown;
     if (this.showTotal()) return null;
     if (this.showDev()) return { k: 'Build', v: this.compactMoney(c.development.total_cost), s: 'development cost' };
-    if (this.showInfra()) {
-      const run = c.infrastructure.annual_cost + c.maintenance.annual_cost + c.ai_tokens.annual_cost.expected;
-      return { k: 'To run', v: this.compactMoney(run), s: 'a year — infrastructure and maintenance' };
+    if (this.showInfra() || this.showMaint()) {
+      // From whichever parts of the running cost are shown, saying which.
+      const parts: [number, string][] = [];
+      if (this.showInfra()) parts.push([c.infrastructure.annual_cost + c.ai_tokens.annual_cost.expected, 'infrastructure']);
+      if (this.showMaint()) parts.push([c.maintenance.annual_cost, 'maintenance']);
+      return { k: 'To run', v: this.compactMoney(parts.reduce((s, [a]) => s + a, 0)),
+        s: `a year — ${parts.map(([, w]) => w).join(' and ')}` };
     }
     const w = this.wbs();
     return { k: 'Effort', v: `${(w?.total_hours ?? 0).toLocaleString('en-US')} h`,
@@ -287,42 +310,98 @@ export class EstimateReport {
   readonly waterfall = computed(() => {
     const c = this.est().cost_breakdown;
     const parts = this.parts();
-    const max = Math.max(...parts.map((p) => p.amount), 1);
-    return [
-      ...parts.map((p) => ({ ...p, width: (p.amount / max) * 88, total: false })),
-      ...(this.showTotal() ? [{ label: 'First-year total', amount: c.total.expected,
-        colour: 'var(--ink)', width: 100, total: true }] : []),
-    ];
+    // Bars compare like with like: dollars against the largest dollar row,
+    // hours against the largest hour row. A shared scale between the two
+    // would draw 1,683 hours beside $27,360 as if one were bigger.
+    // Hours are drawn against the year's whole effort, not the largest hour
+    // row: with maintenance the only row in hours, the largest-row scale drew
+    // its 288 h as long as $193,545 of development beside it.
+    const w = this.wbs();
+    const effort = (w?.phases?.length ? w.total_hours
+      : c.development.breakdown.reduce((s, b) => s + b.hours, 0)) + c.maintenance.monthly_hours * 12;
+    const max = (unit: Unit) => unit === 'hours' ? Math.max(1, effort)
+      : Math.max(1, ...parts.filter((p) => p.unit === unit).map((p) => p.amount));
+    const rows = parts.map((p) => ({
+      ...p, width: p.unit === 'none' ? 0 : (p.amount / max(p.unit)) * 88, total: false,
+    }));
+    if (this.showTotal()) {
+      rows.push({ label: 'First-year total', amount: c.total.expected, unit: 'money',
+        text: this.money(c.total.expected), colour: 'var(--ink)', width: 100, total: true });
+    } else if (!parts.some((p) => p.unit === 'money')) {
+      // No money left in the panel: it is all time, and time adds up.
+      const hours = parts.filter((p) => p.unit === 'hours').reduce((s, p) => s + p.amount, 0);
+      rows.push({ label: 'First-year effort', amount: hours, unit: 'hours',
+        text: `${this.num(hours)} h`, note: 'build and a year of upkeep',
+        colour: 'var(--ink)', width: 100, total: true });
+    }
+    return rows;
   });
 
-  /** The four parts of a first-year cost, in fixed slot order. One
-   *  definition: the composition stack, its legend and the waterfall all
-   *  read it, so a colour means the same part in all three. */
+  /** "Where the money goes", or the time, or both — named for what it shows. */
+  readonly panelTitle = computed(() => {
+    if (this.showTotal()) return 'Where the money goes';
+    if (!this.parts().some((p) => p.unit === 'money')) return 'Where the effort goes';
+    return 'Where the money and the time go';
+  });
+
+  /** The parts of a first year, in fixed slot order, each in money while its
+   *  cost is shown and in time while it is hidden — so switching a cost off
+   *  says how much work it was instead of leaving a gap. One definition: the
+   *  composition stack, its legend and the waterfall all read it, so a colour
+   *  means the same part in all three. */
   readonly parts = computed(() => {
     const c = this.est().cost_breakdown;
-    return [
-      { label: 'Development', amount: c.development.total_cost, colour: 'var(--series-1)' },
-      { label: 'Model usage', amount: c.ai_tokens.annual_cost.expected, colour: 'var(--series-2)' },
-      { label: 'Infrastructure', amount: c.infrastructure.annual_cost, colour: 'var(--series-3)' },
-      { label: 'Maintenance', amount: c.maintenance.annual_cost, colour: 'var(--series-4)' },
+    const w = this.wbs();
+    const devHours = w?.phases?.length
+      ? w.total_hours
+      : c.development.breakdown.reduce((s, b) => s + b.hours, 0);
+    const maintHours = c.maintenance.monthly_hours * 12;
+    // Each part's colour, once: the money and the time form of a part are
+    // the same part, and the stack, legend and waterfall all read these.
+    const slot = { dev: 'var(--series-1)', model: 'var(--series-2)',
+                   infra: 'var(--series-3)', maint: 'var(--series-4)' };
+    const rows: Part[] = [
+      this.showDev()
+        ? { label: 'Development', amount: c.development.total_cost, unit: 'money',
+            text: this.money(c.development.total_cost), colour: slot.dev }
+        : { label: 'Development', amount: devHours, unit: 'hours', text: `${this.num(devHours)} h`,
+            note: w?.phases?.length ? `${w.total_weeks} wks with ${this.teamPhrase()}` : undefined,
+            colour: slot.dev },
+    ];
     // A "Model usage — $0" row on a build with no model reads as a model that
-    // happens to be free. The slot keeps its colour for the ones that have it.
-    ].filter((p) => this.ai() || p.label !== 'Model usage')
-      // A hidden cost is gone from the panel, not drawn as a gap.
-      .filter((p) => (p.label === 'Development' ? this.showDev() : this.showInfra()));
+    // happens to be free, and tokens are no one's hours.
+    if (this.ai() && this.showInfra()) {
+      rows.push({ label: 'Model usage', amount: c.ai_tokens.annual_cost.expected, unit: 'money',
+        text: this.money(c.ai_tokens.annual_cost.expected), colour: slot.model });
+    }
+    rows.push(this.showInfra()
+      ? { label: 'Infrastructure', amount: c.infrastructure.annual_cost, unit: 'money',
+          text: this.money(c.infrastructure.annual_cost), colour: slot.infra }
+      // A bill, not labour: the hours that stand it up are already in
+      // development, under environments, deployment and the pipeline.
+      : { label: 'Infrastructure', amount: 0, unit: 'none', text: '—',
+          note: 'set-up hours are in development', colour: slot.infra });
+    rows.push(this.showMaint()
+      ? { label: 'Maintenance', amount: c.maintenance.annual_cost, unit: 'money',
+          text: this.money(c.maintenance.annual_cost), colour: slot.maint }
+      : { label: 'Maintenance', amount: maintHours, unit: 'hours', text: `${this.num(maintHours)} h`,
+          note: `a year · ${c.maintenance.monthly_hours} h a month`, colour: slot.maint });
+    return rows;
   });
 
   /** Part-to-whole as one bar. The waterfall beside it compares magnitudes;
    *  this is the share shape, which is a different reading and the one a
    *  four-row table cannot give. Shares are rounded for the label only — the
    *  bar is laid out on the raw amounts, so a 1% slice is a 1% slice rather
-   *  than being rounded up into visibility. */
+   *  than being rounded up into visibility. Drawn only when every part is in
+   *  one unit: a share of dollars-plus-hours is not a share of anything. */
   readonly composition = computed(() => {
-    const parts = this.parts();
+    const parts = this.parts().filter((p) => p.unit !== 'none' && p.amount > 0);
+    if (new Set(parts.map((p) => p.unit)).size !== 1) return [];
     const total = parts.reduce((s, p) => s + p.amount, 0) || 1;
     return parts.map((p) => ({
       ...p, share: Math.round((p.amount / total) * 100), flex: p.amount,
-    })).filter((p) => p.amount > 0);
+    }));
   });
 
   /** The ROI curve.
