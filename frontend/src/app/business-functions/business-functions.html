@@ -132,7 +132,7 @@
             <span class="bf-lbl">{{ insideService() ? 'Sub-services' : 'Services' }}</span>
             <span class="bf-rule"></span>
             <span class="bf-ct">{{ openedService() ? shown().length
-              : (current()?.services?.length ?? 0) }}</span>
+              : namedServices().length + looseFeatures().length }}</span>
           </div>
           <div class="bf-grid">
             @if (openedService()) {
@@ -147,13 +147,24 @@
             } @else {
               <!-- At the function, the cards are its SERVICES. Opening one
                    shows what it is made of. -->
-              @for (svc of current()?.services ?? []; track svc.id) {
+              @for (svc of namedServices(); track svc.id) {
                 <button class="bf-card" type="button"
                   (click)="openService(svc.id)">
                   <b>{{ svc.name }}</b>
                   <p>{{ svc.blurb || svc.short }}</p>
                   <span class="bf-cardfoot">{{ svc.features.length }}
                     sub-services &middot; {{ svc.short }}</span>
+                </button>
+              }
+              <!-- And beside them, the screens this function keeps itself.
+                   There is no level to open under them, so they are the
+                   screen rather than a way in to one. -->
+              @for (f of looseFeatures(); track f.id) {
+                <button class="bf-card" type="button"
+                  (click)="openFeature(f.id)">
+                  <b>{{ f.name }}</b>
+                  <p>{{ f.blurb }}</p>
+                  <span class="bf-cardfoot">{{ f.short }}</span>
                 </button>
               }
             }

@@ -136,11 +136,30 @@ export class BusinessFunctions {
   //    both places said the same thing twice.
   readonly serviceId = signal('');
 
-  /** The open service, or null at the function's own overview. */
+  /** The open service, or null at the function's own overview.
+   *
+   *  THE EMPTY ID IS NOT A SERVICE. A function sends the screens that
+   *  belong to no service in a group with an empty id, and `serviceId` is
+   *  empty when nothing is open — so matching on equality made the
+   *  overview "open" that bucket. With a function that had services OR
+   *  loose screens and never both, it looked right either way. Finance has
+   *  both now, and the overview rendered its one loose screen as though
+   *  that were the whole services list, with RewardLens nowhere on it.
+   */
   readonly openedService = computed(() => {
     const id = this.serviceId();
+    if (!id) return null;
     return (this.current()?.services ?? []).find((s) => s.id === id) ?? null;
   });
+
+  /** The services this function runs, as opposed to the loose bucket. */
+  readonly namedServices = computed(
+    () => (this.current()?.services ?? []).filter((s) => s.id));
+
+  /** Screens that belong to no service. They sit beside the service cards
+   *  at the overview, because there is no level to open them under. */
+  readonly looseFeatures = computed(
+    () => (this.current()?.services ?? []).find((s) => !s.id)?.features ?? []);
 
   /** The cards to show: a service's sub-services, or nothing at the top. */
   readonly shown = computed(() => this.openedService()?.features ?? []);

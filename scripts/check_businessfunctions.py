@@ -5310,6 +5310,28 @@ def check_the_firm_has_three_levels() -> None:
        "Form 26" in [f["name"] for f in body["features"]],
        str([f["name"] for f in body["features"]]))
 
+    # THE OVERVIEW HAS TO SHOW BOTH, and the surface tells them apart by
+    # the group's id. The loose bucket's id is empty and so is "nothing is
+    # open", so a surface that matches on equality treats the overview as
+    # having that bucket open: Finance drew its one unfiled screen as
+    # though it were the whole services list, with RewardLens nowhere on
+    # it. Pinned as the shape the payload has to carry, since the id is
+    # the only thing the surface can read it from.
+    named = [s for s in body["services"] if s["id"]]
+    loose = [s for s in body["services"] if not s["id"]]
+    ok("the payload separates the service from the unfiled screen",
+       [s["id"] for s in named] == ["rewardlens"] and len(loose) == 1,
+       str([s["id"] for s in body["services"]]))
+    ok("and the overview has two things to draw, not one",
+       len(named) + sum(len(s["features"]) for s in loose) == 2,
+       f"{len(named)} services, {sum(len(s['features']) for s in loose)} loose")
+
+    # A function with no services at all still sends exactly one bucket,
+    # which is the case the empty id was invented for.
+    only_loose = c.get("/v1/business-functions/talent").json()["services"]
+    ok("a function with no services sends one unfiled group",
+       [s["id"] for s in only_loose] == [""], str([s["id"] for s in only_loose]))
+
 
 def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:
     """One dashboard, for leadership, and every picture names its figures."""
