@@ -1815,7 +1815,6 @@ GIFT_TRACKER_SHEET = {
         "Technology: Angular frontend, .NET 8 backend, SQL DB; Azure App Service, Service Bus, "
         "Blob Storage, Functions, App registration, Monitoring, Log Analytics, Key Vault and "
         "App Gateway; SendGrid for email; Power BI for dashboards.",
-        "Hours are the architect's Gift Tracker estimate, entered line for line.",
     ],
     "volume_and_scale": {
         "expected_daily_users": 100, "requests_per_day": None, "data_volume_gb": None,
