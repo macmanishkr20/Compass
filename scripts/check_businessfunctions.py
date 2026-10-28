@@ -4882,15 +4882,13 @@ def check_each_stage_moves_only_for_its_own_persona() -> None:
                                    if r["id"] == rid))
         ok(f"{label}: and it moves to {nxt}", now == nxt, now)
         if nxt != "closed":
-            # A persona for a control step, a NAMED PERSON for the two
-            # routed by identity — "with Business Requester" is not who to
-            # chase when the holder is whichever employee raised it.
+            # THE DESK THAT OWNS THE STEP, at every stage. Operations'
+            # two used to name whoever raised the order beside the desk,
+            # because both may act there — which answered a question
+            # nobody asks of this column and was the only place a row
+            # carried a person's name as its status.
             now = _order("compliance", rid)["with"]
-            both = (f"{people.LABELS['operations']} or "
-                    f"{people.find('requester').name}")
-            want = ({"recipient_list": both, "distribution": both}.get(
-                         nxt, people.LABELS.get(
-                             gr_mod.STAGES[nxt]["owner"], "")))
+            want = people.LABELS.get(gr_mod.STAGES[nxt]["owner"], "")
             ok(f"{label}: the row says who it is with now", now == want,
                f"{now!r} wanted {want!r}")
         stage = nxt
@@ -4997,9 +4995,14 @@ def check_anybody_can_raise_one_and_it_still_reaches_the_end() -> None:
         _walk(rid, upto="distribution", by="enduser")
         offered = lambda w: next(
             (r["can"] for r in h.rows(_req(w), "all") if r["id"] == rid), [])
-        ok("and the row names whoever can hand it over",
-           _order("compliance", rid)["with"]
-           == f"{people.LABELS['operations']} or {people.find('enduser').name}",
+        # THE DESK, not the person. The raiser may still hand it over —
+        # the next check is that they can — but the row says where the
+        # order is standing rather than who it has been pinned on.
+        ok("the row says the desk it is with",
+           _order("compliance", rid)["with"] == people.LABELS["operations"],
+           _order("compliance", rid)["with"])
+        ok("and names nobody personally",
+           people.find("enduser").name not in _order("compliance", rid)["with"],
            _order("compliance", rid)["with"])
         ok("the raiser may record the distribution",
            "sign_off" in offered("enduser"), str(offered("enduser")))

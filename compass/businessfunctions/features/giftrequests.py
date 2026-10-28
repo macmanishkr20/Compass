@@ -711,15 +711,21 @@ def _name_of(employee_id: str) -> str:
 def _with(request: dict[str, Any], stage: str) -> str:
     """Who it is with, as somebody wanting to chase it would say.
 
-    A PERSONA for the six steps that are a control — any of Finance will
-    do. A NAMED PERSON for the two that are routed by identity, because
-    "with Business Requester" is not who to chase when the person holding
-    it is an employee who raised one gift and holds no persona at all.
+    THE DESK THAT OWNS THE STEP, every time. Operations' two steps used to
+    read "Operations / SPOC or Rahul Desai", naming whoever raised the
+    order beside the desk, because both of them may act there — a bulk
+    order is listed and handed out by the SPOC who has the boxes, a
+    one-off gift by the colleague who asked for it.
+
+    Naming both answered a question nobody asks of this column. "Who is it
+    with" is where the order is standing, and it is standing with
+    Operations; that one named person was the only place a row carried
+    somebody's name as its status, and it read as though the order had
+    been assigned to them personally.
+
+    Whoever raised it CAN still act — see the matching clause in `_may` —
+    this is what the row says, not what the server allows.
     """
-    if stage in ("recipient_list", "distribution"):
-        who = people.find(request["by"])
-        raiser = who.name if who else request["by"]
-        return f"{people.LABELS[DISTRIBUTOR]} or {raiser}"
     return people.LABELS.get(STAGES.get(stage, {}).get("owner", ""), "—")
 
 
