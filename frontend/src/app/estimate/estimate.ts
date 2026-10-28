@@ -527,6 +527,23 @@ export class Estimate {
     }]);
   }
 
+  /** Whether a module *is* its one line: one sub-feature, named as the module
+   *  is — an architect's sheet entered line by line. Edited as one row, the
+   *  way the report draws it. A name is required, so a fresh module (blank,
+   *  with one blank line) still opens the full editor for its breakdown. */
+  isSingle(m: Module): boolean {
+    const key = (s: string) => s.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+    return m.sub_features.length === 1 && !!key(m.name)
+      && key(m.sub_features[0].name) === key(m.name);
+  }
+
+  /** Rename a single-line module and its line together, so it stays one. */
+  renameSingle(mi: number, name: string): void {
+    this.modules.update((rows) => rows.map((m, i) => (i === mi ? {
+      ...m, name, sub_features: m.sub_features.map((s) => ({ ...s, name })),
+    } : m)));
+  }
+
   patchModule(index: number, patch: Partial<Module>): void {
     this.modules.update((rows) => rows.map((m, i) => (i === index ? { ...m, ...patch } : m)));
   }
@@ -583,11 +600,16 @@ export class Estimate {
     return this.catalog()?.size_bands.find((b) => b.key === size)?.hours ?? 0;
   }
 
+  /** A line's hours by the engine's own precedence: quoted hours, then
+   *  units, then the band. Without the first, the Gift Tracker's 40-hour
+   *  form read as its band's 27 here while the estimate priced 40. */
+  lineHours(s: SubFeature): number {
+    if (s.hours) return s.hours;
+    return s.units ? s.units * (this.catalog()?.unit_hours ?? 9) : this.bandHours(s.size);
+  }
+
   moduleHours(m: Module): number {
-    return m.sub_features.reduce(
-      (sum, s) => sum + (s.units ? s.units * (this.catalog()?.unit_hours ?? 9) : this.bandHours(s.size)),
-      0,
-    );
+    return m.sub_features.reduce((sum, s) => sum + this.lineHours(s), 0);
   }
 
   /** Every sub-feature in the plan, priced. Drives the running total in the

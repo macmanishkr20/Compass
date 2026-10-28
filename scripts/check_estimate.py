@@ -701,9 +701,10 @@ def check_the_screens_match_the_mockup() -> None:
     for value, what in (
         ("font-size: 38px", "the index title is the mockup's 38px serif"),
         ("grid-template-columns: repeat(4, 1fr)", "four stat cards"),
-        ("grid-template-columns: 1fr 120px 128px 116px 108px 96px",
+        ("grid-template-columns: 1fr 160px 128px 116px 108px 96px",
          "the table's six columns are the mockup's, with verdict widened from "
-         "104 to 120 — measured, the longest label needs 111px on one line"),
+         "104 to 160 — measured, the longest label, STANDARD SOFTWARE, needs "
+         "157px on one line"),
         ("white-space: nowrap;", "and a pill never wraps"),
         ("height: 58px", "and its rows are 58px"),
         ("width: 190px", "the stepper is 190px"),
@@ -1875,6 +1876,18 @@ def check_the_gift_tracker_sheet_reproduces() -> None:
     ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
     ok("single(m: ModuleEstimate): SubFeatureEstimate | null" in ts,
        "and the screen draws it once, with nothing to expand into a copy of itself")
+    form = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
+    ok("isSingle(m: Module): boolean" in form and "renameSingle(mi: number, name: string)" in form
+       and "!!key(m.name)" in form,
+       "the form edits it as one row too, renaming the module and its line "
+       "together — and a fresh blank module still opens its full breakdown")
+    ok("if (s.hours) return s.hours;" in form,
+       "where a quoted line counts as quoted: the 40-hour form read as its "
+       "band's 27 in the form's running total")
+    css = (ROOT / "frontend/src/app/estimate/estimate.css").read_text()
+    ok("grid-template-columns: 1fr 160px 128px 116px 108px 96px;" in css,
+       "the list's verdict column holds STANDARD SOFTWARE, measured at 157px — at "
+       "120 it ran into the feasibility bar beside it")
 
 
 GIFT_TRACKER_STACK = [

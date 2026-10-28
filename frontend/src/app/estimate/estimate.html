@@ -388,10 +388,27 @@
         </div>
 
         @for (m of modules(); track m.id; let mi = $index) {
-          <div class="mod-edit">
+          <div class="mod-edit" [class.single]="isSingle(m)">
             <div class="mod-head">
-              <input class="inp grow" [value]="m.name" placeholder="Module name"
-                (input)="patchModule(mi, { name: $any($event.target).value })" />
+              @if (isSingle(m)) {
+                <!-- The module is its one line: one row, named once and sized
+                     here, the way the report draws it. Renaming renames both. -->
+                @let line = m.sub_features[0];
+                <input class="inp grow" [value]="m.name" placeholder="Module name"
+                  (input)="renameSingle(mi, $any($event.target).value)" />
+                <select class="inp" style="width:118px" [value]="line.size"
+                  [title]="line.hours ? 'Quoted at ' + line.hours + ' h — choosing a size replaces it' : ''"
+                  (change)="patchSub(mi, 0, { size: $any($event.target).value, units: null, hours: null })">
+                  @for (b of catalog()?.size_bands ?? []; track b.key) {
+                    <option [value]="b.key" [selected]="b.key === line.size">
+                      {{ b.key.toUpperCase() }} · {{ b.units }}d
+                    </option>
+                  }
+                </select>
+              } @else {
+                <input class="inp grow" [value]="m.name" placeholder="Module name"
+                  (input)="patchModule(mi, { name: $any($event.target).value })" />
+              }
               <select class="inp" style="width:104px" [value]="m.phase"
                 (change)="patchModule(mi, { phase: +$any($event.target).value })">
                 @for (ph of [1, 2, 3]; track ph) {
@@ -418,6 +435,15 @@
               </div>
             }
 
+            @if (isSingle(m)) {
+              @if (m.sub_features[0].covers?.length) {
+                <div class="sub-covers single">
+                  <span class="k" title="Built once by this line for all of them — named, not priced separately">covers</span>
+                  <input class="inp grow" [value]="(m.sub_features[0].covers ?? []).join(', ')"
+                    (change)="setCovers(mi, 0, $any($event.target).value)" />
+                </div>
+              }
+            } @else {
             @for (s of m.sub_features; track s.id; let si = $index) {
               <div class="item sub-edit">
                 <input class="inp grow" [value]="s.name" placeholder="Sub-feature"
@@ -430,9 +456,7 @@
                     </option>
                   }
                 </select>
-                <span class="hrs" [title]="s.hours ? 'As quoted — choosing a size replaces it' : ''">{{ s.hours ? s.hours
-                  : s.units ? s.units * (catalog()?.unit_hours ?? 9)
-                  : bandHours(s.size) }}h</span>
+                <span class="hrs" [title]="s.hours ? 'As quoted — choosing a size replaces it' : ''">{{ lineHours(s) }}h</span>
                 <button class="del" type="button" (click)="dropSub(mi, si)"
                   aria-label="Remove this sub-feature">
                   <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -447,6 +471,7 @@
                     (change)="setCovers(mi, si, $any($event.target).value)" />
                 </div>
               }
+            }
             }
             <button class="addsub" type="button" (click)="addSub(mi)">+ Sub-feature</button>
           </div>

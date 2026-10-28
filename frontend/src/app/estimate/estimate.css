@@ -214,11 +214,13 @@ svg { fill: none; }
 
 .elist { border-radius: 14px; background: var(--surface); border: 1px solid var(--rule); box-shadow: var(--sh-1); overflow: hidden; }
 .eh, .er {
-  /* Verdict is 120px, not the mockup's 104. Measured: the longest label,
-     "BUILD WITH AI", needs 111px on one line at this size and tracking, so
-     104 wrapped it onto two — which also pushed the row from 18px of pill to
-     30px. The mockup wraps it too; the fix is the column, not the design. */
-  display: grid; grid-template-columns: 1fr 120px 128px 116px 108px 96px;
+  /* Verdict is 160px, not the mockup's 104. Measured in the rendered list:
+     "BUILD WITH AI" needs 112px and "STANDARD SOFTWARE" 157px on one line at
+     this size and tracking. At 120 the longer one ran 37px into the
+     feasibility bar beside it — a pill never wraps, so it overflows instead.
+     The fix is the column, not the label: the project column is the one
+     that stretches, and it gives up the width. */
+  display: grid; grid-template-columns: 1fr 160px 128px 116px 108px 96px;
   align-items: center; gap: 12px; padding: 0 16px;
 }
 .eh {
@@ -337,6 +339,10 @@ select.inp {
 .mod-head { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
 .mod-head .inp { background: var(--surface); font-weight: 600; }
 .mod-head .grow { flex: 1; }
+/* A module that is its one line: the size sits in the head with the name, so
+   there is no line under it, and the size reads as a field, not a title. */
+.mod-edit.single .mod-head select:first-of-type { font-weight: 400; }
+.sub-covers.single { margin-left: 0; }
 .mod-head .hrs {
   font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--brass);
   width: 52px; text-align: right; flex-shrink: 0;
