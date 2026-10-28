@@ -3,14 +3,130 @@ Compass see a running frontend/app and post it back for verification."""
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import sys
+from typing import Any, Awaitable, Callable, TypeVar
 
 from compass.common.urls import refuse_reason
 
 logger = logging.getLogger("compass.screenshot")
 
 _UNAVAILABLE = "Playwright is not installed on the server host (pip install playwright && playwright install chromium)."
+
+_NO_CHROMIUM = (
+    "Playwright is installed but its Chromium is not. Run "
+    "`playwright install chromium` on the server host."
+)
+
+_NO_SUBPROCESS = (
+    "This server cannot start a browser: on Windows, Playwright needs "
+    "asyncio's Proactor event loop and this process is on the Selector loop. "
+    "uvicorn switches loops when it supervises the server, so restart Compass "
+    "without --reload and without --workers."
+)
+
+T = TypeVar("T")
+
+#: A job that drives a started Playwright and comes back with bytes. Taking
+#: the Playwright rather than opening its own is what lets `_with_a_browser`
+#: decide *where* the browser runs.
+Job = Callable[[Any], Awaitable[T]]
+
+
+# --------------------------------------------------------- starting a browser
+#
+# Every browser failure that is ordinary on Windows and impossible on this
+# machine is answered here, once, for both the screenshot path and the PDF
+# path. Design's exporter already carried these answers; the shared capability
+# did not, which is why Estimate's PDF failed on Windows with a driver stack
+# trace where Design's said what to run.
+
+
+def _off_the_proactor_loop() -> bool:
+    """True when this loop cannot spawn the driver Playwright needs.
+
+    Windows asyncio starts subprocesses on the Proactor loop and nowhere else,
+    and uvicorn puts the server on the Selector loop whenever it supervises
+    one — which both `--reload` and `--workers` do. So the ordinary Windows
+    development command is the one that cannot print a PDF, and the
+    NotImplementedError it raises says nothing about any of this.
+    """
+    if sys.platform != "win32":
+        return False
+    proactor = getattr(asyncio, "ProactorEventLoop", None)
+    if proactor is None:  # pragma: no cover - win32 always has it
+        return False
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # pragma: no cover - always called from a coroutine
+        return False
+    return not isinstance(loop, proactor)
+
+
+def _on_a_proactor_loop(job: Job[T]) -> T:
+    """Run `job` on a Proactor loop of its own, on this thread.
+
+    The loop belongs to the call: it is created, used and closed here, so
+    nothing of it outlives the export and the server's own loop is untouched.
+    """
+    loop = asyncio.ProactorEventLoop()  # type: ignore[attr-defined]
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(_started(job))
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
+
+
+async def _started(job: Job[T]) -> T:
+    """Start Playwright, hand it to `job`, stop it however `job` ends."""
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as err:  # pragma: no cover - optional dependency
+        raise RuntimeError(_UNAVAILABLE) from err
+
+    pw = await async_playwright().start()
+    try:
+        return await job(pw)
+    finally:
+        await pw.stop()
+
+
+async def _with_a_browser(job: Job[T]) -> T:
+    """Run `job` somewhere a browser can actually be started.
+
+    Here normally. On a Windows server stuck on the Selector loop, on a worker
+    thread with a Proactor loop of its own — because a PDF that prints under
+    `--reload` is worth more than a sentence explaining why it cannot. If even
+    that cannot spawn the driver, the sentence is what comes back.
+    """
+    if not _off_the_proactor_loop():
+        return await _started(job)
+    try:
+        return await asyncio.to_thread(_on_a_proactor_loop, job)
+    except NotImplementedError as err:
+        raise RuntimeError(_NO_SUBPROCESS) from err
+
+
+async def _launch(pw: Any) -> Any:
+    """Chromium, or one sentence saying why not.
+
+    A present Playwright with no browser is the ordinary state of a machine
+    where nobody ran the install step, and it arrives as a generic exception
+    carrying a driver path. Untranslated it reaches the route as a 500 and the
+    person reads a stack trace to learn they need one command.
+    """
+    try:
+        return await pw.chromium.launch(args=["--no-sandbox"])
+    except Exception as err:  # noqa: BLE001 — one answer for every launch fault
+        detail = str(err)
+        if "Executable doesn" in detail or "playwright install" in detail:
+            raise RuntimeError(_NO_CHROMIUM) from err
+        raise RuntimeError(
+            f"Could not start Chromium: {detail[:300]}"
+        ) from err
 
 
 async def capture(url: str, *, full_page: bool = False, width: int = 1280, height: int = 800) -> bytes:
@@ -23,13 +139,9 @@ async def capture(url: str, *, full_page: bool = False, width: int = 1280, heigh
     """
     if refusal := refuse_reason(url):
         raise RuntimeError(refusal)
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError as err:  # pragma: no cover
-        raise RuntimeError(_UNAVAILABLE) from err
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox"])
+    async def shoot(pw: Any) -> bytes:
+        browser = await _launch(pw)
         try:
             page = await browser.new_page(viewport={"width": width, "height": height})
             try:
@@ -42,6 +154,8 @@ async def capture(url: str, *, full_page: bool = False, width: int = 1280, heigh
             return await page.screenshot(full_page=full_page, type="png")
         finally:
             await browser.close()
+
+    return await _with_a_browser(shoot)
 
 
 async def capture_data_uri(url: str, *, full_page: bool = False) -> str:
@@ -184,13 +298,8 @@ async def html_to_pdf(html: str, *, width: int = 1000) -> bytes:
     the whole document. The HTML must be self-contained — no network fetches
     are made, so styles are inline and there are no images to wait for.
     """
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError as err:  # pragma: no cover - optional dependency
-        raise RuntimeError(_UNAVAILABLE) from err
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox"])
+    async def print_it(pw: Any) -> bytes:
+        browser = await _launch(pw)
         try:
             page = await browser.new_page(viewport={"width": width, "height": 1200})
             await page.set_content(html, wait_until="load")
@@ -205,3 +314,5 @@ async def html_to_pdf(html: str, *, width: int = 1000) -> bytes:
             )
         finally:
             await browser.close()
+
+    return await _with_a_browser(print_it)

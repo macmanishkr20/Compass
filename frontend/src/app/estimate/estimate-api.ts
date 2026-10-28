@@ -89,6 +89,31 @@ export class EstimateApi {
     );
   }
 
+  /**
+   * The bytes of an export, or the server's own sentence about why there are
+   * none.
+   *
+   * These were two `<a download>` links, which cannot do the second half: a
+   * browser told to save a URL saves whatever comes back, so a 501 carrying
+   * "run `playwright install chromium`" was written to disk *as the PDF*.
+   * That is the Windows report — a file that exists and will not open — and
+   * no server fix reaches it, because the failure never got as far as the
+   * screen. Fetching first costs one buffered response and buys the message.
+   */
+  async download(url: string): Promise<Blob> {
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`.trim();
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* not JSON — the status is still better than nothing */
+      }
+      throw new Error(detail);
+    }
+    return res.blob();
+  }
+
   remove(id: string): Promise<{ deleted: boolean }> {
     return firstValueFrom(
       this.http.delete<{ deleted: boolean }>(`/v1/estimates/${id}`),

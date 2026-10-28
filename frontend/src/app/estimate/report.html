@@ -18,10 +18,21 @@
       <button class="btn sm" type="button" (click)="tab.set(tab() === 'detail' ? 'summary' : 'detail')">
         {{ tab() === 'detail' ? 'Summary' : 'Assumptions' }}
       </button>
-      <a class="btn sm" [href]="excelHref()" download>Export Excel</a>
-      <a class="btn sm pri" [href]="pdfHref()" download>Export PDF</a>
+      <button class="btn sm" type="button" [disabled]="!!exporting()" (click)="exportAs('excel')">
+        {{ exporting() === 'excel' ? 'Exporting…' : 'Export Excel' }}
+      </button>
+      <button class="btn sm pri" type="button" [disabled]="!!exporting()" (click)="exportAs('pdf')">
+        {{ exporting() === 'pdf' ? 'Printing…' : 'Export PDF' }}
+      </button>
     </div>
   </div>
+
+  @if (exportError()) {
+    <div class="err-banner">
+      <span>{{ exportError() }}</span>
+      <button type="button" (click)="exportError.set('')">✕</button>
+    </div>
+  }
 
   <div class="scroll"><div class="wrap">
 

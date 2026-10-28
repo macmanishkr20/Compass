@@ -1032,6 +1032,77 @@ def check_an_estimate_can_leave_the_app() -> None:
        "infrastructure line checkable rather than merely readable")
 
 
+def check_the_export_runs_on_windows() -> None:
+    """Reported from Windows: "the Export PDF in Estimate is not working."
+
+    Three faults stacked, and the first two were already understood — Design
+    had them reported, diagnosed and answered months earlier. The shared
+    headless browser never got the answers, so Estimate, which reaches
+    Chromium only through that shared helper, hit all of them raw.
+
+    *Nothing said what went wrong, because nothing could.* The buttons were
+    `<a href download>`, which is the right shape for a download and the wrong
+    one for a download that can fail: a browser told to save a URL saves
+    whatever comes back. The 501 body carrying "run `playwright install
+    chromium`" was written to disk **as the PDF** — a file that exists, is the
+    size of a sentence, and will not open. That is the whole reported symptom,
+    and it is the same one Design's report described word for word. No
+    server-side fix could ever have reached the screen through an anchor, so
+    the client fetches, refuses an empty body, and shows the message.
+
+    *A present Playwright with no browser said nothing useful.* Only the
+    missing *package* was translated. The ordinary state of a machine where
+    nobody ran the install step — package there, browser not — fell through
+    `except RuntimeError` in the route as a generic exception and 500'd with a
+    driver path in it.
+
+    *And the loop.* `uvicorn.loops.asyncio` returns `ProactorEventLoop` on
+    win32 only `if not use_subprocess`, and `use_subprocess` is
+    `reload or workers > 1`. So `--reload` — the ordinary Windows development
+    command — puts the server on the Selector loop, where asyncio cannot spawn
+    the driver at all and raises a bare NotImplementedError. This one is not
+    merely explained: the job is run on a worker thread with a Proactor loop of
+    its own, so the export works under `--reload` instead of apologising. The
+    sentence is kept for the case where even that cannot start.
+
+    Checked on this host: the real route returns a 121,453-byte PDF beginning
+    %PDF-1.4; a launch failure carrying a Windows driver path produces the
+    install sentence; the off-the-Proactor path prints on a loop of its own;
+    and a job that still cannot spawn produces the loop sentence.
+    """
+    print("\nthe export runs on Windows")
+    common = (ROOT / "compass/common/screenshot.py").read_text()
+    report = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    api = (ROOT / "frontend/src/app/estimate/estimate-api.ts").read_text()
+    html = (ROOT / "frontend/src/app/estimate/report.html").read_text()
+
+    ok("playwright install chromium" in common and "Executable doesn" in common,
+       "a present Playwright with no browser says which command to run, "
+       "rather than 500-ing with a driver path")
+    ok("Proactor event loop" in common,
+       "and the Windows loop failure is named, because nothing in the "
+       "NotImplementedError it raises says what went wrong")
+    ok("_off_the_proactor_loop" in common and "asyncio.to_thread" in common,
+       "but it is worked around before it is explained — the job runs on a "
+       "Proactor loop of its own, so --reload can still print a PDF")
+    ok(common.count("_with_a_browser(") >= 3,
+       "and the screenshot path goes through the same door, so neither can "
+       "acquire its own set of unanswered failures")
+
+    ok("/export/" not in html
+       and "exportAs('pdf')" in html and "exportAs('excel')" in html,
+       "both exports are buttons, not anchors — no export URL is reachable "
+       "from the template, because a browser told to save a URL saves the "
+       "error body as the PDF, which is the reported symptom")
+    ok("async download(" in api and "res.json()).detail" in api,
+       "the client reads the server's own sentence rather than its status")
+    ok("if (!blob.size)" in report,
+       "an empty body is refused rather than saved, so no server fault can "
+       "put a zero-length PDF on disk")
+    ok("exportError" in report and "err-banner" in html,
+       "and a failed export says so on the screen it failed on")
+
+
 def check_the_architect_asks_once() -> None:
     """The platform choice is one call, and used to be up to five.
 
@@ -1649,6 +1720,7 @@ def main() -> int:
     check_the_brief_can_be_written_in_prose()
     check_a_brd_can_be_read()
     check_an_estimate_can_leave_the_app()
+    check_the_export_runs_on_windows()
     check_the_architect_asks_once()
     check_the_rate_card_is_kept()
     check_a_pipeline_can_name_its_estimate()

@@ -83,11 +83,69 @@ export class EstimateReport {
   }
   readonly currency = computed(() => this.est().cost_breakdown.currency);
 
-  /** Export links, not fetches. A download is what an anchor is for, and
-   *  pulling the bytes into memory to hand them to a blob URL buys nothing
-   *  here except a way to run out of it on a large workbook. */
-  readonly pdfHref = computed(() => `/v1/estimates/${this.record().id}/export/pdf`);
-  readonly excelHref = computed(() => `/v1/estimates/${this.record().id}/export/excel`);
+  /** Which export is running, '' when none. One at a time: both come from the
+   *  same stored record and the PDF holds a browser open on the server. */
+  readonly exporting = signal<'' | 'pdf' | 'excel'>('');
+  /** Why the last export produced no file. */
+  readonly exportError = signal('');
+
+  /**
+   * Save an export, or say why there is none.
+   *
+   * These were `<a href download>` links, which is the right shape for a
+   * download and the wrong one for a download that can fail: the browser
+   * writes the response body to the named file whatever the status is, so a
+   * 501 saying `playwright install chromium` landed on disk as the PDF. On
+   * Windows, where that install step is routinely missed, the whole symptom
+   * was a file that exists and will not open — and nothing said so.
+   *
+   * So: fetch, refuse an empty body, then hand the bytes over. The blob costs
+   * one report in memory, which is a page of tables.
+   */
+  async exportAs(format: 'pdf' | 'excel'): Promise<void> {
+    if (this.exporting()) return;
+    this.exporting.set(format);
+    this.exportError.set('');
+    try {
+      const blob = await this.api.download(
+        `/v1/estimates/${this.record().id}/export/${format}`,
+      );
+      // Zero bytes is not a file. The server should never send one, but this
+      // is the one place that can keep it off the disk.
+      if (!blob.size) {
+        throw new Error('the server returned an empty file, so nothing was saved');
+      }
+      this.save(blob, `${this.stem()}-estimate.${format === 'pdf' ? 'pdf' : 'xlsx'}`);
+    } catch (err) {
+      this.exportError.set(`Export failed: ${(err as Error).message}`);
+    } finally {
+      this.exporting.set('');
+    }
+  }
+
+  /** Hand a blob to the browser as a file. The anchor has to be in the
+   *  document for Firefox to honour the click. */
+  private save(blob: Blob, name: string): void {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    // Not immediately: the download reads the URL after the click returns.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+
+  /** The filename the server's Content-Disposition used to give, by the same
+   *  rule — the header is gone now that the bytes arrive as a blob. */
+  private stem(): string {
+    const slug = this.record()
+      .name.replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+    return slug || 'estimate';
+  }
 
   readonly subScores = computed(() => {
     const s = this.est().feasibility.sub_scores;
