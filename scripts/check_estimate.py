@@ -1102,6 +1102,29 @@ def check_the_export_runs_on_windows() -> None:
     ok("exportError" in report and "err-banner" in html,
        "and a failed export says so on the screen it failed on")
 
+    # Then the host where the install can never run.
+    ok('channel=channel' in common and "msedge" in common,
+       "a missing Chromium is not the end of the attempt — the Edge or Chrome "
+       "already on the host is tried, and needs no download")
+    ok("COMPASS_BROWSER_CHANNELS" in common,
+       "and which browsers those are is configuration, not a constant")
+    ok('"Executable doesn" not in detail' in common,
+       "a real launch fault still reports itself rather than being buried "
+       "under three more attempts at browsers that were never the problem")
+
+    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    ok('"/v1/estimates/{estimate_id}/export/html"' in routes
+       and "export.to_html(estimation)" in routes,
+       "and the document is reachable unprinted, from the same HTML — so the "
+       "PDF can be had from the browser in front of the person, with no "
+       "browser on the server at all")
+    ok("default-src 'none'" in routes,
+       "served under a policy that runs no script, so a hole in the escaping "
+       "cannot become script on the app's own origin")
+    ok("setAttribute('sandbox', 'allow-same-origin allow-modals')" in report,
+       "printed from a frame granted exactly two things — this page may reach "
+       "in to call print(), and the document may not run a line of script")
+
 
 def check_the_architect_asks_once() -> None:
     """The platform choice is one call, and used to be up to five.

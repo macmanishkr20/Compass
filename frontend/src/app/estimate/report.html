@@ -18,6 +18,10 @@
       <button class="btn sm" type="button" (click)="tab.set(tab() === 'detail' ? 'summary' : 'detail')">
         {{ tab() === 'detail' ? 'Summary' : 'Assumptions' }}
       </button>
+      <button class="btn sm" type="button" [disabled]="!!exporting()" (click)="printReport()"
+              title="Print or save as PDF using this browser — needs no browser on the server">
+        {{ exporting() === 'print' ? 'Opening…' : 'Print' }}
+      </button>
       <button class="btn sm" type="button" [disabled]="!!exporting()" (click)="exportAs('excel')">
         {{ exporting() === 'excel' ? 'Exporting…' : 'Export Excel' }}
       </button>

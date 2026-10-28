@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import sys
 from typing import Any, Awaitable, Callable, TypeVar
 
@@ -15,9 +16,20 @@ logger = logging.getLogger("compass.screenshot")
 
 _UNAVAILABLE = "Playwright is not installed on the server host (pip install playwright && playwright install chromium)."
 
-_NO_CHROMIUM = (
-    "Playwright is installed but its Chromium is not. Run "
-    "`playwright install chromium` on the server host."
+#: Browsers already on the host, tried in order when the bundled Chromium is
+#: not there.
+#:
+#: `playwright install chromium` downloads a ~150MB zip over HTTPS, and on a
+#: managed laptop behind a TLS-inspecting proxy that download cannot be
+#: verified — "unable to get local issuer certificate" — so the browser never
+#: arrives and no amount of server-side diagnosis helps. These channels need no
+#: download whatsoever: they drive the Edge or Chrome that is already
+#: installed. Edge is on every Windows machine, and both are Chromium engines,
+#: which is what `page.pdf()` requires.
+_CHANNELS: tuple[str, ...] = tuple(
+    c.strip()
+    for c in os.getenv("COMPASS_BROWSER_CHANNELS", "msedge,chrome").split(",")
+    if c.strip()
 )
 
 _NO_SUBPROCESS = (
@@ -111,22 +123,50 @@ async def _with_a_browser(job: Job[T]) -> T:
 
 
 async def _launch(pw: Any) -> Any:
-    """Chromium, or one sentence saying why not.
+    """Chromium, else the Edge or Chrome already on the host, else a sentence.
 
     A present Playwright with no browser is the ordinary state of a machine
-    where nobody ran the install step, and it arrives as a generic exception
-    carrying a driver path. Untranslated it reaches the route as a 500 and the
-    person reads a stack trace to learn they need one command.
+    where nobody ran the install step — and the *permanent* state of one where
+    the install cannot run, because the proxy in front of it will not let the
+    download be verified. So a missing Chromium is not the end of the attempt:
+    the browser the person already has is tried next, and it needs no download
+    at all.
+
+    Untranslated, any of this reaches the route as a 500 with a driver path in
+    it, and the person reads a stack trace to learn what to do.
     """
+    tried: list[str] = []
     try:
         return await pw.chromium.launch(args=["--no-sandbox"])
     except Exception as err:  # noqa: BLE001 — one answer for every launch fault
         detail = str(err)
-        if "Executable doesn" in detail or "playwright install" in detail:
-            raise RuntimeError(_NO_CHROMIUM) from err
-        raise RuntimeError(
-            f"Could not start Chromium: {detail[:300]}"
-        ) from err
+        if "Executable doesn" not in detail and "playwright install" not in detail:
+            # Not a missing browser — a real launch fault, and trying three
+            # more browsers would only bury it.
+            raise RuntimeError(f"Could not start Chromium: {detail[:300]}") from err
+        tried.append("the bundled Chromium, which is not installed")
+
+    for channel in _CHANNELS:
+        try:
+            return await pw.chromium.launch(channel=channel, args=["--no-sandbox"])
+        except Exception as err:  # noqa: BLE001 — try the next one, then report
+            tried.append(f"{channel} ({_first_line(err)})")
+
+    raise RuntimeError(
+        "No browser could be started for the export. Tried " + "; ".join(tried)
+        + ". Either run `playwright install chromium` on the server host, or "
+        "point COMPASS_BROWSER_CHANNELS at a Chromium-based browser that is "
+        "installed. Export Excel and Print need no browser on the server."
+    )
+
+
+def _first_line(err: Exception) -> str:
+    """One line of a driver error. They run to twenty, and the rest is the
+    install advice we are already giving."""
+    for line in str(err).splitlines():
+        if line.strip():
+            return line.strip()[:90]
+    return err.__class__.__name__
 
 
 async def capture(url: str, *, full_page: bool = False, width: int = 1280, height: int = 800) -> bytes:

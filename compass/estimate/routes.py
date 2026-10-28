@@ -387,6 +387,35 @@ async def export_pdf(estimate_id: str,
     )
 
 
+@router.get("/v1/estimates/{estimate_id}/export/html")
+async def export_html(estimate_id: str,
+                      user: str = Depends(require_user)) -> Response:
+    """The same document, unprinted — for the browser in front of the person.
+
+    The PDF route needs a Chromium on the *server*. On a managed laptop the
+    install that would put one there cannot reach the internet, and no
+    server-side answer exists. This route has no such dependency: it is the
+    identical HTML the PDF is printed from, handed to the browser that is
+    already running, where "Save as PDF" is a print destination. The two
+    documents are the same document.
+    """
+    record = await _owned_estimate(estimate_id, user)
+    estimation = Estimation.model_validate(record.result)
+    return Response(
+        content=export.to_html(estimation),
+        media_type="text/html; charset=utf-8",
+        headers={
+            # Every string in that document is escaped on the way out. This is
+            # the second lock on the same door: served under a policy that
+            # allows no script to run at all, a hole in the escaping is inert
+            # rather than script executing on the app's own origin.
+            "Content-Security-Policy":
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/v1/estimates/{estimate_id}/export/excel")
 async def export_excel(estimate_id: str,
                        user: str = Depends(require_user)) -> Response:

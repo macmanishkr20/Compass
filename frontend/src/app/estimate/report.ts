@@ -83,9 +83,9 @@ export class EstimateReport {
   }
   readonly currency = computed(() => this.est().cost_breakdown.currency);
 
-  /** Which export is running, '' when none. One at a time: both come from the
+  /** Which export is running, '' when none. One at a time: they come from the
    *  same stored record and the PDF holds a browser open on the server. */
-  readonly exporting = signal<'' | 'pdf' | 'excel'>('');
+  readonly exporting = signal<'' | 'pdf' | 'excel' | 'print'>('');
   /** Why the last export produced no file. */
   readonly exportError = signal('');
 
@@ -121,6 +121,58 @@ export class EstimateReport {
     } finally {
       this.exporting.set('');
     }
+  }
+
+  /**
+   * Print the report through the browser in front of you.
+   *
+   * The route that cannot fail for want of a browser, because it uses the one
+   * the person is already looking at. `Export PDF` needs a Chromium on the
+   * *server*, and on a managed laptop the install that would put one there is
+   * blocked by the proxy — there is no server-side answer to that. This asks
+   * for the same HTML the server would have printed and hands it to the print
+   * dialog here, where "Save as PDF" is a destination. Same stylesheet, same
+   * `@page` rules, same document.
+   */
+  async printReport(): Promise<void> {
+    if (this.exporting()) return;
+    this.exporting.set('print');
+    this.exportError.set('');
+    try {
+      const body = await this.api.download(
+        `/v1/estimates/${this.record().id}/export/html`,
+      );
+      const html = await body.text();
+      if (!html.trim()) throw new Error('the server returned an empty report');
+      this.printHtml(html);
+    } catch (err) {
+      this.exportError.set(`Print failed: ${(err as Error).message}`);
+    } finally {
+      this.exporting.set('');
+    }
+  }
+
+  /** Put the document in a frame of its own and print that frame.
+   *
+   *  `allow-same-origin` is what lets this page reach in and call `print()`;
+   *  withholding `allow-scripts` beside it means nothing in the document can
+   *  run, so the report is printable and inert at once.
+   */
+  private printHtml(html: string): void {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin allow-modals');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.srcdoc = html;
+    frame.style.cssText = 'position:fixed;inset:0 auto auto 0;width:0;height:0;border:0;opacity:0';
+    frame.addEventListener('load', () => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+      // The dialog is modal, so in most browsers nothing below runs until it
+      // is dismissed. The timer is for the ones where it does: the frame has
+      // to outlive the dialog, or there is nothing left to print.
+      setTimeout(() => frame.remove(), 60_000);
+    });
+    document.body.append(frame);
   }
 
   /** Hand a blob to the browser as a file. The anchor has to be in the
