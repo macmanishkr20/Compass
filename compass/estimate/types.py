@@ -89,10 +89,29 @@ class SubFeature(EstimateModel):
     description: str = ""
     size: SizeBand = "s"
     units: Optional[int] = None
+    #: Hours as an architect quoted them, when they are not whole days. Wins
+    #: over `units` the way `units` wins over the band: the Gift Tracker sheet
+    #: prices its request form at 40 hours and its Power BI dashboard at 136,
+    #: and rounding either to a day would put the sheet's own total out by
+    #: hours nobody chose. Never filled by a drafter — a model does not state
+    #: hours — only by a person or an imported sheet.
+    hours: Optional[int] = None
     #: Whether a model does the work here. Marked per sub-feature rather than
     #: per module, because "Search & Discovery" is three jobs and only one of
     #: them wants a language model.
     ai_candidate: bool = False
+    #: What this line includes that is not separate work: the members of a set
+    #: that are instances of the one mechanism this line builds. Seven roles
+    #: in an access model, four stages in a sign-off chain, three purposes in a
+    #: dropdown. Named, so a reader sees they were considered; unpriced, because
+    #: the line's own size already is their price.
+    #:
+    #: This is the architect's own layout. The Gift Tracker sheet prices
+    #: "HomePage" at 27 hours and lists Gift Request, Tracker, Budget Version,
+    #: Dashboard and Audit trail underneath it with no hours of their own. The
+    #: drafter priced every such member as a two-day line, and a set of seven
+    #: became fourteen days where the architect wrote five.
+    covers: list[str] = Field(default_factory=list)
 
 
 class Module(EstimateModel):
@@ -135,6 +154,12 @@ class CostAssumptions(EstimateModel):
     # running on this stack, extending something they built last quarter,
     # genuinely does not.
     include_ramp_up: bool = True
+    # Whether the engine books the delivery rows an architect writes under the
+    # module total: testing and technical leadership as shares of the build,
+    # deployment and the CI/CD pipeline flat. On by default because every
+    # delivery has them; a switch because a sheet that already prices them as
+    # modules of its own would otherwise count them twice.
+    include_delivery: bool = True
     # ROI benefit dials. value/call = minutes ÷ 60 × loaded_rate × automation%.
     # The fully-loaded cost of the person whose work AI offsets, and the share of
     # calls AI handles end-to-end (deflection) rather than an assumed perfect 100%.
@@ -348,6 +373,12 @@ class SubFeatureEstimate(EstimateModel):
     #: Units × unit hours, before the team's skill scores. Equal to `hours`
     #: when no score applies; zero on records written before scores existed.
     base_hours: int = 0
+    #: What the line includes without pricing separately. See `SubFeature`.
+    covers: list[str] = Field(default_factory=list)
+    #: How a line not sized in days was priced — "10% of the build" for the
+    #: delivery rows. Shown where the size would be, because "14d" on a line
+    #: computed as a percentage would be a size nobody chose.
+    basis: str = ""
 
 
 class ModuleEstimate(EstimateModel):
@@ -357,6 +388,9 @@ class ModuleEstimate(EstimateModel):
     #: The report says so, because a line nobody wrote should not be able to
     #: pass itself off as one somebody did.
     derived: bool = False
+    #: Which kind of engine-added module: "ramp_up" or "delivery". Empty for
+    #: everything the brief named, and on records written before there were two.
+    kind: str = ""
     hours: int
     cost: int
     #: Elapsed weeks for one engineer. A module is usually one person's job;
@@ -768,6 +802,11 @@ class Estimation(EstimateModel):
     verdict: Optional[Verdict] = None
     confidence: Optional[ConfidenceAssessment] = None
     cost_breakdown: CostBreakdown
+    #: Whether any use case needs a model. False makes this a standard-software
+    #: estimate: no tokens, no AI services, no AI benefit, and the report says
+    #: so instead of drawing an AI comparison for a system with no AI in it.
+    #: True on every record written before the flag, which is what they were.
+    ai_applicable: bool = True
     token_projection: TokenProjection
     comparison: AIvsStandardComparison
     roi_projection: ROIProjection

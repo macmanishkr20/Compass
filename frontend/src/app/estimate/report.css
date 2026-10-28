@@ -307,12 +307,20 @@ svg { fill: none; }
 
 .subs-t { margin: 0 0 6px 32px; border-left: 1px solid var(--rule); padding-left: 12px; }
 .sub-r {
-  display: grid; grid-template-columns: 1fr 84px 54px 76px;
+  /* The size column holds "10% of the build" on a delivery row as well as
+     "M · 4d", so it is sized for the longer of the two. */
+  display: grid; grid-template-columns: 1fr 108px 54px 76px;
   align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; color: var(--ink-2);
 }
 .sub-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What a line builds once for many — under its name, quieter than it, and
+   free to wrap: seven role names do not fit on the name's one line. */
+.sub-cov {
+  display: block; white-space: normal; margin-top: 2px;
+  font-size: 11px; color: var(--ink-3); line-height: 1.4;
+}
 .sub-s {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap;
   background: var(--surface-2x); border-radius: 20px; padding: 1px 7px; text-align: center;
 }
 .sub-h, .sub-cost {

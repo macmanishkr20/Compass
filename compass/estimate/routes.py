@@ -55,7 +55,11 @@ def _record_fields(brief: ProjectInput, estimation: Estimation) -> dict:
         "score": estimation.feasibility.score,
         "total_expected": estimation.cost_breakdown.total.expected,
         "currency": estimation.cost_breakdown.currency,
-        "verdict": estimation.verdict.decision if estimation.verdict else "",
+        # The list draws this as a pill, and "do_not_use_ai" in red is how it
+        # draws a rejected AI proposal. A brief with no AI in it was never one,
+        # and its row has to say what its report says.
+        "verdict": ("standard_software" if not estimation.ai_applicable
+                    else estimation.verdict.decision if estimation.verdict else ""),
         "confidence": estimation.confidence.level if estimation.confidence else "",
         "status": "complete",
     }
@@ -174,6 +178,9 @@ class BrdRequest(BaseModel):
     #: of base64.
     data_url: str = Field(min_length=1, max_length=28_000_000)
     project_type: str = "new"
+    #: The delivery lead's scope decisions, which override the document. See
+    #: `intake.analyse_brd`; capped there, and here so the body says so too.
+    scope_notes: str = Field(default="", max_length=intake.SCOPE_NOTES_MAX_CHARS)
 
 
 #: What a requirements document arrives as. Images are refused rather than
@@ -226,7 +233,8 @@ async def read_brd(body: BrdRequest, user: str = Depends(require_user)) -> dict:
                             detail=f"Could not read the document: {note.strip('[]')}")
 
     try:
-        brief = await intake.analyse_brd(text, body.name, body.project_type)
+        brief = await intake.analyse_brd(text, body.name, body.project_type,
+                                         scope_notes=body.scope_notes)
     except Exception as exc:  # noqa: BLE001 - the surface says what went wrong
         logger.warning("brd analysis failed: %s", exc)
         raise HTTPException(status_code=502,

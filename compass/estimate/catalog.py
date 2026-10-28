@@ -116,13 +116,16 @@ SIZE_BAND_UNITS: dict[str, int] = {
 #: The ceiling, in units. A sub-feature above it is not estimated, it is split.
 MAX_SUB_FEATURE_UNITS = 10
 
-#: How a line's all-in hours divide between the disciplines that deliver it.
-#: A band's hours are already analysis, build, test, review and deployment
-#: together (see COMPLEXITY_HOURS), so this apportions them rather than adding
-#: anything on top: headcount changes how long a phase takes, never how many
+#: How a plan's hours divide between the disciplines that deliver it, for
+#: elapsed time only: headcount changes how long a phase takes, never how many
 #: hours it is. The split sits inside the usual planning ranges — testing
 #: 20-30% of delivery effort, requirements and design 10-20% — and it is
 #: stated in the report beside every figure it produces.
+#:
+#: With the delivery rows booked (see DELIVERY_NAME below) testing is no longer
+#: a share of anything: it is the testing row, and it goes to the testers as
+#: it stands. The remaining shares then divide what is left between the
+#: developers and the analysts, in the same proportion to each other.
 ROLE_SHARES: dict[str, float] = {
     "development": 0.62,
     "testing": 0.23,
@@ -166,6 +169,54 @@ RAMP_UP_UNITS_BY_BREADTH: tuple[tuple[int, int], ...] = (
 )
 RAMP_UP_UNITS_MAX = 5  # 16 or more -> 45h
 RAMP_UP_NAME = "Requirement understanding and environment setup"
+
+# ── Delivery: the rows an architect writes under the module total ────
+#
+# A second GDS architect's sheet — the Finance Gift Tracker, 1,683 hours — is
+# laid out the way the first one almost certainly was, and it settles a claim
+# this file used to make. Its build lines are in nine-hour days exactly like the
+# reference workbook's, and they stop at a *Module Total* of 1,238. Underneath
+# it, four more rows:
+#
+#     Module Testing    123.8   10% of the module total
+#     Tech Lead         185.7   15% of the module total
+#     Deployment         90.0   ten days, flat
+#     CI/CD pipeline     45.0   five days, flat
+#
+# So a line's hours are *build* hours, and the delivery around them is booked
+# below by rule. The bands were read off a sheet of the same shape and called
+# "all-in", which is why every estimate since has carried no tech lead and no
+# deployment, and why its testing appeared or vanished depending on whether a
+# drafter happened to write a module about it.
+#
+# Booked by the engine, like the ramp-up, so it is the same on every estimate
+# and visibly not something the brief asked for. Percentages are of the build
+# including the ramp-up, because the sheet's 10% and 15% are of a module total
+# that includes its own Requirement & Design row.
+DELIVERY_NAME = "Delivery and assurance"
+TESTING_SHARE = 0.10
+TECH_LEAD_SHARE = 0.15
+#: Flat, and booked once, in the first phase: that is when the pipeline is
+#: built and production is first stood up. Later phases release through both,
+#: and their testing and leadership are still booked per phase.
+DEPLOYMENT_UNITS = 10
+CICD_UNITS = 5
+
+# ── Use cases that need no model ────────────────────────────────────
+#
+# Three task types exist so a use case can say honestly that it needs no LLM:
+# a rules engine, a lookup, a threshold alert. Until now they were profiled
+# with a model anyway — gpt-4o-mini, with token counts — so a brief made
+# entirely of them was priced for tokens, given Azure AI Content Safety,
+# charged maintenance for "prompt & model upkeep" and "eval regression
+# checks", and credited with an AI automation benefit. A finance tracker
+# whose every use case said "no model is required" came back with a model.
+#
+# They keep their profiles, because the scoring is what lets such a brief land
+# on "don't use AI" at all. They are excluded from everything a model costs.
+NO_MODEL_TASK_TYPES: frozenset[str] = frozenset({
+    "rules_workflow", "crud_lookup", "threshold_alerting",
+})
 
 # How much harder a use case is to integrate than the plainest one.
 #

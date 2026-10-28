@@ -113,6 +113,7 @@ li { margin-bottom: 1.5mm; }
 tr.ph td { border-top: 0.8pt solid #1d1d1f; padding-top: 3mm; }
 tr.md td { background: #f6f6f8; font-weight: 600; }
 td.ind { padding-left: 6mm; color: #55555c; }
+td.ind .cov { font-size: 7.5pt; color: #8a8a90; margin-top: 0.6mm; }
 .foot { margin-top: 8mm; padding-top: 3mm; border-top: 0.4pt solid #d8d8dc;
         font-size: 7.5pt; color: #8a8a90; }
 """
@@ -124,7 +125,6 @@ def to_html(est: Estimation) -> str:
     money = lambda n: _e(_money(cur, n))  # noqa: E731 - a local alias, used 40 times
     cost = est.cost_breakdown
     roi = est.roi_projection
-    cmp_ = est.comparison
     mode = "Enhancement" if est.project_type == "enhancement" else "New build"
 
     parts: list[str] = [
@@ -147,21 +147,45 @@ def to_html(est: Estimation) -> str:
 
     payback = ("none modelled" if roi.payback_months is None
                else f"{roi.payback_months} months")
+    wbs = cost.development.work_breakdown
+    if est.ai_applicable:
+        kpis = (
+            f'<div class="kpi"><span class="kicker">Year one benefit</span>'
+            f'<div class="v">{money(roi.first_year_benefit)}</div>'
+            f'<div class="n">{money(roi.annual_benefit)} a year at full adoption</div></div>'
+            f'<div class="kpi"><span class="kicker">Payback</span>'
+            f'<div class="v">{_e(payback)}</div>'
+            f'<div class="n">feasibility {est.feasibility.score}/100</div></div>'
+            f'<div class="kpi"><span class="kicker">Three years</span>'
+            f'<div class="v">{money(roi.three_year_value)}</div>'
+            f'<div class="n">{est.roi_projection.roi_percent}% return</div></div>'
+        )
+    else:
+        # A benefit of nothing and a payback of never are not findings about a
+        # system with no AI in it; they are the AI model reporting that it was
+        # not used. What a reader of a standard build wants on the first page
+        # is how much work it is and what it costs to keep running.
+        hours = wbs.total_hours if wbs is not None and wbs.phases else sum(
+            b.hours for b in cost.development.breakdown)
+        weeks = wbs.total_weeks if wbs is not None and wbs.phases else 0
+        run = cost.infrastructure.monthly_cost + cost.maintenance.monthly_cost
+        kpis = (
+            f'<div class="kpi"><span class="kicker">Effort</span>'
+            f'<div class="v">{_e(_num(hours, " h"))}</div>'
+            f'<div class="n">{money(cost.development.total_cost)} to build</div></div>'
+            f'<div class="kpi"><span class="kicker">Timeline</span>'
+            f'<div class="v">{_e(_num(weeks, " wks"))}</div>'
+            f'<div class="n">{_e(_team_phrase(wbs, html=False)) if wbs is not None and wbs.phases else ""}</div></div>'
+            f'<div class="kpi"><span class="kicker">To run</span>'
+            f'<div class="v">{money(run)}</div>'
+            f'<div class="n">a month — infrastructure and maintenance</div></div>'
+        )
     parts.append(
         '<section class="kpis">'
         f'<div class="kpi"><span class="kicker">First year</span>'
         f'<div class="v">{money(cost.total.expected)}</div>'
         f'<div class="n">{money(cost.total.min)} – {money(cost.total.max)}</div></div>'
-        f'<div class="kpi"><span class="kicker">Year one benefit</span>'
-        f'<div class="v">{money(roi.first_year_benefit)}</div>'
-        f'<div class="n">{money(roi.annual_benefit)} a year at full adoption</div></div>'
-        f'<div class="kpi"><span class="kicker">Payback</span>'
-        f'<div class="v">{_e(payback)}</div>'
-        f'<div class="n">feasibility {est.feasibility.score}/100</div></div>'
-        f'<div class="kpi"><span class="kicker">Three years</span>'
-        f'<div class="v">{money(roi.three_year_value)}</div>'
-        f'<div class="n">{est.roi_projection.roi_percent}% return</div></div>'
-        "</section>"
+        f"{kpis}</section>"
     )
 
     rows = "".join(
@@ -172,6 +196,9 @@ def to_html(est: Estimation) -> str:
             ("AI tokens (annual, expected)", cost.ai_tokens.annual_cost.expected),
             ("Maintenance (annual)", cost.maintenance.annual_cost),
         )
+        # A zero row for tokens on a system that calls no model reads as a
+        # model that happens to be free.
+        if est.ai_applicable or not label.startswith("AI tokens")
     )
     parts.append(
         "<section><h2>First-year cost</h2><table>"
@@ -185,7 +212,6 @@ def to_html(est: Estimation) -> str:
     # The development detail, module by module. Printed between the cost summary
     # and the infrastructure, because it is the line item most people argue
     # with — and the one they need in front of them to argue usefully.
-    wbs = cost.development.work_breakdown
     if wbs is not None and wbs.phases:
         body: list[str] = []
         for ph in wbs.phases:
@@ -204,10 +230,17 @@ def to_html(est: Estimation) -> str:
                     f"<td class='num'>{_e(_num(mod.weeks, ' wks'))}</td></tr>"
                 )
                 for sub in mod.sub_features:
+                    size = (_e(sub.basis) if sub.basis else
+                            _e(sub.size.upper() + " · " if sub.size else "")
+                            + _e(_num(sub.units, "d")))
+                    # What the line includes without pricing it, under its
+                    # name — the architect's own layout, where the sub-items
+                    # sit beneath the line that carries their hours.
+                    covers = (f"<div class='cov'>covers {_e(' · '.join(sub.covers))}</div>"
+                              if sub.covers else "")
                     body.append(
-                        f"<tr><td class='ind'>{_e(sub.name)}</td>"
-                        f"<td>{_e(sub.size.upper() + ' · ' if sub.size else '')}"
-                        f"{_e(_num(sub.units, 'd'))}</td>"
+                        f"<tr><td class='ind'>{_e(sub.name)}{covers}</td>"
+                        f"<td>{size}</td>"
                         f"<td class='num'>{_e(_num(sub.hours, 'h'))}</td>"
                         f"<td class='num'>{money(sub.cost)}</td><td></td></tr>"
                     )
@@ -251,6 +284,53 @@ def to_html(est: Estimation) -> str:
         "</tr></tfoot></table></section>"
     )
 
+    if not est.ai_applicable:
+        # Said once, in place of the three AI sections, so the absence reads
+        # as a finding rather than as pages that failed to print.
+        parts.append(
+            "<section><h2>No AI in this estimate</h2>"
+            "<p>Every use case in the brief is rules, lookups or alerts that "
+            "ordinary software does exactly, so nothing calls a model. No tokens, "
+            "no AI services and no AI benefit are costed, and there is no AI "
+            "approach to compare against. This is the cost of a standard build.</p>"
+            "</section>"
+        )
+    else:
+        _ai_sections(parts, est, money, cur)
+
+    if est.recommendations:
+        recs = "".join(
+            f"<li><b>{_e(r.title)}</b> — {_e(r.description)} "
+            f"<i>{_e(r.estimated_impact)}</i></li>"
+            for r in est.recommendations
+        )
+        parts.append(f"<section><h2>What to do next</h2><ul>{recs}</ul></section>")
+
+    if est.assumptions:
+        stated = "".join(f"<li>{_e(a)}</li>" for a in est.assumptions)
+        parts.append(
+            "<section><h2>Scope assumptions</h2>"
+            f"<ol>{stated}</ol></section>"
+        )
+
+    if est.ai_applicable and roi.assumptions:
+        basis = "".join(f"<li>{_e(a)}</li>" for a in roi.assumptions)
+        parts.append(f"<section><h2>Basis</h2><ul>{basis}</ul></section>")
+
+    parts.append(
+        '<p class="foot">Every figure was computed from the brief by Compass\'s '
+        "deterministic engine against a versioned rate card. A model labelled the "
+        "use cases and chose the delivery platform; it computed nothing. The same "
+        "brief produces the same estimate.</p>"
+    )
+    return "".join(parts)
+
+
+def _ai_sections(parts: list[str], est: Estimation, money, cur: str) -> None:
+    """Where the value comes from, and AI against standard software — the two
+    sections that only mean something when a model is part of the build."""
+    roi = est.roi_projection
+    cmp_ = est.comparison
     drivers = "".join(
         f"<tr><td>{_e(d.use_case)}</td>"
         f"<td class='num'>{_e(_num(d.minutes_per_call))}</td>"
@@ -283,33 +363,6 @@ def to_html(est: Estimation) -> str:
         f"<td class='num'>{money(cmp_.standard_approach.monthly_run_cost)}</td></tr>"
         "</tbody></table></section>"
     )
-
-    if est.recommendations:
-        recs = "".join(
-            f"<li><b>{_e(r.title)}</b> — {_e(r.description)} "
-            f"<i>{_e(r.estimated_impact)}</i></li>"
-            for r in est.recommendations
-        )
-        parts.append(f"<section><h2>What to do next</h2><ul>{recs}</ul></section>")
-
-    if est.assumptions:
-        stated = "".join(f"<li>{_e(a)}</li>" for a in est.assumptions)
-        parts.append(
-            "<section><h2>Scope assumptions</h2>"
-            f"<ol>{stated}</ol></section>"
-        )
-
-    if roi.assumptions:
-        basis = "".join(f"<li>{_e(a)}</li>" for a in roi.assumptions)
-        parts.append(f"<section><h2>Basis</h2><ul>{basis}</ul></section>")
-
-    parts.append(
-        '<p class="foot">Every figure was computed from the brief by Compass\'s '
-        "deterministic engine against a versioned rate card. A model labelled the "
-        "use cases and chose the delivery platform; it computed nothing. The same "
-        "brief produces the same estimate.</p>"
-    )
-    return "".join(parts)
 
 
 def _team_phrase(wbs, *, html: bool) -> str:
@@ -440,13 +493,17 @@ def to_excel(est: Estimation) -> bytes:
     if wbs is not None and wbs.phases:
         ws = wb.create_sheet("Work Breakdown")
         ws.append(["Phase", "Module", "Sub-feature", "Size", "Days", "Hours",
-                   f"Cost ({cur})", "Weeks"])
-        style_header(ws, 1, 8)
+                   f"Cost ({cur})", "Weeks", "Covers"])
+        style_header(ws, 1, 9)
         for ph in wbs.phases:
             for mod in ph.modules:
                 for sub in mod.sub_features:
-                    ws.append([ph.phase, mod.name, sub.name, sub.size.upper() or "—",
-                               sub.units, sub.hours, sub.cost, ""])
+                    # A delivery row is a share of the build, not a size, and
+                    # its day count would be a number nobody chose.
+                    ws.append([ph.phase, mod.name, sub.name,
+                               sub.basis or sub.size.upper() or "—",
+                               "" if sub.basis else sub.units,
+                               sub.hours, sub.cost, "", "; ".join(sub.covers)])
                 ws.append([ph.phase,
                            f"{mod.name} (added by the engine)" if mod.derived else mod.name,
                            "Module total", "", "", mod.hours, mod.cost, mod.weeks])
@@ -470,7 +527,7 @@ def to_excel(est: Estimation) -> bytes:
             ws.cell(row=ws.max_row, column=2).font = bold
             for name in wbs.at_ceiling:
                 ws.append(["", name])
-        widths(ws, [8, 34, 44, 8, 8, 9, 15, 9])
+        widths(ws, [8, 34, 44, 18, 8, 9, 15, 9, 60])
 
     # ── Assumptions ──
     if est.assumptions:

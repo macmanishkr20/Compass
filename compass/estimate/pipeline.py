@@ -154,6 +154,7 @@ def compute_steps(
     roi = engine.project_roi(inp, feasibility, cost)
 
     yield "report", None
+    applicable = engine.ai_applicable(inp)
     estimation = Estimation.model_validate({
         "id": est_id,
         "project_id": inp.project_name,
@@ -161,9 +162,10 @@ def compute_steps(
         "project_type": inp.project_type,
         "industry_domain": inp.industry_domain,
         "feasibility": feasibility,
-        "verdict": engine.derive_verdict(feasibility, comparison),
+        "verdict": engine.derive_verdict(feasibility, comparison, applicable),
         "confidence": engine.assess_confidence(inp, feasibility),
         "cost_breakdown": cost,
+        "ai_applicable": applicable,
         "token_projection": tokens,
         "comparison": comparison,
         "roi_projection": roi,

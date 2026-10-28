@@ -109,9 +109,12 @@ export class Estimate {
         note: `${Math.max(0, scored.length - go)} say otherwise`,
         // One tick per scored estimate, in its verdict's colour — the strip
         // the mockup uses to make a ratio legible without a second number.
+        // A standard build was never an AI proposal, so it is neither tick:
+        // drawn neutral, it says "not AI" without saying "rejected".
         split: scored.map((e) => ({
           flex: 1,
-          colour: e.verdict === 'build_with_ai' ? 'var(--ok)' : 'var(--err)',
+          colour: e.verdict === 'build_with_ai' ? 'var(--ok)'
+            : e.verdict === 'standard_software' ? 'var(--ink-3)' : 'var(--err)',
         })) },
       { key: 'mean', label: 'Mean feasibility', value: mean ? `${mean}` : '—', of: '',
         note: 'out of 100',
@@ -146,6 +149,10 @@ export class Estimate {
   /** The uploaded BRD, held as the data URL the server reads. */
   readonly brdFile = signal<{ name: string; mime: string; data_url: string; size: number } | null>(null);
   readonly readingBrd = signal(false);
+  /** The delivery lead's scope decisions, read beside the document and
+   *  overriding it — what an architect's Assumption tab says that the
+   *  document does not. */
+  readonly scopeNotes = signal('');
   /** What reading the BRD found. Carried with the brief, so the report can
    *  show the questions and risks the numbers were priced under. */
   readonly analysis = signal<BrdAnalysis | null>(null);
@@ -210,6 +217,7 @@ export class Estimate {
   readonly hoursPerWeek = signal(32);
   readonly teamSize = signal(3);
   readonly includeRampUp = signal(true);
+  readonly includeDelivery = signal(true);
   readonly loadedRate = signal(75);
   readonly automationPercent = signal(35);
   readonly rampMonths = signal(6);
@@ -238,6 +246,12 @@ export class Estimate {
 
   setRampUp(on: boolean): void {
     this.includeRampUp.set(on);
+    this.rateEdited.set(true);
+    this.rateCardSaved.set(false);
+  }
+
+  setDelivery(on: boolean): void {
+    this.includeDelivery.set(on);
     this.rateEdited.set(true);
     this.rateCardSaved.set(false);
   }
@@ -517,6 +531,14 @@ export class Estimate {
     } : m)));
   }
 
+  /** A line's covers, edited as one comma-separated field: they are names,
+   *  and a list editor for seven role names would be a form inside a form. */
+  setCovers(mi: number, si: number, text: string): void {
+    this.patchSub(mi, si, {
+      covers: text.split(',').map((c) => c.trim()).filter((c) => c),
+    });
+  }
+
   dropSub(mi: number, si: number): void {
     this.modules.update((rows) => rows.map((m, i) => (i === mi
       ? { ...m, sub_features: m.sub_features.filter((_, j) => j !== si) }
@@ -638,6 +660,7 @@ export class Estimate {
     this.hoursPerWeek.set(card.effective_hours_per_week);
     this.teamSize.set(card.team_size);
     this.includeRampUp.set(card.include_ramp_up ?? true);
+    this.includeDelivery.set(card.include_delivery ?? true);
     this.loadedRate.set(card.loaded_hourly_rate);
     this.automationPercent.set(card.automation_rate_percent);
     this.rampMonths.set(card.benefit_ramp_months);
@@ -651,6 +674,7 @@ export class Estimate {
       effective_hours_per_week: this.hoursPerWeek(),
       team_size: this.teamSize(),
       include_ramp_up: this.includeRampUp(),
+      include_delivery: this.includeDelivery(),
       loaded_hourly_rate: this.loadedRate(),
       automation_rate_percent: this.automationPercent(),
       benefit_ramp_months: this.rampMonths(),
@@ -705,7 +729,8 @@ export class Estimate {
     this.turnNotify.arm();
     try {
       const { brief } = await this.api.readBrd(
-        { name: file.name, mime: file.mime, data_url: file.data_url }, this.projectType());
+        { name: file.name, mime: file.mime, data_url: file.data_url }, this.projectType(),
+        this.scopeNotes());
       this.applyBrief(brief);
       this.drafted.set(true);
       this.analysisOpen.set(true);
@@ -884,6 +909,7 @@ export class Estimate {
     this.prose.set('');
     this.drafted.set(false);
     this.brdFile.set(null);
+    this.scopeNotes.set('');
     this.analysis.set(null);
     this.analysisOpen.set(true);
     this.developers.set(0);
@@ -959,11 +985,13 @@ export class Estimate {
       build_with_ai: 'Build with AI',
       do_not_use_ai: 'Not with AI',
       hybrid: 'Hybrid',
+      // No AI was asked for: the same green go its report shows.
+      standard_software: 'Standard software',
     }[decision] ?? 'Draft';
   }
 
   verdictPill(decision: string): string {
-    if (decision === 'build_with_ai') return 'p-ok';
+    if (decision === 'build_with_ai' || decision === 'standard_software') return 'p-ok';
     if (decision === 'do_not_use_ai') return 'p-err';
     if (decision === 'hybrid') return 'p-warn';
     return 'p-idle';

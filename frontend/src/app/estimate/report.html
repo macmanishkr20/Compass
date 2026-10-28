@@ -146,8 +146,10 @@
                 <div class="subs-t">
                   @for (s of m.sub_features; track s.name) {
                     <div class="sub-r">
-                      <span class="sub-n">{{ s.name }}</span>
-                      <span class="sub-s">{{ sizeLabel(s.size, s.units) }}</span>
+                      <span class="sub-n">{{ s.name }}@if (s.covers?.length) {
+                        <span class="sub-cov" [title]="'Built once for all of these — named, not priced separately'">covers {{ s.covers!.join(' · ') }}</span>
+                      }</span>
+                      <span class="sub-s">{{ sizeLabel(s.size, s.units, s.basis) }}</span>
                       <span class="sub-h">{{ s.hours }} h</span>
                       <span class="sub-cost">{{ money(s.cost) }}</span>
                     </div>
@@ -160,11 +162,20 @@
 
         @if (hasDerived()) {
           <div class="note" style="margin-top:12px">
-            <b>One line here was added by the engine, not by the brief.</b>
-            Reading the requirement and standing up an environment is work every
-            project does and no requirement ever asks for, so it is booked rather
-            than left silently out. Switch it off in the rate card if this team is
-            already running on the stack.
+            @if (derivedKinds().has('ramp_up')) {
+              <b>The ramp-up was added by the engine, not by the brief.</b>
+              Reading the requirement and standing up an environment is work every
+              project does and no requirement ever asks for, so it is booked rather
+              than left silently out.
+            }
+            @if (derivedKinds().has('delivery')) {
+              <b>So is delivery and assurance.</b>
+              Testing at 10% of the build, technical leadership at 15%, deployment
+              and the CI/CD pipeline — the rows an architect writes under the module
+              total. Each is a line of its own, so one can be argued with without the
+              others.
+            }
+            Switch either off in the rate card when it does not apply.
           </div>
         }
 
@@ -229,12 +240,17 @@
         <div class="kv"><span class="k">Maintenance</span>
           <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo at
             {{ money(cost.maintenance.hourly_rate) }}</span></div>
-        <div class="kv"><span class="k">Tokens / month</span>
-          <span class="v mono">{{ tokensPerMonth() }}</span></div>
-        <div class="kv"><span class="k">Benefit basis</span>
-          <span class="v mono">{{ benefitBasis() }}</span></div>
-        <div class="kv"><span class="k">Adoption ramp</span>
-          <span class="v mono">{{ roi.benefit_ramp_months }} months to full</span></div>
+        @if (ai()) {
+          <div class="kv"><span class="k">Tokens / month</span>
+            <span class="v mono">{{ tokensPerMonth() }}</span></div>
+          <div class="kv"><span class="k">Benefit basis</span>
+            <span class="v mono">{{ benefitBasis() }}</span></div>
+          <div class="kv"><span class="k">Adoption ramp</span>
+            <span class="v mono">{{ roi.benefit_ramp_months }} months to full</span></div>
+        } @else {
+          <div class="kv"><span class="k">AI</span>
+            <span class="v">None — every use case is rules, lookups or alerts</span></div>
+        }
         @if (c) {
           <div class="kv"><span class="k">Confidence</span>
             <span class="v">{{ label(c.level) }} — {{ c.rationale }}</span></div>
@@ -242,7 +258,7 @@
       </div>
     </div>
 
-    @if (roiChart(); as rc) {
+    @if (ai() && roiChart(); as rc) {
       <div class="panel" style="margin-bottom:12px">
         <h3>Cumulative net, three years<span class="tk"></span>
           <span class="plain">{{ rc.crossLabel }}</span></h3>
@@ -311,7 +327,7 @@
 
     <div class="panel" style="margin-bottom:12px">
       <h3>If the volume moves<span class="tk"></span>
-        <span class="plain">Model usage and infrastructure scale; development does not.</span></h3>
+        <span class="plain">{{ ai() ? 'Model usage and infrastructure scale' : 'Infrastructure scales' }}; development does not.</span></h3>
       @if (sensitivity().length) {
         <div class="sens">
           @for (s of sensitivity(); track s.label) {
@@ -332,7 +348,9 @@
     @if (tab() === 'detail') {
       <div class="panel" style="margin-bottom:12px">
         <h3>Development<span class="tk"></span>
-          <span class="plain">{{ cost.development.ai_integration_hours }} of these hours are the AI integration.</span></h3>
+          @if (ai()) {
+            <span class="plain">{{ cost.development.ai_integration_hours }} of these hours are the AI integration.</span>
+          }</h3>
         <table class="tbl">
           <thead><tr><th>Work</th><th class="num">Hours</th><th class="num">Cost</th></tr></thead>
           <tbody>
@@ -366,6 +384,14 @@
         </table>
       </div>
 
+      @if (!ai()) {
+        <div class="panel" style="margin-bottom:12px">
+          <h3>No AI in this estimate<span class="tk"></span></h3>
+          <p class="help" style="margin:0">Every use case in the brief is rules, lookups or alerts that ordinary
+            software does exactly, so nothing calls a model. No tokens, no AI services and no AI benefit are
+            costed, and there is no AI approach to compare against. This is the cost of a standard build.</p>
+        </div>
+      } @else {
       <div class="rgrid">
         <div class="panel">
           <h3>Return<span class="tk"></span></h3>
@@ -386,6 +412,7 @@
               {{ cmp.standard_approach.timeline_weeks }} wks · {{ cmp.standard_approach.team_size }} people</span></div>
         </div>
       </div>
+      }
 
       @if (e.recommendations.length) {
         <div class="panel" style="margin-bottom:12px">

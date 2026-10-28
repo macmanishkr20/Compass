@@ -82,10 +82,11 @@ export class EstimateApi {
   readBrd(
     file: { name: string; mime: string; data_url: string },
     project_type: ProjectType,
+    scope_notes = '',
   ): Promise<{ brief: ProjectInput; characters: number }> {
     return firstValueFrom(
       this.http.post<{ brief: ProjectInput; characters: number }>('/v1/estimates/brd',
-        { ...file, project_type }),
+        { ...file, project_type, scope_notes }),
     );
   }
 

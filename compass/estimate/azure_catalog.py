@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from .catalog import SCALE_APIM, SCALE_INFRA_BASE
+from .catalog import NO_MODEL_TASK_TYPES, SCALE_APIM, SCALE_INFRA_BASE
 from .types import ProjectInput
 
 HOURS_PER_MONTH = 730
@@ -84,7 +84,11 @@ class PlanContext:
 
     @property
     def has_ai(self) -> bool:
-        return bool(self.task_types) or self.uses_azure_openai
+        # A rules engine, a lookup and a threshold alert are task types too,
+        # and counting them here gave a finance tracker with no model in it
+        # Azure AI Content Safety at $20 a month — a filter for model output
+        # that would never be produced.
+        return bool(self.task_types - NO_MODEL_TASK_TYPES) or self.uses_azure_openai
 
     @property
     def needs_search(self) -> bool:

@@ -127,6 +127,31 @@ judgement about what a well-understood pattern costs, and three framings did
 not shift it. It is a good thing for a person to correct on the form, which is
 what the form is for.
 
+**A fourth framing, and why it is not the second one again.** A second
+architect's sheet — the GDS Finance Gift Tracker, 1,238 build hours — met a
+Compass draft of 2,583, and reconciling them bucket by bucket put +1,084 hours
+on exactly this: seven roles' permissions as seven two-day lines, four review
+stages as four four-day lines, five audit histories as five. "One mechanism is
+one line" failed because it asked the model to write *fewer* lines, against an
+instruction two paragraphs up to enumerate. `covers` does not ask that. It
+keeps the enumeration — the habit that halved the spread — and gives the
+members of a mechanism somewhere to go that is named but not priced, which is
+how both reference sheets lay out sub-items. On the Gift Tracker requirements,
+five drafts an arm, priced with the delivery rows off:
+
+    old prompt                         88 lines   3,040h   sd 181
+    + a set's instances are covers     63 lines   2,255h   sd 116
+    + a line's facets are inside it    55 lines   1,978h   sd  95
+    + the architect's scope decisions  50 lines   1,926h   sd  58
+
+Unlike every change above, these moved the mean as well as the spread — and
+they did it on one document, rebuilt from a stored analysis rather than the
+original, against one sheet. The remaining 1.55x is the drafter still writing
+a capability as about four pieces where this architect writes one. The video
+architect writes it as about three, which is why no constant tuned to close
+this gap would survive the other sheet. Re-measure on the video paragraph
+before trusting any of it there; it was not available when this was written.
+
 That second half was nearly a flat refusal, and a flat refusal was wrong. The
 first draft of this file left volume out of the schema entirely on the grounds
 that requests-per-day multiplies straight into every infrastructure and token
@@ -215,13 +240,33 @@ them is xs, you have rounded the cheap work up.
 Small lines come from naming things separately, not from shaving days off a \
 big line. Two habits produce them:
 
-**When the description names a set, enumerate its members.** Six content \
-categories are six lines, not one line called "content categorisation". Four \
-languages, three roles, two upload types, five report types — each member is \
-its own line and most of them are xs, because the second one is a repeat of \
-the first. This is where a real plan's small work comes from, and folding a \
-set into one averaged line is the single biggest way a breakdown loses its \
-grip on a system.
+**When the description names a set, enumerate its members — then decide \
+what each member is.** Some sets are separate work. Six content categories \
+that each get their own pages and ingestion are six lines, not one line \
+called "content categorisation", and most of them are xs because the second \
+is a repeat of the first. Five report types with their own queries and \
+layouts are five lines. Folding a set like that into one averaged line is the \
+single biggest way a breakdown loses its grip on a system.
+
+Other sets are instances of one mechanism: seven roles in one access model, \
+four stages in one sign-off chain, three purposes in one dropdown, five \
+record types written to one audit log. Building the mechanism is the work; \
+each member is a row of configuration on top of it. Write the mechanism as \
+one line, sized for the whole set, and name the members in that line's \
+`covers` — named, so a reader can see each was considered; unpriced, because \
+the line's size is their price. The test is what a developer does for the \
+next member: open a new file, or add a row to one that exists. A new file is \
+a line. A row is a cover.
+
+**A line is one piece a developer builds, with its facets inside it.** A \
+screen with its fields, its validation, its list and its status; a service \
+with its retries; a stage with the references captured at it. Real sheets \
+are written this way: "Like, comment and comment thread, share internally" \
+is one 45-hour line, and "Audit logs, feature flags, admin controls" is one \
+36-hour line. Split where the parts are separate pieces — a different \
+screen, a different service, a different integration. Where they are fields, \
+checks, states or views of the same piece, they are what the line covers, \
+and the line is sized for all of them together.
 
 **A line joined by "and" is often two lines.** "Sorting and autocomplete" is \
 two, and each is smaller than the pair sounded. Split it, then size each half \
@@ -325,8 +370,18 @@ _SCHEMA = {
                                     ),
                                 },
                                 "ai_candidate": {"type": "boolean"},
+                                "covers": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": (
+                                        "Set members this line builds once "
+                                        "for all of them — instances of one "
+                                        "mechanism, not separate work. Empty "
+                                        "when there are none."
+                                    ),
+                                },
                             },
-                            "required": ["name", "description", "size", "ai_candidate"],
+                            "required": ["name", "description", "size", "ai_candidate", "covers"],
                             "additionalProperties": False,
                         },
                     },
@@ -515,13 +570,23 @@ The brief follows the rules below, which were written for a short \
 description; here the document is the description. Two additions:
 
 - A module the document does not name but clearly implies — sign-in and \
-roles, an audit trail, administration, notifications, reporting, migrating \
-existing data, environments and deployment pipelines, performance testing, \
-user acceptance support — is planned the way an architect plans it and marked \
-`source: "implied"`, with the evidence in its sub-feature descriptions. Add \
-one only when the document gives a reason for it; an implied module with no \
-evidence behind it is an invented one. Everything the document names is \
-`source: "stated"`.
+roles, the data model, an audit trail, administration, notifications, \
+reporting, migrating existing data, environments and monitoring — is planned \
+the way an architect plans it and marked `source: "implied"`, with the \
+evidence in its sub-feature descriptions. Add one only when the document \
+gives a reason for it; an implied module with no evidence behind it is an \
+invented one. Everything the document names is `source: "stated"`.
+- Testing, technical leadership, deployment and the CI/CD pipeline are booked \
+by the engine on every estimate, below the build, the way an architect books \
+them under the module total. A module for any of them would be priced twice.
+
+**Scope decisions.** The person may give you scope decisions alongside the \
+document. They are the delivery lead's calls and they override the document: \
+price what they put in, leave out what they take out however much the \
+document says about it, and write every decision into `assumptions`. A \
+document describes what could be built; the decisions say what will be. \
+Where a decision excludes something the document spends pages on, that is \
+not a gap to fill with a smaller version of it — it is out.
 - Each module lists the `technologies` it is built with, using only names \
 from your `technologies` list.
 
@@ -544,6 +609,10 @@ _BRD_SYSTEM = _BRD_ARCHITECT + _SYSTEM
 #: one is read to here and the estimate says so rather than silently pricing
 #: the first half.
 BRD_MAX_CHARS = 150_000
+
+#: Scope decisions are a person's notes, not a second document. Capped so a
+#: pasted BRD in the notes box cannot double the read.
+SCOPE_NOTES_MAX_CHARS = 8_000
 
 
 def _brd_schema() -> dict:
@@ -626,22 +695,35 @@ def _tech_key(name: str) -> str:
 
 
 async def analyse_brd(document: str, document_name: str = "",
-                      project_type: str = "new") -> ProjectInput:
+                      project_type: str = "new", scope_notes: str = "") -> ProjectInput:
     """Read a requirements document the way a senior architect would, and
     draft the brief from it. Raises on failure — the caller says so.
 
     Returns a brief carrying `brd_analysis`, and nothing costed: the same
     two-step as the paragraph drafter, for the same reason. No team and no
     rate card come out of a document, whatever it says about either.
+
+    `scope_notes` are the decisions an architect brings to the document and
+    the document does not contain. Measured on the Gift Tracker: read alone,
+    its stakeholder-playback BRD drafts at 2,115-2,385 build hours, because it
+    describes tax calculation, deviation management and employee receipt
+    confirmation in detail. The architect's sheet for the same system is 1,238,
+    and the difference is his Assumption tab — "will not perform any
+    calculations", "limited to identified personas" — not his arithmetic. A
+    reader given only the document cannot know any of that, so the person
+    gets a place to say it.
     """
     text = (document or "").strip()
     truncated = len(text) > BRD_MAX_CHARS
     if truncated:
         text = text[:BRD_MAX_CHARS]
 
+    notes = (scope_notes or "").strip()[:SCOPE_NOTES_MAX_CHARS]
+    decided = (f"Scope decisions (these override the document):\n{notes}\n\n"
+               if notes else "")
     raw = await get_model_client().complete_utility(
         _BRD_SYSTEM,
-        f"Document: {document_name or 'requirements document'}\n\n{text}",
+        f"{decided}Document: {document_name or 'requirements document'}\n\n{text}",
         # An analysis and a full breakdown, after the thinking a whole
         # document deserves. The paragraph drafter's 16,000 was set after a
         # reasoning model spent most of a 4,000 budget thinking and returned

@@ -203,6 +203,18 @@
                 <span class="brd-hint">PDF, Word (.docx), Markdown or text · up to 20 MB</span>
               }
             </div>
+            @if (brdFile()) {
+              <!-- An architect prices the document *and* the decisions taken about it.
+                   A BRD describes what could be built; these say what will be, and
+                   the reader treats them as overriding the document. -->
+              <label class="brd-scope">
+                <span class="k">Scope decisions <i>optional — these override the document</i></span>
+                <textarea class="inp" style="min-height:84px" [value]="scopeNotes()"
+                  [disabled]="readingBrd()" maxlength="8000"
+                  (input)="scopeNotes.set($any($event.target).value)"
+                  placeholder="One per line, the way an architect's Assumption tab reads. e.g.&#10;No calculations — the tool records gift values only.&#10;Recipients do not acknowledge; the final list is the acknowledgement.&#10;Employee details come from Talent Data Lake."></textarea>
+              </label>
+            }
             @if (readingBrd()) {
               <p class="brd-wait" role="status">Reading every section, working through scenarios, edge cases
                 and risks, then breaking the work down. A long document takes a few minutes.</p>
@@ -411,20 +423,30 @@
                 <input class="inp grow" [value]="s.name" placeholder="Sub-feature"
                   (input)="patchSub(mi, si, { name: $any($event.target).value })" />
                 <select class="inp" style="width:118px" [value]="s.size"
-                  (change)="patchSub(mi, si, { size: $any($event.target).value, units: null })">
+                  (change)="patchSub(mi, si, { size: $any($event.target).value, units: null, hours: null })">
                   @for (b of catalog()?.size_bands ?? []; track b.key) {
                     <option [value]="b.key" [selected]="b.key === s.size">
                       {{ b.key.toUpperCase() }} · {{ b.units }}d
                     </option>
                   }
                 </select>
-                <span class="hrs">{{ s.units ? s.units * (catalog()?.unit_hours ?? 9)
+                <span class="hrs" [title]="s.hours ? 'As quoted — choosing a size replaces it' : ''">{{ s.hours ? s.hours
+                  : s.units ? s.units * (catalog()?.unit_hours ?? 9)
                   : bandHours(s.size) }}h</span>
                 <button class="del" type="button" (click)="dropSub(mi, si)"
                   aria-label="Remove this sub-feature">
                   <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
                 </button>
               </div>
+              @if (s.covers?.length) {
+                <!-- Shown only where the reader put something: an empty covers
+                     box under every line would be sixty boxes nobody fills. -->
+                <div class="sub-covers">
+                  <span class="k" title="Built once by this line for all of them — named, not priced separately">covers</span>
+                  <input class="inp grow" [value]="(s.covers ?? []).join(', ')"
+                    (change)="setCovers(mi, si, $any($event.target).value)" />
+                </div>
+              }
             }
             <button class="addsub" type="button" (click)="addSub(mi)">+ Sub-feature</button>
           </div>
@@ -603,6 +625,16 @@
               Reading the requirement and standing up an environment — work every project
               does and no requirement asks for, so no brief ever names it. Scales with how
               many modules the plan has. Turn it off for a team already running on this stack.
+            </span>
+          </label>
+          <label class="rampup">
+            <input type="checkbox" [checked]="includeDelivery()"
+              (change)="setDelivery($any($event.target).checked)" />
+            <span>
+              <b>Book delivery and assurance below the build.</b>
+              Testing at 10% and technical leadership at 15% of the build, plus deployment and
+              the CI/CD pipeline — the rows an architect writes under the module total. Turn it off
+              when the breakdown already has modules for them.
             </span>
           </label>
           <div class="note">Changing these re-costs every estimate you open from now on, not

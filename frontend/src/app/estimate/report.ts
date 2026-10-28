@@ -52,6 +52,9 @@ export class EstimateReport {
   readonly tab = signal<Tab>('summary');
 
   readonly est = computed(() => this.record().result);
+  /** Whether a model is part of this build. Records from before the flag
+   *  existed were all costed as AI estimates, and still read as one. */
+  readonly ai = computed(() => this.est().ai_applicable !== false);
   /** What reading the BRD found, when the estimate came from one. */
   readonly analysis = computed(() => this.record().brief?.brd_analysis ?? null);
 
@@ -211,6 +214,14 @@ export class EstimateReport {
   /** The weakest dimension, named. A score of 64 says nothing about what to
    *  do; "the traditional-fit score is the one holding this back" does. */
   readonly weakest = computed(() => {
+    // With no AI in the build, the low AI scores are the finding, not a
+    // weakness to fix: "improve AI necessity" would be advice to add a model
+    // to a system that was right not to have one.
+    if (!this.ai()) {
+      const trad = this.est().feasibility.sub_scores.traditional_suitability;
+      return `Traditional fit is ${trad}. The AI scores are low because nothing here `
+        + 'needs a model — which is why none is costed.';
+    }
     const low = this.subScores().reduce((a, b) => (b.value < a.value ? b : a));
     return `Weakest dimension is ${low.label.toLowerCase()} at ${low.value}. `
       + 'Improving it is worth more than any change to the rate card.';
@@ -239,7 +250,9 @@ export class EstimateReport {
       { label: 'Model usage', amount: c.ai_tokens.annual_cost.expected, colour: 'var(--series-2)' },
       { label: 'Infrastructure', amount: c.infrastructure.annual_cost, colour: 'var(--series-3)' },
       { label: 'Maintenance', amount: c.maintenance.annual_cost, colour: 'var(--series-4)' },
-    ];
+    // A "Model usage — $0" row on a build with no model reads as a model that
+    // happens to be free. The slot keeps its colour for the ones that have it.
+    ].filter((p) => this.ai() || p.label !== 'Model usage');
   });
 
   /** Part-to-whole as one bar. The waterfall beside it compares magnitudes;
@@ -368,9 +381,19 @@ export class EstimateReport {
   /** The pill on a sub-feature. A line whose day count matches no band shows
    *  the days alone — the days are what was priced, and a letter that does not
    *  mean them is noise. */
-  sizeLabel(size: string, units: number): string {
+  sizeLabel(size: string, units: number, basis?: string): string {
+    // A delivery row is a share of the build. Its day count would be a size
+    // nobody chose, so the share is what goes in the pill.
+    if (basis) return basis;
     return size ? `${size.toUpperCase()} · ${units}d` : `${units}d`;
   }
+
+  /** What the engine added, by kind — the note under the plan names each,
+   *  because "one line was added" stopped being true when there were two. */
+  readonly derivedKinds = computed(() => new Set(
+    (this.wbs()?.phases ?? []).flatMap((p) =>
+      p.modules.filter((m) => m.derived).map((m) => m.kind || 'ramp_up')),
+  ));
 
   readonly infraCounted = computed(() =>
     this.est().cost_breakdown.infrastructure.services.filter((s) => s.included_in_total));
@@ -485,7 +508,11 @@ export class EstimateReport {
     return score >= 70 ? 'var(--ok)' : score >= 50 ? 'var(--warn)' : 'var(--err)';
   }
 
+  // A brief with no AI in it was never weighed for AI and found wanting, so
+  // it does not get the red "Not with AI" a rejected AI proposal gets. It is a
+  // go, for ordinary software.
   verdictLabel(decision: string): string {
+    if (!this.ai()) return 'Standard software';
     return {
       build_with_ai: 'Build with AI',
       do_not_use_ai: 'Not with AI',
@@ -494,12 +521,14 @@ export class EstimateReport {
   }
 
   verdictPill(decision: string): string {
+    if (!this.ai()) return 'p-ok';
     if (decision === 'build_with_ai') return 'p-ok';
     if (decision === 'do_not_use_ai') return 'p-err';
     return 'p-warn';
   }
 
   verdictColour(decision: string): string {
+    if (!this.ai()) return 'var(--ok)';
     if (decision === 'build_with_ai') return 'var(--ok)';
     if (decision === 'do_not_use_ai') return 'var(--err)';
     return 'var(--warn)';

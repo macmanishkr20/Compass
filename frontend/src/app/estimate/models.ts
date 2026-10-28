@@ -42,7 +42,13 @@ export interface SubFeature {
   size: SizeBand;
   /** Whole nine-hour units. Set directly to override the band. */
   units?: number | null;
+  /** Hours as an architect quoted them, when they are not whole days. Wins
+   *  over units. */
+  hours?: number | null;
   ai_candidate: boolean;
+  /** Members this line builds once for all of them — seven roles in one
+   *  access model. Named, unpriced: the line's size is their price. */
+  covers?: string[];
 }
 
 /** A group of sub-features, delivered together, in a phase. */
@@ -115,6 +121,10 @@ export interface CostAssumptions {
   team_size: number;
   /** Whether the engine books the project's own ramp-up. */
   include_ramp_up: boolean;
+  /** Whether the engine books testing, technical leadership, deployment and
+   *  CI/CD below the build, as an architect's sheet does. Absent on a card
+   *  saved before the switch existed, which reads as on. */
+  include_delivery?: boolean;
   /** value/call = minutes ÷ 60 × loaded_hourly_rate × automation_rate_percent. */
   loaded_hourly_rate: number;
   automation_rate_percent: number;
@@ -257,6 +267,10 @@ export interface SubFeatureEstimate {
   cost: number;
   /** Before skill scores. 0 on records written before scores existed. */
   base_hours?: number;
+  /** What the line includes without pricing separately. */
+  covers?: string[];
+  /** How a line not sized in days was priced — "10% of the build". */
+  basis?: string;
 }
 
 export interface ModuleEstimate {
@@ -264,6 +278,8 @@ export interface ModuleEstimate {
   phase: number;
   /** True when the engine booked this module rather than the brief naming it. */
   derived: boolean;
+  /** 'ramp_up' | 'delivery' for an engine-booked module; empty otherwise. */
+  kind?: string;
   hours: number;
   cost: number;
   /** Elapsed weeks for one engineer. */
@@ -492,6 +508,9 @@ export interface Estimation {
   verdict: Verdict | null;
   confidence: Confidence | null;
   cost_breakdown: CostBreakdown;
+  /** False when no use case needs a model: a standard-software estimate, with
+   *  no AI cost, benefit or comparison. Absent on older records — read as true. */
+  ai_applicable?: boolean;
   token_projection: TokenProjection;
   comparison: Comparison;
   roi_projection: RoiProjection;
