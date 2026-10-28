@@ -1116,7 +1116,7 @@ def check_the_export_runs_on_windows() -> None:
 
     routes = (ROOT / "compass/estimate/routes.py").read_text()
     ok('"/v1/estimates/{estimate_id}/export/html"' in routes
-       and "export.to_html(estimation)" in routes,
+       and "export.to_html(estimation, record.display)" in routes,
        "and the document is reachable unprinted, from the same HTML — so the "
        "PDF can be had from the browser in front of the person, with no "
        "browser on the server at all")
@@ -1858,6 +1858,118 @@ def check_the_gift_tracker_sheet_reproduces() -> None:
     ok(est.ai_applicable is False, "and nothing in it calls a model")
 
 
+GIFT_TRACKER_STACK = [
+    "app_service", "azure_sql", "service_bus_std", "storage", "functions",
+    "app_registration", "monitor", "log_analytics", "key_vault", "sendgrid",
+    "power_bi", "app_gateway",
+]
+
+
+def check_the_stack_is_the_one_stated() -> None:
+    """Asked why the Gift Tracker was priced on Container Apps rather than the
+    App Service its architect specified, the only true answer was that every
+    new build is: the hosting rule is `select=lambda c: True`, Cosmos DB's is
+    the same, and App Service, SQL Database, Functions, Application Gateway,
+    Log Analytics, SendGrid and Power BI were not in the catalog at all. And
+    asked to price it in North Europe, the honest answer was that it would
+    barely move — every line but three was a flat per-scale baseline with no
+    region in it.
+
+    A stack the brief states is now priced as stated, nothing added; its
+    services are live-priced in the brief's region where Azure publishes a
+    meter. Measured live for the sheet's twelve services: East US $738 a month,
+    North Europe $793, Sweden Central $841.
+    """
+    print("\nthe stack priced is the one the brief states, in the region it names")
+    import copy
+    brief = copy.deepcopy(GIFT_TRACKER_SHEET)
+    brief["technical_preferences"] = {**brief["technical_preferences"],
+                                      "azure_region": "northeurope",
+                                      "azure_services": GIFT_TRACKER_STACK}
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(brief), "est_stack",
+                                   "2026-10-29T00:00:00+00:00"))
+    infra = est.cost_breakdown.infrastructure
+    names = [s.service_name for s in infra.services]
+    ok("Azure App Service" in names and "Azure SQL Database" in names
+       and "Azure Application Gateway" in names and "Azure Service Bus" in names,
+       "App Service, SQL Database, Application Gateway and Service Bus, as the "
+       "architect's Tech Stack tab names them")
+    ok(not {"Azure Container Apps", "Azure Cosmos DB", "Azure Cache for Redis",
+            "Azure API Management", "Microsoft Defender for Cloud"} & set(names),
+       "and nothing the default rules would have added")
+    eq(len(infra.services), len(GIFT_TRACKER_STACK), "exactly the twelve stated")
+    ok({s.region for s in infra.services} == {"northeurope"},
+       "every line priced in the brief's region")
+    pbi = [s for s in infra.services if s.service_name == "Power BI Pro"][0]
+    ok(not pbi.included_in_total and pbi.unit_price == 14.0,
+       "Power BI is shown at $14 a user and not counted — usually licensed "
+       "across the organisation already")
+    sb = [s for s in infra.services if s.service_name == "Azure Service Bus"][0]
+    eq(sb.unit_price, 0.013441,
+       "an hourly meter keeps its decimals, so the line multiplies out — two "
+       "places printed Service Bus at $0.01 an hour")
+
+    from compass.estimate.azure_pricing import _build_filter
+    from compass.estimate.azure_catalog import SPEC_BY_KEY, build_plan_context
+    ctx = build_plan_context(ProjectInput.model_validate(brief), uses_azure_openai=False,
+                             monthly_token_cost=0, monthly_tokens=0)
+    flt = _build_filter(SPEC_BY_KEY["azure_sql"], ctx, "northeurope")
+    ok("meterName eq 'vCore'" in flt and "armRegionName eq 'northeurope'" in flt,
+       "SQL is matched on its exact meter, in the region — 'contains' would also "
+       "take the zone-redundant vCores and price the cheapest of the wrong thing")
+
+    unstated = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                        "est_rules", "2026-10-29T00:00:00+00:00"))
+    ok("Azure Container Apps" in [s.service_name for s in unstated.cost_breakdown.infrastructure.services],
+       "a brief that states no stack is still chosen for by the rules, as before")
+
+
+def check_the_report_shows_what_it_is_told() -> None:
+    """Three flags on the record — development cost, infrastructure cost, the
+    written report — that the screen and both exports obey. A total is printed
+    only when both costs are, because a total beside one hidden part gives
+    that part away by subtraction."""
+    print("\nthe report shows what it is told to, everywhere it is shown")
+    import io
+    from openpyxl import load_workbook
+    from compass.estimate import export, store
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                   "est_flags", "2026-10-29T00:00:00+00:00"))
+    money = f"{est.cost_breakdown.currency} {est.cost_breakdown.development.total_cost:,.0f}"
+
+    effort_only = {"development_cost": False, "infrastructure_cost": False}
+    html = export.to_html(est, effort_only)
+    ok(money not in html and "First year" not in html and "Infrastructure —" not in html
+       and "1,683 h" in html,
+       "effort only: no development figure, no first-year total, no "
+       "infrastructure section — and the hours")
+    dev_only = export.to_html(est, {"infrastructure_cost": False})
+    ok(money in dev_only and "First year" not in dev_only and "Total (expected)" not in dev_only,
+       "one cost shown, no total: the total would give the hidden one away")
+    ok("First year" in export.to_html(est, None), "and everything, by default")
+
+    ws = load_workbook(io.BytesIO(export.to_excel(est, effort_only)))["Work Breakdown"]
+    ok(ws.cell(row=1, column=7).value == "Cost (not shown)"
+       and all(r[6] is None for r in ws.iter_rows(min_row=2, values_only=True)),
+       "the workbook's cost column stays where formulas expect it, and empty")
+
+    eq(store.display_of({"written_report": False, "bogus": True}),
+       {"development_cost": True, "infrastructure_cost": True, "written_report": False},
+       "flags a record was saved without read as shown; unknown ones are dropped")
+    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    ok('@router.patch("/v1/estimates/{estimate_id}/display")' in routes
+       and "export.to_pdf(estimation, record.display)" in routes
+       and "export.to_excel(estimation, record.display)" in routes,
+       "set on the record, and every export reads it from there")
+
+    md = est.report_markdown
+    ok("AI" not in md and md.startswith("# GDS Finance Gift Tracker — Cost estimate"),
+       "a standard build's written report no longer calls itself an AI feasibility study")
+    ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("if (!this.showTotal()) hidden.push('- **Total expected');" in ts,
+       "and on screen it drops the lines that would print a hidden cost")
+
+
 # ── Checked against a second architect ──────────────────────────────────────
 #
 # The GDS Finance Gift Tracker: an architect's sheet of 1,683 hours, and a
@@ -2169,6 +2281,8 @@ def main() -> int:
     check_a_brief_with_no_ai_costs_no_ai()
     check_a_set_of_instances_is_one_line()
     check_the_gift_tracker_sheet_reproduces()
+    check_the_stack_is_the_one_stated()
+    check_the_report_shows_what_it_is_told()
     check_an_estimate_can_leave_the_app()
     check_the_export_runs_on_windows()
     check_the_architect_asks_once()

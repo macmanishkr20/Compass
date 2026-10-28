@@ -93,8 +93,20 @@ export interface TechnicalPreferences {
   budget_ceiling?: number | null;
   budget_currency: string;
   delivery_platform?: string | null;
+  /** ARM region infrastructure is priced in — "northeurope". */
+  azure_region?: string;
   azure_openai_region?: string;
   azure_search_region?: string;
+  /** The stack as stated, as catalog service keys. Empty lets the planner's
+   *  rules choose; given, it is exactly what is priced. */
+  azure_services?: string[];
+}
+
+/** What the report shows. Kept on the record, so the exports follow it. */
+export interface DisplayFlags {
+  development_cost: boolean;
+  infrastructure_cost: boolean;
+  written_report: boolean;
 }
 
 export interface VolumeAndScale {
@@ -542,6 +554,8 @@ export interface EstimateSummary {
   confidence: string;
   status: string;
   owner: string;
+  /** Absent on records saved before the flags — read as everything shown. */
+  display?: DisplayFlags;
   created_at: number;
   updated_at: number;
 }
@@ -567,6 +581,9 @@ export interface EstimateCatalog {
   priorities: Priority[];
   platforms: { key: string; label: string; cost_model: string }[];
   stages: { key: string; label: string }[];
+  /** Services a stack can be stated in, and regions it can be priced in. */
+  azure_services?: { key: string; name: string; category: string }[];
+  azure_regions?: { key: string; label: string }[];
   classifier: boolean;
   architect: boolean;
   /** Whether a brief can be drafted from prose on this server. */

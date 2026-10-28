@@ -134,6 +134,17 @@ svg { fill: none; }
 }
 .err-banner span { flex: 1; }
 
+/* What the report shows — quiet, under the title, because it is a setting on
+   the report rather than part of it. */
+.show-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px;
+  margin: -4px 20px 12px; font-size: 12px; color: var(--ink-2);
+}
+.show-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.show-t { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.show-t input { accent-color: var(--brass); margin: 0; }
+.show-n { font-size: 11px; color: var(--ink-3); }
+
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 9px; border-radius: 20px;

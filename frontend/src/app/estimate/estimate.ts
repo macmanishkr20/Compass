@@ -199,6 +199,26 @@ export class Estimate {
   readonly deployment = signal('cloud');
   readonly existingInfra = signal('');
   readonly compliance = signal('');
+  /** Where infrastructure is priced. East US was the only answer the form
+   *  could give, because it never asked. */
+  readonly azureRegion = signal('eastus');
+  /** The stack as stated. Empty leaves the choice to the planner's rules. */
+  readonly azureServices = signal<string[]>([]);
+
+  toggleService(key: string): void {
+    this.azureServices.update((keys) =>
+      keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]);
+  }
+
+  /** The catalog's services, grouped the way the report groups them. */
+  readonly serviceGroups = computed(() => {
+    const groups = new Map<string, { key: string; name: string }[]>();
+    for (const s of this.catalog()?.azure_services ?? []) {
+      if (!groups.has(s.category)) groups.set(s.category, []);
+      groups.get(s.category)!.push({ key: s.key, name: s.name });
+    }
+    return [...groups].map(([category, services]) => ({ category, services }));
+  });
   readonly budget = signal<number | null>(null);
   readonly currency = signal('USD');
 
@@ -622,6 +642,8 @@ export class Estimate {
         compliance_requirements: this.compliance().split(',').map((s) => s.trim()).filter(Boolean),
         budget_ceiling: this.budget(),
         budget_currency: this.currency().trim() || 'USD',
+        azure_region: this.azureRegion(),
+        azure_services: this.azureServices(),
       },
       volume_and_scale: {
         expected_daily_users: this.dailyUsers(),
@@ -851,6 +873,14 @@ export class Estimate {
       this.peakPattern.set(v.peak_load_pattern ?? '');
       this.growthPercent.set(v.growth_rate_percent ?? null);
     }
+    const tp = b.technical_preferences;
+    if (tp) {
+      // A stored brief's stack and region come back with it; a fresh draft
+      // carries neither, and leaves what the person already chose alone.
+      if (tp.azure_region) this.azureRegion.set(tp.azure_region);
+      if (tp.azure_services?.length) this.azureServices.set([...tp.azure_services]);
+      if (tp.existing_infra) this.existingInfra.set(tp.existing_infra);
+    }
     // The rate card is never in a draft — it is what the organisation pays its
     // own people — so it is left exactly as the person last set it.
     this.analysis.set(b.brd_analysis ?? null);
@@ -928,6 +958,8 @@ export class Estimate {
     this.useCases.set([]);
     this.existingInfra.set('');
     this.compliance.set('');
+    this.azureRegion.set('eastus');
+    this.azureServices.set([]);
     this.budget.set(null);
     this.dailyUsers.set(null);
     this.requestsPerDay.set(null);

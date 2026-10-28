@@ -5,13 +5,14 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
 } from '@angular/core';
 
 import { Markdown } from '../markdown/markdown';
 import { EstimateApi } from './estimate-api';
-import { EstimateRecord, ProjectType } from './models';
+import { DisplayFlags, EstimateRecord, ProjectType } from './models';
 
 /** Which half of the report is showing. Two, not five: the mockup's result
  *  screen is one page with the working folded behind a single control. */
@@ -55,6 +56,60 @@ export class EstimateReport {
   /** Whether a model is part of this build. Records from before the flag
    *  existed were all costed as AI estimates, and still read as one. */
   readonly ai = computed(() => this.est().ai_applicable !== false);
+
+  /** What the report shows. Linked to the record, so opening another estimate
+   *  shows that one's choice; set here first, so a toggle answers at once
+   *  while the record catches up. */
+  readonly display = linkedSignal<DisplayFlags>(() => ({
+    development_cost: true, infrastructure_cost: true, written_report: true,
+    ...(this.record().display ?? {}),
+  }));
+  readonly showDev = computed(() => this.display().development_cost);
+  /** Infrastructure here is the running cost: the services and the
+   *  maintenance that keeps them up, which the report calls "run". */
+  readonly showInfra = computed(() => this.display().infrastructure_cost);
+  /** A total beside one hidden part gives that part away by subtraction, so
+   *  every total needs both. */
+  readonly showTotal = computed(() => this.showDev() && this.showInfra());
+
+  async setDisplay(key: keyof DisplayFlags, on: boolean): Promise<void> {
+    const before = this.display();
+    this.display.set({ ...before, [key]: on });
+    try {
+      const { display } = await this.api.setDisplay(this.record().id, { [key]: on });
+      this.display.set(display);
+    } catch (err) {
+      this.display.set(before);
+      this.exportError.set(`Could not save that: ${(err as Error).message ?? err}`);
+    }
+  }
+
+  /** The written report with every cost line the flags hide taken out. Its
+   *  lines are prefixed by what they price, which is what makes this safe. */
+  readonly writtenReport = computed(() => {
+    const hidden: string[] = [];
+    if (!this.showDev()) hidden.push('- Development:');
+    if (!this.showInfra()) hidden.push('- Infrastructure:', '- AI tokens:', '- Maintenance:');
+    if (!this.showTotal()) hidden.push('- **Total expected');
+    return (this.est().report_markdown ?? '').split('\n')
+      .filter((line) => !hidden.some((p) => line.startsWith(p)))
+      .join('\n');
+  });
+
+  /** The verdict card's figure: the first-year total when both costs show,
+   *  otherwise the one that does, otherwise the effort. */
+  readonly headline = computed(() => {
+    const c = this.est().cost_breakdown;
+    if (this.showTotal()) return null;
+    if (this.showDev()) return { k: 'Build', v: this.compactMoney(c.development.total_cost), s: 'development cost' };
+    if (this.showInfra()) {
+      const run = c.infrastructure.annual_cost + c.maintenance.annual_cost + c.ai_tokens.annual_cost.expected;
+      return { k: 'To run', v: this.compactMoney(run), s: 'a year — infrastructure and maintenance' };
+    }
+    const w = this.wbs();
+    return { k: 'Effort', v: `${(w?.total_hours ?? 0).toLocaleString('en-US')} h`,
+      s: w ? `${w.total_weeks} wks with ${this.teamPhrase()}` : '' };
+  });
   /** What reading the BRD found, when the estimate came from one. */
   readonly analysis = computed(() => this.record().brief?.brd_analysis ?? null);
 
@@ -235,8 +290,8 @@ export class EstimateReport {
     const max = Math.max(...parts.map((p) => p.amount), 1);
     return [
       ...parts.map((p) => ({ ...p, width: (p.amount / max) * 88, total: false })),
-      { label: 'First-year total', amount: c.total.expected, colour: 'var(--ink)',
-        width: 100, total: true },
+      ...(this.showTotal() ? [{ label: 'First-year total', amount: c.total.expected,
+        colour: 'var(--ink)', width: 100, total: true }] : []),
     ];
   });
 
@@ -252,7 +307,9 @@ export class EstimateReport {
       { label: 'Maintenance', amount: c.maintenance.annual_cost, colour: 'var(--series-4)' },
     // A "Model usage — $0" row on a build with no model reads as a model that
     // happens to be free. The slot keeps its colour for the ones that have it.
-    ].filter((p) => this.ai() || p.label !== 'Model usage');
+    ].filter((p) => this.ai() || p.label !== 'Model usage')
+      // A hidden cost is gone from the panel, not drawn as a gap.
+      .filter((p) => (p.label === 'Development' ? this.showDev() : this.showInfra()));
   });
 
   /** Part-to-whole as one bar. The waterfall beside it compares magnitudes;
@@ -415,6 +472,10 @@ export class EstimateReport {
     return `${d.minutes_per_call} min at ${this.money(d.loaded_hourly_rate ?? 0)}/hr, `
       + `${d.automation_rate_percent}% automated`;
   });
+
+  /** How many services the brief stated, or 0 when the planner's rules chose. */
+  readonly stackStated = computed(() =>
+    this.record().brief?.technical_preferences?.azure_services?.length ?? 0);
 
   readonly region = computed(() =>
     this.infraCounted()[0]?.region || 'not priced by region');

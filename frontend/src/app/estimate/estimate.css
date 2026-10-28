@@ -546,6 +546,12 @@ select.inp {
 }
 .tchip:hover { color: var(--ink); border-color: var(--rule-2); }
 .tchip.on { background: var(--brass-soft); border-color: var(--brass); color: var(--brass-2); font-weight: 600; }
+/* The stated stack: one row per category, the same chips the module
+   technologies use, so "on" means the same thing in both places. */
+.stack-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.stack-g { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.stack-cat { width: 104px; flex-shrink: 0; font-size: 11px; color: var(--ink-3); }
+.fg label .opt { font-style: normal; font-weight: 400; color: var(--ink-3); margin-left: 6px; }
 .implied {
   padding: 1px 8px; border-radius: 999px; border: 1px solid var(--violet);
   font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--violet);

@@ -594,6 +594,28 @@
           <div class="fg"><label>Currency</label>
             <input class="inp" [value]="currency()" (input)="currency.set($any($event.target).value)" /></div>
         </div>
+        <div class="fg"><label>Azure region</label>
+          <select class="inp" [value]="azureRegion()" (change)="azureRegion.set($any($event.target).value)">
+            @for (r of catalog()?.azure_regions ?? []; track r.key) {
+              <option [value]="r.key" [selected]="r.key === azureRegion()">{{ r.label }}</option>
+            }
+          </select></div>
+        <!-- The stack, when an architect has written one down. Left empty, the
+             planner's rules choose; named, exactly these are priced. -->
+        <div class="fg"><label>Azure services <i class="opt">optional — the stack as stated; empty lets Compass choose</i></label>
+          <div class="stack-chips">
+            @for (g of serviceGroups(); track g.category) {
+              <div class="stack-g">
+                <span class="stack-cat">{{ g.category }}</span>
+                @for (s of g.services; track s.key) {
+                  <button type="button" class="tchip" [class.on]="azureServices().includes(s.key)"
+                    [attr.aria-pressed]="azureServices().includes(s.key)"
+                    (click)="toggleService(s.key)">{{ s.name }}</button>
+                }
+              </div>
+            }
+          </div>
+        </div>
         <div class="note">The delivery platform is <b>not asked for</b>. It is chosen from
           the brief — and shown, with its reasoning, on the estimate.</div>
       </div>

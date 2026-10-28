@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 
 import {
   CostAssumptions,
+  DisplayFlags,
   EstimateCatalog,
   EstimateProgress,
   EstimateRecord,
@@ -113,6 +114,14 @@ export class EstimateApi {
       throw new Error(detail);
     }
     return res.blob();
+  }
+
+  /** Which costs and sections the report shows. Not a re-cost — the figures
+   *  are untouched — and the exports follow it. */
+  setDisplay(id: string, patch: Partial<DisplayFlags>): Promise<{ display: DisplayFlags }> {
+    return firstValueFrom(
+      this.http.patch<{ display: DisplayFlags }>(`/v1/estimates/${id}/display`, patch),
+    );
   }
 
   remove(id: string): Promise<{ deleted: boolean }> {

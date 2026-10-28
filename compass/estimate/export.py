@@ -119,13 +119,31 @@ td.ind .cov { font-size: 7.5pt; color: #8a8a90; margin-top: 0.6mm; }
 """
 
 
-def to_html(est: Estimation) -> str:
-    """The printable report. Self-contained: no fetches, no fonts to wait for."""
+def _shown(display: dict | None) -> tuple[bool, bool]:
+    """(development cost shown, infrastructure cost shown).
+
+    Infrastructure here means the running cost — the services and the
+    maintenance that keeps them up — because that is what the report groups
+    as "run" beside "build". A total is printed only when both are: a total
+    beside one hidden part gives the hidden part away by subtraction.
+    """
+    d = display or {}
+    return bool(d.get("development_cost", True)), bool(d.get("infrastructure_cost", True))
+
+
+def to_html(est: Estimation, display: dict | None = None) -> str:
+    """The printable report. Self-contained: no fetches, no fonts to wait for.
+
+    `display` is the record's flags: a cost switched off is left out of every
+    table, total and figure it would otherwise appear in, and the hours stay.
+    """
     cur = est.cost_breakdown.currency
     money = lambda n: _e(_money(cur, n))  # noqa: E731 - a local alias, used 40 times
     cost = est.cost_breakdown
     roi = est.roi_projection
     mode = "Enhancement" if est.project_type == "enhancement" else "New build"
+    show_dev, show_infra = _shown(display)
+    show_total = show_dev and show_infra
 
     parts: list[str] = [
         f"<style>{_PRINT_CSS}</style>",
@@ -153,13 +171,18 @@ def to_html(est: Estimation) -> str:
             f'<div class="kpi"><span class="kicker">Year one benefit</span>'
             f'<div class="v">{money(roi.first_year_benefit)}</div>'
             f'<div class="n">{money(roi.annual_benefit)} a year at full adoption</div></div>'
-            f'<div class="kpi"><span class="kicker">Payback</span>'
-            f'<div class="v">{_e(payback)}</div>'
-            f'<div class="n">feasibility {est.feasibility.score}/100</div></div>'
-            f'<div class="kpi"><span class="kicker">Three years</span>'
-            f'<div class="v">{money(roi.three_year_value)}</div>'
-            f'<div class="n">{est.roi_projection.roi_percent}% return</div></div>'
         )
+        # Payback and three-year value are benefit less the whole cost, so
+        # they would give a hidden cost away as surely as a total would.
+        if show_total:
+            kpis += (
+                f'<div class="kpi"><span class="kicker">Payback</span>'
+                f'<div class="v">{_e(payback)}</div>'
+                f'<div class="n">feasibility {est.feasibility.score}/100</div></div>'
+                f'<div class="kpi"><span class="kicker">Three years</span>'
+                f'<div class="v">{money(roi.three_year_value)}</div>'
+                f'<div class="n">{est.roi_projection.roi_percent}% return</div></div>'
+            )
     else:
         # A benefit of nothing and a payback of never are not findings about a
         # system with no AI in it; they are the AI model reporting that it was
@@ -169,56 +192,68 @@ def to_html(est: Estimation) -> str:
             b.hours for b in cost.development.breakdown)
         weeks = wbs.total_weeks if wbs is not None and wbs.phases else 0
         run = cost.infrastructure.monthly_cost + cost.maintenance.monthly_cost
+        build_note = f"{money(cost.development.total_cost)} to build" if show_dev else "of work"
         kpis = (
             f'<div class="kpi"><span class="kicker">Effort</span>'
             f'<div class="v">{_e(_num(hours, " h"))}</div>'
-            f'<div class="n">{money(cost.development.total_cost)} to build</div></div>'
+            f'<div class="n">{build_note}</div></div>'
             f'<div class="kpi"><span class="kicker">Timeline</span>'
             f'<div class="v">{_e(_num(weeks, " wks"))}</div>'
             f'<div class="n">{_e(_team_phrase(wbs, html=False)) if wbs is not None and wbs.phases else ""}</div></div>'
-            f'<div class="kpi"><span class="kicker">To run</span>'
-            f'<div class="v">{money(run)}</div>'
-            f'<div class="n">a month — infrastructure and maintenance</div></div>'
         )
-    parts.append(
-        '<section class="kpis">'
+        if show_infra:
+            kpis += (
+                f'<div class="kpi"><span class="kicker">To run</span>'
+                f'<div class="v">{money(run)}</div>'
+                f'<div class="n">a month — infrastructure and maintenance</div></div>'
+            )
+    first_year = (
         f'<div class="kpi"><span class="kicker">First year</span>'
         f'<div class="v">{money(cost.total.expected)}</div>'
         f'<div class="n">{money(cost.total.min)} – {money(cost.total.max)}</div></div>'
-        f"{kpis}</section>"
+        if show_total else ""
     )
+    parts.append(f'<section class="kpis">{first_year}{kpis}</section>')
 
     rows = "".join(
         f"<tr><td>{_e(label)}</td><td class='num'>{money(amount)}</td></tr>"
-        for label, amount in (
-            ("Development", cost.development.total_cost),
-            ("Infrastructure (annual)", cost.infrastructure.annual_cost),
-            ("AI tokens (annual, expected)", cost.ai_tokens.annual_cost.expected),
-            ("Maintenance (annual)", cost.maintenance.annual_cost),
+        for label, amount, shown in (
+            ("Development", cost.development.total_cost, show_dev),
+            ("Infrastructure (annual)", cost.infrastructure.annual_cost, show_infra),
+            ("AI tokens (annual, expected)", cost.ai_tokens.annual_cost.expected, show_infra),
+            ("Maintenance (annual)", cost.maintenance.annual_cost, show_infra),
         )
         # A zero row for tokens on a system that calls no model reads as a
         # model that happens to be free.
-        if est.ai_applicable or not label.startswith("AI tokens")
+        if shown and (est.ai_applicable or not label.startswith("AI tokens"))
     )
-    parts.append(
-        "<section><h2>First-year cost</h2><table>"
-        "<thead><tr><th>Part</th><th class='num'>Amount</th></tr></thead>"
-        f"<tbody>{rows}</tbody>"
-        f"<tfoot><tr><td><b>Total (expected)</b></td>"
-        f"<td class='num'><b>{money(cost.total.expected)}</b></td></tr></tfoot>"
-        "</table></section>"
-    )
+    if rows:
+        total = (f"<tfoot><tr><td><b>Total (expected)</b></td>"
+                 f"<td class='num'><b>{money(cost.total.expected)}</b></td></tr></tfoot>"
+                 if show_total else "")
+        parts.append(
+            "<section><h2>First-year cost</h2><table>"
+            "<thead><tr><th>Part</th><th class='num'>Amount</th></tr></thead>"
+            f"<tbody>{rows}</tbody>{total}</table></section>"
+        )
 
     # The development detail, module by module. Printed between the cost summary
     # and the infrastructure, because it is the line item most people argue
     # with — and the one they need in front of them to argue usefully.
     if wbs is not None and wbs.phases:
+        # The money column goes and the hours stay: effort is what an estimate
+        # shared without its rate card is for.
+        def cost_cell(n, bold=False):
+            if not show_dev:
+                return ""
+            return f"<td class='num'><b>{money(n)}</b></td>" if bold else f"<td class='num'>{money(n)}</td>"
+
         body: list[str] = []
         for ph in wbs.phases:
             body.append(
                 f"<tr class='ph'><td colspan='2'><b>Phase {ph.phase}</b></td>"
                 f"<td class='num'><b>{_e(_num(ph.hours, 'h'))}</b></td>"
-                f"<td class='num'><b>{money(ph.cost)}</b></td>"
+                f"{cost_cell(ph.cost, bold=True)}"
                 f"<td class='num'><b>{_e(_num(ph.weeks, ' wks'))}</b></td></tr>"
             )
             for mod in ph.modules:
@@ -226,7 +261,7 @@ def to_html(est: Estimation) -> str:
                 body.append(
                     f"<tr class='md'><td colspan='2'>{_e(mod.name)}{added}</td>"
                     f"<td class='num'>{_e(_num(mod.hours, 'h'))}</td>"
-                    f"<td class='num'>{money(mod.cost)}</td>"
+                    f"{cost_cell(mod.cost)}"
                     f"<td class='num'>{_e(_num(mod.weeks, ' wks'))}</td></tr>"
                 )
                 for sub in mod.sub_features:
@@ -242,7 +277,7 @@ def to_html(est: Estimation) -> str:
                         f"<tr><td class='ind'>{_e(sub.name)}{covers}</td>"
                         f"<td>{size}</td>"
                         f"<td class='num'>{_e(_num(sub.hours, 'h'))}</td>"
-                        f"<td class='num'>{money(sub.cost)}</td><td></td></tr>"
+                        f"{cost_cell(sub.cost)}<td></td></tr>"
                     )
         ceiling = ""
         if wbs.at_ceiling:
@@ -259,30 +294,32 @@ def to_html(est: Estimation) -> str:
             f"<p class='sub'>One unit = {wbs.unit_hours}h · elapsed weeks assume "
             f"{_team_phrase(wbs, html=True)}</p>"
             "<table><thead><tr><th>Line</th><th>Size</th><th class='num'>Hours</th>"
-            "<th class='num'>Cost</th><th class='num'>Weeks</th></tr></thead>"
+            f"{'<th class=num>Cost</th>' if show_dev else ''}"
+            "<th class='num'>Weeks</th></tr></thead>"
             f"<tbody>{''.join(body)}</tbody>"
             f"<tfoot><tr><td colspan='2'><b>Total</b></td>"
             f"<td class='num'><b>{_e(_num(wbs.total_hours, 'h'))}</b></td>"
-            f"<td class='num'><b>{money(wbs.total_cost)}</b></td>"
+            f"{cost_cell(wbs.total_cost, bold=True)}"
             f"<td class='num'><b>{_e(_num(wbs.total_weeks, ' wks'))}</b></td></tr></tfoot>"
             f"</table>{ceiling}</section>"
         )
 
-    infra = "".join(
-        f"<tr><td>{_e(s.service_name)}</td><td>{_e(s.tier)}</td>"
-        f"<td>{_e(s.region)}</td><td>{_e(s.price_source)}</td>"
-        f"<td class='num'>{money(s.monthly_cost)}</td></tr>"
-        for s in cost.infrastructure.services if s.included_in_total
-    )
-    parts.append(
-        f"<section><h2>Infrastructure — {_e(cost.infrastructure.platform_label)}</h2>"
-        "<table><thead><tr><th>Service</th><th>Tier</th><th>Region</th>"
-        "<th>Price source</th><th class='num'>Monthly</th></tr></thead>"
-        f"<tbody>{infra}</tbody>"
-        f"<tfoot><tr><td colspan='4'><b>Monthly</b></td>"
-        f"<td class='num'><b>{money(cost.infrastructure.monthly_cost)}</b></td>"
-        "</tr></tfoot></table></section>"
-    )
+    if show_infra:
+        infra = "".join(
+            f"<tr><td>{_e(s.service_name)}</td><td>{_e(s.tier)}</td>"
+            f"<td>{_e(s.region)}</td><td>{_e(s.price_source)}</td>"
+            f"<td class='num'>{money(s.monthly_cost)}</td></tr>"
+            for s in cost.infrastructure.services if s.included_in_total
+        )
+        parts.append(
+            f"<section><h2>Infrastructure — {_e(cost.infrastructure.platform_label)}</h2>"
+            "<table><thead><tr><th>Service</th><th>Tier</th><th>Region</th>"
+            "<th>Price source</th><th class='num'>Monthly</th></tr></thead>"
+            f"<tbody>{infra}</tbody>"
+            f"<tfoot><tr><td colspan='4'><b>Monthly</b></td>"
+            f"<td class='num'><b>{money(cost.infrastructure.monthly_cost)}</b></td>"
+            "</tr></tfoot></table></section>"
+        )
 
     if not est.ai_applicable:
         # Said once, in place of the three AI sections, so the absence reads
@@ -296,7 +333,7 @@ def to_html(est: Estimation) -> str:
             "</section>"
         )
     else:
-        _ai_sections(parts, est, money, cur)
+        _ai_sections(parts, est, money, cur, compare=show_total)
 
     if est.recommendations:
         recs = "".join(
@@ -326,9 +363,11 @@ def to_html(est: Estimation) -> str:
     return "".join(parts)
 
 
-def _ai_sections(parts: list[str], est: Estimation, money, cur: str) -> None:
+def _ai_sections(parts: list[str], est: Estimation, money, cur: str,
+                 compare: bool = True) -> None:
     """Where the value comes from, and AI against standard software — the two
-    sections that only mean something when a model is part of the build."""
+    sections that only mean something when a model is part of the build. The
+    comparison is two whole-cost totals, so it goes when either cost is hidden."""
     roi = est.roi_projection
     cmp_ = est.comparison
     drivers = "".join(
@@ -347,6 +386,8 @@ def _ai_sections(parts: list[str], est: Estimation, money, cur: str) -> None:
         f"<tbody>{drivers}</tbody></table></section>"
     )
 
+    if not compare:
+        return
     parts.append(
         "<section><h2>AI against standard software</h2>"
         f"<p>{_e(cmp_.summary)}</p><table>"
@@ -376,24 +417,28 @@ def _team_phrase(wbs, *, html: bool) -> str:
     return f"{count} engineers in parallel"
 
 
-async def to_pdf(est: Estimation) -> bytes:
+async def to_pdf(est: Estimation, display: dict | None = None) -> bytes:
     from compass.common.screenshot import html_to_pdf
 
-    return await html_to_pdf(to_html(est))
+    return await html_to_pdf(to_html(est, display))
 
 
 # --------------------------------------------------------------------------- excel
 
 
-def to_excel(est: Estimation) -> bytes:
+def to_excel(est: Estimation, display: dict | None = None) -> bytes:
     """Summary, cost, the work breakdown, assumptions, tokens, ROI and
     recommendations. The two middle sheets appear only when the brief carried
-    a breakdown and assumptions to put in them."""
+    a breakdown and assumptions to put in them; tokens and ROI only when a
+    model is part of the build. `display` hides costs here exactly as it does
+    in the PDF: a workbook is the easiest place for a hidden number to leak."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
     cur = est.cost_breakdown.currency
+    show_dev, show_infra = _shown(display)
+    show_total = show_dev and show_infra
     wb = Workbook()
 
     header_fill = PatternFill("solid", fgColor="1D1D1F")
@@ -434,10 +479,13 @@ def to_excel(est: Estimation) -> bytes:
         ("Agentic suitability", f.sub_scores.agentic_suitability),
         ("Traditional suitability", f.sub_scores.traditional_suitability),
         ("Delivery platform", est.cost_breakdown.infrastructure.platform_label),
-        ("Total expected (first year)", est.cost_breakdown.total.expected),
-        ("Total range", f"{est.cost_breakdown.total.min} – {est.cost_breakdown.total.max}"),
-        ("Currency", cur),
     ]
+    if show_total:
+        rows += [
+            ("Total expected (first year)", est.cost_breakdown.total.expected),
+            ("Total range", f"{est.cost_breakdown.total.min} – {est.cost_breakdown.total.max}"),
+        ]
+    rows.append(("Currency", cur))
     r = 4
     for label, value in rows:
         ws.cell(row=r, column=1, value=label).font = bold
@@ -460,27 +508,31 @@ def to_excel(est: Estimation) -> bytes:
     ws.append(["Category", "Detail", "Region", "Price source", f"Amount ({cur})"])
     style_header(ws, 1, 5)
     c = est.cost_breakdown
-    for b in c.development.breakdown:
-        ws.append(["Development", f"{b.category} ({b.hours}h)", "", "", b.cost])
-    ws.append(["Development", "Total development", "", "", c.development.total_cost])
-    for svc in c.infrastructure.services:
-        # The region and the price source are what make a line checkable: a
-        # figure you can trace beats a figure you have to trust.
-        ws.append([
-            "Infrastructure (monthly)" if svc.included_in_total else "Infrastructure (not counted)",
-            f"{svc.service_name} — {svc.tier}", svc.region, svc.price_source, svc.monthly_cost,
-        ])
-    ws.append(["Infrastructure", "Annual infrastructure", "", "", c.infrastructure.annual_cost])
-    for label, value in (("optimistic", c.ai_tokens.annual_cost.optimistic),
-                         ("expected", c.ai_tokens.annual_cost.expected),
-                         ("pessimistic", c.ai_tokens.annual_cost.pessimistic)):
-        ws.append(["AI tokens", f"Annual ({label})", "", "", value])
-    ws.append(["Maintenance",
-               f"{c.maintenance.monthly_hours}h/mo @ {_money(cur, c.maintenance.hourly_rate)}/h",
-               "", "", c.maintenance.annual_cost])
-    ws.append(["TOTAL", "First-year expected", "", "", c.total.expected])
-    ws.cell(row=ws.max_row, column=1).font = bold
-    ws.cell(row=ws.max_row, column=5).font = bold
+    if show_dev:
+        for b in c.development.breakdown:
+            ws.append(["Development", f"{b.category} ({b.hours}h)", "", "", b.cost])
+        ws.append(["Development", "Total development", "", "", c.development.total_cost])
+    if show_infra:
+        for svc in c.infrastructure.services:
+            # The region and the price source are what make a line checkable: a
+            # figure you can trace beats a figure you have to trust.
+            ws.append([
+                "Infrastructure (monthly)" if svc.included_in_total else "Infrastructure (not counted)",
+                f"{svc.service_name} — {svc.tier}", svc.region, svc.price_source, svc.monthly_cost,
+            ])
+        ws.append(["Infrastructure", "Annual infrastructure", "", "", c.infrastructure.annual_cost])
+        if est.ai_applicable:
+            for label, value in (("optimistic", c.ai_tokens.annual_cost.optimistic),
+                                 ("expected", c.ai_tokens.annual_cost.expected),
+                                 ("pessimistic", c.ai_tokens.annual_cost.pessimistic)):
+                ws.append(["AI tokens", f"Annual ({label})", "", "", value])
+        ws.append(["Maintenance",
+                   f"{c.maintenance.monthly_hours}h/mo @ {_money(cur, c.maintenance.hourly_rate)}/h",
+                   "", "", c.maintenance.annual_cost])
+    if show_total:
+        ws.append(["TOTAL", "First-year expected", "", "", c.total.expected])
+        ws.cell(row=ws.max_row, column=1).font = bold
+        ws.cell(row=ws.max_row, column=5).font = bold
     widths(ws, [26, 44, 12, 13, 18])
 
     # ── Work breakdown ──
@@ -492,8 +544,11 @@ def to_excel(est: Estimation) -> bytes:
     wbs = c.development.work_breakdown
     if wbs is not None and wbs.phases:
         ws = wb.create_sheet("Work Breakdown")
+        # Hidden, the cost column stays in place and stays empty, so a sheet
+        # somebody has built formulas against keeps its columns where they were.
+        money = (lambda n: n) if show_dev else (lambda n: None)
         ws.append(["Phase", "Module", "Sub-feature", "Size", "Days", "Hours",
-                   f"Cost ({cur})", "Weeks", "Covers"])
+                   f"Cost ({cur})" if show_dev else "Cost (not shown)", "Weeks", "Covers"])
         style_header(ws, 1, 9)
         for ph in wbs.phases:
             for mod in ph.modules:
@@ -503,18 +558,18 @@ def to_excel(est: Estimation) -> bytes:
                     ws.append([ph.phase, mod.name, sub.name,
                                sub.basis or sub.size.upper() or "—",
                                "" if sub.basis else sub.units,
-                               sub.hours, sub.cost, "", "; ".join(sub.covers)])
+                               sub.hours, money(sub.cost), "", "; ".join(sub.covers)])
                 ws.append([ph.phase,
                            f"{mod.name} (added by the engine)" if mod.derived else mod.name,
-                           "Module total", "", "", mod.hours, mod.cost, mod.weeks])
+                           "Module total", "", "", mod.hours, money(mod.cost), mod.weeks])
                 for col in (3, 6, 7, 8):
                     ws.cell(row=ws.max_row, column=col).font = bold
             ws.append([ph.phase, f"PHASE {ph.phase} TOTAL", "", "", "",
-                       ph.hours, ph.cost, ph.weeks])
+                       ph.hours, money(ph.cost), ph.weeks])
             for col in range(1, 9):
                 ws.cell(row=ws.max_row, column=col).font = bold
         ws.append(["", "GRAND TOTAL", "", "", "",
-                   wbs.total_hours, wbs.total_cost, wbs.total_weeks])
+                   wbs.total_hours, money(wbs.total_cost), wbs.total_weeks])
         for col in range(1, 9):
             ws.cell(row=ws.max_row, column=col).font = bold
         ws.append([])
@@ -540,59 +595,70 @@ def to_excel(est: Estimation) -> bytes:
         for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
             row[0].alignment = Alignment(wrap_text=True, vertical="top")
 
-    # ── Tokens ──
-    ws = wb.create_sheet("Tokens")
-    ws.append(["Model", "Use cases", "Monthly input tokens", "Monthly output tokens",
-               f"Monthly cost ({cur})", "In $/1M", "Out $/1M"])
-    style_header(ws, 1, 7)
-    for m in c.ai_tokens.model_breakdown:
-        ws.append([m.model, ", ".join(m.use_cases), m.monthly_input_tokens,
-                   m.monthly_output_tokens, m.monthly_cost,
-                   m.input_price_per_1m, m.output_price_per_1m])
-    widths(ws, [20, 34, 20, 20, 17, 10, 10])
+    # Tokens and ROI only mean something when a model is part of the build;
+    # for a standard one they were two sheets of zeros. And the run cost, the
+    # net benefit, payback and the cumulative curve are all benefit less cost,
+    # so they leave with a hidden cost rather than reveal it.
+    if est.ai_applicable:
+        # ── Tokens ──
+        ws = wb.create_sheet("Tokens")
+        ws.append(["Model", "Use cases", "Monthly input tokens", "Monthly output tokens",
+                   f"Monthly cost ({cur})" if show_infra else "Monthly cost (not shown)",
+                   "In $/1M", "Out $/1M"])
+        style_header(ws, 1, 7)
+        for m in c.ai_tokens.model_breakdown:
+            ws.append([m.model, ", ".join(m.use_cases), m.monthly_input_tokens,
+                       m.monthly_output_tokens, m.monthly_cost if show_infra else None,
+                       m.input_price_per_1m, m.output_price_per_1m])
+        widths(ws, [20, 34, 20, 20, 17, 10, 10])
 
-    # ── ROI ──
-    ws = wb.create_sheet("ROI")
-    roi = est.roi_projection
-    ws.append(["Metric", "Value"])
-    style_header(ws, 1, 2)
-    for label, value in (
-        ("Annual benefit (steady state)", roi.annual_benefit),
-        ("Year one benefit (ramped)", roi.first_year_benefit),
-        ("Adoption ramp (months)", roi.benefit_ramp_months),
-        ("Annual run cost", roi.annual_run_cost),
-        ("Net annual benefit", roi.net_annual_benefit),
-        ("Payback (months)", roi.payback_months if roi.payback_months is not None else "none"),
-        ("3-year net value", roi.three_year_value),
-        ("3-year ROI %", roi.roi_percent),
-    ):
-        ws.append([label, value])
+        # ── ROI ──
+        ws = wb.create_sheet("ROI")
+        roi = est.roi_projection
+        ws.append(["Metric", "Value"])
+        style_header(ws, 1, 2)
+        metrics: list[tuple[str, object]] = [
+            ("Annual benefit (steady state)", roi.annual_benefit),
+            ("Year one benefit (ramped)", roi.first_year_benefit),
+            ("Adoption ramp (months)", roi.benefit_ramp_months),
+        ]
+        if show_total:
+            metrics += [
+                ("Annual run cost", roi.annual_run_cost),
+                ("Net annual benefit", roi.net_annual_benefit),
+                ("Payback (months)", roi.payback_months if roi.payback_months is not None else "none"),
+                ("3-year net value", roi.three_year_value),
+                ("3-year ROI %", roi.roi_percent),
+            ]
+        for label, value in metrics:
+            ws.append([label, value])
 
-    ws.append([])
-    ws.append(["Use case", "Minutes/call", "Loaded $/hr", "Automation %",
-               "Value/call", "Annual calls", "Annual value"])
-    style_header(ws, ws.max_row, 7)
-    for d in roi.value_drivers:
-        ws.append([
-            d.use_case,
-            # Numbers stay numbers in a spreadsheet — this is the one place
-            # a reader will sort and total them.
-            d.minutes_per_call, d.loaded_hourly_rate, d.automation_rate_percent,
-            d.value_per_call, d.annual_calls, d.annual_value,
-        ])
+        ws.append([])
+        ws.append(["Use case", "Minutes/call", "Loaded $/hr", "Automation %",
+                   "Value/call", "Annual calls", "Annual value"])
+        style_header(ws, ws.max_row, 7)
+        for d in roi.value_drivers:
+            ws.append([
+                d.use_case,
+                # Numbers stay numbers in a spreadsheet — this is the one place
+                # a reader will sort and total them.
+                d.minutes_per_call, d.loaded_hourly_rate, d.automation_rate_percent,
+                d.value_per_call, d.annual_calls, d.annual_value,
+            ])
 
-    ws.append([])
-    ws.append(["Basis"])
-    style_header(ws, ws.max_row, 1)
-    for line in roi.assumptions:
-        ws.append([line])
+        ws.append([])
+        ws.append(["Basis"])
+        style_header(ws, ws.max_row, 1)
+        for line in roi.assumptions:
+            ws.append([line])
 
-    ws.append([])
-    ws.append(["Month", "Cumulative net"])
-    style_header(ws, ws.max_row, 2)
-    for point in roi.curve:
-        ws.append([point.month, point.cumulative_net])
-    widths(ws, [30, 14, 13, 15, 13, 15, 17])
+        if show_total:
+            ws.append([])
+            ws.append(["Month", "Cumulative net"])
+            style_header(ws, ws.max_row, 2)
+            for point in roi.curve:
+                ws.append([point.month, point.cumulative_net])
+        widths(ws, [30, 14, 13, 15, 13, 15, 17])
 
     # ── Recommendations ──
     ws = wb.create_sheet("Recommendations")

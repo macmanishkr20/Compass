@@ -54,6 +54,16 @@ def _build_filter(spec: ServiceSpec, ctx: PlanContext, region: str) -> Optional[
         meter = meter(ctx)
     if meter:
         clauses.append(f"contains(meterName, {_odata(meter)})")
+    # Exact matches, for services whose meters differ only by a suffix.
+    # "contains(meterName, 'vCore')" also takes SQL's zone-redundant vCores,
+    # and the cheapest match would then be a price for something else.
+    for key, field in (("product_eq", "productName"), ("sku_eq", "skuName"),
+                       ("meter_eq", "meterName")):
+        value = r.get(key)
+        if callable(value):
+            value = value(ctx)
+        if value:
+            clauses.append(f"{field} eq {_odata(value)}")
     return " and ".join(clauses)
 
 

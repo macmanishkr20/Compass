@@ -943,7 +943,10 @@ def _consumption_services(inp: ProjectInput, ctx, profile) -> list[dict]:
             "region": region,
             "quantity": round2(qty),
             "unit": spec.unit,
-            "unit_price": round2(unit_price),
+            # Hourly meters are fractions of a cent: Service Bus is $0.013441
+            # an hour, and two decimals printed it as $0.01 beside a monthly
+            # figure that was not 0.01 × 730. The line has to multiply out.
+            "unit_price": round(unit_price, 6) if unit_price < 1 else round2(unit_price),
             "monthly_cost": monthly,
             "price_source": source,
             "included_in_total": spec.included_in_total,
@@ -1505,6 +1508,23 @@ def compose_markdown(inp: ProjectInput, feas: dict, cost: dict) -> str:
 
     def fmt(n: float) -> str:
         return f"{currency} {_locale(n)}"
+
+    if not ai_applicable(inp):
+        # The AI framing — a feasibility title, a tokens line at zero — was the
+        # last place a standard build was still being reported as an AI one.
+        # Each cost line keeps its prefix, which is what lets a report that
+        # hides a cost drop the line that would otherwise print it.
+        return "\n".join([
+            f"# {inp.project_name} — Cost estimate",
+            "",
+            "**Recommendation:** build it as standard software — no use case needs a model.",
+            "",
+            "## Cost (first year)",
+            f"- Development: {fmt(cost['development']['total_cost'])}",
+            f"- Infrastructure: {fmt(cost['infrastructure']['annual_cost'])}/yr",
+            f"- Maintenance: {fmt(cost['maintenance']['annual_cost'])}/yr",
+            f"- **Total expected: {fmt(cost['total']['expected'])}** (range {fmt(cost['total']['min'])}–{fmt(cost['total']['max'])})",
+        ])
 
     return "\n".join([
         f"# {inp.project_name} — AI Feasibility & Cost",

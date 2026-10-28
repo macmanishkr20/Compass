@@ -190,6 +190,12 @@ class TechnicalPreferences(EstimateModel):
     azure_region: str = "eastus"
     azure_openai_region: str = "eastus"
     azure_search_region: str = "eastus"
+    #: The Azure services the build will actually use, as catalog keys — an
+    #: architect's Tech Stack tab. When given, these are what is priced, and
+    #: nothing else: the planner's rules exist to guess a stack nobody stated,
+    #: and they guessed Container Apps and Cosmos DB for a .NET-on-App-Service,
+    #: SQL Database system whose architect had written the stack down.
+    azure_services: list[str] = Field(default_factory=list)
 
 
 class VolumeAndScale(EstimateModel):

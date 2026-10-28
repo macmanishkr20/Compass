@@ -41,6 +41,23 @@ def _now() -> float:
     return time.time()
 
 
+#: What the report shows, per estimate. Kept on the record rather than in the
+#: browser so the PDF and the workbook made from it show the same thing: an
+#: estimate shared with a client as effort only should not grow its rate card
+#: back the moment somebody exports it.
+DISPLAY_DEFAULTS: dict[str, bool] = {
+    "development_cost": True,
+    "infrastructure_cost": True,
+    "written_report": True,
+}
+
+
+def display_of(raw: dict[str, Any] | None) -> dict[str, bool]:
+    """The record's display flags, with any it was saved without switched on."""
+    return {**DISPLAY_DEFAULTS, **{k: bool(v) for k, v in (raw or {}).items()
+                                   if k in DISPLAY_DEFAULTS}}
+
+
 def _new_id() -> str:
     return f"est_{uuid.uuid4().hex[:12]}"
 
@@ -70,6 +87,8 @@ class Estimate:
     #: Who this estimate belongs to. Empty is legacy and stays visible; see
     #: `compass.common.ownership`.
     owner: str = ""
+    #: Which costs and sections the report shows. See DISPLAY_DEFAULTS.
+    display: dict[str, bool] = field(default_factory=lambda: dict(DISPLAY_DEFAULTS))
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
 
@@ -86,6 +105,7 @@ class Estimate:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Estimate":
         known = {k: d[k] for k in cls.__dataclass_fields__ if k in d}
+        known["display"] = display_of(known.get("display"))
         return cls(**known)
 
 

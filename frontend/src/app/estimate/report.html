@@ -38,6 +38,25 @@
     </div>
   }
 
+  <!-- What this report shows. Saved on the estimate, so the PDF and the
+       workbook show the same — a report shared as effort only stays that way
+       when somebody downloads it. -->
+  <div class="show-bar" role="group" aria-label="What this report shows">
+    <span class="show-k">Show</span>
+    <label class="show-t" title="Development cost: every money figure on the work breakdown. Hours stay.">
+      <input type="checkbox" [checked]="showDev()" (change)="setDisplay('development_cost', $any($event.target).checked)" />
+      Development cost</label>
+    <label class="show-t" title="Running cost: infrastructure services and maintenance.">
+      <input type="checkbox" [checked]="showInfra()" (change)="setDisplay('infrastructure_cost', $any($event.target).checked)" />
+      Infrastructure cost</label>
+    <label class="show-t" title="The written report on the Assumptions view.">
+      <input type="checkbox" [checked]="display().written_report" (change)="setDisplay('written_report', $any($event.target).checked)" />
+      Written report</label>
+    @if (!showTotal()) {
+      <span class="show-n">Totals are hidden while either cost is — a total beside one hidden part gives it away.</span>
+    }
+  </div>
+
   <div class="scroll"><div class="wrap">
 
     @if (v) {
@@ -50,12 +69,18 @@
           <p class="why">{{ v.one_liner }}</p>
         </div>
         <div class="rt">
-          <div class="k">First year</div>
-          <div class="v">{{ compactMoney(cost.total.expected) }}</div>
-          <div class="s">
-            {{ money(cost.development.total_cost) }} build ·
-            {{ money(cost.total.expected - cost.development.total_cost) }} run
-          </div>
+          @if (headline(); as h) {
+            <div class="k">{{ h.k }}</div>
+            <div class="v">{{ h.v }}</div>
+            <div class="s">{{ h.s }}</div>
+          } @else {
+            <div class="k">First year</div>
+            <div class="v">{{ compactMoney(cost.total.expected) }}</div>
+            <div class="s">
+              {{ money(cost.development.total_cost) }} build ·
+              {{ money(cost.total.expected - cost.development.total_cost) }} run
+            </div>
+          }
         </div>
       </div>
     }
@@ -76,6 +101,7 @@
         <div class="note" style="margin-top:16px">{{ weakest() }}</div>
       </div>
 
+      @if (showDev() || showInfra()) {
       <div class="panel">
         <h3>Where the money goes<span class="tk"></span></h3>
         <!-- Part-to-whole first, magnitudes second. The stack is the shape
@@ -101,6 +127,7 @@
           }
         </div>
       </div>
+      }
     </div>
 
     @if (hasWbs()) {
@@ -121,7 +148,7 @@
               <span class="phase-n">Phase {{ p.phase }}</span>
               <span class="tk"></span>
               <span class="phase-m">{{ num(p.hours) }} h</span>
-              <span class="phase-m">{{ money(p.cost) }}</span>
+              <span class="phase-m">{{ showDev() ? money(p.cost) : '' }}</span>
               <span class="phase-m wks">{{ p.weeks }} wks</span>
               @if (p.bottleneck) {
                 <span class="phase-m bott" [title]="roleLabel(p.bottleneck) + ' sets this phase\'s length'">{{ roleShort(p.bottleneck) }}-bound</span>
@@ -140,7 +167,7 @@
                 <span class="mod-h">{{ num(m.hours) }} h@if (m.base_hours && m.base_hours !== m.hours) {<span class="skill-d"
                   [title]="'Sized at ' + m.base_hours + ' h, ×' + m.skill_factor + ' for team skill in ' + (m.technologies ?? []).join(', ')">{{ m.hours > m.base_hours ? '+' : '−' }}{{ abs(m.hours - m.base_hours) }}</span>}</span>
                 <span class="mod-w">{{ m.weeks }} wks</span>
-                <span class="mod-cost">{{ money(m.cost) }}</span>
+                <span class="mod-cost">{{ showDev() ? money(m.cost) : '' }}</span>
               </button>
               @if (isOpen(m.name)) {
                 <div class="subs-t">
@@ -151,7 +178,7 @@
                       }</span>
                       <span class="sub-s">{{ sizeLabel(s.size, s.units, s.basis) }}</span>
                       <span class="sub-h">{{ s.hours }} h</span>
-                      <span class="sub-cost">{{ money(s.cost) }}</span>
+                      <span class="sub-cost">{{ showDev() ? money(s.cost) : '' }}</span>
                     </div>
                   }
                 </div>
@@ -228,18 +255,21 @@
           <span class="v">{{ platformSource() }}</span></div>
         <div class="kv"><span class="k">Region</span>
           <span class="v mono">{{ region() }}</span></div>
+        <div class="kv"><span class="k">Services</span>
+          <span class="v">{{ stackStated()
+            ? 'As stated in the brief — ' + stackStated() + ' services, nothing added'
+            : 'Chosen by Compass’s default rules — name the stack on the form to price your own' }}</span></div>
         <div class="kv"><span class="k">Compliance driving it</span>
           <span class="v">{{ complianceLine() }}</span></div>
       </div>
 
       <div class="panel">
         <h3>What this assumes<span class="tk"></span></h3>
-        <div class="kv"><span class="k">Delivery rate</span>
-          <span class="v mono">{{ money(cost.development.hourly_rate) }} / hour ·
-            {{ devHours() }} hours</span></div>
+        <div class="kv"><span class="k">{{ showDev() ? 'Delivery rate' : 'Effort' }}</span>
+          <span class="v mono">@if (showDev()) {{{ money(cost.development.hourly_rate) }} / hour · }{{ devHours() }} hours</span></div>
         <div class="kv"><span class="k">Maintenance</span>
-          <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo at
-            {{ money(cost.maintenance.hourly_rate) }}</span></div>
+          <span class="v mono">{{ cost.maintenance.monthly_hours }} h/mo@if (showInfra()) { at
+            {{ money(cost.maintenance.hourly_rate) }}}</span></div>
         @if (ai()) {
           <div class="kv"><span class="k">Tokens / month</span>
             <span class="v mono">{{ tokensPerMonth() }}</span></div>
@@ -325,6 +355,7 @@
       }
     }
 
+    @if (showTotal()) {
     <div class="panel" style="margin-bottom:12px">
       <h3>If the volume moves<span class="tk"></span>
         <span class="plain">{{ ai() ? 'Model usage and infrastructure scale' : 'Infrastructure scales' }}; development does not.</span></h3>
@@ -344,6 +375,7 @@
         <p class="help" style="margin:0">Re-costing at half and double the stated volume…</p>
       }
     </div>
+    }
 
     @if (tab() === 'detail') {
       <div class="panel" style="margin-bottom:12px">
@@ -352,15 +384,16 @@
             <span class="plain">{{ cost.development.ai_integration_hours }} of these hours are the AI integration.</span>
           }</h3>
         <table class="tbl">
-          <thead><tr><th>Work</th><th class="num">Hours</th><th class="num">Cost</th></tr></thead>
+          <thead><tr><th>Work</th><th class="num">Hours</th>@if (showDev()) {<th class="num">Cost</th>}</tr></thead>
           <tbody>
             @for (b of cost.development.breakdown; track b.category) {
-              <tr><td>{{ b.category }}</td><td class="num">{{ b.hours }}</td><td class="num">{{ money(b.cost) }}</td></tr>
+              <tr><td>{{ b.category }}</td><td class="num">{{ b.hours }}</td>@if (showDev()) {<td class="num">{{ money(b.cost) }}</td>}</tr>
             }
           </tbody>
         </table>
       </div>
 
+      @if (showInfra()) {
       <div class="panel" style="margin-bottom:12px">
         <h3>Infrastructure<span class="tk"></span>
           <span class="plain">{{ money(cost.infrastructure.monthly_cost) }} a month. Every line links to the calculator.</span></h3>
@@ -372,7 +405,7 @@
           <tbody>
             @for (s of infraCounted(); track s.service_name) {
               <tr>
-                <td><a [href]="s.azure_pricing_url" target="_blank" rel="noopener">{{ s.service_name }}</a>
+                <td>@if (s.azure_pricing_url) {<a [href]="s.azure_pricing_url" target="_blank" rel="noopener">{{ s.service_name }}</a>} @else {{{ s.service_name }}}
                   <span class="src">{{ s.price_source }}</span></td>
                 <td>{{ s.tier }}</td>
                 <td class="mono">{{ s.region }}</td>
@@ -383,6 +416,7 @@
           </tbody>
         </table>
       </div>
+      }
 
       @if (!ai()) {
         <div class="panel" style="margin-bottom:12px">
@@ -397,10 +431,13 @@
           <h3>Return<span class="tk"></span></h3>
           <div class="kv"><span class="k">Year one benefit</span><span class="v mono">{{ money(roi.first_year_benefit) }}</span></div>
           <div class="kv"><span class="k">At full adoption</span><span class="v mono">{{ money(roi.annual_benefit) }} a year</span></div>
+          @if (showTotal()) {
           <div class="kv"><span class="k">Payback</span>
             <span class="v mono">{{ roi.payback_months === null ? 'none modelled' : roi.payback_months + ' months' }}</span></div>
           <div class="kv"><span class="k">Three-year value</span><span class="v mono">{{ money(roi.three_year_value) }}</span></div>
+          }
         </div>
+        @if (showTotal()) {
         <div class="panel">
           <h3>AI against standard<span class="tk"></span></h3>
           <p class="help">{{ cmp.summary }}</p>
@@ -411,6 +448,7 @@
             <span class="v mono">{{ money(cmp.standard_approach.total_cost.expected) }} ·
               {{ cmp.standard_approach.timeline_weeks }} wks · {{ cmp.standard_approach.team_size }} people</span></div>
         </div>
+        }
       </div>
       }
 
@@ -432,10 +470,10 @@
         </div>
       }
 
-      @if (e.report_markdown) {
+      @if (e.report_markdown && display().written_report) {
         <div class="panel">
           <h3>The written report<span class="tk"></span></h3>
-          <div class="md"><app-markdown [text]="e.report_markdown" /></div>
+          <div class="md"><app-markdown [text]="writtenReport()" /></div>
         </div>
       }
     }

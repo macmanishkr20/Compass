@@ -61,12 +61,25 @@ def _mandatory_keys(ctx: PlanContext, candidate_keys: set[str]) -> set[str]:
 
 
 def select_services(inp: ProjectInput, ctx: PlanContext) -> list[ServiceSpec]:
-    """Return the ordered list of ServiceSpecs to price for this project."""
-    candidates = _candidate_specs(ctx)
-    candidate_keys = {s.key for s in candidates}
+    """Return the ordered list of ServiceSpecs to price for this project.
 
-    chosen = _rule_keys(ctx, candidates)
-    chosen |= _mandatory_keys(ctx, candidate_keys)
+    A stack the brief states is priced as stated — no rule adds to it and no
+    floor is imposed on it. The rules below choose for a brief that named no
+    services, and they have one answer to hosting (Container Apps) and one to
+    data (Cosmos DB) whatever the system is; asked why the Gift Tracker got
+    Container Apps instead of the App Service its architect specified, the
+    only true reply was that every new build does. A person who has written
+    the stack down has answered the question those rules exist to guess at.
+    """
+    tp = inp.technical_preferences
+    stated = [k for k in (tp.azure_services if tp else []) if k in SPEC_BY_KEY]
+    if stated:
+        chosen = set(stated)
+    else:
+        candidates = _candidate_specs(ctx)
+        candidate_keys = {s.key for s in candidates}
+        chosen = _rule_keys(ctx, candidates)
+        chosen |= _mandatory_keys(ctx, candidate_keys)
 
     # Stable display order: by category flow, then catalog order within a category.
     rank = {c: i for i, c in enumerate(CATEGORY_ORDER)}

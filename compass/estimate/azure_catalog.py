@@ -44,12 +44,56 @@ _VISION = {"small": 20, "medium": 50, "large": 140, "enterprise": 320}
 _TRANSLATOR = {"small": 15, "medium": 40, "large": 110, "enterprise": 260}
 _PRIVATE_NET = {"small": 20, "medium": 40, "large": 90, "enterprise": 180}
 
+# ── The stated-stack services ───────────────────────────────────────
+#
+# Priced only when a brief names them (`azure_services`), never by the rules
+# below: they are the answer to "the architect wrote the stack down". Each is
+# sized by reach and priced live in the brief's region where Azure publishes a
+# meter, so moving a build from East US to North Europe moves these figures —
+# which the flat per-scale baselines above, by construction, never did.
+
+#: App Service Premium v3 P1v3 instances: two from a department up, so a
+#: restart or a platform update is not an outage.
+_APP_SERVICE_INSTANCES = {"small": 1, "medium": 2, "large": 3, "enterprise": 4}
+#: Azure SQL Database, General Purpose Gen5 provisioned vCores. Two is the
+#: tier's floor and comfortably holds a few hundred thousand rows.
+_SQL_VCORES = {"small": 2, "medium": 2, "large": 4, "enterprise": 8}
+#: Log Analytics ingestion, GB a month. The 5 GB monthly free allowance is per
+#: billing account, shared with everything else on it, so it is not deducted.
+_LOG_GB = {"small": 2, "medium": 5, "large": 20, "enterprise": 60}
+#: SendGrid is Twilio's, not an Azure meter. Pro 100K is $89.95 a month, from
+#: published third-party listings of Twilio's price; Essentials (50K, $19.95)
+#: cannot carry one 100,000-recipient distribution in a month.
+_SENDGRID = {"small": ("Essentials 50K", 19.95), "medium": ("Pro 100K", 89.95),
+             "large": ("Pro 100K", 89.95), "enterprise": ("Pro 300K", 249.0)}
+#: Power BI Pro, per user per month (Microsoft list price).
+_POWER_BI_PRO = 14.0
+
 # AI Search SKU → (tier label, USD/hour baseline)
 _SEARCH_SKU = {
     "small": ("Basic", 0.101),
     "medium": ("Standard S1", 0.336),
     "large": ("Standard S1", 0.336),
     "enterprise": ("Standard S2", 1.344),
+}
+
+#: Regions a brief can be priced in, by ARM name. Every one of them is answered
+#: by the Retail Prices API; the list is what the form offers, not a limit on
+#: what the engine accepts.
+AZURE_REGIONS: dict[str, str] = {
+    "northeurope": "North Europe (Ireland)",
+    "swedencentral": "Sweden Central",
+    "westeurope": "West Europe (Netherlands)",
+    "uksouth": "UK South",
+    "germanywestcentral": "Germany West Central",
+    "francecentral": "France Central",
+    "centralindia": "Central India",
+    "southindia": "South India",
+    "eastus": "East US",
+    "eastus2": "East US 2",
+    "westus2": "West US 2",
+    "southeastasia": "Southeast Asia",
+    "australiaeast": "Australia East",
 }
 
 # Category display order for grouping in the report.
@@ -61,6 +105,7 @@ CATEGORY_ORDER = [
     "Security",
     "Networking",
     "Observability",
+    "Analytics",
 ]
 
 
@@ -436,13 +481,176 @@ SERVICE_SPECS: list[ServiceSpec] = [
         details=lambda c: "Telemetry, logs & alerting",
         tier=lambda c: "Pay-as-you-go",
     ),
+    # ── stated-stack only (see `_APP_SERVICE_INSTANCES` above) ──────────
+    ServiceSpec(
+        key="app_service",
+        name="Azure App Service",
+        category="Compute",
+        region_kind="primary",
+        pricing="metered",
+        unit="instance-hour",
+        calc="app-service",
+        purpose="Managed web hosting for the frontend and the API on one Premium v3 plan.",
+        select=lambda c: False,
+        quantity=lambda c: float(_APP_SERVICE_INSTANCES[c.scale] * HOURS_PER_MONTH),
+        unit_price=lambda c: 0.168,
+        details=lambda c: (f"{_APP_SERVICE_INSTANCES[c.scale]} × P1v3 Linux instance"
+                           f"{'s' if _APP_SERVICE_INSTANCES[c.scale] > 1 else ''}, frontend and API "
+                           "on one plan · a Windows plan is about twice this"),
+        tier=lambda c: "Premium v3 P1v3",
+        retail={"service_name": "Azure App Service",
+                "product_eq": "Azure App Service Premium v3 Plan - Linux",
+                "sku_eq": "P1 v3", "meter_eq": "P1 v3 App", "price_type": "Consumption"},
+    ),
+    ServiceSpec(
+        key="azure_sql",
+        name="Azure SQL Database",
+        category="Data & Storage",
+        region_kind="primary",
+        pricing="metered",
+        unit="vCore-hour",
+        calc="azure-sql-database",
+        purpose="Relational database for the application's records.",
+        select=lambda c: False,
+        quantity=lambda c: float(_SQL_VCORES[c.scale] * HOURS_PER_MONTH),
+        unit_price=lambda c: 0.155261,
+        details=lambda c: (f"General Purpose Gen5, {_SQL_VCORES[c.scale]} vCores provisioned · "
+                           "storage (about $4 for 32 GB) not included"),
+        tier=lambda c: f"General Purpose · {_SQL_VCORES[c.scale]} vCore",
+        # Every vCore size shares the meter name; the cheapest is one vCore,
+        # which is the per-vCore rate the quantity multiplies.
+        retail={"service_name": "SQL Database",
+                "product_eq": "SQL Database Single/Elastic Pool General Purpose - Compute Gen5",
+                "meter_eq": "vCore", "price_type": "Consumption"},
+    ),
+    ServiceSpec(
+        key="functions",
+        name="Azure Functions",
+        category="Compute",
+        region_kind="primary",
+        pricing="estimate",
+        unit="month",
+        calc="functions",
+        purpose="Background jobs: queue consumers, scheduled reminders, bulk email fan-out.",
+        select=lambda c: False,
+        quantity=lambda c: 1,
+        unit_price=lambda c: 0.0,
+        details=lambda c: ("Consumption plan · within the monthly free grant of 1M executions "
+                           "and 400,000 GB-s at this load"),
+        tier=lambda c: "Consumption",
+    ),
+    ServiceSpec(
+        key="service_bus_std",
+        name="Azure Service Bus",
+        category="Integration",
+        region_kind="primary",
+        pricing="metered",
+        unit="hour",
+        calc="service-bus",
+        purpose="Durable queues between the API and the background jobs.",
+        select=lambda c: False,
+        quantity=lambda c: float(HOURS_PER_MONTH),
+        unit_price=lambda c: 0.013441,
+        details=lambda c: "Standard tier base unit · first 13M operations a month included",
+        tier=lambda c: "Standard",
+        retail={"service_name": "Service Bus", "sku_eq": "Standard",
+                "meter_eq": "Standard Base Unit", "price_type": "Consumption",
+                "unit_hint": "Hour"},
+    ),
+    ServiceSpec(
+        key="app_gateway",
+        name="Azure Application Gateway",
+        category="Networking",
+        region_kind="primary",
+        pricing="metered",
+        unit="hour",
+        calc="application-gateway",
+        purpose="Regional layer-7 entry point in front of App Service.",
+        select=lambda c: False,
+        quantity=lambda c: float(HOURS_PER_MONTH),
+        unit_price=lambda c: 0.24,
+        details=lambda c: ("Standard v2 fixed cost · capacity units are $0.008/h each on top; "
+                           "WAF v2 is about 1.8× the fixed cost"),
+        tier=lambda c: "Standard v2",
+        retail={"service_name": "Application Gateway",
+                "product_eq": "Application Gateway Standard v2",
+                "meter_eq": "Standard Fixed Cost", "price_type": "Consumption"},
+    ),
+    ServiceSpec(
+        key="log_analytics",
+        name="Azure Log Analytics",
+        category="Observability",
+        region_kind="primary",
+        pricing="metered",
+        unit="GB",
+        calc="monitor",
+        purpose="Workspace for application and platform logs.",
+        select=lambda c: False,
+        quantity=lambda c: float(_LOG_GB[c.scale]),
+        unit_price=lambda c: 2.76,
+        details=lambda c: (f"~{_LOG_GB[c.scale]} GB ingested a month · the 5 GB free allowance "
+                           "is shared across the billing account, so not deducted"),
+        tier=lambda c: "Analytics Logs",
+        retail={"service_name": "Log Analytics",
+                "meter_eq": "Analytics Logs Data Ingestion", "price_type": "Consumption"},
+    ),
+    ServiceSpec(
+        key="app_registration",
+        name="Microsoft Entra app registration",
+        category="Security",
+        region_kind="primary",
+        pricing="estimate",
+        unit="month",
+        calc="active-directory",
+        purpose="Sign-in for the application through the organisation's Entra ID.",
+        select=lambda c: False,
+        quantity=lambda c: 1,
+        unit_price=lambda c: 0.0,
+        details=lambda c: "No charge — part of the organisation's existing Entra ID",
+        tier=lambda c: "Entra ID",
+    ),
+    ServiceSpec(
+        key="sendgrid",
+        name="SendGrid Email API",
+        category="Integration",
+        region_kind="primary",
+        pricing="estimate",
+        unit="month",
+        calc="",
+        purpose="Outbound email: stage notifications, reminders, recipient emails.",
+        select=lambda c: False,
+        quantity=lambda c: 1,
+        unit_price=lambda c: _SENDGRID[c.scale][1],
+        details=lambda c: ("Twilio's price, not an Azure meter — check before committing · "
+                           "one 100,000-recipient distribution needs the 100K plan"),
+        tier=lambda c: _SENDGRID[c.scale][0],
+    ),
+    ServiceSpec(
+        key="power_bi",
+        name="Power BI Pro",
+        category="Analytics",
+        region_kind="primary",
+        pricing="estimate",
+        unit="user/month",
+        calc="",
+        purpose="Dashboards and team-wise reporting.",
+        select=lambda c: False,
+        quantity=lambda c: 1,
+        unit_price=lambda c: _POWER_BI_PRO,
+        details=lambda c: ("Per viewer, not counted: usually licensed across the organisation "
+                           "already. Viewing without Pro needs a capacity SKU (F64 or P1)"),
+        tier=lambda c: "Pro",
+        included_in_total=False,
+    ),
 ]
 
 SPEC_BY_KEY: dict[str, ServiceSpec] = {s.key: s for s in SERVICE_SPECS}
 
 
 def calc_url_for(spec: ServiceSpec) -> str:
-    return _calc_url(spec.calc)
+    # SendGrid and Power BI have no page on Azure's calculator, and a link to
+    # its front page beside them would read as a price check that isn't one.
+    return _calc_url(spec.calc) if spec.calc else ""
 
 
 # ── Plan-context builder ────────────────────────────────────────────
