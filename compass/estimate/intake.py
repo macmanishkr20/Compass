@@ -152,6 +152,19 @@ architect writes it as about three, which is why no constant tuned to close
 this gap would survive the other sheet. Re-measure on the video paragraph
 before trusting any of it there; it was not available when this was written.
 
+**The stack, and why it is written here.** On the Gift Tracker the region and
+the stack were typed in by hand, because no drafter read a Tech Stack section:
+the next BRD naming App Service and SQL Database would have been priced on
+Container Apps and Cosmos DB. Both drafters now write `azure_services` and
+`azure_region` in the engine's own keys. End to end — this reader, the
+classifier, the architect stage and the engine, on the Gift Tracker
+requirements with the architect's two tabs as scope decisions, three runs —
+every run named App Service, SQL Database, Service Bus, Functions, Blob, Key
+Vault, SendGrid and Power BI; added monitoring and identity the tabs left
+unsaid; added no Application Gateway, which nobody named; priced in North
+Europe on Azure PaaS; and wrote no module for testing, deployment or
+walkthroughs. Effort: 2,070, 2,509 and 2,554 hours against the sheet's 1,683.
+
 That second half was nearly a flat refusal, and a flat refusal was wrong. The
 first draft of this file left volume out of the schema entirely on the grounds
 that requests-per-day multiplies straight into every infrastructure and token
@@ -184,6 +197,7 @@ import logging
 
 from compass.common.gateway.azure_client import get_model_client
 
+from .azure_catalog import AZURE_REGIONS, SERVICE_SPECS
 from .catalog import SIZE_BAND_UNITS, TASK_TYPES
 from .types import ProjectInput
 
@@ -329,8 +343,32 @@ the description gives you the number — "900 invoices a day" is a number, "a \
 lot of traffic" is not. Leave the rest null. A null is read as "not known \
 yet" and lowers the stated confidence, which is the correct outcome; a \
 plausible guess is indistinguishable from a measurement once it is in the \
-form.\
+form.
+
+**The stack.** When the description or the scope decisions name the \
+technology — a tech-stack section, an architect's notes, "hosted on App \
+Service with SQL Database" — write `azure_services` the way an architect's \
+Tech Stack tab reads: every Azure service named, as the catalog keys below, \
+plus what a production build on that stack plainly needs and the text leaves \
+unsaid — secrets in Key Vault, logs, storage for uploaded files — and nothing \
+else. A non-Azure product the text names that the catalog carries, such as \
+SendGrid or Power BI, is part of the stack too. Name AI services only for use \
+cases that call a model. When the text names no technology at all, leave the \
+list empty: the engine chooses a stack, and a guess written here would be \
+priced as if somebody had stated it.
+
+`azure_region` is an Azure region the text names, as its key; empty when it \
+names none.
+
+The catalog:
+{catalog}\
 """
+
+#: The services a stated stack is written in, from the list the engine
+#: prices. Read off the catalog rather than typed here, so a service added
+#: there is one the drafter can name with no change on this side.
+_SYSTEM = _SYSTEM.replace("{catalog}", "\n".join(
+    f"  {s.key}: {s.name} — {s.purpose}" for s in SERVICE_SPECS))
 
 #: What the model may fill. A deliberate subset of `ProjectInput`: the rate
 #: card and the delivery platform are absent entirely, and the volume block is
@@ -428,13 +466,52 @@ _SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "azure_services": {
+            "type": "array",
+            "description": (
+                "The stack as the text names it, as catalog keys, with what a "
+                "production build on it plainly needs. Empty when no technology "
+                "is named."
+            ),
+            "items": {"type": "string", "enum": [s.key for s in SERVICE_SPECS]},
+        },
+        "azure_region": {
+            "type": "string",
+            "description": "An Azure region the text names; empty when it names none.",
+            "enum": ["", *AZURE_REGIONS],
+        },
     },
     "required": [
         "project_name", "description", "industry_domain", "target_users",
         "scale", "modules", "assumptions", "volume_and_scale", "ai_use_cases",
+        "azure_services", "azure_region",
     ],
     "additionalProperties": False,
 }
+
+
+def _take_stack(data: dict) -> None:
+    """Move the drafted stack and region onto the brief's technical
+    preferences, which is where the engine and the form read them.
+
+    Keys the catalog does not carry are dropped and repeats folded, so a slip
+    in the draft cannot price a service that does not exist. An empty list or
+    region writes nothing, so the engine's own choice and North Europe stand —
+    a stack nobody named is not one to state on their behalf.
+    """
+    known = {s.key for s in SERVICE_SPECS}
+    services: list[str] = []
+    for key in data.pop("azure_services", None) or []:
+        if key in known and key not in services:
+            services.append(key)
+    region = (data.pop("azure_region", None) or "").strip()
+    stated: dict = {}
+    if services:
+        stated["azure_services"] = services
+    if region in AZURE_REGIONS:
+        stated["azure_region"] = region
+    if stated:
+        data["technical_preferences"] = {**(data.get("technical_preferences") or {}), **stated}
 
 
 async def draft_brief(description: str, project_type: str = "new") -> ProjectInput:
@@ -489,6 +566,7 @@ async def draft_brief(description: str, project_type: str = "new") -> ProjectInp
         first = description.strip().split(".")[0].strip()
         data["project_name"] = (first[:57] + "…") if len(first) > 58 else (first or "Untitled project")
 
+    _take_stack(data)
     data["project_type"] = project_type
     # Validated through the same model the endpoint accepts, so a draft cannot
     # carry a shape a typed brief could not.
@@ -578,7 +656,9 @@ gives a reason for it; an implied module with no evidence behind it is an \
 invented one. Everything the document names is `source: "stated"`.
 - Testing, technical leadership, deployment and the CI/CD pipeline are booked \
 by the engine on every estimate, below the build, the way an architect books \
-them under the module total. A module for any of them would be priced twice.
+them under the module total; so are understanding the requirement and setting \
+up the development environment, at the start. A module for any of them would \
+be priced twice.
 
 **Scope decisions.** The person may give you scope decisions alongside the \
 document. They are the delivery lead's calls and they override the document: \
@@ -783,6 +863,7 @@ async def analyse_brd(document: str, document_name: str = "",
         stem = (document_name or "").rsplit(".", 1)[0].strip()
         data["project_name"] = stem[:58] or "Untitled project"
 
+    _take_stack(data)
     data["project_type"] = project_type
     analysis["document_name"] = document_name
     data["brd_analysis"] = analysis

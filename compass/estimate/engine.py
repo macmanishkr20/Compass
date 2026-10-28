@@ -302,7 +302,7 @@ def _ramp_up_units(module_count: int) -> int:
 
 
 def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
-                    hours_per_week: float) -> dict:
+                    hours_per_week: float, pipeline: bool = True) -> dict:
     """The ramp-up, as an ordinary module so it prices and rolls up like one.
 
     It goes in the earliest phase present, which is where it happens, and it
@@ -316,7 +316,10 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
     building = units - reading
     subs = []
     for name, part in (("Requirement understanding and walkthroughs", reading),
-                       ("Development environment, repository and pipeline setup", building)):
+                       # With the delivery rows booked, the pipeline is their
+                       # CI/CD line; named here as well, it read as booked twice.
+                       ("Development environment, repository and pipeline setup" if pipeline
+                        else "Development environment and repository setup", building)):
         hours = part * EFFORT_UNIT_HOURS
         subs.append({
             "name": name,
@@ -494,7 +497,8 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     if by_phase and _wants_ramp_up(inp):
         first = min(by_phase)
         by_phase[first].insert(0, _ramp_up_module(
-            len(modules), first, dev_rate, hours_per_week))
+            len(modules), first, dev_rate, hours_per_week,
+            pipeline=not _wants_delivery(inp)))
 
     # After the ramp-up and on top of it: the sheet's 10% and 15% are of a
     # module total that already includes its own Requirement & Design row.

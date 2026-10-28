@@ -584,6 +584,7 @@ export class EstimateReport {
 
   readonly platformSource = computed(() => ({
     explicit: 'you asked for it',
+    stated_stack: 'the stack the brief states',
     agent: 'the architect, from the brief',
     heuristic: 'matching the brief',
   }[this.est().solution_proposal?.source ?? ''] ?? 'the default'));

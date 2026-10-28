@@ -39,6 +39,36 @@ from .types import AIUseCase
 
 logger = logging.getLogger("compass.estimate")
 
+# Said outright, it wins over every keyword below. A use case written as "route
+# requests to approvers; no model is required" was being labelled
+# text_classification for the word "routing" — an AI type, priced as one, for
+# a job its own description says needs none.
+_NO_MODEL_SIGNALS = (
+    "no model", "no ai", "without ai", "not ai", "no llm", "rule-based",
+    "rules-based", "rules based", "deterministic",
+)
+
+# Process words matched before any AI word can be: approvals, sign-off chains
+# and bulk uploads are what business-process systems are made of, and the AI
+# table below would take "approval routing" for classification and "bulk
+# upload — parse, validate" for extraction. Only words that are unambiguous
+# go here; "report" or "history" would turn "summarise weekly reports" or
+# "chat history" into a lookup.
+_PROCESS_FIRST: list[tuple[tuple[str, ...], str]] = [
+    (("approval", "sign-off", "signoff", "sign off", "business rule", "rules engine",
+      "if-then", "decision table", "deterministic workflow", "state machine"), "rules_workflow"),
+    (("bulk upload", "csv upload", "spreadsheet upload", "excel upload"), "crud_lookup"),
+]
+
+# Which of the three no-model types a use case is, once it has *said* it needs
+# none. Broader than the list above, because the question is settled and only
+# the kind remains.
+_NO_MODEL_KIND: list[tuple[tuple[str, ...], str]] = [
+    (("threshold", "alert", "reminder", "limit", "breach"), "threshold_alerting"),
+    (("lookup", "look up", "report", "dashboard", "history", "record", "list",
+      "upload", "import", "search", "view"), "crud_lookup"),
+]
+
 # Priority-ordered keyword → task-type rules. First match wins, so the more
 # specific / higher-intensity patterns are listed before the generic ones.
 _KEYWORD_RULES: list[tuple[tuple[str, ...], str]] = [
@@ -65,8 +95,22 @@ _DEFAULT_TASK = "rag_qa"
 
 
 def heuristic_task_type(text: str) -> str:
-    """Deterministic keyword mapping; the fallback when no model is available."""
+    """Deterministic keyword mapping; the fallback when no model is available.
+
+    A use case that says it needs no model is taken at its word, and the
+    business-process words are matched before the AI ones; only then does the
+    general table run. An architect reading "approval routing" does not reach
+    for a classifier, and neither should this.
+    """
     t = (text or "").lower()
+    if any(s in t for s in _NO_MODEL_SIGNALS):
+        for keywords, task in _NO_MODEL_KIND:
+            if any(k in t for k in keywords):
+                return task
+        return "rules_workflow"
+    for keywords, task in _PROCESS_FIRST:
+        if any(k in t for k in keywords):
+            return task
     for keywords, task in _KEYWORD_RULES:
         if any(k in t for k in keywords):
             return task
@@ -87,6 +131,17 @@ def _build_prompt(items: list[tuple[str, str]]) -> str:
     return (
         "Classify each software use case below into exactly one task type from this set:\n"
         f"{', '.join(TASK_TYPES)}.\n\n"
+        # The three that need no model, said as plainly as the rest. Without it
+        # the list reads as twelve kinds of AI and three afterthoughts, and a
+        # sign-off chain comes back as text_classification — priced for tokens.
+        "Three of these need no model and are priced as ordinary software: "
+        "rules_workflow (approvals, sign-off chains, routing by configured rules, "
+        "validation), crud_lookup (records, lists, lookups, uploads and reports over "
+        "stored data) and threshold_alerting (alerts or reminders when a configured "
+        "limit or date is reached). Use them whenever ordinary code does the job "
+        "exactly — most business-process systems are made of nothing else. Choose an "
+        "AI type only when the input is unstructured or the answer cannot be written "
+        "down as rules. A use case that says it needs no model is one of the three.\n\n"
         "Use cases:\n"
         f"{listing}\n\n"
         'Respond with ONLY a JSON object mapping the index (as a string) to the task type, '

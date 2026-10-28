@@ -2048,6 +2048,91 @@ def check_the_report_shows_what_it_is_told() -> None:
        "of dollars-plus-hours is not a share of anything")
 
 
+def check_the_agent_reads_like_the_architect() -> None:
+    """What the Gift Tracker taught, carried by the agent rather than by hand.
+
+    On the Gift Tracker the region and the twelve-service stack were typed in
+    after the fact; nothing in the agent read a Tech Stack section. Run end to
+    end on the Gift Tracker requirements with the architect's Assumption and
+    Tech Stack tabs as scope decisions, three times, it now reaches on its own
+    what was typed: no-model use cases only, "Build it as standard software",
+    North Europe, Azure PaaS from the stated stack, App Service, SQL Database,
+    Service Bus, Functions, Blob, Key Vault, SendGrid and Power BI — with
+    monitoring and identity added because a production build needs them, and
+    no Application Gateway because nobody named one — and no module for
+    testing, deployment or requirement walkthroughs. Totals 2,070 / 2,509 /
+    2,554 hours against the sheet's 1,683: the effort residual is the grain
+    stated in `check_a_set_of_instances_is_one_line`, not a stack or AI error.
+    """
+    print("\nthe agent reads the stack, the region and the work the way the architect did")
+    from compass.estimate import intake
+    from compass.estimate.architect import propose_solution
+    from compass.estimate.classifier import _build_prompt, heuristic_task_type
+    from compass.estimate.platforms import classify_platform
+
+    props = intake._SCHEMA["properties"]
+    ok("azure_services" in intake._SCHEMA["required"] and "azure_region" in intake._SCHEMA["required"]
+       and "azure_services" in intake._BRD_SCHEMA["properties"],
+       "both drafters write a stack and a region — the Tech Stack tab was the one "
+       "part of the architect's sheet no drafter could read")
+    ok(set(props["azure_services"]["items"]["enum"]) >= {"app_service", "azure_sql", "service_bus_std"}
+       and "northeurope" in props["azure_region"]["enum"],
+       "in the engine's own catalog keys and regions, so a draft cannot name a "
+       "service that cannot be priced")
+    src = (ROOT / "compass/estimate/intake.py").read_text().replace("\\\n", "")
+    ok("**The stack.**" in src and "and nothing else" in src
+       and "leave the list empty" in src,
+       "the prompt asks for the stack as named plus what production plainly "
+       "needs, and for nothing when nothing is named — a guess would be priced "
+       "as if somebody had stated it")
+    ok("Azure Container Apps" in intake._SYSTEM and "{catalog}" not in intake._SYSTEM,
+       "and lists the catalog it may choose from, filled from the engine's list")
+
+    data = {"azure_services": ["app_service", "azure_sql", "made_up", "app_service"],
+            "azure_region": "northeurope"}
+    intake._take_stack(data)
+    eq(data.get("technical_preferences"),
+       {"azure_services": ["app_service", "azure_sql"], "azure_region": "northeurope"},
+       "what it writes lands on the brief — unknown keys dropped, repeats folded")
+    empty = {"azure_services": [], "azure_region": ""}
+    intake._take_stack(empty)
+    ok("technical_preferences" not in empty,
+       "and a stack nobody named writes nothing, so the engine chooses and "
+       "North Europe stands")
+
+    stated = ProjectInput.model_validate({**WBS_BRIEF, "technical_preferences": {
+        "azure_services": ["app_service", "azure_sql"]}})
+    proposal = asyncio.run(propose_solution(stated))
+    eq((proposal["recommended_platform"], proposal["source"], classify_platform(stated)),
+       ("azure_paas", "stated_stack", "azure_paas"),
+       "a stack stated in Azure services settles the platform — a model asked "
+       "again could only disagree with it")
+
+    prompt = _build_prompt([("Approval routing", "")])
+    ok("Three of these need no model" in prompt,
+       "the classifier is told which three types need no model, and to use them "
+       "whenever ordinary code does the job")
+    for text, want in (("Approval and exception routing", "rules_workflow"),
+                       ("Bulk upload — parse, validate", "crud_lookup"),
+                       ("Gift history lookup; no model is required", "crud_lookup"),
+                       ("Summarise weekly reports", "summarization"),
+                       ("Answer questions from the policy knowledge base", "rag_qa")):
+        eq(heuristic_task_type(text), want,
+           f"its fallback reads {text!r} as {want} — process words before AI words, "
+           "and a use case that says it needs no model taken at its word")
+
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                   "est_agent", "2026-10-29T00:00:00+00:00"))
+    ok(not any("pipeline" in s.name.lower()
+               for p in est.cost_breakdown.development.work_breakdown.phases
+               for m in p.modules if m.kind == "ramp_up" for s in m.sub_features),
+       "with the delivery rows booked, the ramp-up no longer names the CI/CD "
+       "pipeline that the delivery rows price")
+    ok("so are understanding the requirement and setting up the development environment" in src,
+       "and the document reader is told the ramp-up is booked, as testing and "
+       "deployment already were")
+
+
 # ── Checked against a second architect ──────────────────────────────────────
 #
 # The GDS Finance Gift Tracker: an architect's sheet of 1,683 hours, and a
@@ -2361,6 +2446,7 @@ def main() -> int:
     check_the_gift_tracker_sheet_reproduces()
     check_the_stack_is_the_one_stated()
     check_the_report_shows_what_it_is_told()
+    check_the_agent_reads_like_the_architect()
     check_an_estimate_can_leave_the_app()
     check_the_export_runs_on_windows()
     check_the_architect_asks_once()

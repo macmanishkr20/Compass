@@ -729,7 +729,7 @@ class SolutionProposal(EstimateModel):
     reasoning_steps: list[str] = Field(default_factory=list)
     # 'agent' = LLM ReAct loop; 'heuristic' = deterministic fallback;
     # 'explicit' = the user picked the platform, no inference needed.
-    source: Literal["agent", "heuristic", "explicit"] = "heuristic"
+    source: Literal["agent", "heuristic", "explicit", "stated_stack"] = "heuristic"
 
 
 # ── Agentic run (multi-agent ReAct orchestration) ───────────────────
