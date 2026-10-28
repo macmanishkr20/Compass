@@ -1857,6 +1857,26 @@ def check_the_gift_tracker_sheet_reproduces() -> None:
        "no ramp-up — the sheet's first row is its own Requirement & Design")
     ok(est.ai_applicable is False, "and nothing in it calls a model")
 
+    # Nineteen modules, each its own one line. Drawn as a parent and a child
+    # of the same name, every title appeared twice.
+    import io
+    from openpyxl import load_workbook
+    from compass.estimate import export
+    html = export.to_html(est)
+    eq(html.count(">Home page"), 1,
+       "a module that is its one line is printed once, not as a parent and a "
+       "child of the same name")
+    ok("Home page<div class='cov'>covers Gift Request · Tracker" in html,
+       "with what it covers under its name, on the same row")
+    ws = load_workbook(io.BytesIO(export.to_excel(est)))["Work Breakdown"]
+    names = [r[1] for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == "Module total"]
+    ok("Home page" not in names and "Delivery and assurance (added by the engine)" in names,
+       "the workbook gives it one row and no total repeating it — a module of "
+       "several lines keeps its total")
+    ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("single(m: ModuleEstimate): SubFeatureEstimate | null" in ts,
+       "and the screen draws it once, with nothing to expand into a copy of itself")
+
 
 GIFT_TRACKER_STACK = [
     "app_service", "azure_sql", "service_bus_std", "storage", "functions",
@@ -1964,6 +1984,24 @@ def check_the_report_shows_what_it_is_told() -> None:
        and "Infrastructure —" in no_maint and "Total (expected)" not in no_maint,
        "maintenance has a switch of its own: its line goes, the services stay, "
        "and so does the total — it would give the maintenance away")
+    full = export.to_html(est, None)
+    ok("<h2>The written report</h2>" in full
+       and "GDS Finance Gift Tracker — Cost estimate" in full
+       and "<b>Total expected:" in full,
+       "the PDF carries the written report, title, cost lines and total — the "
+       "one section of the screen it used to leave out")
+    ok("<h2>The written report</h2>" not in export.to_html(est, {"written_report": False}),
+       "under the same switch as the screen")
+    wr = no_maint.split("<h2>The written report</h2>")[1]
+    ok("Maintenance:" not in wr and "Total expected" not in wr and "Development:" in wr,
+       "and a hidden cost leaves it too: the written report states every figure "
+       "again, so it is the one place a hidden one would otherwise slip back in")
+    ok("&lt;script&gt;" in export._report_html("# <script>x</script> — Cost", {
+           "dev": True, "infra": True, "maint": True, "total": True})
+       and "<script>" not in export._report_html("# <script>x</script>", {
+           "dev": True, "infra": True, "maint": True, "total": True}),
+       "escaped before it is given any markup — the project name in its title "
+       "was typed by a person")
     ok("a month — infrastructure</div>" in no_maint,
        "and \"to run\" says it is the services alone, not the services and the people")
 

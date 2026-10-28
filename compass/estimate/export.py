@@ -114,6 +114,12 @@ tr.ph td { border-top: 0.8pt solid #1d1d1f; padding-top: 3mm; }
 tr.md td { background: #f6f6f8; font-weight: 600; }
 td.ind { padding-left: 6mm; color: #55555c; }
 td.ind .cov { font-size: 7.5pt; color: #8a8a90; margin-top: 0.6mm; }
+/* The written report: its own title and sub-headings sit inside the section,
+   one step below the section heading, so it reads as a document within. */
+.wr p { margin: 0 0 2mm; }
+.wr .wr-h { font-size: 11pt; font-weight: 600; margin: 0 0 2mm; }
+.wr .wr-s { font-size: 8pt; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #6b6b70; margin: 3mm 0 1.5mm; }
 .foot { margin-top: 8mm; padding-top: 3mm; border-top: 0.4pt solid #d8d8dc;
         font-size: 7.5pt; color: #8a8a90; }
 """
@@ -130,6 +136,85 @@ def _shown(display: dict | None) -> tuple[bool, bool, bool]:
     d = display or {}
     return (bool(d.get("development_cost", True)), bool(d.get("infrastructure_cost", True)),
             bool(d.get("maintenance_cost", True)))
+
+
+#: The written report's cost lines, by the flag that hides each. The engine
+#: writes every cost line under one of these prefixes, which is what makes
+#: dropping them safe; the screen drops exactly the same ones.
+_REPORT_COST_LINES: tuple[tuple[str, str], ...] = (
+    ("- Development:", "dev"),
+    ("- Infrastructure:", "infra"),
+    ("- AI tokens:", "infra"),
+    ("- Maintenance:", "maint"),
+    ("- **Total expected", "total"),
+)
+
+
+def _single(mod):
+    """The module's one line, when the module *is* that line — one sub-feature
+    named as the module is, the way a sheet priced line by line arrives.
+    Printed as a parent with a child of the same name, it says every title
+    twice; a single line with a name of its own keeps its row."""
+    def key(s: str) -> str:
+        return " ".join((s or "").casefold().split())
+    subs = mod.sub_features
+    return subs[0] if len(subs) == 1 and key(subs[0].name) == key(mod.name) else None
+
+
+def _size_label(sub) -> str:
+    return (sub.basis if sub.basis else
+            (sub.size.upper() + " · " if sub.size else "") + _num(sub.units, "d"))
+
+
+def _md_inline(text: str) -> str:
+    """One line of the report, escaped first and then given its bold.
+
+    Escaped before anything else: the report carries the project name, which
+    a person typed, and nothing in it may become markup."""
+    out = _e(text)
+    parts = out.split("**")
+    # An odd count of `**` leaves the last one literal rather than unclosed.
+    if len(parts) % 2 == 1:
+        out = "".join(f"<b>{p}</b>" if i % 2 else p for i, p in enumerate(parts))
+    return out
+
+
+def _report_html(markdown: str, shown: dict[str, bool]) -> str:
+    """The written report, as the PDF prints it.
+
+    The engine writes four shapes — a title, sub-headings, bullet lists and
+    paragraphs — so this renders those four and no more, rather than taking
+    on a markdown library for a document whose grammar is ours. Any cost line
+    a flag hides is dropped before rendering, so a hidden figure never reaches
+    the page in the one section that states them all again.
+    """
+    html: list[str] = []
+    bullets: list[str] = []
+
+    def flush() -> None:
+        if bullets:
+            html.append("<ul>" + "".join(f"<li>{b}</li>" for b in bullets) + "</ul>")
+            bullets.clear()
+
+    for raw in (markdown or "").splitlines():
+        line = raw.rstrip()
+        if any(line.startswith(prefix) and not shown[flag]
+               for prefix, flag in _REPORT_COST_LINES):
+            continue
+        if line.startswith("- "):
+            bullets.append(_md_inline(line[2:]))
+            continue
+        flush()
+        if not line.strip():
+            continue
+        if line.startswith("## "):
+            html.append(f"<p class='wr-s'>{_md_inline(line[3:])}</p>")
+        elif line.startswith("# "):
+            html.append(f"<p class='wr-h'>{_md_inline(line[2:])}</p>")
+        else:
+            html.append(f"<p>{_md_inline(line)}</p>")
+    flush()
+    return "".join(html)
 
 
 def to_html(est: Estimation, display: dict | None = None) -> str:
@@ -263,6 +348,18 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
             )
             for mod in ph.modules:
                 added = " <i>added by the engine</i>" if mod.derived else ""
+                line = _single(mod)
+                if line is not None:
+                    covers = (f"<div class='cov'>covers {_e(' · '.join(line.covers))}</div>"
+                              if line.covers else "")
+                    body.append(
+                        f"<tr class='md'><td>{_e(mod.name)}{added}{covers}</td>"
+                        f"<td>{_e(_size_label(line))}</td>"
+                        f"<td class='num'>{_e(_num(mod.hours, 'h'))}</td>"
+                        f"{cost_cell(mod.cost)}"
+                        f"<td class='num'>{_e(_num(mod.weeks, ' wks'))}</td></tr>"
+                    )
+                    continue
                 body.append(
                     f"<tr class='md'><td colspan='2'>{_e(mod.name)}{added}</td>"
                     f"<td class='num'>{_e(_num(mod.hours, 'h'))}</td>"
@@ -270,9 +367,7 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
                     f"<td class='num'>{_e(_num(mod.weeks, ' wks'))}</td></tr>"
                 )
                 for sub in mod.sub_features:
-                    size = (_e(sub.basis) if sub.basis else
-                            _e(sub.size.upper() + " · " if sub.size else "")
-                            + _e(_num(sub.units, "d")))
+                    size = _e(_size_label(sub))
                     # What the line includes without pricing it, under its
                     # name — the architect's own layout, where the sub-items
                     # sit beneath the line that carries their hours.
@@ -358,6 +453,14 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
     if est.ai_applicable and roi.assumptions:
         basis = "".join(f"<li>{_e(a)}</li>" for a in roi.assumptions)
         parts.append(f"<section><h2>Basis</h2><ul>{basis}</ul></section>")
+
+    # Last before the footer, as on the screen, and under the same switch.
+    if est.report_markdown and (display or {}).get("written_report", True):
+        body = _report_html(est.report_markdown, {
+            "dev": show_dev, "infra": show_infra, "maint": show_maint, "total": show_total,
+        })
+        if body:
+            parts.append(f"<section class='wr'><h2>The written report</h2>{body}</section>")
 
     parts.append(
         '<p class="foot">Every figure was computed from the brief by Compass\'s '
@@ -558,6 +661,16 @@ def to_excel(est: Estimation, display: dict | None = None) -> bytes:
         style_header(ws, 1, 9)
         for ph in wbs.phases:
             for mod in ph.modules:
+                line = _single(mod)
+                if line is not None:
+                    # The module is its one line: one row, with the module's
+                    # weeks on it, and no total that repeats it underneath.
+                    ws.append([ph.phase,
+                               f"{mod.name} (added by the engine)" if mod.derived else mod.name,
+                               "", line.basis or line.size.upper() or "—",
+                               "" if line.basis else line.units,
+                               mod.hours, money(mod.cost), mod.weeks, "; ".join(line.covers)])
+                    continue
                 for sub in mod.sub_features:
                     # A delivery row is a share of the build, not a size, and
                     # its day count would be a number nobody chose.

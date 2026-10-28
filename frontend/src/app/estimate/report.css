@@ -300,6 +300,14 @@ svg { fill: none; }
   transition: background 0.13s;
 }
 .mod:hover { background: var(--surface-2x); }
+/* A module that is its own one line: nothing to open, so nothing to hover. */
+.mod.single:hover { background: none; }
+/* Its size and covers, under the name, free to wrap — the name keeps its one
+   line and the covers of a Home page do not fit on it. */
+.mod-meta {
+  display: block; white-space: normal; margin-top: 2px;
+  font-size: 11px; font-weight: 400; color: var(--ink-3); line-height: 1.4;
+}
 .mod .car { color: var(--ink-3); font-size: 10px; }
 .mod-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The badge sits *inside* the name cell rather than in a column of its own.

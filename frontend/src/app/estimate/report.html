@@ -139,10 +139,12 @@
         <h3>Development — module by module<span class="tk"></span>
           <span class="plain">{{ num(w.total_hours) }} h · {{ w.total_weeks }} wks
             with {{ teamPhrase() }} · {{ w.unit_hours }}h unit</span>
-          <button class="btn sm" type="button"
-            (click)="openModules().size ? collapseAll() : expandAll()">
-            {{ openModules().size ? 'Collapse all' : 'Expand all' }}
-          </button>
+          @if (hasExpandable()) {
+            <button class="btn sm" type="button"
+              (click)="openModules().size ? collapseAll() : expandAll()">
+              {{ openModules().size ? 'Collapse all' : 'Expand all' }}
+            </button>
+          }
         </h3>
 
         @for (p of w.phases; track p.phase) {
@@ -159,6 +161,23 @@
             </div>
 
             @for (m of p.modules; track m.name) {
+              @if (single(m); as line) {
+                <!-- The module is its one line: drawn once, with the line's
+                     size and anything it covers under the name, and nothing
+                     to expand into a copy of itself. -->
+                <div class="mod single">
+                  <span class="car"></span>
+                  <span class="mod-n">{{ m.name }}@if (m.derived) {
+                    <span class="added">added</span>
+                  }<span class="mod-meta">{{ sizeLabel(line.size, line.units, line.basis) }}@if (line.covers?.length) { · covers {{ line.covers!.join(' · ') }}}</span></span>
+                  <span></span>
+                  <span class="mod-b"><i [style.width.%]="m.hours / widestModule() * 100"></i></span>
+                  <span class="mod-h">{{ num(m.hours) }} h@if (m.base_hours && m.base_hours !== m.hours) {<span class="skill-d"
+                    [title]="'Sized at ' + m.base_hours + ' h, ×' + m.skill_factor + ' for team skill in ' + (m.technologies ?? []).join(', ')">{{ m.hours > m.base_hours ? '+' : '−' }}{{ abs(m.hours - m.base_hours) }}</span>}</span>
+                  <span class="mod-w">{{ m.weeks }} wks</span>
+                  <span class="mod-cost">{{ showDev() ? money(m.cost) : '' }}</span>
+                </div>
+              } @else {
               <button class="mod" type="button" (click)="toggleModule(m.name)"
                 [attr.aria-expanded]="isOpen(m.name)">
                 <span class="car">{{ isOpen(m.name) ? '▾' : '▸' }}</span>
@@ -185,6 +204,7 @@
                     </div>
                   }
                 </div>
+              }
               }
             }
           </div>

@@ -12,7 +12,9 @@ import {
 
 import { Markdown } from '../markdown/markdown';
 import { EstimateApi } from './estimate-api';
-import { DisplayFlags, EstimateRecord, ProjectType } from './models';
+import {
+  DisplayFlags, EstimateRecord, ModuleEstimate, ProjectType, SubFeatureEstimate,
+} from './models';
 
 /** Which half of the report is showing. Two, not five: the mockup's result
  *  screen is one page with the working folded behind a single control. */
@@ -500,9 +502,14 @@ export class EstimateReport {
 
   expandAll(): void {
     this.openModules.set(new Set(
-      this.wbs().phases.flatMap((p) => p.modules.map((m) => m.name)),
+      this.wbs().phases.flatMap((p) => p.modules.filter((m) => !this.single(m)).map((m) => m.name)),
     ));
   }
+
+  /** Whether any module has lines of its own to open. A plan entered line by
+   *  line has none, and an "Expand all" that opens nothing is a dead button. */
+  readonly hasExpandable = computed(() =>
+    (this.wbs()?.phases ?? []).some((p) => p.modules.some((m) => !this.single(m))));
 
   collapseAll(): void {
     this.openModules.set(new Set());
@@ -513,6 +520,17 @@ export class EstimateReport {
   readonly widestModule = computed(() => Math.max(
     1, ...this.wbs().phases.flatMap((p) => p.modules.map((m) => m.hours)),
   ));
+
+  /** The module's one line, when the module *is* that line: one sub-feature,
+   *  named as the module is. An architect's sheet priced line by line comes
+   *  in that way, and drawing it as a parent with a child of the same name
+   *  repeats every title for nothing. A single line with a name of its own
+   *  says something the module name does not, and keeps its row. */
+  single(m: ModuleEstimate): SubFeatureEstimate | null {
+    const key = (s: string) => s.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+    const only = m.sub_features.length === 1 ? m.sub_features[0] : null;
+    return only && key(only.name) === key(m.name) ? only : null;
+  }
 
   /** The pill on a sub-feature. A line whose day count matches no band shows
    *  the days alone — the days are what was priced, and a letter that does not
