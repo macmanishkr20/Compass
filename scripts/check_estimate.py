@@ -1869,6 +1869,25 @@ def check_the_gift_tracker_sheet_reproduces() -> None:
     ok(not any(m.derived and m.kind == "ramp_up" for m in mods),
        "no ramp-up — the sheet's first row is its own Requirement & Design")
     ok(est.ai_applicable is False, "and nothing in it calls a model")
+    ok("Audit trail" in w.at_ceiling
+       and "Bulk upload — parse, validate" in w.at_ceiling
+       and not any(n.endswith(" — Audit trail") or n.count("Bulk upload") > 1
+                   for n in w.at_ceiling),
+       "the ceiling flag names a one-line module once — \"Audit trail\", not "
+       "\"Audit trail — Audit trail\" — even when the name has a dash of its own")
+    from compass.estimate.store import Estimate as _Stored
+    # The shape a record is stored in — a dump of the estimate, not a hand-made
+    # dict that could put the list somewhere the store never looks.
+    saved = est.model_dump(mode="json")
+    saved["cost_breakdown"]["development"]["work_breakdown"]["at_ceiling"] = [
+        "Audit trail — Audit trail",
+        "Bulk upload — parse, validate — Bulk upload — parse, validate",
+        "Reporting — Monthly pack"]
+    old = _Stored.from_dict({"id": "est_old", "result": saved})
+    eq(old.result["cost_breakdown"]["development"]["work_breakdown"]["at_ceiling"],
+       ["Audit trail", "Bulk upload — parse, validate", "Reporting — Monthly pack"],
+       "a record saved with the doubled names reads back with each named once, "
+       "and a module with a line of a different name keeps both")
 
     # Nineteen modules, each its own one line. Drawn as a parent and a child
     # of the same name, every title appeared twice.
