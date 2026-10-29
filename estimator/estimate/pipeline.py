@@ -29,7 +29,7 @@ from typing import Iterator
 
 from . import engine
 from .architect import propose_solution
-from .catalog import TASK_TYPES
+from .catalog import STANDING_ASSUMPTIONS, TASK_TYPES
 from .classifier import classify_use_cases, heuristic_task_type
 from .platforms import PLATFORM_PROFILES, classify_platform
 from .types import Estimation, ProjectInput, TechnicalPreferences
@@ -50,6 +50,22 @@ STAGES: list[tuple[str, str]] = [
     ("roi", "Modelling benefit, payback and three-year value…"),
     ("report", "Composing the report…"),
 ]
+
+
+def with_standing(assumptions: list[str] | None) -> list[str]:
+    """The brief's assumptions, then the ones every estimate carries.
+
+    Last, because they are about the estimate rather than the system; and not
+    twice, because a brief drafted from an earlier estimate — or typed by
+    somebody who already wrote the sentence — may carry one already. Compared
+    ignoring case, spacing and a trailing full stop.
+    """
+    def key(text: str) -> str:
+        return " ".join(text.casefold().split()).rstrip(".")
+
+    out = [a for a in (assumptions or []) if (a or "").strip()]
+    seen = {key(a) for a in out}
+    return out + [a for a in STANDING_ASSUMPTIONS if key(a) not in seen]
 
 
 async def resolve(inp: ProjectInput) -> tuple[ProjectInput, dict]:
@@ -154,6 +170,7 @@ def compute_steps(
     roi = engine.project_roi(inp, feasibility, cost)
 
     yield "report", None
+    applicable = engine.ai_applicable(inp)
     estimation = Estimation.model_validate({
         "id": est_id,
         "project_id": inp.project_name,
@@ -161,14 +178,15 @@ def compute_steps(
         "project_type": inp.project_type,
         "industry_domain": inp.industry_domain,
         "feasibility": feasibility,
-        "verdict": engine.derive_verdict(feasibility, comparison),
+        "verdict": engine.derive_verdict(feasibility, comparison, applicable),
         "confidence": engine.assess_confidence(inp, feasibility),
         "cost_breakdown": cost,
+        "ai_applicable": applicable,
         "token_projection": tokens,
         "comparison": comparison,
         "roi_projection": roi,
         "recommendations": engine.build_recommendations(inp, feasibility),
-        "assumptions": list(inp.assumptions or []),
+        "assumptions": with_standing(inp.assumptions),
         "report_markdown": engine.compose_markdown(inp, feasibility, cost),
         "status": "complete",
         "generated_at": generated_at,

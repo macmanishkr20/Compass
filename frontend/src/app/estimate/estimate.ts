@@ -109,9 +109,12 @@ export class Estimate {
         note: `${Math.max(0, scored.length - go)} say otherwise`,
         // One tick per scored estimate, in its verdict's colour — the strip
         // the mockup uses to make a ratio legible without a second number.
+        // A standard build was never an AI proposal, so it is neither tick:
+        // drawn neutral, it says "not AI" without saying "rejected".
         split: scored.map((e) => ({
           flex: 1,
-          colour: e.verdict === 'build_with_ai' ? 'var(--ok)' : 'var(--err)',
+          colour: e.verdict === 'build_with_ai' ? 'var(--ok)'
+            : e.verdict === 'standard_software' ? 'var(--ink-3)' : 'var(--err)',
         })) },
       { key: 'mean', label: 'Mean feasibility', value: mean ? `${mean}` : '—', of: '',
         note: 'out of 100',
@@ -146,6 +149,10 @@ export class Estimate {
   /** The uploaded BRD, held as the data URL the server reads. */
   readonly brdFile = signal<{ name: string; mime: string; data_url: string; size: number } | null>(null);
   readonly readingBrd = signal(false);
+  /** The delivery lead's scope decisions, read beside the document and
+   *  overriding it — what an architect's Assumption tab says that the
+   *  document does not. */
+  readonly scopeNotes = signal('');
   /** What reading the BRD found. Carried with the brief, so the report can
    *  show the questions and risks the numbers were priced under. */
   readonly analysis = signal<BrdAnalysis | null>(null);
@@ -192,6 +199,26 @@ export class Estimate {
   readonly deployment = signal('cloud');
   readonly existingInfra = signal('');
   readonly compliance = signal('');
+  /** Where infrastructure is priced — North Europe unless changed. East US
+   *  was once the only answer the form could give, because it never asked. */
+  readonly azureRegion = signal('northeurope');
+  /** The stack as stated. Empty leaves the choice to the planner's rules. */
+  readonly azureServices = signal<string[]>([]);
+
+  toggleService(key: string): void {
+    this.azureServices.update((keys) =>
+      keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]);
+  }
+
+  /** The catalog's services, grouped the way the report groups them. */
+  readonly serviceGroups = computed(() => {
+    const groups = new Map<string, { key: string; name: string }[]>();
+    for (const s of this.catalog()?.azure_services ?? []) {
+      if (!groups.has(s.category)) groups.set(s.category, []);
+      groups.get(s.category)!.push({ key: s.key, name: s.name });
+    }
+    return [...groups].map(([category, services]) => ({ category, services }));
+  });
   readonly budget = signal<number | null>(null);
   readonly currency = signal('USD');
 
@@ -210,6 +237,9 @@ export class Estimate {
   readonly hoursPerWeek = signal(32);
   readonly teamSize = signal(3);
   readonly includeRampUp = signal(true);
+  readonly includeDelivery = signal(true);
+  /** Multiplier on band-sized lines. 1 prices the bands as they are. */
+  readonly effortCalibration = signal(1);
   readonly loadedRate = signal(75);
   readonly automationPercent = signal(35);
   readonly rampMonths = signal(6);
@@ -242,6 +272,12 @@ export class Estimate {
     this.rateCardSaved.set(false);
   }
 
+  setDelivery(on: boolean): void {
+    this.includeDelivery.set(on);
+    this.rateEdited.set(true);
+    this.rateCardSaved.set(false);
+  }
+
   setRate(key: string, value: number): void {
     ({
       dev: () => this.devRate.set(value),
@@ -249,6 +285,9 @@ export class Estimate {
       maint: () => this.maintRate.set(value),
       loaded: () => this.loadedRate.set(value),
       automation: () => this.automationPercent.set(value),
+      // Held to what the server accepts, so a slipped decimal is corrected
+      // here rather than refused when the estimate is sent.
+      calibration: () => this.effortCalibration.set(Math.min(2, Math.max(0.25, value || 1))),
     } as Record<string, () => void>)[key]?.();
     this.rateEdited.set(true);
     this.rateCardSaved.set(false);
@@ -493,6 +532,23 @@ export class Estimate {
     }]);
   }
 
+  /** Whether a module *is* its one line: one sub-feature, named as the module
+   *  is — an architect's sheet entered line by line. Edited as one row, the
+   *  way the report draws it. A name is required, so a fresh module (blank,
+   *  with one blank line) still opens the full editor for its breakdown. */
+  isSingle(m: Module): boolean {
+    const key = (s: string) => s.toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+    return m.sub_features.length === 1 && !!key(m.name)
+      && key(m.sub_features[0].name) === key(m.name);
+  }
+
+  /** Rename a single-line module and its line together, so it stays one. */
+  renameSingle(mi: number, name: string): void {
+    this.modules.update((rows) => rows.map((m, i) => (i === mi ? {
+      ...m, name, sub_features: m.sub_features.map((s) => ({ ...s, name })),
+    } : m)));
+  }
+
   patchModule(index: number, patch: Partial<Module>): void {
     this.modules.update((rows) => rows.map((m, i) => (i === index ? { ...m, ...patch } : m)));
   }
@@ -515,6 +571,14 @@ export class Estimate {
       ...m,
       sub_features: m.sub_features.map((s, j) => (j === si ? { ...s, ...patch } : s)),
     } : m)));
+  }
+
+  /** A line's covers, edited as one comma-separated field: they are names,
+   *  and a list editor for seven role names would be a form inside a form. */
+  setCovers(mi: number, si: number, text: string): void {
+    this.patchSub(mi, si, {
+      covers: text.split(',').map((c) => c.trim()).filter((c) => c),
+    });
   }
 
   dropSub(mi: number, si: number): void {
@@ -541,11 +605,16 @@ export class Estimate {
     return this.catalog()?.size_bands.find((b) => b.key === size)?.hours ?? 0;
   }
 
+  /** A line's hours by the engine's own precedence: quoted hours, then
+   *  units, then the band. Without the first, the Gift Tracker's 40-hour
+   *  form read as its band's 27 here while the estimate priced 40. */
+  lineHours(s: SubFeature): number {
+    if (s.hours) return s.hours;
+    return s.units ? s.units * (this.catalog()?.unit_hours ?? 9) : this.bandHours(s.size);
+  }
+
   moduleHours(m: Module): number {
-    return m.sub_features.reduce(
-      (sum, s) => sum + (s.units ? s.units * (this.catalog()?.unit_hours ?? 9) : this.bandHours(s.size)),
-      0,
-    );
+    return m.sub_features.reduce((sum, s) => sum + this.lineHours(s), 0);
   }
 
   /** Every sub-feature in the plan, priced. Drives the running total in the
@@ -600,6 +669,8 @@ export class Estimate {
         compliance_requirements: this.compliance().split(',').map((s) => s.trim()).filter(Boolean),
         budget_ceiling: this.budget(),
         budget_currency: this.currency().trim() || 'USD',
+        azure_region: this.azureRegion(),
+        azure_services: this.azureServices(),
       },
       volume_and_scale: {
         expected_daily_users: this.dailyUsers(),
@@ -638,6 +709,8 @@ export class Estimate {
     this.hoursPerWeek.set(card.effective_hours_per_week);
     this.teamSize.set(card.team_size);
     this.includeRampUp.set(card.include_ramp_up ?? true);
+    this.includeDelivery.set(card.include_delivery ?? true);
+    this.effortCalibration.set(card.effort_calibration ?? 1);
     this.loadedRate.set(card.loaded_hourly_rate);
     this.automationPercent.set(card.automation_rate_percent);
     this.rampMonths.set(card.benefit_ramp_months);
@@ -651,6 +724,8 @@ export class Estimate {
       effective_hours_per_week: this.hoursPerWeek(),
       team_size: this.teamSize(),
       include_ramp_up: this.includeRampUp(),
+      include_delivery: this.includeDelivery(),
+      effort_calibration: this.effortCalibration(),
       loaded_hourly_rate: this.loadedRate(),
       automation_rate_percent: this.automationPercent(),
       benefit_ramp_months: this.rampMonths(),
@@ -705,7 +780,8 @@ export class Estimate {
     this.turnNotify.arm();
     try {
       const { brief } = await this.api.readBrd(
-        { name: file.name, mime: file.mime, data_url: file.data_url }, this.projectType());
+        { name: file.name, mime: file.mime, data_url: file.data_url }, this.projectType(),
+        this.scopeNotes());
       this.applyBrief(brief);
       this.drafted.set(true);
       this.analysisOpen.set(true);
@@ -826,6 +902,14 @@ export class Estimate {
       this.peakPattern.set(v.peak_load_pattern ?? '');
       this.growthPercent.set(v.growth_rate_percent ?? null);
     }
+    const tp = b.technical_preferences;
+    if (tp) {
+      // A stored brief's stack and region come back with it; a fresh draft
+      // carries neither, and leaves what the person already chose alone.
+      if (tp.azure_region) this.azureRegion.set(tp.azure_region);
+      if (tp.azure_services?.length) this.azureServices.set([...tp.azure_services]);
+      if (tp.existing_infra) this.existingInfra.set(tp.existing_infra);
+    }
     // The rate card is never in a draft — it is what the organisation pays its
     // own people — so it is left exactly as the person last set it.
     this.analysis.set(b.brd_analysis ?? null);
@@ -884,6 +968,7 @@ export class Estimate {
     this.prose.set('');
     this.drafted.set(false);
     this.brdFile.set(null);
+    this.scopeNotes.set('');
     this.analysis.set(null);
     this.analysisOpen.set(true);
     this.developers.set(0);
@@ -902,6 +987,8 @@ export class Estimate {
     this.useCases.set([]);
     this.existingInfra.set('');
     this.compliance.set('');
+    this.azureRegion.set('northeurope');
+    this.azureServices.set([]);
     this.budget.set(null);
     this.dailyUsers.set(null);
     this.requestsPerDay.set(null);
@@ -959,11 +1046,13 @@ export class Estimate {
       build_with_ai: 'Build with AI',
       do_not_use_ai: 'Not with AI',
       hybrid: 'Hybrid',
+      // No AI was asked for: the same green go its report shows.
+      standard_software: 'Standard software',
     }[decision] ?? 'Draft';
   }
 
   verdictPill(decision: string): string {
-    if (decision === 'build_with_ai') return 'p-ok';
+    if (decision === 'build_with_ai' || decision === 'standard_software') return 'p-ok';
     if (decision === 'do_not_use_ai') return 'p-err';
     if (decision === 'hybrid') return 'p-warn';
     return 'p-idle';

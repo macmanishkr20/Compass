@@ -203,6 +203,18 @@
                 <span class="brd-hint">PDF, Word (.docx), Markdown or text · up to 20 MB</span>
               }
             </div>
+            @if (brdFile()) {
+              <!-- An architect prices the document *and* the decisions taken about it.
+                   A BRD describes what could be built; these say what will be, and
+                   the reader treats them as overriding the document. -->
+              <label class="brd-scope">
+                <span class="k">Scope decisions <i>optional — these override the document</i></span>
+                <textarea class="inp" style="min-height:84px" [value]="scopeNotes()"
+                  [disabled]="readingBrd()" maxlength="8000"
+                  (input)="scopeNotes.set($any($event.target).value)"
+                  placeholder="One per line, the way an architect's Assumption tab reads. e.g.&#10;No calculations — the tool records gift values only.&#10;Recipients do not acknowledge; the final list is the acknowledgement.&#10;Employee details come from Talent Data Lake."></textarea>
+              </label>
+            }
             @if (readingBrd()) {
               <p class="brd-wait" role="status">Reading every section, working through scenarios, edge cases
                 and risks, then breaking the work down. A long document takes a few minutes.</p>
@@ -376,10 +388,27 @@
         </div>
 
         @for (m of modules(); track m.id; let mi = $index) {
-          <div class="mod-edit">
+          <div class="mod-edit" [class.single]="isSingle(m)">
             <div class="mod-head">
-              <input class="inp grow" [value]="m.name" placeholder="Module name"
-                (input)="patchModule(mi, { name: $any($event.target).value })" />
+              @if (isSingle(m)) {
+                <!-- The module is its one line: one row, named once and sized
+                     here, the way the report draws it. Renaming renames both. -->
+                @let line = m.sub_features[0];
+                <input class="inp grow" [value]="m.name" placeholder="Module name"
+                  (input)="renameSingle(mi, $any($event.target).value)" />
+                <select class="inp" style="width:118px" [value]="line.size"
+                  [title]="line.hours ? 'Quoted at ' + line.hours + ' h — choosing a size replaces it' : ''"
+                  (change)="patchSub(mi, 0, { size: $any($event.target).value, units: null, hours: null })">
+                  @for (b of catalog()?.size_bands ?? []; track b.key) {
+                    <option [value]="b.key" [selected]="b.key === line.size">
+                      {{ b.key.toUpperCase() }} · {{ b.units }}d
+                    </option>
+                  }
+                </select>
+              } @else {
+                <input class="inp grow" [value]="m.name" placeholder="Module name"
+                  (input)="patchModule(mi, { name: $any($event.target).value })" />
+              }
               <select class="inp" style="width:104px" [value]="m.phase"
                 (change)="patchModule(mi, { phase: +$any($event.target).value })">
                 @for (ph of [1, 2, 3]; track ph) {
@@ -406,25 +435,43 @@
               </div>
             }
 
+            @if (isSingle(m)) {
+              @if (m.sub_features[0].covers?.length) {
+                <div class="sub-covers single">
+                  <span class="k" title="Built once by this line for all of them — named, not priced separately">covers</span>
+                  <input class="inp grow" [value]="(m.sub_features[0].covers ?? []).join(', ')"
+                    (change)="setCovers(mi, 0, $any($event.target).value)" />
+                </div>
+              }
+            } @else {
             @for (s of m.sub_features; track s.id; let si = $index) {
               <div class="item sub-edit">
                 <input class="inp grow" [value]="s.name" placeholder="Sub-feature"
                   (input)="patchSub(mi, si, { name: $any($event.target).value })" />
                 <select class="inp" style="width:118px" [value]="s.size"
-                  (change)="patchSub(mi, si, { size: $any($event.target).value, units: null })">
+                  (change)="patchSub(mi, si, { size: $any($event.target).value, units: null, hours: null })">
                   @for (b of catalog()?.size_bands ?? []; track b.key) {
                     <option [value]="b.key" [selected]="b.key === s.size">
                       {{ b.key.toUpperCase() }} · {{ b.units }}d
                     </option>
                   }
                 </select>
-                <span class="hrs">{{ s.units ? s.units * (catalog()?.unit_hours ?? 9)
-                  : bandHours(s.size) }}h</span>
+                <span class="hrs" [title]="s.hours ? 'As quoted — choosing a size replaces it' : ''">{{ lineHours(s) }}h</span>
                 <button class="del" type="button" (click)="dropSub(mi, si)"
                   aria-label="Remove this sub-feature">
                   <svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
                 </button>
               </div>
+              @if (s.covers?.length) {
+                <!-- Shown only where the reader put something: an empty covers
+                     box under every line would be sixty boxes nobody fills. -->
+                <div class="sub-covers">
+                  <span class="k" title="Built once by this line for all of them — named, not priced separately">covers</span>
+                  <input class="inp grow" [value]="(s.covers ?? []).join(', ')"
+                    (change)="setCovers(mi, si, $any($event.target).value)" />
+                </div>
+              }
+            }
             }
             <button class="addsub" type="button" (click)="addSub(mi)">+ Sub-feature</button>
           </div>
@@ -572,6 +619,28 @@
           <div class="fg"><label>Currency</label>
             <input class="inp" [value]="currency()" (input)="currency.set($any($event.target).value)" /></div>
         </div>
+        <div class="fg"><label>Azure region</label>
+          <select class="inp" [value]="azureRegion()" (change)="azureRegion.set($any($event.target).value)">
+            @for (r of catalog()?.azure_regions ?? []; track r.key) {
+              <option [value]="r.key" [selected]="r.key === azureRegion()">{{ r.label }}</option>
+            }
+          </select></div>
+        <!-- The stack, when an architect has written one down. Left empty, the
+             planner's rules choose; named, exactly these are priced. -->
+        <div class="fg"><label>Azure services <i class="opt">optional — the stack as stated; empty lets Estimator choose</i></label>
+          <div class="stack-chips">
+            @for (g of serviceGroups(); track g.category) {
+              <div class="stack-g">
+                <span class="stack-cat">{{ g.category }}</span>
+                @for (s of g.services; track s.key) {
+                  <button type="button" class="tchip" [class.on]="azureServices().includes(s.key)"
+                    [attr.aria-pressed]="azureServices().includes(s.key)"
+                    (click)="toggleService(s.key)">{{ s.name }}</button>
+                }
+              </div>
+            }
+          </div>
+        </div>
         <div class="note">The delivery platform is <b>not asked for</b>. It is chosen from
           the brief — and shown, with its reasoning, on the estimate.</div>
       </div>
@@ -605,6 +674,34 @@
               many modules the plan has. Turn it off for a team already running on this stack.
             </span>
           </label>
+          <label class="rampup">
+            <input type="checkbox" [checked]="includeDelivery()"
+              (change)="setDelivery($any($event.target).checked)" />
+            <span>
+              <b>Book delivery and assurance below the build.</b>
+              Testing at 10% and technical leadership at 15% of the build, plus deployment and
+              the CI/CD pipeline — the rows an architect writes under the module total. Turn it off
+              when the breakdown already has modules for them.
+            </span>
+          </label>
+          <!-- One number for how this organisation's architects size work against
+               the bands. It scales the lines the drafter sized by band and nothing a
+               person entered in days or hours. -->
+          <div class="calib">
+            <div class="fg">
+              <label>Effort calibration</label>
+              <input class="inp" type="number" min="0.25" max="2" step="0.05"
+                [value]="effortCalibration()"
+                (change)="setRate('calibration', +$any($event.target).value)" />
+            </div>
+            <span>
+              <b>× {{ effortCalibration() }} on every line sized by band.</b>
+              Set it from your own architects: their hours for a system divided by Estimator's band
+              hours for the same scope. 1 prices the bands as they are; below 1 for a team that
+              sizes leaner. Lines entered in days or quoted in hours are never scaled, and
+              testing and leadership follow the build.
+            </span>
+          </div>
           <div class="note">Changing these re-costs every estimate you open from now on, not
             the ones already saved. <b>Estimator never edits the rate card itself.</b></div>
           <div style="display:flex;align-items:center;gap:12px;margin-top:11px">

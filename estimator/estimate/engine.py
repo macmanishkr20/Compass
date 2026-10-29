@@ -27,8 +27,12 @@ from .platforms import (
 from .catalog import (
     AGENTIC_INTEGRATION_UPLIFT,
     BENEFIT_RAMP_MONTHS,
+    CICD_UNITS,
+    DELIVERY_NAME,
+    DEPLOYMENT_UNITS,
     EFFORT_UNIT_HOURS,
     MAX_SUB_FEATURE_UNITS,
+    NO_MODEL_TASK_TYPES,
     RAMP_UP_NAME,
     RAMP_UP_UNITS_BY_BREADTH,
     RAMP_UP_UNITS_MAX,
@@ -44,6 +48,8 @@ from .catalog import (
     PRIORITY_WEIGHT,
     SCALE_MAINT_HOURS,
     TASK_PROFILES,
+    TECH_LEAD_SHARE,
+    TESTING_SHARE,
     archetype_blurb,
     archetype_label,
     rating_for_score,
@@ -81,6 +87,30 @@ def _locale(n: float) -> str:
 
 def _profile(task_type: str | None):
     return TASK_PROFILES.get(task_type or "rag_qa", TASK_PROFILES["rag_qa"])
+
+
+def _needs_model(uc) -> bool:
+    """Whether a model does this use case's work. A blank task type is one the
+    classifier has not reached yet, and is treated as needing one — the
+    profile it falls back to does."""
+    return (uc.task_type or "rag_qa") not in NO_MODEL_TASK_TYPES
+
+
+def _model_use_cases(inp: ProjectInput) -> list:
+    return [uc for uc in (inp.ai_use_cases or []) if _needs_model(uc)]
+
+
+def ai_applicable(inp: ProjectInput) -> bool:
+    """Whether anything in this brief needs a model at all.
+
+    A brief with no use cases is not "no AI" — it is a brief nobody has filled
+    in that half of yet, and it keeps the AI framing it has always had. A brief
+    whose use cases all say they need no model has answered the question, and
+    every AI figure computed for it would be a figure about something that is
+    not being built.
+    """
+    use_cases = inp.ai_use_cases or []
+    return not use_cases or any(_needs_model(uc) for uc in use_cases)
 
 
 def _data_gb(inp: ProjectInput) -> float:
@@ -174,7 +204,8 @@ def _skill_factor(inp: ProjectInput, technologies: list[str]) -> float:
     return round(sum(hits) / len(hits), 4)
 
 
-def _role_loads(hours: float, crew, hours_per_week: float) -> list[dict]:
+def _role_loads(hours: float, crew, hours_per_week: float,
+                testing_hours: float | None = None) -> list[dict]:
     """How `hours` fall across the disciplines, and how long each takes with
     the people this team has.
 
@@ -182,6 +213,12 @@ def _role_loads(hours: float, crew, hours_per_week: float) -> list[dict]:
     developers carry it, which is what happens on a team with no tester. At
     least one developer is assumed whenever a team is entered, because nobody
     else can build the modules.
+
+    `testing_hours` is the testing row, when the delivery rows are booked. It
+    is the testers' work as it stands, so it is not apportioned again: the rest
+    of the plan is shared between developers and analysts in ROLE_SHARES'
+    proportion to each other. Apportioning 23% of a plan that already carries
+    a 10% testing row would put testing in it twice.
     """
     heads = {
         "development": max(1, crew.developers),
@@ -189,6 +226,14 @@ def _role_loads(hours: float, crew, hours_per_week: float) -> list[dict]:
         "analysis_design": crew.analysts_designers,
     }
     share = dict(ROLE_SHARES)
+    if testing_hours is not None and hours > 0:
+        tested = min(1.0, testing_hours / hours)
+        others = share["development"] + share["analysis_design"]
+        share = {
+            "development": (1 - tested) * share["development"] / others,
+            "testing": tested,
+            "analysis_design": (1 - tested) * share["analysis_design"] / others,
+        }
     for role in ("testing", "analysis_design"):
         if heads[role] <= 0:
             share["development"] += share[role]
@@ -257,7 +302,7 @@ def _ramp_up_units(module_count: int) -> int:
 
 
 def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
-                    hours_per_week: float) -> dict:
+                    hours_per_week: float, pipeline: bool = True) -> dict:
     """The ramp-up, as an ordinary module so it prices and rolls up like one.
 
     It goes in the earliest phase present, which is where it happens, and it
@@ -271,7 +316,10 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
     building = units - reading
     subs = []
     for name, part in (("Requirement understanding and walkthroughs", reading),
-                       ("Development environment, repository and pipeline setup", building)):
+                       # With the delivery rows booked, the pipeline is their
+                       # CI/CD line; named here as well, it read as booked twice.
+                       ("Development environment, repository and pipeline setup" if pipeline
+                        else "Development environment and repository setup", building)):
         hours = part * EFFORT_UNIT_HOURS
         subs.append({
             "name": name,
@@ -286,6 +334,7 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
         "name": RAMP_UP_NAME,
         "phase": phase,
         "derived": True,
+        "kind": "ramp_up",
         "hours": hours,
         "cost": jround(hours * dev_rate),
         "weeks": round2(hours / hours_per_week) if hours_per_week else 0,
@@ -300,6 +349,77 @@ def _ramp_up_module(module_count: int, phase: int, dev_rate: float,
 def _wants_ramp_up(inp: ProjectInput) -> bool:
     ca = inp.cost_assumptions
     return True if ca is None else bool(ca.include_ramp_up)
+
+
+def _calibration(inp: ProjectInput) -> float:
+    """The organisation's multiplier on band-sized lines; 1.0 when unset."""
+    ca = inp.cost_assumptions
+    return 1.0 if ca is None else float(ca.effort_calibration)
+
+
+def _wants_delivery(inp: ProjectInput) -> bool:
+    ca = inp.cost_assumptions
+    return True if ca is None else bool(ca.include_delivery)
+
+
+def _delivery_module(phase: int, build_hours: int, base_build_hours: int,
+                     first: bool, dev_rate: float, hours_per_week: float) -> dict:
+    """The rows an architect writes under the module total, as a module.
+
+    Testing and technical leadership are shares of this phase's build, so a
+    phase carries its own and a three-phase plan is not tested once. The
+    pipeline and the first deployment are flat and booked in the first phase
+    only: that is when both are built, and later phases release through them.
+
+    Four named lines rather than one "overhead", for the reason the ramp-up is
+    two: somebody who disagrees with the tech lead should be able to strike the
+    tech lead without arguing about the testing.
+    """
+    def pct(share: float) -> str:
+        return f"{share * 100:g}% of the build"
+
+    rows: list[tuple[str, int, int, str]] = [
+        ("Module testing", jround(build_hours * TESTING_SHARE), 0, pct(TESTING_SHARE)),
+        ("Technical leadership", jround(build_hours * TECH_LEAD_SHARE), 0, pct(TECH_LEAD_SHARE)),
+    ]
+    if first:
+        rows += [
+            ("Deployment", DEPLOYMENT_UNITS * EFFORT_UNIT_HOURS, DEPLOYMENT_UNITS, ""),
+            ("CI/CD pipeline", CICD_UNITS * EFFORT_UNIT_HOURS, CICD_UNITS, ""),
+        ]
+    subs = [{
+        "name": name,
+        "size": _band_for(units) if units else "",
+        "units": units,
+        "hours": hours,
+        "cost": jround(hours * dev_rate),
+        "base_hours": hours,
+        "basis": basis,
+    } for name, hours, units, basis in rows if hours > 0]
+    hours = sum(s["hours"] for s in subs)
+    # The shares are of the build as the team will actually deliver it, so
+    # skill moves them too. Their base is the same shares of the build before
+    # skill, which is what keeps `skill_adjustment_hours` the whole of what the
+    # scores did rather than only the part they did to the named lines.
+    flat = sum(s["hours"] for s in subs if not s["basis"])
+    base = flat + jround(base_build_hours * TESTING_SHARE) + jround(base_build_hours * TECH_LEAD_SHARE)
+    return {
+        "name": DELIVERY_NAME,
+        "phase": phase,
+        "derived": True,
+        "kind": "delivery",
+        "hours": hours,
+        "cost": jround(hours * dev_rate),
+        "weeks": round2(hours / hours_per_week) if hours_per_week else 0,
+        "sub_features": subs,
+        "base_hours": base,
+        "skill_factor": 1.0,
+        "technologies": [],
+        "source": "stated",
+        # Kept beside the module so the role split can hand the testing row to
+        # the testers without finding it again by name.
+        "testing_hours": subs[0]["hours"] if subs and subs[0]["name"] == "Module testing" else 0,
+    }
 
 
 def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
@@ -328,6 +448,8 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     team = _team_size(inp)
     modules = inp.modules or []
     at_ceiling: list[str] = []
+    cal = _calibration(inp)
+    calibrated_hours = 0
 
     by_phase: dict[int, list] = {}
     for i, module in enumerate(modules):
@@ -338,10 +460,25 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         factor = _skill_factor(inp, module.technologies)
         subs = []
         for j, sub in enumerate(module.sub_features):
-            units = _units_for(sub)
-            base = units * EFFORT_UNIT_HOURS
+            quoted = sub.hours is not None and sub.hours > 0
+            # Quoted hours are priced as quoted; the day count beside them is
+            # for the duration figures and is never shown as a size.
+            raw = int(sub.hours) if quoted else _units_for(sub) * EFFORT_UNIT_HOURS
+            # Calibration scales the bands and nothing else. A band is the
+            # drafter's judgement and the dial is how this organisation's
+            # architects size against it; a line entered in days or quoted in
+            # hours is a person's number, and scaling it would overrule them.
+            banded = not quoted and sub.units is None
+            # Rounded to six places first: 45 × 0.7 is 31.499999999999996 in a
+            # binary float, and half-up has to see the 31.5 a person computes.
+            base = jround(round(raw * cal, 6)) if banded and cal != 1.0 else raw
+            calibrated_hours += base - raw
+            units = (jround(base / EFFORT_UNIT_HOURS) if quoted or base != raw
+                     else _units_for(sub))
             hours = base if factor == 1.0 else jround(base * factor)
-            if units >= MAX_SUB_FEATURE_UNITS:
+            # The ceiling is the band's: an xxl is "not understood well enough
+            # to split" at any calibration.
+            if raw >= MAX_SUB_FEATURE_UNITS * EFFORT_UNIT_HOURS:
                 at_ceiling.append(f"{module.name} — {sub.name}")
             subs.append({
                 "name": sub.name or f"Item {j + 1}",
@@ -349,11 +486,20 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
                 # set `units` directly and leave `size` at its default, and a
                 # pill reading "S · 7d" then contradicts itself — the band is
                 # the label, and it has to label the number beside it.
-                "size": _band_for(units),
+                "size": "" if quoted or base != raw else _band_for(units),
                 "units": units,
                 "hours": hours,
                 "cost": jround(hours * dev_rate),
                 "base_hours": base,
+                # A quoted line has no band, and "4d" on a 40-hour line would
+                # be a size nobody chose; it says where its number came from.
+                # A calibrated line keeps its band in sight: "M · 4d × 0.7"
+                # says what was judged and what the organisation made of it.
+                "basis": (f"{base} h as quoted" if quoted
+                          else f"{(sub.size or '').upper()} · {raw // EFFORT_UNIT_HOURS}d × {cal:g}"
+                          if base != raw else ""),
+                # Carried, not priced: the line's size already is their price.
+                "covers": [c for c in (x.strip() for x in sub.covers) if c],
             })
         module_hours = sum(s["hours"] for s in subs)
         by_phase.setdefault(max(1, module.phase), []).append({
@@ -375,7 +521,21 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     if by_phase and _wants_ramp_up(inp):
         first = min(by_phase)
         by_phase[first].insert(0, _ramp_up_module(
-            len(modules), first, dev_rate, hours_per_week))
+            len(modules), first, dev_rate, hours_per_week,
+            pipeline=not _wants_delivery(inp)))
+
+    # After the ramp-up and on top of it: the sheet's 10% and 15% are of a
+    # module total that already includes its own Requirement & Design row.
+    delivery = bool(by_phase) and _wants_delivery(inp)
+    if delivery:
+        first = min(by_phase)
+        for number in sorted(by_phase):
+            mods = by_phase[number]
+            by_phase[number].append(_delivery_module(
+                number,
+                sum(m["hours"] for m in mods),
+                sum(m["base_hours"] for m in mods),
+                number == first, dev_rate, hours_per_week))
 
     # With a team entered, a phase takes as long as its slowest discipline:
     # three developers finish their share in a week, and the phase is still
@@ -384,12 +544,19 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     # exactly as every earlier estimate computed it.
     crew = _team(inp)
     phases = []
+    total_testing = 0
     for number in sorted(by_phase):
         mods = by_phase[number]
         phase_hours = sum(m["hours"] for m in mods)
+        # Popped rather than read: it is the role split's input, not part of
+        # the record, and a key the stored type does not know is a key that
+        # silently vanishes on the first round trip.
+        testing = sum(m.pop("testing_hours", 0) for m in mods)
+        total_testing += testing
         bottleneck = ""
         if crew is not None and hours_per_week:
-            loads = _role_loads(phase_hours, crew, hours_per_week)
+            loads = _role_loads(phase_hours, crew, hours_per_week,
+                                testing_hours=testing if delivery else None)
             slowest = max(loads, key=lambda load: load["weeks"])
             weeks = slowest["weeks"]
             bottleneck = slowest["role"]
@@ -405,7 +572,8 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         })
 
     total_hours = sum(p["hours"] for p in phases)
-    roles = (_role_loads(total_hours, crew, hours_per_week)
+    roles = (_role_loads(total_hours, crew, hours_per_week,
+                         testing_hours=total_testing if delivery else None)
              if crew is not None and hours_per_week and total_hours else [])
     base_total = sum(m["base_hours"] for p in phases for m in p["modules"])
     return {
@@ -420,6 +588,10 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         "roles": roles,
         "bottleneck": max(roles, key=lambda load: load["weeks"])["role"] if roles else "",
         "skill_adjustment_hours": total_hours - base_total,
+        "calibration": cal,
+        # Before skill and before the delivery shares that follow the build:
+        # what the dial itself did to the lines it applies to.
+        "calibration_adjustment_hours": calibrated_hours,
     }
 
 
@@ -661,6 +833,11 @@ def model_token_breakdown(inp: ProjectInput) -> list[dict]:
 
     by_model: dict[str, dict] = {}
     for i, uc in enumerate(use_cases):
+        # Still part of the weighting above: a rules engine handles its share
+        # of the traffic, and sharing the volume over only the model use cases
+        # would hand them requests that are not theirs. It just costs nothing.
+        if not _needs_model(uc):
+            continue
         p = _profile(uc.task_type)
         daily_req = (total_requests_per_day * weights[i]) / w_total
         monthly_req = daily_req * 30
@@ -693,9 +870,8 @@ def project_tokens(inp: ProjectInput) -> dict:
     def mk(base: float) -> dict:
         return {"optimistic": jround(base * 0.7), "expected": jround(base), "pessimistic": jround(base * 1.6)}
 
-    use_cases = inp.ai_use_cases or []
     model_recommendations = []
-    for uc in use_cases:
+    for uc in _model_use_cases(inp):
         p = _profile(uc.task_type)
         cat = MODEL_CATALOG[p["model"]]
         task = uc.task_type or "rag_qa"
@@ -799,7 +975,10 @@ def _consumption_services(inp: ProjectInput, ctx, profile) -> list[dict]:
             "region": region,
             "quantity": round2(qty),
             "unit": spec.unit,
-            "unit_price": round2(unit_price),
+            # Hourly meters are fractions of a cent: Service Bus is $0.013441
+            # an hour, and two decimals printed it as $0.01 beside a monthly
+            # figure that was not 0.01 × 730. The line has to multiply out.
+            "unit_price": round(unit_price, 6) if unit_price < 1 else round2(unit_price),
             "monthly_cost": monthly,
             "price_source": source,
             "included_in_total": spec.included_in_total,
@@ -885,7 +1064,12 @@ def compute_cost(inp: ProjectInput, feas: dict) -> dict:
     # enumerating features finds them. It is a visible line, so it can be
     # argued with or set to zero by calling the reach smaller.
     scale = inp.scale or "medium"
-    build_hours = sum(b["hours"] for b in feature_breakdown)
+    # The delivery rows are left out of the base, and the uplift is left out of
+    # theirs. Each is a proportion of the build; letting either multiply the
+    # other would charge a large rollout for testing its own testing.
+    delivery_hours = sum(m["hours"] for p in wbs["phases"] for m in p["modules"]
+                         if m.get("kind") == "delivery")
+    build_hours = sum(b["hours"] for b in feature_breakdown) - delivery_hours
 
     scale_factor = SCALE_DELIVERY.get(scale, 1.0)
     scale_hours = jround(build_hours * (scale_factor - 1))
@@ -926,8 +1110,17 @@ def compute_cost(inp: ProjectInput, feas: dict) -> dict:
         else [{**m, "monthly_cost": 0.0} for m in model_breakdown]
     )
 
-    maint_hours = SCALE_MAINT_HOURS.get(scale, 24) + len(use_cases) * 4
+    # Four hours a month per use case is the upkeep a *model* needs — prompts
+    # drift, evals regress. A rules engine needs neither, so only the use
+    # cases that call a model add to it.
+    model_use_cases = _model_use_cases(inp)
+    maint_hours = SCALE_MAINT_HOURS.get(scale, 24) + len(model_use_cases) * 4
     maint_monthly = jround(maint_hours * maint_rate)
+    maint_includes = (
+        ["Prompt & model upkeep", "Monitoring & cost guardrails", "Eval regression checks", "Dependency updates"]
+        if model_use_cases else
+        ["Monitoring & alerting", "Bug fixes and minor changes", "Dependency and security updates"]
+    )
 
     annual_run = (infra_monthly + token_cost + maint_monthly) * 12
     expected = jround(development_cost + annual_run)
@@ -952,7 +1145,7 @@ def compute_cost(inp: ProjectInput, feas: dict) -> dict:
             "hourly_rate": maint_rate,
             "monthly_cost": maint_monthly,
             "annual_cost": maint_monthly * 12,
-            "includes": ["Prompt & model upkeep", "Monitoring & cost guardrails", "Eval regression checks", "Dependency updates"],
+            "includes": maint_includes,
         },
         "total": {"min": jround(expected * 0.82), "expected": expected, "max": jround(expected * 1.35)},
         "currency": currency,
@@ -1042,7 +1235,15 @@ def project_roi(inp: ProjectInput, feas: dict, cost: dict) -> dict:
     loaded_rate, automation_pct = _benefit_dials(inp)
     value_drivers = []
     annual_benefit = 0.0
-    if use_cases:
+    # The benefit model is AI's: minutes a model saves, times the share of
+    # calls it handles end to end. For a brief where nothing calls a model it
+    # was crediting a rules engine with "35% automated" and computing a payback
+    # for an AI that is not there — $281,050 a year of benefit, for the Gift
+    # Tracker, from a model nobody proposed. The value of replacing a manual
+    # process with ordinary software is real, but it is not this number, and a
+    # wrong number is worse than a missing one.
+    applicable = ai_applicable(inp)
+    if use_cases and applicable:
         total_requests_per_day = max(_requests_per_day(inp), len(use_cases))
         weights = [PRIORITY_WEIGHT[u.priority] for u in use_cases]
         w_total = sum(weights)
@@ -1110,6 +1311,11 @@ def project_roi(inp: ProjectInput, feas: dict, cost: dict) -> dict:
         "curve": curve,
         "value_drivers": value_drivers,
         "assumptions": [
+            "No use case needs a model, so no AI benefit is modelled.",
+            "The case for this build is the manual process it replaces, which this "
+            "estimate does not price; the figures here are its cost only.",
+            "Run cost is the first-year operating total (infrastructure + maintenance).",
+        ] if not applicable else [
             "Benefit/call = minutes saved ÷ 60 × loaded labour rate × automation rate.",
             f"Loaded labour rate ${loaded_rate:,.0f}/hr; automation rate {automation_pct:.0f}% of calls handled end-to-end.",
             (f"Benefit ramps linearly over {ramp:.0f} months to full adoption; "
@@ -1126,16 +1332,32 @@ def project_roi(inp: ProjectInput, feas: dict, cost: dict) -> dict:
 
 # ── Verdict (the decisive, willing-to-say-no call) ──────────────────
 
-def derive_verdict(feas: dict, comparison: dict) -> dict:
+def derive_verdict(feas: dict, comparison: dict, applicable: bool = True) -> dict:
     """Collapse the analysis into one actionable decision.
 
     Keyed on the AI-vs-standard recommendation (which already encodes the
     feasibility score) plus the traditional-only archetype guard, so the verdict
     never contradicts the comparison the rest of the report shows.
+
+    A brief where nothing needs a model was not weighed and found wanting: it
+    never asked for AI. "Don't build this with AI", in red, reads as a rejection
+    of a project somebody is about to build as ordinary software — which is the
+    recommendation, so it says that and it says go.
     """
     label = feas["archetype_label"]
     rec = comparison["recommendation"]  # "ai" | "hybrid" | "standard"
 
+    if not applicable:
+        return {
+            "decision": "do_not_use_ai",
+            "headline": "Build it as standard software",
+            "one_liner": (
+                "Every use case here is rules, lookups or alerts that ordinary "
+                "software does exactly. Nothing calls a model, so no model is costed."
+            ),
+            "disposition": "go",
+            "recommend_ai": False,
+        }
     if rec == "standard" or feas["archetype"] == "traditional":
         return {
             "decision": "do_not_use_ai",
@@ -1319,6 +1541,23 @@ def compose_markdown(inp: ProjectInput, feas: dict, cost: dict) -> str:
     def fmt(n: float) -> str:
         return f"{currency} {_locale(n)}"
 
+    if not ai_applicable(inp):
+        # The AI framing — a feasibility title, a tokens line at zero — was the
+        # last place a standard build was still being reported as an AI one.
+        # Each cost line keeps its prefix, which is what lets a report that
+        # hides a cost drop the line that would otherwise print it.
+        return "\n".join([
+            f"# {inp.project_name} — Cost estimate",
+            "",
+            "**Recommendation:** build it as standard software — no use case needs a model.",
+            "",
+            "## Cost (first year)",
+            f"- Development: {fmt(cost['development']['total_cost'])}",
+            f"- Infrastructure: {fmt(cost['infrastructure']['annual_cost'])}/yr",
+            f"- Maintenance: {fmt(cost['maintenance']['annual_cost'])}/yr",
+            f"- **Total expected: {fmt(cost['total']['expected'])}** (range {fmt(cost['total']['min'])}–{fmt(cost['total']['max'])})",
+        ])
+
     return "\n".join([
         f"# {inp.project_name} — AI Feasibility & Cost",
         "",
@@ -1361,7 +1600,8 @@ def estimate(inp: ProjectInput, est_id: str, generated_at: str) -> dict:
     tokens = project_tokens(inp)
     comparison = compare_approaches(inp, feas, cost)
     roi = project_roi(inp, feas, cost)
-    verdict = derive_verdict(feas, comparison)
+    applicable = ai_applicable(inp)
+    verdict = derive_verdict(feas, comparison, applicable)
     confidence = assess_confidence(inp, feas)
     recommendations = build_recommendations(inp, feas)
     markdown = compose_markdown(inp, feas, cost)
@@ -1376,6 +1616,7 @@ def estimate(inp: ProjectInput, est_id: str, generated_at: str) -> dict:
         "verdict": verdict,
         "confidence": confidence,
         "cost_breakdown": cost,
+        "ai_applicable": applicable,
         "token_projection": tokens,
         "comparison": comparison,
         "roi_projection": roi,

@@ -121,6 +121,29 @@ svg { fill: none; }
 .btn.sm { padding: 5px 10px; font-size: 11.5px; border-radius: 8px; }
 .btn.pri { background: var(--brass); color: #fff; border-color: transparent; font-weight: 600; }
 :host-context([data-theme="dark"]) .btn.pri { color: #1a1205; }
+/* An export in flight. Both buttons go down, not just the one pressed: they
+   read the same stored record, and the PDF holds a browser open server-side. */
+.btn[disabled] { opacity: 0.55; box-shadow: none; }
+
+/* Why an export produced no file. The same banner the form uses, because it is
+   the same kind of news. */
+.err-banner {
+  display: flex; align-items: center; gap: 10px; margin: 0 20px 12px;
+  padding: 10px 12px; font-size: 12px; color: var(--err);
+  background: var(--err-soft); border: 1px solid var(--err); border-radius: 10px;
+}
+.err-banner span { flex: 1; }
+
+/* What the report shows — quiet, under the title, because it is a setting on
+   the report rather than part of it. */
+.show-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px;
+  margin: -4px 20px 12px; font-size: 12px; color: var(--ink-2);
+}
+.show-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.show-t { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.show-t input { accent-color: var(--brass); margin: 0; }
+.show-n { font-size: 11px; color: var(--ink-3); }
 
 .pill {
   display: inline-flex; align-items: center; gap: 5px;
@@ -192,6 +215,12 @@ svg { fill: none; }
 .wfrow .b { flex: 1; height: 20px; border-radius: 5px; background: var(--rule); overflow: hidden; }
 .wfrow .b i { display: block; height: 100%; border-radius: 5px; }
 .wfrow .v { font-family: var(--mono); font-size: 12px; font-weight: 600; width: 92px; text-align: right; }
+/* A row in time rather than money: the weeks or the monthly rate under its
+   label, so the value column keeps the width the bars are aligned to. */
+.wfrow .l small { display: block; font-size: 10.5px; line-height: 1.35; color: var(--ink-3); margin-top: 1px; }
+/* Infrastructure with its cost hidden: a bill, not labour — nothing to draw. */
+.wfrow.nil .b { opacity: 0.45; }
+.wfrow.nil .v { color: var(--ink-3); font-weight: 400; }
 
 .kv { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
 .kv:last-child { border-bottom: none; }
@@ -256,6 +285,13 @@ svg { fill: none; }
 }
 .phase-m { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .phase-m.wks { color: var(--ink-2); font-weight: 700; }
+/* The plan's total effort, as a chip: the same figure the phase rows add up
+   to, marked as their sum rather than set in the same type as a rate. */
+.tot-chip {
+  display: inline-block; padding: 2px 9px; border-radius: 20px;
+  background: var(--brass-soft); color: var(--brass-2); border: 1px solid var(--brass);
+  font-family: var(--mono); font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
 
 .mod {
   display: grid; grid-template-columns: 14px 1fr 26px 110px 62px 58px 76px;
@@ -264,6 +300,14 @@ svg { fill: none; }
   transition: background 0.13s;
 }
 .mod:hover { background: var(--surface-2x); }
+/* A module that is its own one line: nothing to open, so nothing to hover. */
+.mod.single:hover { background: none; }
+/* Its size and covers, under the name, free to wrap — the name keeps its one
+   line and the covers of a Home page do not fit on it. */
+.mod-meta {
+  display: block; white-space: normal; margin-top: 2px;
+  font-size: 11px; font-weight: 400; color: var(--ink-3); line-height: 1.4;
+}
 .mod .car { color: var(--ink-3); font-size: 10px; }
 .mod-n { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The badge sits *inside* the name cell rather than in a column of its own.
@@ -295,12 +339,20 @@ svg { fill: none; }
 
 .subs-t { margin: 0 0 6px 32px; border-left: 1px solid var(--rule); padding-left: 12px; }
 .sub-r {
-  display: grid; grid-template-columns: 1fr 84px 54px 76px;
+  /* The size column holds "10% of the build" on a delivery row as well as
+     "M · 4d", so it is sized for the longer of the two. */
+  display: grid; grid-template-columns: 1fr 108px 54px 76px;
   align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; color: var(--ink-2);
 }
 .sub-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What a line builds once for many — under its name, quieter than it, and
+   free to wrap: seven role names do not fit on the name's one line. */
+.sub-cov {
+  display: block; white-space: normal; margin-top: 2px;
+  font-size: 11px; color: var(--ink-3); line-height: 1.4;
+}
 .sub-s {
-  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap;
   background: var(--surface-2x); border-radius: 20px; padding: 1px 7px; text-align: center;
 }
 .sub-h, .sub-cost {

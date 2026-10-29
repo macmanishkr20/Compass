@@ -31,6 +31,7 @@ from estimator.common.ownership import owned, owner_for, visible_to
 
 from . import export, intake, pipeline
 from . import store as estore
+from .azure_catalog import AZURE_REGIONS, SERVICE_SPECS
 from .catalog import EFFORT_UNIT_HOURS, SIZE_BAND_UNITS, TASK_TYPES
 from .platforms import PLATFORM_PROFILES
 from .types import Estimation, ProjectInput
@@ -55,7 +56,11 @@ def _record_fields(brief: ProjectInput, estimation: Estimation) -> dict:
         "score": estimation.feasibility.score,
         "total_expected": estimation.cost_breakdown.total.expected,
         "currency": estimation.cost_breakdown.currency,
-        "verdict": estimation.verdict.decision if estimation.verdict else "",
+        # The list draws this as a pill, and "do_not_use_ai" in red is how it
+        # draws a rejected AI proposal. A brief with no AI in it was never one,
+        # and its row has to say what its report says.
+        "verdict": ("standard_software" if not estimation.ai_applicable
+                    else estimation.verdict.decision if estimation.verdict else ""),
         "confidence": estimation.confidence.level if estimation.confidence else "",
         "status": "complete",
     }
@@ -94,6 +99,14 @@ async def catalog(user: str = Depends(require_user)) -> dict:
             for p in PLATFORM_PROFILES.values()
         ],
         "stages": [{"key": k, "label": label} for k, label in pipeline.STAGES],
+        # The services a stack can be stated in, and the regions it can be
+        # priced in. From the catalog itself, so a service added there is a
+        # chip on the form with no change on the other side.
+        "azure_services": [
+            {"key": s.key, "name": s.name, "category": s.category}
+            for s in SERVICE_SPECS
+        ],
+        "azure_regions": [{"key": k, "label": v} for k, v in AZURE_REGIONS.items()],
         # Whether a model will be asked to label anything on this box. The UI
         # says so rather than implying an intelligence that is switched off.
         "classifier": get_settings().estimate.classifier,
@@ -117,6 +130,10 @@ class RateCard(BaseModel):
     #: Zero is legal and means "no ramp" — the old behaviour, reachable on
     #: purpose for anyone who wants to compare against it.
     benefit_ramp_months: float = Field(ge=0, le=60)
+    #: The multiplier on band-sized lines. Defaulted so a client saving a card
+    #: written before the dial existed still saves; bounded to catch a slipped
+    #: decimal, not to say how lean an organisation may estimate.
+    effort_calibration: float = Field(default=1.0, ge=0.25, le=2.0)
 
 
 @router.get("/v1/estimates/rate-card")
@@ -174,6 +191,9 @@ class BrdRequest(BaseModel):
     #: of base64.
     data_url: str = Field(min_length=1, max_length=28_000_000)
     project_type: str = "new"
+    #: The delivery lead's scope decisions, which override the document. See
+    #: `intake.analyse_brd`; capped there, and here so the body says so too.
+    scope_notes: str = Field(default="", max_length=intake.SCOPE_NOTES_MAX_CHARS)
 
 
 #: What a requirements document arrives as. Images are refused rather than
@@ -226,7 +246,8 @@ async def read_brd(body: BrdRequest, user: str = Depends(require_user)) -> dict:
                             detail=f"Could not read the document: {note.strip('[]')}")
 
     try:
-        brief = await intake.analyse_brd(text, body.name, body.project_type)
+        brief = await intake.analyse_brd(text, body.name, body.project_type,
+                                         scope_notes=body.scope_notes)
     except Exception as exc:  # noqa: BLE001 - the surface says what went wrong
         logger.warning("brd analysis failed: %s", exc)
         raise HTTPException(status_code=502,
@@ -364,6 +385,32 @@ async def get_estimate(estimate_id: str,
     return record.to_dict()
 
 
+class DisplayPatch(BaseModel):
+    """Any of the three flags; the ones left out keep their value."""
+
+    development_cost: bool | None = None
+    infrastructure_cost: bool | None = None
+    maintenance_cost: bool | None = None
+    written_report: bool | None = None
+
+
+@router.patch("/v1/estimates/{estimate_id}/display")
+async def set_display(estimate_id: str, body: DisplayPatch,
+                      user: str = Depends(require_user)) -> dict:
+    """Which costs and sections the report shows.
+
+    Not a re-cost: the figures are untouched and come straight back the moment
+    a flag is switched on again. It changes what is *shown*, on the screen and
+    in both exports, which is the point — a report shared as effort only has
+    to stay effort only when somebody downloads the PDF.
+    """
+    record = await _owned_estimate(estimate_id, user)
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    record.display = estore.display_of({**record.display, **changes})
+    await estore.estimates.save(record)
+    return {"display": record.display}
+
+
 @router.get("/v1/estimates/{estimate_id}/export/pdf")
 async def export_pdf(estimate_id: str,
                      user: str = Depends(require_user)) -> Response:
@@ -376,7 +423,7 @@ async def export_pdf(estimate_id: str,
     record = await _owned_estimate(estimate_id, user)
     estimation = Estimation.model_validate(record.result)
     try:
-        data = await export.to_pdf(estimation)
+        data = await export.to_pdf(estimation, record.display)
     except RuntimeError as exc:  # Playwright missing — say so, do not 500
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     return Response(
@@ -387,6 +434,35 @@ async def export_pdf(estimate_id: str,
     )
 
 
+@router.get("/v1/estimates/{estimate_id}/export/html")
+async def export_html(estimate_id: str,
+                      user: str = Depends(require_user)) -> Response:
+    """The same document, unprinted — for the browser in front of the person.
+
+    The PDF route needs a Chromium on the *server*. On a managed laptop the
+    install that would put one there cannot reach the internet, and no
+    server-side answer exists. This route has no such dependency: it is the
+    identical HTML the PDF is printed from, handed to the browser that is
+    already running, where "Save as PDF" is a print destination. The two
+    documents are the same document.
+    """
+    record = await _owned_estimate(estimate_id, user)
+    estimation = Estimation.model_validate(record.result)
+    return Response(
+        content=export.to_html(estimation, record.display),
+        media_type="text/html; charset=utf-8",
+        headers={
+            # Every string in that document is escaped on the way out. This is
+            # the second lock on the same door: served under a policy that
+            # allows no script to run at all, a hole in the escaping is inert
+            # rather than script executing on the app's own origin.
+            "Content-Security-Policy":
+                "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.get("/v1/estimates/{estimate_id}/export/excel")
 async def export_excel(estimate_id: str,
                        user: str = Depends(require_user)) -> Response:
@@ -394,7 +470,7 @@ async def export_excel(estimate_id: str,
     record = await _owned_estimate(estimate_id, user)
     estimation = Estimation.model_validate(record.result)
     try:
-        data = export.to_excel(estimation)
+        data = export.to_excel(estimation, record.display)
     except ImportError as exc:
         raise HTTPException(
             status_code=501,

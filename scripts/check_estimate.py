@@ -717,9 +717,10 @@ def check_the_screens_match_the_mockup() -> None:
     for value, what in (
         ("font-size: 38px", "the index title is the mockup's 38px serif"),
         ("grid-template-columns: repeat(4, 1fr)", "four stat cards"),
-        ("grid-template-columns: 1fr 120px 128px 116px 108px 96px",
+        ("grid-template-columns: 1fr 160px 128px 116px 108px 96px",
          "the table's six columns are the mockup's, with verdict widened from "
-         "104 to 120 — measured, the longest label needs 111px on one line"),
+         "104 to 160 — measured, the longest label, STANDARD SOFTWARE, needs "
+         "157px on one line"),
         ("white-space: nowrap;", "and a pill never wraps"),
         ("height: 58px", "and its rows are 58px"),
         ("width: 190px", "the stepper is 190px"),
@@ -924,10 +925,12 @@ def check_the_brief_can_be_written_in_prose() -> None:
        "the prompt asks for the whole band range: three drafts of one "
        "paragraph used four of six bands, never once an xs or an xxl, with "
        "over half of every breakdown sitting on m")
-    ok("When the description names a set, enumerate its members." in joined,
+    ok("When the description names a set, enumerate its members" in joined,
        "and it says where small lines actually come from — naming a set's "
        "members separately, not shaving days off a big line. Over ten drafts "
-       "an arm: xs 0.4% of lines to 17.2%, and the run-to-run spread halved")
+       "an arm: xs 0.4% of lines to 17.2%, and the run-to-run spread halved. "
+       "Still enumerated; where each member goes is pinned in "
+       "check_a_set_of_instances_is_one_line")
     ok("not the machinery under it" in joined,
        "and it stops the model elaborating around a line it was given: an "
        "upload became a drag-and-drop line, a resumable line, a progress "
@@ -1048,6 +1051,100 @@ def check_an_estimate_can_leave_the_app() -> None:
        "infrastructure line checkable rather than merely readable")
 
 
+def check_the_export_runs_on_windows() -> None:
+    """Reported from Windows: "the Export PDF in Estimate is not working."
+
+    Three faults stacked, and the first two were already understood — Design
+    had them reported, diagnosed and answered months earlier. The shared
+    headless browser never got the answers, so Estimate, which reaches
+    Chromium only through that shared helper, hit all of them raw.
+
+    *Nothing said what went wrong, because nothing could.* The buttons were
+    `<a href download>`, which is the right shape for a download and the wrong
+    one for a download that can fail: a browser told to save a URL saves
+    whatever comes back. The 501 body carrying "run `playwright install
+    chromium`" was written to disk **as the PDF** — a file that exists, is the
+    size of a sentence, and will not open. That is the whole reported symptom,
+    and it is the same one Design's report described word for word. No
+    server-side fix could ever have reached the screen through an anchor, so
+    the client fetches, refuses an empty body, and shows the message.
+
+    *A present Playwright with no browser said nothing useful.* Only the
+    missing *package* was translated. The ordinary state of a machine where
+    nobody ran the install step — package there, browser not — fell through
+    `except RuntimeError` in the route as a generic exception and 500'd with a
+    driver path in it.
+
+    *And the loop.* `uvicorn.loops.asyncio` returns `ProactorEventLoop` on
+    win32 only `if not use_subprocess`, and `use_subprocess` is
+    `reload or workers > 1`. So `--reload` — the ordinary Windows development
+    command — puts the server on the Selector loop, where asyncio cannot spawn
+    the driver at all and raises a bare NotImplementedError. This one is not
+    merely explained: the job is run on a worker thread with a Proactor loop of
+    its own, so the export works under `--reload` instead of apologising. The
+    sentence is kept for the case where even that cannot start.
+
+    Checked on this host: the real route returns a 121,453-byte PDF beginning
+    %PDF-1.4; a launch failure carrying a Windows driver path produces the
+    install sentence; the off-the-Proactor path prints on a loop of its own;
+    and a job that still cannot spawn produces the loop sentence.
+    """
+    print("\nthe export runs on Windows")
+    common = (ROOT / "estimator/common/screenshot.py").read_text()
+    report = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    api = (ROOT / "frontend/src/app/estimate/estimate-api.ts").read_text()
+    html = (ROOT / "frontend/src/app/estimate/report.html").read_text()
+
+    ok("playwright install chromium" in common and "Executable doesn" in common,
+       "a present Playwright with no browser says which command to run, "
+       "rather than 500-ing with a driver path")
+    ok("Proactor event loop" in common,
+       "and the Windows loop failure is named, because nothing in the "
+       "NotImplementedError it raises says what went wrong")
+    ok("_off_the_proactor_loop" in common and "asyncio.to_thread" in common,
+       "but it is worked around before it is explained — the job runs on a "
+       "Proactor loop of its own, so --reload can still print a PDF")
+    ok(common.count("_with_a_browser(") >= 3,
+       "and the screenshot path goes through the same door, so neither can "
+       "acquire its own set of unanswered failures")
+
+    ok("/export/" not in html
+       and "exportAs('pdf')" in html and "exportAs('excel')" in html,
+       "both exports are buttons, not anchors — no export URL is reachable "
+       "from the template, because a browser told to save a URL saves the "
+       "error body as the PDF, which is the reported symptom")
+    ok("async download(" in api and "res.json()).detail" in api,
+       "the client reads the server's own sentence rather than its status")
+    ok("if (!blob.size)" in report,
+       "an empty body is refused rather than saved, so no server fault can "
+       "put a zero-length PDF on disk")
+    ok("exportError" in report and "err-banner" in html,
+       "and a failed export says so on the screen it failed on")
+
+    # Then the host where the install can never run.
+    ok('channel=channel' in common and "msedge" in common,
+       "a missing Chromium is not the end of the attempt — the Edge or Chrome "
+       "already on the host is tried, and needs no download")
+    ok("COMPASS_BROWSER_CHANNELS" in common,
+       "and which browsers those are is configuration, not a constant")
+    ok('"Executable doesn" not in detail' in common,
+       "a real launch fault still reports itself rather than being buried "
+       "under three more attempts at browsers that were never the problem")
+
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
+    ok('"/v1/estimates/{estimate_id}/export/html"' in routes
+       and "export.to_html(estimation, record.display)" in routes,
+       "and the document is reachable unprinted, from the same HTML — so the "
+       "PDF can be had from the browser in front of the person, with no "
+       "browser on the server at all")
+    ok("default-src 'none'" in routes,
+       "served under a policy that runs no script, so a hole in the escaping "
+       "cannot become script on the app's own origin")
+    ok("setAttribute('sandbox', 'allow-same-origin allow-modals')" in report,
+       "printed from a frame granted exactly two things — this page may reach "
+       "in to call print(), and the document may not run a line of script")
+
+
 def check_the_architect_asks_once() -> None:
     """The platform choice is one call, and used to be up to five.
 
@@ -1133,6 +1230,10 @@ WBS_BRIEF = {
     **BRIEF,
     "project_name": "Acme Streaming",
     "features": [],
+    # The line arithmetic, with the delivery rows switched off so every figure
+    # below stays one a reader can do in their head. The rows have a check of
+    # their own, `check_the_delivery_rows_are_booked`, on this same brief.
+    "cost_assumptions": {"include_delivery": False},
     "assumptions": [
         "Third-party licences are procured by the client.",
         "One environment; a second doubles the deployment line.",
@@ -1265,9 +1366,22 @@ def check_work_breakdown() -> None:
        "and no separate AI-integration bucket: a breakdown names its AI work "
        "as line items, so adding a bucket on top would charge for it twice")
 
-    eq(est.assumptions, WBS_BRIEF["assumptions"],
+    from estimator.estimate.catalog import STANDING_ASSUMPTIONS
+    eq(est.assumptions, [*WBS_BRIEF["assumptions"], *STANDING_ASSUMPTIONS],
        "the assumptions travel with the estimate — they are what a "
-       "disagreement about the number is usually actually about")
+       "disagreement about the number is usually actually about — and the "
+       "ones every estimate carries come last")
+    ok(any("change or modification to the requirements" in a and "may increase" in a
+           for a in est.assumptions),
+       "including that a changed requirement means a revised estimate, which "
+       "may be higher — on every estimate, booked by the engine so no person "
+       "or model can leave it out")
+    from estimator.estimate.pipeline import with_standing
+    again = with_standing(["Scope is phase one.",
+                           STANDING_ASSUMPTIONS[0].upper().rstrip(".") + "  "])
+    eq(len(again), 2,
+       "and never twice: a brief that already says it, in any case or spacing, "
+       "is not given it again")
 
 
 def check_the_section_renders_on_an_older_browser() -> None:
@@ -1353,8 +1467,12 @@ def check_the_ramp_up_is_booked() -> None:
        "it steps with breadth and then flattens — a forty-module plan does "
        "not need eight times the introduction a five-module plan does")
 
+    # Delivery stays off on both sides: with it on, the switch also takes the
+    # ramp-up's share of testing and leadership with it, which is right and is
+    # pinned where the delivery rows are, not here.
     off = asyncio.run(run_estimate(ProjectInput.model_validate(
-        {**brief, "cost_assumptions": {"include_ramp_up": False}}),
+        {**brief, "cost_assumptions": {"include_ramp_up": False,
+                                       "include_delivery": False}}),
         "est_ramp_off", "2026-06-20T00:00:00+00:00"))
     ow = off.cost_breakdown.development.work_breakdown
     ok(not any(m.derived for ph in ow.phases for m in ph.modules),
@@ -1401,6 +1519,9 @@ def check_team_and_skills() -> None:
             "dev_hourly_rate": 115, "maint_hourly_rate": 95, "effective_hours_per_week": 32,
             "team_size": 3, "include_ramp_up": False, "loaded_hourly_rate": 75,
             "automation_rate_percent": 35, "benefit_ramp_months": 6,
+            # Off, so the hand-computed figures stay the lines alone. How the
+            # testing row reaches the testers is pinned with the delivery rows.
+            "include_delivery": False,
         },
         "modules": [
             {"id": "m1", "name": "Portal", "phase": 1, "technologies": ["Angular"],
@@ -1588,6 +1709,758 @@ def check_a_brd_can_be_read() -> None:
        "and the analysis travels with the brief to the report")
 
 
+# ── The Gift Tracker sheet, as a brief ──────────────────────────────────────
+#
+# The architect's estimate for the GDS Finance Gift Tracker, line for line, in
+# the sheet's own order. Whole days are units; the two lines that are not —
+# the request form at 40 and the Power BI dashboard at 136 — are quoted hours.
+# The sub-items the sheet lists under a line with no hours of their own are
+# that line's covers. The ramp-up is off because the sheet's first row is its
+# own Requirement & Design; the delivery rows are on because its last four
+# rows are exactly them. Two cells were cut off in the photograph the sheet
+# arrived as, and are completed here as the visible text reads: "Create and
+# Manage Role based Access for ea…" and "Remove false positive (if any
+# recipient raised…".
+
+def _sheet_line(n, name, *, units=None, hours=None, covers=()):
+    sub = {"id": f"m{n}s1", "name": name, "size": "s", "covers": list(covers)}
+    if hours is not None:
+        sub["hours"] = hours
+    else:
+        sub["units"] = units
+    return {"id": f"m{n}", "name": name, "phase": 1, "sub_features": [sub]}
+
+
+GIFT_TRACKER_SHEET = {
+    "project_name": "GDS Finance Gift Tracker",
+    "project_type": "new",
+    "description": (
+        "Gift Tracker for GDS Finance: raise gift requests singly or by bulk upload, "
+        "track them through a sign-off chain, maintain the final recipient list, "
+        "trigger distribution emails to every recipient on it, and report employees' "
+        "gifts team-wise for the financial year to date."),
+    "industry_domain": "Internal finance — employee gifting",
+    "target_users": "Specific identified user personas in GDS India — not an all-employee tool",
+    "scale": "medium",
+    "modules": [
+        _sheet_line(1, "Requirement & Design", units=5),
+        _sheet_line(2, "Create and manage role-based access for each persona", units=5),
+        _sheet_line(3, "Home page", units=3, covers=(
+            "Gift Request", "Tracker", "Budget Version", "Dashboard", "Audit trail")),
+        _sheet_line(4, "Admin: thresholds / policy config", units=5),
+        _sheet_line(5, "Template configuration", units=5),
+        _sheet_line(6, "Environment & solution structure", units=5),
+        _sheet_line(7, "Data model & SQL schema", units=5),
+        _sheet_line(8, "Raise a gift request (form)", hours=40, covers=(
+            "Business rule & validation logic", "Filters and showing gifts")),
+        _sheet_line(9, "Bulk upload — parse, validate", units=10),
+        _sheet_line(10, "Tracker — workflow — sign-off chain", units=10),
+        _sheet_line(11, "Add / remove recipient: final list", units=8, covers=(
+            "Validation and business logic",)),
+        _sheet_line(12, "Distribution: queue & send emails", units=12, covers=(
+            "Email trigger to downstream team on each stage",
+            "Email notification scheduler (reminder)",
+            "Email trigger to final list recipients")),
+        _sheet_line(13, "Remove false positive (if a recipient raises one)", units=5),
+        _sheet_line(14, "Budget version", units=5),
+        _sheet_line(15, "Audit trail", units=10),
+        _sheet_line(16, "Reporting — financial year-to-date, team-wise", units=10),
+        _sheet_line(17, "Power BI dashboard", hours=136),
+        _sheet_line(18, "Monitoring, logging and exception handling", units=5),
+        _sheet_line(19, "Additional data integration with TDL / Graph API", units=10),
+    ],
+    # What the system does, each saying it needs no model — which is what makes
+    # this a standard-software estimate rather than an AI one with no AI in it.
+    "ai_use_cases": [
+        {"id": "u1", "name": "Gift request and sign-off workflow", "task_type": "rules_workflow",
+         "description": "Route requests through the configured sign-off chain; no model is required.",
+         "priority": "must_have"},
+        {"id": "u2", "name": "Final recipient list and distribution emails", "task_type": "rules_workflow",
+         "description": "Maintain the final list and email every recipient on distribution; no model is required.",
+         "priority": "must_have"},
+        {"id": "u3", "name": "Employee gift history and team-wise reporting", "task_type": "crud_lookup",
+         "description": "Report gifts by employee and team for the financial year to date; no model is required.",
+         "priority": "must_have"},
+    ],
+    # The sheet's Assumption tab, verbatim, then its Tech Stack tab in one line.
+    "assumptions": [
+        "This will be used only for GDS India.",
+        "Reporting templates and parameters to be provided by Business.",
+        "The Gift Tracker is not intended to be an all-employee transactional tool. "
+        "It will be limited to specific identified user personas only.",
+        "No integration with any other EY GDS web applications/APIs have been considered.",
+        "Tool will provide only employee's gift detail values and will not perform any calculations.",
+        "Email notifications are in scope.",
+        "Dependency on Talent Data Lake (TDL) to fetch employee details.",
+        "There will be no \"Save as Draft\" functionality available in the tool.",
+        "Technology: Angular frontend, .NET 8 backend, SQL DB; Azure App Service, Service Bus, "
+        "Blob Storage, Functions, App registration, Monitoring, Log Analytics, Key Vault and "
+        "App Gateway; SendGrid for email; Power BI for dashboards.",
+    ],
+    "volume_and_scale": {
+        "expected_daily_users": 100, "requests_per_day": None, "data_volume_gb": None,
+        "peak_load_pattern": "About 1,400 distributions in a financial year; a final list "
+                             "may run to 100,000 recipients.",
+        "growth_rate_percent": None,
+    },
+    "technical_preferences": {"existing_infra": "Azure", "delivery_platform": "azure_paas"},
+    "cost_assumptions": {"include_ramp_up": False, "include_delivery": True},
+}
+
+
+def check_the_gift_tracker_sheet_reproduces() -> None:
+    """The architect's sheet, entered as a brief, comes back as the sheet.
+
+    The end-to-end form of everything above: nineteen lines in days and
+    quoted hours, priced by this engine, add to his module total of 1,238; the
+    delivery rows on top give his 1,683; and a system that needs no model is
+    costed as one.
+    """
+    print("\nthe Gift Tracker sheet, entered as a brief, reproduces itself")
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                   "est_sheet", "2026-10-28T00:00:00+00:00"))
+    w = est.cost_breakdown.development.work_breakdown
+    mods = w.phases[0].modules
+    build = sum(m.hours for m in mods if m.kind != "delivery")
+    dlv = [m for m in mods if m.kind == "delivery"][0]
+    eq(build, 1238, "the build is the sheet's module total")
+    eq([(s.name, s.hours) for s in dlv.sub_features],
+       [("Module testing", 124), ("Technical leadership", 186),
+        ("Deployment", 90), ("CI/CD pipeline", 45)],
+       "the delivery rows are the sheet's — 123.8 and 185.7, rounded")
+    eq(w.total_hours, 1683, "and the total is the sheet's")
+    form = [m for m in mods if m.name == "Raise a gift request (form)"][0].sub_features[0]
+    eq((form.hours, form.size, form.basis), (40, "", "40 h as quoted"),
+       "a line quoted in hours is priced as quoted and says so, not rounded "
+       "to a day it was never sized in")
+    ok(not any(m.derived and m.kind == "ramp_up" for m in mods),
+       "no ramp-up — the sheet's first row is its own Requirement & Design")
+    ok(est.ai_applicable is False, "and nothing in it calls a model")
+
+    # Nineteen modules, each its own one line. Drawn as a parent and a child
+    # of the same name, every title appeared twice.
+    import io
+    from openpyxl import load_workbook
+    from estimator.estimate import export
+    html = export.to_html(est)
+    eq(html.count(">Home page"), 1,
+       "a module that is its one line is printed once, not as a parent and a "
+       "child of the same name")
+    ok("Home page<div class='cov'>covers Gift Request · Tracker" in html,
+       "with what it covers under its name, on the same row")
+    ws = load_workbook(io.BytesIO(export.to_excel(est)))["Work Breakdown"]
+    names = [r[1] for r in ws.iter_rows(min_row=2, values_only=True) if r[2] == "Module total"]
+    ok("Home page" not in names and "Delivery and assurance (added by the engine)" in names,
+       "the workbook gives it one row and no total repeating it — a module of "
+       "several lines keeps its total")
+    ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("single(m: ModuleEstimate): SubFeatureEstimate | null" in ts,
+       "and the screen draws it once, with nothing to expand into a copy of itself")
+    form = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
+    ok("isSingle(m: Module): boolean" in form and "renameSingle(mi: number, name: string)" in form
+       and "!!key(m.name)" in form,
+       "the form edits it as one row too, renaming the module and its line "
+       "together — and a fresh blank module still opens its full breakdown")
+    ok("if (s.hours) return s.hours;" in form,
+       "where a quoted line counts as quoted: the 40-hour form read as its "
+       "band's 27 in the form's running total")
+    css = (ROOT / "frontend/src/app/estimate/estimate.css").read_text()
+    ok("grid-template-columns: 1fr 160px 128px 116px 108px 96px;" in css,
+       "the list's verdict column holds STANDARD SOFTWARE, measured at 157px — at "
+       "120 it ran into the feasibility bar beside it")
+
+
+GIFT_TRACKER_STACK = [
+    "app_service", "azure_sql", "service_bus_std", "storage", "functions",
+    "app_registration", "monitor", "log_analytics", "key_vault", "sendgrid",
+    "power_bi", "app_gateway",
+]
+
+
+def check_the_stack_is_the_one_stated() -> None:
+    """Asked why the Gift Tracker was priced on Container Apps rather than the
+    App Service its architect specified, the only true answer was that every
+    new build is: the hosting rule is `select=lambda c: True`, Cosmos DB's is
+    the same, and App Service, SQL Database, Functions, Application Gateway,
+    Log Analytics, SendGrid and Power BI were not in the catalog at all. And
+    asked to price it in North Europe, the honest answer was that it would
+    barely move — every line but three was a flat per-scale baseline with no
+    region in it.
+
+    A stack the brief states is now priced as stated, nothing added; its
+    services are live-priced in the brief's region where Azure publishes a
+    meter. Measured live for the sheet's twelve services: East US $738 a month,
+    North Europe $793, Sweden Central $841.
+    """
+    print("\nthe stack priced is the one the brief states, in the region it names")
+    import copy
+    brief = copy.deepcopy(GIFT_TRACKER_SHEET)
+    brief["technical_preferences"] = {**brief["technical_preferences"],
+                                      "azure_region": "northeurope",
+                                      "azure_services": GIFT_TRACKER_STACK}
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(brief), "est_stack",
+                                   "2026-10-29T00:00:00+00:00"))
+    infra = est.cost_breakdown.infrastructure
+    names = [s.service_name for s in infra.services]
+    ok("Azure App Service" in names and "Azure SQL Database" in names
+       and "Azure Application Gateway" in names and "Azure Service Bus" in names,
+       "App Service, SQL Database, Application Gateway and Service Bus, as the "
+       "architect's Tech Stack tab names them")
+    ok(not {"Azure Container Apps", "Azure Cosmos DB", "Azure Cache for Redis",
+            "Azure API Management", "Microsoft Defender for Cloud"} & set(names),
+       "and nothing the default rules would have added")
+    eq(len(infra.services), len(GIFT_TRACKER_STACK), "exactly the twelve stated")
+    ok({s.region for s in infra.services} == {"northeurope"},
+       "every line priced in the brief's region")
+    pbi = [s for s in infra.services if s.service_name == "Power BI Pro"][0]
+    ok(not pbi.included_in_total and pbi.unit_price == 14.0,
+       "Power BI is shown at $14 a user and not counted — usually licensed "
+       "across the organisation already")
+    sb = [s for s in infra.services if s.service_name == "Azure Service Bus"][0]
+    eq(sb.unit_price, 0.013441,
+       "an hourly meter keeps its decimals, so the line multiplies out — two "
+       "places printed Service Bus at $0.01 an hour")
+
+    from estimator.estimate.azure_pricing import _build_filter
+    from estimator.estimate.azure_catalog import SPEC_BY_KEY, build_plan_context
+    ctx = build_plan_context(ProjectInput.model_validate(brief), uses_azure_openai=False,
+                             monthly_token_cost=0, monthly_tokens=0)
+    flt = _build_filter(SPEC_BY_KEY["azure_sql"], ctx, "northeurope")
+    ok("meterName eq 'vCore'" in flt and "armRegionName eq 'northeurope'" in flt,
+       "SQL is matched on its exact meter, in the region — 'contains' would also "
+       "take the zone-redundant vCores and price the cheapest of the wrong thing")
+
+    from estimator.estimate.types import TechnicalPreferences
+    tp = TechnicalPreferences()
+    eq((tp.azure_region, tp.azure_openai_region, tp.azure_search_region),
+       ("northeurope", "", ""),
+       "North Europe by default, and the AI regions follow it rather than "
+       "staying in East US when the brief moves")
+    ts_form = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
+    ok("readonly azureRegion = signal('northeurope');" in ts_form,
+       "and the form opens on it")
+
+    unstated = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                        "est_rules", "2026-10-29T00:00:00+00:00"))
+    ok("Azure Container Apps" in [s.service_name for s in unstated.cost_breakdown.infrastructure.services],
+       "a brief that states no stack is still chosen for by the rules, as before")
+
+
+def check_the_report_shows_what_it_is_told() -> None:
+    """Three flags on the record — development cost, infrastructure cost, the
+    written report — that the screen and both exports obey. A total is printed
+    only when both costs are, because a total beside one hidden part gives
+    that part away by subtraction."""
+    print("\nthe report shows what it is told to, everywhere it is shown")
+    import io
+    from openpyxl import load_workbook
+    from estimator.estimate import export, store
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                   "est_flags", "2026-10-29T00:00:00+00:00"))
+    money = f"{est.cost_breakdown.currency} {est.cost_breakdown.development.total_cost:,.0f}"
+
+    effort_only = {"development_cost": False, "infrastructure_cost": False,
+                   "maintenance_cost": False}
+    html = export.to_html(est, effort_only)
+    infra = est.cost_breakdown.infrastructure
+    infra_money = f"{est.cost_breakdown.currency} {infra.monthly_cost:,.0f}"
+    first_service = infra.services[0]
+    ok(money not in html and "First year" not in html and "1,683 h" in html,
+       "effort only: no development figure, no first-year total — and the hours")
+    section = html.split("<h2>Infrastructure —")[1].split("</section>")[0] if "<h2>Infrastructure —" in html else ""
+    ok(first_service.service_name in section and first_service.tier in section
+       and "Costs are not shown" in section,
+       "the infrastructure section stays, listing every service with its tier "
+       "and region: which services a build runs on is the architecture, not the price")
+    ok(infra_money not in html and "Monthly" not in section and "Price source" not in section
+       and all(f"{est.cost_breakdown.currency} {s.monthly_cost:,.0f}" not in section
+               for s in infra.services if s.monthly_cost),
+       "and nothing it costs — no line figure, no price source, no monthly total")
+    ws_noinfra = load_workbook(io.BytesIO(export.to_excel(est, effort_only)))["Cost Breakdown"]
+    rows = [r for r in ws_noinfra.iter_rows(min_row=2, values_only=True) if r[0] == "Infrastructure (cost not shown)"]
+    ok(len(rows) == len(infra.services) and all(r[4] is None and not r[3] for r in rows),
+       "the workbook lists the same services with their amounts empty")
+    ts_report = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("readonly infraServices = computed(() => this.est().cost_breakdown.infrastructure.services);" in ts_report,
+       "and so does the screen, counted or not")
+    dev_only = export.to_html(est, {"infrastructure_cost": False})
+    ok(money in dev_only and "First year" not in dev_only and "Total (expected)" not in dev_only,
+       "one cost shown, no total: the total would give the hidden one away")
+    ok("First year" in export.to_html(est, None), "and everything, by default")
+    maint = f"{est.cost_breakdown.currency} {est.cost_breakdown.maintenance.annual_cost:,.0f}"
+    no_maint = export.to_html(est, {"maintenance_cost": False})
+    ok(maint not in no_maint and "Maintenance (annual)" not in no_maint
+       and "Infrastructure —" in no_maint and "Total (expected)" not in no_maint,
+       "maintenance has a switch of its own: its line goes, the services stay, "
+       "and so does the total — it would give the maintenance away")
+    full = export.to_html(est, None)
+    ok("<h2>The written report</h2>" in full
+       and "GDS Finance Gift Tracker — Cost estimate" in full
+       and "<b>Total expected:" in full,
+       "the PDF carries the written report, title, cost lines and total — the "
+       "one section of the screen it used to leave out")
+    ok("<h2>The written report</h2>" not in export.to_html(est, {"written_report": False}),
+       "under the same switch as the screen")
+    wr = no_maint.split("<h2>The written report</h2>")[1]
+    ok("Maintenance:" not in wr and "Total expected" not in wr and "Development:" in wr,
+       "and a hidden cost leaves it too: the written report states every figure "
+       "again, so it is the one place a hidden one would otherwise slip back in")
+    ok("&lt;script&gt;" in export._report_html("# <script>x</script> — Cost", {
+           "dev": True, "infra": True, "maint": True, "total": True})
+       and "<script>" not in export._report_html("# <script>x</script>", {
+           "dev": True, "infra": True, "maint": True, "total": True}),
+       "escaped before it is given any markup — the project name in its title "
+       "was typed by a person")
+    ok("a month — infrastructure</div>" in no_maint,
+       "and \"to run\" says it is the services alone, not the services and the people")
+
+    ws = load_workbook(io.BytesIO(export.to_excel(est, effort_only)))["Work Breakdown"]
+    ok(ws.cell(row=1, column=7).value == "Cost (not shown)"
+       and all(r[6] is None for r in ws.iter_rows(min_row=2, values_only=True)),
+       "the workbook's cost column stays where formulas expect it, and empty")
+
+    eq(store.display_of({"written_report": False, "bogus": True}),
+       {"development_cost": True, "infrastructure_cost": True, "maintenance_cost": True,
+        "written_report": False},
+       "flags a record was saved without read as shown; unknown ones are dropped")
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
+    ok('@router.patch("/v1/estimates/{estimate_id}/display")' in routes
+       and "export.to_pdf(estimation, record.display)" in routes
+       and "export.to_excel(estimation, record.display)" in routes,
+       "set on the record, and every export reads it from there")
+
+    md = est.report_markdown
+    ok("AI" not in md and md.startswith("# GDS Finance Gift Tracker — Cost estimate"),
+       "a standard build's written report no longer calls itself an AI feasibility study")
+    ts = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("if (!this.showTotal()) hidden.push('- **Total expected');" in ts,
+       "and on screen it drops the lines that would print a hidden cost")
+    ok("label: 'Development', amount: devHours, unit: 'hours'" in ts
+       and "label: 'First-year effort'" in ts,
+       "a hidden cost's row shows its time instead — development in hours and "
+       "weeks, maintenance in hours a year — and with both hidden the panel "
+       "totals effort, not money")
+    ok("new Set(parts.map((p) => p.unit)).size !== 1" in ts,
+       "the share bar is drawn only when every part is in one unit: a share "
+       "of dollars-plus-hours is not a share of anything")
+
+
+def check_the_agent_reads_like_the_architect() -> None:
+    """What the Gift Tracker taught, carried by the agent rather than by hand.
+
+    On the Gift Tracker the region and the twelve-service stack were typed in
+    after the fact; nothing in the agent read a Tech Stack section. Run end to
+    end on the Gift Tracker requirements with the architect's Assumption and
+    Tech Stack tabs as scope decisions, three times, it now reaches on its own
+    what was typed: no-model use cases only, "Build it as standard software",
+    North Europe, Azure PaaS from the stated stack, App Service, SQL Database,
+    Service Bus, Functions, Blob, Key Vault, SendGrid and Power BI — with
+    monitoring and identity added because a production build needs them, and
+    no Application Gateway because nobody named one — and no module for
+    testing, deployment or requirement walkthroughs. Totals 2,070 / 2,509 /
+    2,554 hours against the sheet's 1,683: the effort residual is the grain
+    stated in `check_a_set_of_instances_is_one_line`, not a stack or AI error.
+    """
+    print("\nthe agent reads the stack, the region and the work the way the architect did")
+    from estimator.estimate import intake
+    from estimator.estimate.architect import propose_solution
+    from estimator.estimate.classifier import _build_prompt, heuristic_task_type
+    from estimator.estimate.platforms import classify_platform
+
+    props = intake._SCHEMA["properties"]
+    ok("azure_services" in intake._SCHEMA["required"] and "azure_region" in intake._SCHEMA["required"]
+       and "azure_services" in intake._BRD_SCHEMA["properties"],
+       "both drafters write a stack and a region — the Tech Stack tab was the one "
+       "part of the architect's sheet no drafter could read")
+    ok(set(props["azure_services"]["items"]["enum"]) >= {"app_service", "azure_sql", "service_bus_std"}
+       and "northeurope" in props["azure_region"]["enum"],
+       "in the engine's own catalog keys and regions, so a draft cannot name a "
+       "service that cannot be priced")
+    src = (ROOT / "estimator/estimate/intake.py").read_text().replace("\\\n", "")
+    ok("**The stack.**" in src and "and nothing else" in src
+       and "leave the list empty" in src,
+       "the prompt asks for the stack as named plus what production plainly "
+       "needs, and for nothing when nothing is named — a guess would be priced "
+       "as if somebody had stated it")
+    ok("Azure Container Apps" in intake._SYSTEM and "{catalog}" not in intake._SYSTEM,
+       "and lists the catalog it may choose from, filled from the engine's list")
+
+    data = {"azure_services": ["app_service", "azure_sql", "made_up", "app_service"],
+            "azure_region": "northeurope"}
+    intake._take_stack(data)
+    eq(data.get("technical_preferences"),
+       {"azure_services": ["app_service", "azure_sql"], "azure_region": "northeurope"},
+       "what it writes lands on the brief — unknown keys dropped, repeats folded")
+    empty = {"azure_services": [], "azure_region": ""}
+    intake._take_stack(empty)
+    ok("technical_preferences" not in empty,
+       "and a stack nobody named writes nothing, so the engine chooses and "
+       "North Europe stands")
+
+    stated = ProjectInput.model_validate({**WBS_BRIEF, "technical_preferences": {
+        "azure_services": ["app_service", "azure_sql"]}})
+    proposal = asyncio.run(propose_solution(stated))
+    eq((proposal["recommended_platform"], proposal["source"], classify_platform(stated)),
+       ("azure_paas", "stated_stack", "azure_paas"),
+       "a stack stated in Azure services settles the platform — a model asked "
+       "again could only disagree with it")
+
+    prompt = _build_prompt([("Approval routing", "")])
+    ok("Three of these need no model" in prompt,
+       "the classifier is told which three types need no model, and to use them "
+       "whenever ordinary code does the job")
+    for text, want in (("Approval and exception routing", "rules_workflow"),
+                       ("Bulk upload — parse, validate", "crud_lookup"),
+                       ("Gift history lookup; no model is required", "crud_lookup"),
+                       ("Summarise weekly reports", "summarization"),
+                       ("Answer questions from the policy knowledge base", "rag_qa")):
+        eq(heuristic_task_type(text), want,
+           f"its fallback reads {text!r} as {want} — process words before AI words, "
+           "and a use case that says it needs no model taken at its word")
+
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(GIFT_TRACKER_SHEET),
+                                   "est_agent", "2026-10-29T00:00:00+00:00"))
+    ok(not any("pipeline" in s.name.lower()
+               for p in est.cost_breakdown.development.work_breakdown.phases
+               for m in p.modules if m.kind == "ramp_up" for s in m.sub_features),
+       "with the delivery rows booked, the ramp-up no longer names the CI/CD "
+       "pipeline that the delivery rows price")
+    ok("so are understanding the requirement and setting up the development environment" in src,
+       "and the document reader is told the ramp-up is booked, as testing and "
+       "deployment already were")
+
+
+def check_the_rate_card_calibrates_the_bands() -> None:
+    """One number for how this organisation's architects size against the
+    bands. Measured on the Gift Tracker the agent's band-sized build ran about
+    1.5x the architect's, and two reference architects disagree too much for
+    any constant in the code to fit both — so it is the organisation's dial,
+    on the rate card, at 1.0 until somebody sets it.
+
+    It scales band-sized lines and nothing else: a line entered in days or
+    quoted in hours is a person's own number. Hand-computed at × 0.7 on the
+    work-breakdown brief: 45 → 32, 90 → 63, 36 → 25, 27 → 19, 18 → 13.
+    """
+    print("\nthe rate card calibrates the bands, and only the bands")
+    from pydantic import ValidationError
+    from estimator.estimate import store
+    from estimator.estimate.types import CostAssumptions
+
+    cal = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "cost_assumptions": {"include_delivery": False, "effort_calibration": 0.7}}),
+        "est_cal", "2026-10-29T00:00:00+00:00")).cost_breakdown.development.work_breakdown
+    lines = {s.name: (s.hours, s.basis) for p in cal.phases for m in p.modules
+             if not m.derived for s in m.sub_features}
+    eq([lines[n][0] for n in ("FFmpeg transcoding", "API creation and blob integration",
+                              "Player integration", "Search and filters", "Category pages")],
+       [32, 63, 25, 19, 13], "every band-sized line × 0.7, rounded the way every figure is")
+    eq(lines["API creation and blob integration"][1], "XXL · 10d × 0.7",
+       "and each says what it was judged at and what the dial made of it")
+    eq((cal.total_hours, cal.calibration, cal.calibration_adjustment_hours), (152 + 18, 0.7, -64),
+       "the ramp-up is the engine's and is not scaled; the record says how much moved")
+    ok("API creation and blob integration" in " ".join(cal.at_ceiling),
+       "an xxl is still at the ceiling — not understood well enough to split, at "
+       "any calibration")
+
+    sheet = {**GIFT_TRACKER_SHEET, "cost_assumptions": {
+        **GIFT_TRACKER_SHEET["cost_assumptions"], "effort_calibration": 0.7}}
+    eq(asyncio.run(run_estimate(ProjectInput.model_validate(sheet), "est_cal_sheet",
+                                "2026-10-29T00:00:00+00:00")).cost_breakdown.development.work_breakdown.total_hours,
+       1683, "a sheet entered in days and quoted hours is untouched — its numbers are a person's")
+
+    try:
+        CostAssumptions(effort_calibration=7)
+        refused = False
+    except ValidationError:
+        refused = True
+    ok(refused, "bounded at 0.25 to 2, to catch a slipped decimal")
+    eq(store.BASELINE_RATES["effort_calibration"], 1.0,
+       "saved with the rest of the card, at 1 until an organisation sets it")
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
+    ok("effort_calibration: float = Field(default=1.0, ge=0.25, le=2.0)" in routes,
+       "and a card saved before the dial existed still saves")
+
+
+# ── Checked against a second architect ──────────────────────────────────────
+#
+# The GDS Finance Gift Tracker: an architect's sheet of 1,683 hours, and a
+# Compass estimate of the same system at 2,583. The three checks below are
+# what reconciling the two found. Compass's brief for it, the sheet, and the
+# drafts measured against both are summarised in each docstring; the numbers
+# are the measurement, not a target the code was tuned to hit.
+
+def check_the_delivery_rows_are_booked() -> None:
+    """Testing, technical leadership, deployment and CI/CD, as an architect
+    books them: below the module total, by rule.
+
+    The Gift Tracker sheet ends its build lines at a *Module Total* of 1,238
+    and then writes four rows — Module Testing 123.8 (10%), Tech Lead 185.7
+    (15%), Deployment 90, CI/CD 45 — for 1,683. The video-platform sheet the
+    bands were read from is the same template: Requirement & Design 45 first,
+    Authentication 45, Talent Data Lake, and not one testing, deployment or
+    tech-lead line among its 58. Its 2,034 was a module total too. So the bands
+    are build hours, and calling them "all-in" had every estimate since carry
+    no tech lead and no deployment at all, with testing appearing only when a
+    drafter happened to write a module about it — two of five old-prompt
+    drafts of the Gift Tracker did, three did not.
+
+    Not the delivery multiplier that was removed. That doubled every figure on
+    a theory about what a typed number meant; these are four named lines a
+    reader can strike one at a time, at the shares an architect writes down.
+    """
+    print("\nthe delivery rows are booked the way an architect books them")
+    from estimator.estimate.catalog import DELIVERY_NAME
+
+    # The constants reproduce the sheet to the hour.
+    sheet = engine._delivery_module(1, 1238, 1238, True, 115, 32)
+    eq([(s["name"], s["hours"]) for s in sheet["sub_features"]],
+       [("Module testing", 124), ("Technical leadership", 186),
+        ("Deployment", 90), ("CI/CD pipeline", 45)],
+       "on the Gift Tracker's module total of 1,238: 123.8, 185.7, 90 and 45, "
+       "rounded the way every other figure here is")
+    eq(1238 + sheet["hours"], 1683, "and the sheet's total, exactly")
+
+    on = {**WBS_BRIEF, "cost_assumptions": {}}
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(on), "est_dlv",
+                                   "2026-06-20T00:00:00+00:00"))
+    w = est.cost_breakdown.development.work_breakdown
+    p1, p2 = w.phases
+    d1 = [m for m in p1.modules if m.kind == "delivery"]
+    d2 = [m for m in p2.modules if m.kind == "delivery"]
+    eq((len(d1), len(d2)), (1, 1), "one delivery module per phase")
+    ok(d1[0].derived and d1[0].name == DELIVERY_NAME and d1[0] is p1.modules[-1],
+       "marked as added by the engine, and last in its phase — below the build")
+    #   phase one's build is 171 + 18 ramp-up = 189: 19 + 28 + 90 + 45
+    eq([(s.name, s.hours, s.basis) for s in d1[0].sub_features],
+       [("Module testing", 19, "10% of the build"),
+        ("Technical leadership", 28, "15% of the build"),
+        ("Deployment", 90, ""), ("CI/CD pipeline", 45, "")],
+       "phase one: shares of its build, and the flat rows once, when the "
+       "pipeline is built and production first stood up")
+    #   phase two's build is 45: 4.5 -> 5, 6.75 -> 7
+    eq([(s.name, s.hours) for s in d2[0].sub_features],
+       [("Module testing", 5), ("Technical leadership", 7)],
+       "phase two tests and leads its own build and releases through what "
+       "phase one built")
+    eq((p1.hours, p2.hours, w.total_hours), (189 + 182, 45 + 12, 428),
+       "and they roll up like any module")
+
+    off = asyncio.run(run_estimate(ProjectInput.model_validate(WBS_BRIEF),
+                                   "est_dlv_off", "2026-06-20T00:00:00+00:00"))
+    eq(off.cost_breakdown.development.work_breakdown.total_hours, 428 - 182 - 12,
+       "a switch, removing exactly the rows it added — for a sheet that "
+       "already prices these as modules of its own")
+
+    no_ramp = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**on, "cost_assumptions": {"include_ramp_up": False}}),
+        "est_dlv_noramp", "2026-06-20T00:00:00+00:00"))
+    #   171 -> 17 + 26: the ramp-up's 18 and its 2 + 2 of testing and lead
+    eq(no_ramp.cost_breakdown.development.work_breakdown.total_hours, 428 - 22,
+       "switching the ramp-up off takes its share of testing and leadership "
+       "with it — the sheet's shares are of a total that includes its own "
+       "Requirement & Design row")
+
+    large = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**on, "scale": "large"}), "est_dlv_large", "2026-06-20T00:00:00+00:00"))
+    nfr = [b.hours for b in large.cost_breakdown.development.breakdown
+           if b.category.startswith("Non-functional work")]
+    eq(nfr, [round(234 * 0.35)],
+       "the reach uplift is a share of the build alone (234), not of the build "
+       "and its testing — neither proportion multiplies the other")
+
+    team = {**on, "modules": [{"id": "m1", "name": "Portal", "phase": 1, "sub_features": [
+                {"id": "s1", "name": "Form", "size": "l"},
+                {"id": "s2", "name": "List", "size": "m"}]}],
+            "cost_assumptions": {"include_ramp_up": False},
+            "team": {"developers": 2, "testers": 1, "analysts_designers": 1, "skills": []}}
+    t = asyncio.run(run_estimate(ProjectInput.model_validate(team), "est_dlv_team",
+                                 "2026-06-20T00:00:00+00:00")).cost_breakdown.development.work_breakdown
+    roles = {r.role: r for r in t.roles}
+    #   81 build: testing 8, lead 12, 90, 45 -> 236; the 8 is the testers'
+    eq((t.total_hours, roles["testing"].hours), (236, 8),
+       "with a team, the testing row is the testers' work as it stands — "
+       "apportioning 23% of a plan that already has a testing row would "
+       "count testing twice")
+    eq(roles["development"].hours + roles["testing"].hours
+       + roles["analysis_design"].hours, 236, "and every hour lands on someone")
+    ok(abs(roles["development"].hours / roles["analysis_design"].hours - 62 / 15) < 0.05,
+       "the rest divides between developers and analysts as it always did, "
+       "62 to 15")
+
+    from estimator.estimate import export
+    html = export.to_html(est)
+    ok("10% of the build" in html and "15% of the build" in html,
+       "the report prints how a row was priced where a size would go — "
+       "\"14d\" on a share of the build would be a size nobody chose")
+
+
+def check_a_brief_with_no_ai_costs_no_ai() -> None:
+    """Three task types exist to say a use case needs no model. They were
+    priced as if it did.
+
+    Every use case on the Gift Tracker brief said "no model is required":
+    two rules workflows, a threshold alert, a lookup. The estimate assigned
+    all four to gpt-4o-mini and priced their tokens, added Azure AI Content
+    Safety at $20 a month, booked "prompt & model upkeep" and "eval regression
+    checks" into maintenance, credited them with $281,050 a year of AI
+    automation benefit at "35% automated", and drew an AI-against-standard
+    comparison for a system with no AI in it. The verdict said "Don't build
+    this with AI" in red, about a project nobody had proposed building with AI.
+
+    The profiles stay — their scores are how such a brief reaches that verdict
+    at all. Everything a model costs is now keyed on whether one is called.
+    """
+    print("\na brief with no AI in it costs no AI")
+    from estimator.estimate import export
+
+    def uc(i, name, task):
+        return {"id": f"u{i}", "name": name, "task_type": task, "priority": "must_have"}
+
+    rules = [uc(1, "Policy checks", "rules_workflow"), uc(2, "Routing", "rules_workflow"),
+             uc(3, "Limit alerts", "threshold_alerting"), uc(4, "History lookup", "crud_lookup")]
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "ai_use_cases": rules}), "est_noai", "2026-06-20T00:00:00+00:00"))
+    c = est.cost_breakdown
+    ok(est.ai_applicable is False, "the estimate knows it has no AI in it")
+    eq((c.ai_tokens.model_breakdown, c.ai_tokens.annual_cost.expected,
+        est.token_projection.model_recommendations), ([], 0.0, []),
+       "no model, so no tokens and no model recommended")
+    eq([s.service_name for s in c.infrastructure.services if s.category == "AI"], [],
+       "and no AI service — Content Safety filtered model output that would "
+       "never be produced")
+    eq(c.maintenance.monthly_hours, 24,
+       "maintenance is the department's 24 hours, with nothing for prompts "
+       "that do not exist")
+    ok("Prompt & model upkeep" not in c.maintenance.includes, "and it says so")
+    eq((est.roi_projection.value_drivers, est.roi_projection.annual_benefit,
+        est.roi_projection.payback_months), ([], 0.0, None),
+       "no AI benefit is modelled: \"35% automated\" was a rules engine being "
+       "credited with a model's work")
+    eq((est.verdict.headline, est.verdict.disposition, est.verdict.recommend_ai),
+       ("Build it as standard software", "go", False),
+       "the verdict is a go for ordinary software, not a red rejection")
+    from estimator.estimate.routes import _record_fields
+    eq(_record_fields(ProjectInput.model_validate({**WBS_BRIEF, "ai_use_cases": rules}),
+                      est)["verdict"], "standard_software",
+       "and the portfolio row says the same — it drew this one as a red "
+       "\"Not with AI\" beside a report saying go")
+    ts = (ROOT / "frontend/src/app/estimate/estimate.ts").read_text()
+    ok("standard_software: 'Standard software'" in ts,
+       "which the list labels as what it is")
+
+    html = export.to_html(est)
+    ok("No AI in this estimate" in html and "Where the value comes from" not in html
+       and "AI against standard software" not in html and "AI tokens" not in html,
+       "the report says it once, in place of three AI sections and a zero "
+       "token row that would read as a model that happens to be free")
+
+    mixed = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "ai_use_cases": [uc(1, "Answer from docs", "rag_qa"),
+                                       uc(2, "Routing", "rules_workflow")]}),
+        "est_mixed", "2026-06-20T00:00:00+00:00"))
+    alone = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "ai_use_cases": [uc(1, "Answer from docs", "rag_qa")]}),
+        "est_alone", "2026-06-20T00:00:00+00:00"))
+    mb = mixed.cost_breakdown.ai_tokens.model_breakdown
+    ok(mixed.ai_applicable and [m.use_cases for m in mb] == [["Answer from docs"]],
+       "a mixed brief is an AI brief, and only the use case that calls a model "
+       "is priced for one")
+    ab = alone.cost_breakdown.ai_tokens.model_breakdown
+    ok(abs(mb[0].monthly_input_tokens * 2 - ab[0].monthly_input_tokens) <= 1,
+       "the rules engine keeps its share of the traffic: handing its requests "
+       "to the model use case would price calls that are not the model's")
+    eq(mixed.cost_breakdown.maintenance.monthly_hours, 24 + 4,
+       "and four hours of model upkeep for the one model")
+    ok(any(s.service_name == "Azure AI Content Safety"
+           for s in mixed.cost_breakdown.infrastructure.services),
+       "with Content Safety where there is model output to filter")
+
+    blank = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "ai_use_cases": []}), "est_blank", "2026-06-20T00:00:00+00:00"))
+    ok(blank.ai_applicable,
+       "a brief with no use cases has not answered the question yet, and keeps "
+       "the AI framing it always had")
+
+
+def check_a_set_of_instances_is_one_line() -> None:
+    """Seven roles are one access model, and an architect prices it once.
+
+    The Gift Tracker estimate priced each of seven roles' permissions as a
+    two-day line, three gift purposes as three more, four review stages as
+    four four-day lines, five audit histories as five. The architect's sheet
+    gives access control one 45-hour line and lists its sub-items under lines
+    with no hours of their own. Reconciled bucket by bucket, the over-pricing
+    of shared scope came to +1,084 hours of the estimate's +900 net — the rest
+    was scope each side had that the other did not.
+
+    Three prompt changes, each measured on the Gift Tracker requirements at
+    five drafts an arm, priced by this engine with the delivery rows off:
+
+        old prompt                       88 lines   3,040h   sd 181
+        + a set's instances are covers   63 lines   2,255h   sd 116
+        + a line's facets are inside it  55 lines   1,978h   sd  95
+        + the architect's scope notes    50 lines   1,926h   sd  58
+
+    against the sheet's 1,238. The remaining 1.55x is the drafter still
+    writing a capability as about four pieces where this architect writes
+    one; the video architect's sheet splits nearly as finely as the drafter
+    does, so no constant tuned to one sheet survives the other. Measured on
+    one document, rebuilt from its stored analysis, at n=5 — direction and
+    spread, not a calibration.
+    """
+    print("\na set of instances is one line, and its members are named under it")
+    from estimator.estimate import export, intake
+
+    brief = {**WBS_BRIEF, "modules": [{"id": "m1", "name": "Access", "phase": 1, "sub_features": [
+        {"id": "s1", "name": "Role permission model", "size": "l",
+         "covers": ["Requester", " Approver ", "Finance", "", "Payroll"]},
+        {"id": "s2", "name": "Corporate sign-in", "size": "m"}]}]}
+    est = asyncio.run(run_estimate(ProjectInput.model_validate(brief), "est_cov",
+                                   "2026-06-20T00:00:00+00:00"))
+    line = est.cost_breakdown.development.work_breakdown.phases[0].modules[1].sub_features[0]
+    eq((line.hours, line.covers), (45, ["Requester", "Approver", "Finance", "Payroll"]),
+       "priced at its band alone, its members carried by name — blanks "
+       "dropped, edges trimmed")
+
+    html = export.to_html(est)
+    ok("covers Requester · Approver · Finance · Payroll" in html,
+       "the report prints them under the line, the way the sheet lists "
+       "sub-items beneath the line that carries their hours")
+
+    import io
+    from openpyxl import load_workbook
+    ws = load_workbook(io.BytesIO(export.to_excel(est)))["Work Breakdown"]
+    ok(ws.cell(row=1, column=9).value == "Covers"
+       and any(r[8] == "Requester; Approver; Finance; Payroll"
+               for r in ws.iter_rows(min_row=2, values_only=True)),
+       "and the workbook gives them a column")
+
+    sub = (intake._SCHEMA["properties"]["modules"]["items"]["properties"]
+           ["sub_features"]["items"])
+    ok("covers" in sub["properties"] and "covers" in sub["required"],
+       "the drafter's schema has the field, required so strict mode can carry it")
+
+    src = (ROOT / "estimator/estimate/intake.py").read_text().replace("\\\n", "")
+    ok("A new file is a line. A row is a cover." in src,
+       "the prompt gives the test for which is which: what a developer does "
+       "for the next member")
+    ok("A line is one piece a developer builds, with its facets inside it." in src
+       and "Audit logs, feature flags, admin controls" in src,
+       "and that a line's fields, checks and states are inside it — with the "
+       "video architect's own lines as the example, not this sheet's")
+    ok("performance testing" not in src.split("_BRD_ARCHITECT = ")[1].split('"""')[1]
+       and "booked by the engine on every estimate" in src,
+       "the document reader no longer plans testing or deployment modules: "
+       "the engine books them, and a module for either would be priced twice")
+
+    ok("scope_notes: str = \"\"" in src and "Scope decisions (these override the document)" in src,
+       "scope decisions reach the reader beside the document and override it "
+       "— the architect's Assumption tab is the input a document cannot be")
+    routes = (ROOT / "estimator/estimate/routes.py").read_text()
+    ok("scope_notes=body.scope_notes" in routes,
+       "and the upload endpoint passes them through")
+
+
 def main() -> int:
     est = asyncio.run(run_estimate(
         ProjectInput.model_validate(BRIEF), "est_check", "2026-06-20T00:00:00+00:00"))
@@ -1615,7 +2488,16 @@ def main() -> int:
     check_the_two_charts_are_drawn_to_spec()
     check_the_brief_can_be_written_in_prose()
     check_a_brd_can_be_read()
+    check_the_delivery_rows_are_booked()
+    check_a_brief_with_no_ai_costs_no_ai()
+    check_a_set_of_instances_is_one_line()
+    check_the_gift_tracker_sheet_reproduces()
+    check_the_stack_is_the_one_stated()
+    check_the_report_shows_what_it_is_told()
+    check_the_agent_reads_like_the_architect()
+    check_the_rate_card_calibrates_the_bands()
     check_an_estimate_can_leave_the_app()
+    check_the_export_runs_on_windows()
     check_the_architect_asks_once()
     check_the_rate_card_is_kept()
 

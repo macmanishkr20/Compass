@@ -59,7 +59,7 @@ _VALID = set(PLATFORM_PROFILES.keys())
 def _tool_list_platforms() -> str:
     lines = []
     suits = {
-        "azure_paas": "cloud-native, request-driven AI; elastic metered compute",
+        "azure_paas": "cloud-native web applications and APIs, with or without AI; elastic metered compute",
         "aws": "teams already on AWS; same metered shape, AWS services",
         "gcp": "teams already on Google Cloud; same metered shape, Google services",
         "m365_copilot": "org-wide productivity inside Microsoft 365/SharePoint; AI bundled per seat",
@@ -314,6 +314,18 @@ async def propose_solution(inp: ProjectInput) -> dict:
     explicit = tp.delivery_platform if tp else None
     if explicit:
         return _explicit_proposal(explicit, inp)
+    # A stack stated in Azure services has already chosen its platform. Asking
+    # a model again could only disagree with it — and AWS for a system whose
+    # architect wrote down App Service and SQL Database would price services
+    # nobody is going to run.
+    if tp and tp.azure_services:
+        return _proposal(
+            "azure_paas",
+            "The brief states its stack in Azure services, so it is built and "
+            "priced on Azure PaaS as stated.",
+            [], ["The stated stack names Azure services; the platform follows from it."],
+            "stated_stack",
+        )
 
     if get_settings().estimate.architect:
         try:

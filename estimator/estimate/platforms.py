@@ -87,6 +87,9 @@ def classify_platform(inp: ProjectInput) -> str:
     tp = inp.technical_preferences
     if tp and getattr(tp, "delivery_platform", None):
         return tp.delivery_platform  # type: ignore[return-value]
+    # A stack stated in Azure services is an Azure build; see `architect`.
+    if tp and getattr(tp, "azure_services", None):
+        return "azure_paas"
 
     haystack = " ".join(
         filter(None, [
