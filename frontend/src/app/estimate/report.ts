@@ -552,6 +552,12 @@ export class EstimateReport {
   readonly infraCounted = computed(() =>
     this.est().cost_breakdown.infrastructure.services.filter((s) => s.included_in_total));
 
+  /** Every service in the stack, counted or not. A line the total leaves out
+   *  — Power BI, licensed across the organisation already; Azure OpenAI,
+   *  whose tokens are their own line — is still something the build runs
+   *  on, and the table is the stack before it is a bill. */
+  readonly infraServices = computed(() => this.est().cost_breakdown.infrastructure.services);
+
   readonly devHours = computed(() =>
     this.est().cost_breakdown.development.breakdown.reduce((sum, b) => sum + b.hours, 0)
       .toLocaleString('en-US'));

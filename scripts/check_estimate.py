@@ -1399,9 +1399,22 @@ def check_work_breakdown() -> None:
        "and no separate AI-integration bucket: a breakdown names its AI work "
        "as line items, so adding a bucket on top would charge for it twice")
 
-    eq(est.assumptions, WBS_BRIEF["assumptions"],
+    from compass.estimate.catalog import STANDING_ASSUMPTIONS
+    eq(est.assumptions, [*WBS_BRIEF["assumptions"], *STANDING_ASSUMPTIONS],
        "the assumptions travel with the estimate — they are what a "
-       "disagreement about the number is usually actually about")
+       "disagreement about the number is usually actually about — and the "
+       "ones every estimate carries come last")
+    ok(any("change or modification to the requirements" in a and "may increase" in a
+           for a in est.assumptions),
+       "including that a changed requirement means a revised estimate, which "
+       "may be higher — on every estimate, booked by the engine so no person "
+       "or model can leave it out")
+    from compass.estimate.pipeline import with_standing
+    again = with_standing(["Scope is phase one.",
+                           STANDING_ASSUMPTIONS[0].upper().rstrip(".") + "  "])
+    eq(len(again), 2,
+       "and never twice: a brief that already says it, in any case or spacing, "
+       "is not given it again")
 
 
 def check_the_section_renders_on_an_older_browser() -> None:
@@ -1982,10 +1995,27 @@ def check_the_report_shows_what_it_is_told() -> None:
     effort_only = {"development_cost": False, "infrastructure_cost": False,
                    "maintenance_cost": False}
     html = export.to_html(est, effort_only)
-    ok(money not in html and "First year" not in html and "Infrastructure —" not in html
-       and "1,683 h" in html,
-       "effort only: no development figure, no first-year total, no "
-       "infrastructure section — and the hours")
+    infra = est.cost_breakdown.infrastructure
+    infra_money = f"{est.cost_breakdown.currency} {infra.monthly_cost:,.0f}"
+    first_service = infra.services[0]
+    ok(money not in html and "First year" not in html and "1,683 h" in html,
+       "effort only: no development figure, no first-year total — and the hours")
+    section = html.split("<h2>Infrastructure —")[1].split("</section>")[0] if "<h2>Infrastructure —" in html else ""
+    ok(first_service.service_name in section and first_service.tier in section
+       and "Costs are not shown" in section,
+       "the infrastructure section stays, listing every service with its tier "
+       "and region: which services a build runs on is the architecture, not the price")
+    ok(infra_money not in html and "Monthly" not in section and "Price source" not in section
+       and all(f"{est.cost_breakdown.currency} {s.monthly_cost:,.0f}" not in section
+               for s in infra.services if s.monthly_cost),
+       "and nothing it costs — no line figure, no price source, no monthly total")
+    ws_noinfra = load_workbook(io.BytesIO(export.to_excel(est, effort_only)))["Cost Breakdown"]
+    rows = [r for r in ws_noinfra.iter_rows(min_row=2, values_only=True) if r[0] == "Infrastructure (cost not shown)"]
+    ok(len(rows) == len(infra.services) and all(r[4] is None and not r[3] for r in rows),
+       "the workbook lists the same services with their amounts empty")
+    ts_report = (ROOT / "frontend/src/app/estimate/report.ts").read_text()
+    ok("readonly infraServices = computed(() => this.est().cost_breakdown.infrastructure.services);" in ts_report,
+       "and so does the screen, counted or not")
     dev_only = export.to_html(est, {"infrastructure_cost": False})
     ok(money in dev_only and "First year" not in dev_only and "Total (expected)" not in dev_only,
        "one cost shown, no total: the total would give the hidden one away")

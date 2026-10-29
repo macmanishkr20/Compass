@@ -404,12 +404,16 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
             f"</table>{ceiling}</section>"
         )
 
+    # The stack is printed whatever the flag says; the flag takes away what it
+    # costs. Every service is listed, counted or not — Power BI is part of the
+    # build even though its licences are the organisation's line, not this one.
+    services = cost.infrastructure.services
     if show_infra:
         infra = "".join(
             f"<tr><td>{_e(s.service_name)}</td><td>{_e(s.tier)}</td>"
             f"<td>{_e(s.region)}</td><td>{_e(s.price_source)}</td>"
-            f"<td class='num'>{money(s.monthly_cost)}</td></tr>"
-            for s in cost.infrastructure.services if s.included_in_total
+            f"<td class='num'>{money(s.monthly_cost) if s.included_in_total else 'not counted'}</td></tr>"
+            for s in services
         )
         parts.append(
             f"<section><h2>Infrastructure — {_e(cost.infrastructure.platform_label)}</h2>"
@@ -419,6 +423,17 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
             f"<tfoot><tr><td colspan='4'><b>Monthly</b></td>"
             f"<td class='num'><b>{money(cost.infrastructure.monthly_cost)}</b></td>"
             "</tr></tfoot></table></section>"
+        )
+    elif services:
+        infra = "".join(
+            f"<tr><td>{_e(s.service_name)}</td><td>{_e(s.tier)}</td><td>{_e(s.region)}</td></tr>"
+            for s in services
+        )
+        parts.append(
+            f"<section><h2>Infrastructure — {_e(cost.infrastructure.platform_label)}</h2>"
+            "<p class='sub'>The services the build runs on. Costs are not shown.</p>"
+            "<table><thead><tr><th>Service</th><th>Tier</th><th>Region</th></tr></thead>"
+            f"<tbody>{infra}</tbody></table></section>"
         )
 
     if not est.ai_applicable:
@@ -634,6 +649,13 @@ def to_excel(est: Estimation, display: dict | None = None) -> bytes:
                                  ("expected", c.ai_tokens.annual_cost.expected),
                                  ("pessimistic", c.ai_tokens.annual_cost.pessimistic)):
                 ws.append(["AI tokens", f"Annual ({label})", "", "", value])
+    else:
+        # The stack stays; only what it costs goes. Price source with it —
+        # "live" beside an empty amount says there is a number being kept back
+        # rather than that the services are listed.
+        for svc in c.infrastructure.services:
+            ws.append(["Infrastructure (cost not shown)",
+                       f"{svc.service_name} — {svc.tier}", svc.region, "", None])
     if show_maint:
         ws.append(["Maintenance",
                    f"{c.maintenance.monthly_hours}h/mo @ {_money(cur, c.maintenance.hourly_rate)}/h",

@@ -202,6 +202,18 @@ TECH_LEAD_SHARE = 0.15
 DEPLOYMENT_UNITS = 10
 CICD_UNITS = 5
 
+# ── Assumptions every estimate carries ──────────────────────────────
+#
+# Stated on every estimate whatever produced it — the form, a paragraph, a
+# BRD — by the engine rather than by a prompt, so it cannot be forgotten by a
+# person or skipped by a model. An estimate is a price for the scope it was
+# given; this is the sentence that says so, and the one every client
+# conversation about a changed requirement comes back to.
+STANDING_ASSUMPTIONS: tuple[str, ...] = (
+    "Any change or modification to the requirements is subject to a revised "
+    "estimate and effort, which may increase.",
+)
+
 # ── Use cases that need no model ────────────────────────────────────
 #
 # Three task types exist so a use case can say honestly that it needs no LLM:

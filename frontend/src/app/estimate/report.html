@@ -417,30 +417,34 @@
         </table>
       </div>
 
-      @if (showInfra()) {
+      <!-- The stack is shown whatever the flag says; the flag hides what it
+           costs. Switching infrastructure cost off was taking the services
+           with it, and which services a build runs on is the architecture,
+           not the price. -->
       <div class="panel" style="margin-bottom:12px">
         <h3>Infrastructure<span class="tk"></span>
-          <span class="plain">{{ money(cost.infrastructure.monthly_cost) }} a month. Every line links to the calculator.</span></h3>
+          <span class="plain">@if (showInfra()) {{{ money(cost.infrastructure.monthly_cost) }} a month. Every line links to the calculator.} @else {{{ infraServices().length }} services. Costs are not shown.}</span></h3>
         <table class="tbl">
           <thead>
             <tr><th>Service</th><th>Tier</th><th>Region</th>
-              <th class="num">Unit price</th><th class="num">Monthly</th></tr>
+              @if (showInfra()) {<th class="num">Unit price</th><th class="num">Monthly</th>}</tr>
           </thead>
           <tbody>
-            @for (s of infraCounted(); track s.service_name) {
+            @for (s of infraServices(); track s.service_name) {
               <tr>
-                <td>@if (s.azure_pricing_url) {<a [href]="s.azure_pricing_url" target="_blank" rel="noopener">{{ s.service_name }}</a>} @else {{{ s.service_name }}}
-                  <span class="src">{{ s.price_source }}</span></td>
+                <td>@if (showInfra() && s.azure_pricing_url) {<a [href]="s.azure_pricing_url" target="_blank" rel="noopener">{{ s.service_name }}</a>} @else {{{ s.service_name }}}
+                  @if (showInfra()) {<span class="src">{{ s.price_source }}</span>}</td>
                 <td>{{ s.tier }}</td>
                 <td class="mono">{{ s.region }}</td>
-                <td class="num">{{ s.unit_price }} / {{ s.unit }}</td>
-                <td class="num">{{ money(s.monthly_cost) }}</td>
+                @if (showInfra()) {
+                  <td class="num">{{ s.unit_price }} / {{ s.unit }}</td>
+                  <td class="num">{{ s.included_in_total ? money(s.monthly_cost) : 'not counted' }}</td>
+                }
               </tr>
             }
           </tbody>
         </table>
       </div>
-      }
 
       @if (!ai()) {
         <div class="panel" style="margin-bottom:12px">
