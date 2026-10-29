@@ -351,6 +351,12 @@ def _wants_ramp_up(inp: ProjectInput) -> bool:
     return True if ca is None else bool(ca.include_ramp_up)
 
 
+def _calibration(inp: ProjectInput) -> float:
+    """The organisation's multiplier on band-sized lines; 1.0 when unset."""
+    ca = inp.cost_assumptions
+    return 1.0 if ca is None else float(ca.effort_calibration)
+
+
 def _wants_delivery(inp: ProjectInput) -> bool:
     ca = inp.cost_assumptions
     return True if ca is None else bool(ca.include_delivery)
@@ -442,6 +448,8 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
     team = _team_size(inp)
     modules = inp.modules or []
     at_ceiling: list[str] = []
+    cal = _calibration(inp)
+    calibrated_hours = 0
 
     by_phase: dict[int, list] = {}
     for i, module in enumerate(modules):
@@ -455,10 +463,22 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
             quoted = sub.hours is not None and sub.hours > 0
             # Quoted hours are priced as quoted; the day count beside them is
             # for the duration figures and is never shown as a size.
-            base = int(sub.hours) if quoted else _units_for(sub) * EFFORT_UNIT_HOURS
-            units = jround(base / EFFORT_UNIT_HOURS) if quoted else _units_for(sub)
+            raw = int(sub.hours) if quoted else _units_for(sub) * EFFORT_UNIT_HOURS
+            # Calibration scales the bands and nothing else. A band is the
+            # drafter's judgement and the dial is how this organisation's
+            # architects size against it; a line entered in days or quoted in
+            # hours is a person's number, and scaling it would overrule them.
+            banded = not quoted and sub.units is None
+            # Rounded to six places first: 45 × 0.7 is 31.499999999999996 in a
+            # binary float, and half-up has to see the 31.5 a person computes.
+            base = jround(round(raw * cal, 6)) if banded and cal != 1.0 else raw
+            calibrated_hours += base - raw
+            units = (jround(base / EFFORT_UNIT_HOURS) if quoted or base != raw
+                     else _units_for(sub))
             hours = base if factor == 1.0 else jround(base * factor)
-            if base >= MAX_SUB_FEATURE_UNITS * EFFORT_UNIT_HOURS:
+            # The ceiling is the band's: an xxl is "not understood well enough
+            # to split" at any calibration.
+            if raw >= MAX_SUB_FEATURE_UNITS * EFFORT_UNIT_HOURS:
                 at_ceiling.append(f"{module.name} — {sub.name}")
             subs.append({
                 "name": sub.name or f"Item {j + 1}",
@@ -466,14 +486,18 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
                 # set `units` directly and leave `size` at its default, and a
                 # pill reading "S · 7d" then contradicts itself — the band is
                 # the label, and it has to label the number beside it.
-                "size": "" if quoted else _band_for(units),
+                "size": "" if quoted or base != raw else _band_for(units),
                 "units": units,
                 "hours": hours,
                 "cost": jround(hours * dev_rate),
                 "base_hours": base,
                 # A quoted line has no band, and "4d" on a 40-hour line would
                 # be a size nobody chose; it says where its number came from.
-                "basis": f"{base} h as quoted" if quoted else "",
+                # A calibrated line keeps its band in sight: "M · 4d × 0.7"
+                # says what was judged and what the organisation made of it.
+                "basis": (f"{base} h as quoted" if quoted
+                          else f"{(sub.size or '').upper()} · {raw // EFFORT_UNIT_HOURS}d × {cal:g}"
+                          if base != raw else ""),
                 # Carried, not priced: the line's size already is their price.
                 "covers": [c for c in (x.strip() for x in sub.covers) if c],
             })
@@ -564,6 +588,10 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
         "roles": roles,
         "bottleneck": max(roles, key=lambda load: load["weeks"])["role"] if roles else "",
         "skill_adjustment_hours": total_hours - base_total,
+        "calibration": cal,
+        # Before skill and before the delivery shares that follow the build:
+        # what the dial itself did to the lines it applies to.
+        "calibration_adjustment_hours": calibrated_hours,
     }
 
 

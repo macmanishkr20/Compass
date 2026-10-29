@@ -2163,6 +2163,57 @@ def check_the_agent_reads_like_the_architect() -> None:
        "deployment already were")
 
 
+def check_the_rate_card_calibrates_the_bands() -> None:
+    """One number for how this organisation's architects size against the
+    bands. Measured on the Gift Tracker the agent's band-sized build ran about
+    1.5x the architect's, and two reference architects disagree too much for
+    any constant in the code to fit both — so it is the organisation's dial,
+    on the rate card, at 1.0 until somebody sets it.
+
+    It scales band-sized lines and nothing else: a line entered in days or
+    quoted in hours is a person's own number. Hand-computed at × 0.7 on the
+    work-breakdown brief: 45 → 32, 90 → 63, 36 → 25, 27 → 19, 18 → 13.
+    """
+    print("\nthe rate card calibrates the bands, and only the bands")
+    from pydantic import ValidationError
+    from compass.estimate import store
+    from compass.estimate.types import CostAssumptions
+
+    cal = asyncio.run(run_estimate(ProjectInput.model_validate(
+        {**WBS_BRIEF, "cost_assumptions": {"include_delivery": False, "effort_calibration": 0.7}}),
+        "est_cal", "2026-10-29T00:00:00+00:00")).cost_breakdown.development.work_breakdown
+    lines = {s.name: (s.hours, s.basis) for p in cal.phases for m in p.modules
+             if not m.derived for s in m.sub_features}
+    eq([lines[n][0] for n in ("FFmpeg transcoding", "API creation and blob integration",
+                              "Player integration", "Search and filters", "Category pages")],
+       [32, 63, 25, 19, 13], "every band-sized line × 0.7, rounded the way every figure is")
+    eq(lines["API creation and blob integration"][1], "XXL · 10d × 0.7",
+       "and each says what it was judged at and what the dial made of it")
+    eq((cal.total_hours, cal.calibration, cal.calibration_adjustment_hours), (152 + 18, 0.7, -64),
+       "the ramp-up is the engine's and is not scaled; the record says how much moved")
+    ok("API creation and blob integration" in " ".join(cal.at_ceiling),
+       "an xxl is still at the ceiling — not understood well enough to split, at "
+       "any calibration")
+
+    sheet = {**GIFT_TRACKER_SHEET, "cost_assumptions": {
+        **GIFT_TRACKER_SHEET["cost_assumptions"], "effort_calibration": 0.7}}
+    eq(asyncio.run(run_estimate(ProjectInput.model_validate(sheet), "est_cal_sheet",
+                                "2026-10-29T00:00:00+00:00")).cost_breakdown.development.work_breakdown.total_hours,
+       1683, "a sheet entered in days and quoted hours is untouched — its numbers are a person's")
+
+    try:
+        CostAssumptions(effort_calibration=7)
+        refused = False
+    except ValidationError:
+        refused = True
+    ok(refused, "bounded at 0.25 to 2, to catch a slipped decimal")
+    eq(store.BASELINE_RATES["effort_calibration"], 1.0,
+       "saved with the rest of the card, at 1 until an organisation sets it")
+    routes = (ROOT / "compass/estimate/routes.py").read_text()
+    ok("effort_calibration: float = Field(default=1.0, ge=0.25, le=2.0)" in routes,
+       "and a card saved before the dial existed still saves")
+
+
 # ── Checked against a second architect ──────────────────────────────────────
 #
 # The GDS Finance Gift Tracker: an architect's sheet of 1,683 hours, and a
@@ -2477,6 +2528,7 @@ def main() -> int:
     check_the_stack_is_the_one_stated()
     check_the_report_shows_what_it_is_told()
     check_the_agent_reads_like_the_architect()
+    check_the_rate_card_calibrates_the_bands()
     check_an_estimate_can_leave_the_app()
     check_the_export_runs_on_windows()
     check_the_architect_asks_once()

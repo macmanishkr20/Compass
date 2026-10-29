@@ -384,6 +384,15 @@ select.inp {
 .rampup input { margin-top: 2px; flex-shrink: 0; accent-color: var(--brass); }
 .rampup span { font-size: 12px; line-height: 1.55; color: var(--ink-2); }
 .rampup b { color: var(--ink); font-weight: 600; }
+/* The calibration sits with the two switches and reads like them: a setting
+   on the left, what it does on the right. */
+.calib {
+  display: flex; gap: 12px; align-items: flex-start; margin-top: 11px;
+  padding: 10px; border-radius: 11px; background: var(--surface-2x); border: 1px solid var(--rule);
+}
+.calib .fg { width: 120px; flex-shrink: 0; }
+.calib span { font-size: 12px; line-height: 1.55; color: var(--ink-2); }
+.calib b { color: var(--ink); font-weight: 600; }
 
 .emptyline { font-size: 12px; color: var(--ink-3); line-height: 1.55; padding: 4px 0; margin: 0; }
 

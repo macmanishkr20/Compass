@@ -160,6 +160,12 @@ class CostAssumptions(EstimateModel):
     # delivery has them; a switch because a sheet that already prices them as
     # modules of its own would otherwise count them twice.
     include_delivery: bool = True
+    # How this organisation's architects size work against the bands, as a
+    # multiplier on every line sized by band. 1.0 prices the bands as read off
+    # the reference sheet; a team whose architects consistently size the same
+    # scope smaller sets it below 1. Lines entered in days or quoted in hours
+    # are a person's own numbers and are never scaled.
+    effort_calibration: float = Field(default=1.0, ge=0.25, le=2.0)
     # ROI benefit dials. value/call = minutes ÷ 60 × loaded_rate × automation%.
     # The fully-loaded cost of the person whose work AI offsets, and the share of
     # calls AI handles end-to-end (deflection) rather than an assumed perfect 100%.
@@ -460,6 +466,10 @@ class WorkBreakdown(EstimateModel):
     bottleneck: str = ""
     #: Hours the skill scores added (positive) or saved (negative).
     skill_adjustment_hours: int = 0
+    #: The rate card's multiplier on band-sized lines, and the hours it moved.
+    #: 1.0 and 0 on every record written before the dial.
+    calibration: float = 1.0
+    calibration_adjustment_hours: int = 0
 
 
 class DevBreakdownItem(EstimateModel):

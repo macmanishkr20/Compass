@@ -238,6 +238,8 @@ export class Estimate {
   readonly teamSize = signal(3);
   readonly includeRampUp = signal(true);
   readonly includeDelivery = signal(true);
+  /** Multiplier on band-sized lines. 1 prices the bands as they are. */
+  readonly effortCalibration = signal(1);
   readonly loadedRate = signal(75);
   readonly automationPercent = signal(35);
   readonly rampMonths = signal(6);
@@ -283,6 +285,9 @@ export class Estimate {
       maint: () => this.maintRate.set(value),
       loaded: () => this.loadedRate.set(value),
       automation: () => this.automationPercent.set(value),
+      // Held to what the server accepts, so a slipped decimal is corrected
+      // here rather than refused when the estimate is sent.
+      calibration: () => this.effortCalibration.set(Math.min(2, Math.max(0.25, value || 1))),
     } as Record<string, () => void>)[key]?.();
     this.rateEdited.set(true);
     this.rateCardSaved.set(false);
@@ -705,6 +710,7 @@ export class Estimate {
     this.teamSize.set(card.team_size);
     this.includeRampUp.set(card.include_ramp_up ?? true);
     this.includeDelivery.set(card.include_delivery ?? true);
+    this.effortCalibration.set(card.effort_calibration ?? 1);
     this.loadedRate.set(card.loaded_hourly_rate);
     this.automationPercent.set(card.automation_rate_percent);
     this.rampMonths.set(card.benefit_ramp_months);
@@ -719,6 +725,7 @@ export class Estimate {
       team_size: this.teamSize(),
       include_ramp_up: this.includeRampUp(),
       include_delivery: this.includeDelivery(),
+      effort_calibration: this.effortCalibration(),
       loaded_hourly_rate: this.loadedRate(),
       automation_rate_percent: this.automationPercent(),
       benefit_ramp_months: this.rampMonths(),

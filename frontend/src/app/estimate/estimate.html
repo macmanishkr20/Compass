@@ -684,6 +684,24 @@
               when the breakdown already has modules for them.
             </span>
           </label>
+          <!-- One number for how this organisation's architects size work against
+               the bands. It scales the lines the drafter sized by band and nothing a
+               person entered in days or hours. -->
+          <div class="calib">
+            <div class="fg">
+              <label>Effort calibration</label>
+              <input class="inp" type="number" min="0.25" max="2" step="0.05"
+                [value]="effortCalibration()"
+                (change)="setRate('calibration', +$any($event.target).value)" />
+            </div>
+            <span>
+              <b>× {{ effortCalibration() }} on every line sized by band.</b>
+              Set it from your own architects: their hours for a system divided by Compass's band
+              hours for the same scope. 1 prices the bands as they are; below 1 for a team that
+              sizes leaner. Lines entered in days or quoted in hours are never scaled, and
+              testing and leadership follow the build.
+            </span>
+          </div>
           <div class="note">Changing these re-costs every estimate you open from now on, not
             the ones already saved. <b>Compass never edits the rate card itself.</b></div>
           <div style="display:flex;align-items:center;gap:12px;margin-top:11px">

@@ -138,6 +138,9 @@ export interface CostAssumptions {
    *  CI/CD below the build, as an architect's sheet does. Absent on a card
    *  saved before the switch existed, which reads as on. */
   include_delivery?: boolean;
+  /** Multiplier on band-sized lines — how this organisation's architects size
+   *  against the bands. Lines in days or hours are never scaled. */
+  effort_calibration?: number;
   /** value/call = minutes ÷ 60 × loaded_hourly_rate × automation_rate_percent. */
   loaded_hourly_rate: number;
   automation_rate_percent: number;
@@ -329,6 +332,9 @@ export interface WorkBreakdown {
   bottleneck?: string;
   /** Hours the skill scores added (positive) or saved (negative). */
   skill_adjustment_hours?: number;
+  /** The rate card's calibration, and the hours it moved. */
+  calibration?: number;
+  calibration_adjustment_hours?: number;
 }
 
 export interface RoleLoad {

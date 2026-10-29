@@ -185,6 +185,7 @@ BASELINE_RATES: dict[str, float] = {
     "loaded_hourly_rate": 75,
     "automation_rate_percent": 35,
     "benefit_ramp_months": 6,
+    "effort_calibration": 1.0,
 }
 
 

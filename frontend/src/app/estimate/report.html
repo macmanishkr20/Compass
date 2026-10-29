@@ -247,6 +247,14 @@
             analysts or designers entered, developers carry that work too}.
           </div>
         }
+        @if (w.calibration && w.calibration !== 1) {
+          <div class="note" style="margin-top:10px">
+            <b>Band sizes calibrated × {{ w.calibration }} — {{ (w.calibration_adjustment_hours ?? 0) > 0 ? '+' : '−' }}{{ num(abs(w.calibration_adjustment_hours ?? 0)) }} h.</b>
+            The rate card scales every line sized by band to how this organisation's architects
+            estimate. Lines entered in days or quoted in hours are taken as given; testing and
+            leadership follow the build.
+          </div>
+        }
         @if (w.skill_adjustment_hours) {
           <div class="note" style="margin-top:10px">
             <b>Team skill moves the plan by {{ w.skill_adjustment_hours > 0 ? '+' : '−' }}{{ num(abs(w.skill_adjustment_hours)) }} h.</b>

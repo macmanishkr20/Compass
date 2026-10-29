@@ -130,6 +130,10 @@ class RateCard(BaseModel):
     #: Zero is legal and means "no ramp" — the old behaviour, reachable on
     #: purpose for anyone who wants to compare against it.
     benefit_ramp_months: float = Field(ge=0, le=60)
+    #: The multiplier on band-sized lines. Defaulted so a client saving a card
+    #: written before the dial existed still saves; bounded to catch a slipped
+    #: decimal, not to say how lean an organisation may estimate.
+    effort_calibration: float = Field(default=1.0, ge=0.25, le=2.0)
 
 
 @router.get("/v1/estimates/rate-card")

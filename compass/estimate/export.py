@@ -392,7 +392,7 @@ def to_html(est: Estimation, display: dict | None = None) -> str:
         parts.append(
             "<section><h2>Development — module by module</h2>"
             f"<p class='sub'>One unit = {wbs.unit_hours}h · elapsed weeks assume "
-            f"{_team_phrase(wbs, html=True)}</p>"
+            f"{_team_phrase(wbs, html=True)}{_e(_calibration_phrase(wbs))}</p>"
             "<table><thead><tr><th>Line</th><th>Size</th><th class='num'>Hours</th>"
             f"{'<th class=num>Cost</th>' if show_dev else ''}"
             "<th class='num'>Weeks</th></tr></thead>"
@@ -527,6 +527,19 @@ def _ai_sections(parts: list[str], est: Estimation, money, cur: str,
         f"<td class='num'>{money(cmp_.standard_approach.monthly_run_cost)}</td></tr>"
         "</tbody></table></section>"
     )
+
+
+def _calibration_phrase(wbs) -> str:
+    """The rate card's calibration, said where the unit is, when it is set —
+    a reader comparing these hours with their own sheet needs to know the
+    bands were scaled, and by how much."""
+    cal = getattr(wbs, "calibration", 1.0) or 1.0
+    if cal == 1.0:
+        return ""
+    moved = getattr(wbs, "calibration_adjustment_hours", 0) or 0
+    return (f" · band sizes calibrated × {cal:g} to this organisation's estimates "
+            f"({'+' if moved > 0 else '−'}{abs(moved):,} h); lines entered in days "
+            f"or hours are not scaled")
 
 
 def _team_phrase(wbs, *, html: bool) -> str:
@@ -715,7 +728,7 @@ def to_excel(est: Estimation, display: dict | None = None) -> bytes:
             ws.cell(row=ws.max_row, column=col).font = bold
         ws.append([])
         ws.append(["", f"One unit = {wbs.unit_hours}h · weeks assume "
-                       f"{_team_phrase(wbs, html=False)}"])
+                       f"{_team_phrase(wbs, html=False)}{_calibration_phrase(wbs)}"])
         if wbs.at_ceiling:
             ws.append([])
             ws.append(["", f"At the {wbs.unit_hours * 10}-hour ceiling — "
