@@ -478,8 +478,13 @@ def build_work_breakdown(inp: ProjectInput, dev_rate: float) -> dict:
             hours = base if factor == 1.0 else jround(base * factor)
             # The ceiling is the band's: an xxl is "not understood well enough
             # to split" at any calibration.
+            # A line named as its module — the way a sheet priced line by line
+            # arrives — is named once; "Audit trail — Audit trail" says nothing
+            # the first half did not.
             if raw >= MAX_SUB_FEATURE_UNITS * EFFORT_UNIT_HOURS:
-                at_ceiling.append(f"{module.name} — {sub.name}")
+                at_ceiling.append(
+                    module.name if _skill_key(sub.name) == _skill_key(module.name)
+                    else f"{module.name} — {sub.name}")
             subs.append({
                 "name": sub.name or f"Item {j + 1}",
                 # The band that matches what was actually priced. A brief may

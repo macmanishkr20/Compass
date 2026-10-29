@@ -59,6 +59,37 @@ def display_of(raw: dict[str, Any] | None) -> dict[str, bool]:
                                    if k in DISPLAY_DEFAULTS}}
 
 
+def _ceiling_named_once(result: dict[str, Any]) -> dict[str, Any]:
+    """A result whose ceiling flag names a one-line module once.
+
+    Records written before the engine learned to say "Audit trail" rather than
+    "Audit trail — Audit trail" are tidied as they are read, not re-costed: the
+    figures stay the dated artefact they were, only the repeated name goes.
+    """
+    wbs = result if isinstance(result, dict) else {}
+    for key_ in ("cost_breakdown", "development", "work_breakdown"):
+        wbs = wbs.get(key_) if isinstance(wbs, dict) else None
+    names = wbs.get("at_ceiling") if isinstance(wbs, dict) else None
+    if not names:
+        return result
+
+    def key(s: str) -> str:
+        return " ".join(s.casefold().split())
+
+    def once(name: str) -> str:
+        # Every dash is a candidate seam, because a module may carry one in
+        # its own name: "Bulk upload — parse, validate — Bulk upload — …".
+        parts = str(name).split(" — ")
+        for i in range(1, len(parts)):
+            head, tail = " — ".join(parts[:i]), " — ".join(parts[i:])
+            if key(head) == key(tail):
+                return head
+        return name
+
+    wbs["at_ceiling"] = [once(n) for n in names]
+    return result
+
+
 def _new_id() -> str:
     return f"est_{uuid.uuid4().hex[:12]}"
 
@@ -107,6 +138,8 @@ class Estimate:
     def from_dict(cls, d: dict[str, Any]) -> "Estimate":
         known = {k: d[k] for k in cls.__dataclass_fields__ if k in d}
         known["display"] = display_of(known.get("display"))
+        if "result" in known:
+            known["result"] = _ceiling_named_once(known["result"])
         return cls(**known)
 
 
