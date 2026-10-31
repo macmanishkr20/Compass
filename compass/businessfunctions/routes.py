@@ -205,6 +205,12 @@ async def get_function(
 
     queue: list[dict] = []
     for feature in fn.features:
+        # The queue names the screen and offers to open it, so it may only
+        # name the screens the card list does. Unfiltered, somebody with no
+        # Finance roles was told "3 need a decision · Form 26" about a
+        # reconciliation they cannot see, with an Open button to a refusal.
+        if not _may_open(user, feature):
+            continue
         handler = registry.feature_of(fn.id, feature.id)[2]
         if handler is None:
             continue

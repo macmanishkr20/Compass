@@ -5772,6 +5772,38 @@ def check_an_employee_is_not_shown_the_firms_machinery() -> None:
        "over the annual limit" in said and "\u20b926,000" not in said, said)
 
 
+def check_the_queue_names_only_what_you_may_open() -> None:
+    """"Needs you" is not a side door round the card list.
+
+    The overview filtered its cards by `_may_open` and built its queue from
+    every feature regardless, so somebody holding no Finance roles was shown
+    no Form 26 card and then told "3 need a decision \u00b7 Form 26" \u2014 that the
+    firm's tax-credit reconciliation exists, that it has open items, and an
+    Open button to a screen that refuses them.
+
+    With auth ON, because `_may_open` lets everything through without it.
+    """
+    auth = get_settings().auth.enabled
+    get_settings().auth.enabled = True
+    try:
+        seen = {who: asyncio.run(routes.get_function("finance", "", "", user=who))
+                for who in ("nobody_at_all", "enduser", "compliance")}
+    finally:
+        get_settings().auth.enabled = auth
+
+    for who in ("nobody_at_all", "enduser"):
+        may = {f["id"] for f in seen[who]["features"]}
+        named = {q["feature"] for q in seen[who]["queue"]}
+        ok(f"{who}'s queue names only screens they are offered",
+           named <= may, f"queue {sorted(named)}, offered {sorted(may)}")
+    ok("and somebody with no roles is told nothing needs them",
+       seen["nobody_at_all"]["queue"] == [], str(seen["nobody_at_all"]["queue"]))
+    # Not vacuous: the queue does have Form 26 items, for whoever may see them.
+    ok("while compliance is still told what Form 26 needs",
+       any(q["feature"] == "form26" for q in seen["compliance"]["queue"]),
+       str(seen["compliance"]["queue"]))
+
+
 def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
     """An order at the service line is not Finance's business yet.
 
@@ -6571,6 +6603,8 @@ def _checks() -> int:
         check_a_moved_threshold_judges_only_what_comes_after()
     with fixtures():
         check_an_employee_is_not_shown_the_firms_machinery()
+    with fixtures():
+        check_the_queue_names_only_what_you_may_open()
     with fixtures():
         check_a_desk_sees_its_own_work_and_not_the_firms()
     with fixtures():
