@@ -261,7 +261,11 @@ async def get_function(
              "features": [_feature_card(fn.id, f) for f in feats
                           if _may_open(user, f)]}
             for svc, feats in fn.grouped()
-            if any(_may_open(user, f) for f in feats)
+            # A service with screens is listed to whoever may open one of
+            # them. A service with none yet is declared, not built: it has
+            # nothing to withhold, and hiding it would hide what the
+            # function does.
+            if any(_may_open(user, f) for f in feats) or (svc and not feats)
         ],
         "queue": queue,
         "rail": _rail(fn, None, _scope(user, entity, period)),

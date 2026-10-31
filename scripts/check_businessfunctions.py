@@ -5278,20 +5278,23 @@ def check_the_firm_has_three_levels() -> None:
     """
     fn = registry.get("finance")
     ok("the function is the department", fn.name == "Finance", fn.name)
-    ok("and it runs one named service",
-       [s.name for s in fn.services] == ["RewardLens"],
+    ok("and it runs RewardLens, and two services declared before they are built",
+       [s.name for s in fn.services] == ["RewardLens", "OPE Billing", "P&L"],
        str([s.name for s in fn.services]))
 
     grouped = fn.grouped()
-    ok("the service and the unfiled screen are both groups",
-       len(grouped) == 2, str([(s.id if s else None) for s, _f in grouped]))
+    ok("each service and the unfiled screen are groups",
+       len(grouped) == 4, str([(s.id if s else None) for s, _f in grouped]))
     service, feats = grouped[0]
     ok("the service is first, with all five of its desks",
        service is not None
        and [f.name for f in feats] == ["Dashboard", "Gift requests", "Tracker",
                                        "Tax & budget", "Audit trail"],
        str([f.name for f in feats]))
-    loose_service, loose = grouped[1]
+    ok("and the two declared services hold nothing yet",
+       [(s.id, len(fs)) for s, fs in grouped[1:3]] == [("ope_billing", 0), ("pnl", 0)],
+       str([(s.id if s else None, len(fs)) for s, fs in grouped[1:3]]))
+    loose_service, loose = grouped[-1]
     ok("and the function's own screen comes last, under no service",
        loose_service is None and [f.id for f in loose] == ["form26"],
        str([f.id for f in loose]))
@@ -5322,11 +5325,12 @@ def check_the_firm_has_three_levels() -> None:
     # the only thing the surface can read it from.
     named = [s for s in body["services"] if s["id"]]
     loose = [s for s in body["services"] if not s["id"]]
-    ok("the payload separates the service from the unfiled screen",
-       [s["id"] for s in named] == ["rewardlens"] and len(loose) == 1,
+    ok("the payload separates the services from the unfiled screen",
+       [s["id"] for s in named] == ["rewardlens", "ope_billing", "pnl"]
+       and len(loose) == 1,
        str([s["id"] for s in body["services"]]))
-    ok("and the overview has two things to draw, not one",
-       len(named) + sum(len(s["features"]) for s in loose) == 2,
+    ok("and the overview has four things to draw, not one",
+       len(named) + sum(len(s["features"]) for s in loose) == 4,
        f"{len(named)} services, {sum(len(s['features']) for s in loose)} loose")
 
     # A function with no services at all still sends exactly one bucket,
@@ -5334,6 +5338,33 @@ def check_the_firm_has_three_levels() -> None:
     only_loose = c.get("/v1/business-functions/talent").json()["services"]
     ok("a function with no services sends one unfiled group",
        [s["id"] for s in only_loose] == [""], str([s["id"] for s in only_loose]))
+
+    # A SERVICE DECLARED BEFORE IT IS BUILT. The overview lists a service
+    # to whoever may open one of its screens, which for a service with no
+    # screens is nobody — so OPE Billing and P&L were filtered out before
+    # anybody saw them. They have nothing to withhold, and are listed to
+    # everyone; a built service is still listed only to its readers.
+    import asyncio
+    from compass.businessfunctions import routes as bf_routes
+    auth = get_settings().auth.enabled
+    get_settings().auth.enabled = True
+    try:
+        seen = {who: {s["id"]: len(s["features"]) for s in asyncio.run(
+                    bf_routes.get_function("finance", "", "", user=who))["services"]}
+                for who in ("enduser", "nobody_at_all")}
+    finally:
+        get_settings().auth.enabled = auth
+    ok("an employee is shown the declared services, empty, beside RewardLens",
+       seen["enduser"].get("ope_billing") == 0 and seen["enduser"].get("pnl") == 0
+       and seen["enduser"].get("rewardlens", 0) > 0, str(seen["enduser"]))
+    ok("and somebody with no part in RewardLens sees the declared services "
+       "and not RewardLens",
+       "rewardlens" not in seen["nobody_at_all"]
+       and {"ope_billing", "pnl"} <= set(seen["nobody_at_all"]),
+       str(seen["nobody_at_all"]))
+    html = (ROOT / "frontend/src/app/business-functions/business-functions.html").read_text()
+    ok("and the card says its sub-services are to come, not \"0 sub-services\"",
+       "'Sub-services to come'" in html, "")
 
 
 def check_the_dashboard_is_leaderships_alone_and_draws_what_it_says() -> None:

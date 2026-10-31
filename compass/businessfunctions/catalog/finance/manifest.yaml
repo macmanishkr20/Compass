@@ -33,6 +33,22 @@ services:
       for a gift; each desk checks what it is theirs to check; the tracker
       follows the order and what it came to. The Dashboard is leadership's
       only view of the whole position.
+  # DECLARED BEFORE THEY ARE BUILT. Two services the function runs and has
+  # no screens for yet: listed so the overview says what Finance does, and
+  # their sub-services land under them as they are built. A service with
+  # nothing in it reveals nothing, so it is shown to everybody.
+  - id: ope_billing
+    name: OPE Billing
+    short: Out-of-pocket expense billing
+    blurb: >-
+      The out-of-pocket expense billing process — what was spent on an
+      engagement and billed back.
+  - id: pnl
+    name: P&L
+    short: Profit and loss by service line
+    blurb: >-
+      The organisation's profit and loss, service line by service line,
+      across PAN GDS.
 
 starters:
   - Which entities have unmatched credits?

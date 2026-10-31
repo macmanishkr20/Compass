@@ -66,7 +66,9 @@
               <b>{{ svc.name }}</b>
               <small>{{ svc.short }}</small>
             </span>
-            <span class="bf-badge quiet">{{ svc.features.length }}</span>
+            @if (svc.features.length) {
+              <span class="bf-badge quiet">{{ svc.features.length }}</span>
+            }
           </button>
         } @else {
           @for (f of svc.features; track f.id) {
@@ -152,8 +154,11 @@
                   (click)="openService(svc.id)">
                   <b>{{ svc.name }}</b>
                   <p>{{ svc.blurb || svc.short }}</p>
-                  <span class="bf-cardfoot">{{ svc.features.length }}
-                    sub-services &middot; {{ svc.short }}</span>
+                  <!-- A service declared before it is built says so, rather
+                       than "0 sub-services", which reads as broken. -->
+                  <span class="bf-cardfoot">{{ svc.features.length
+                    ? svc.features.length + ' sub-services' : 'Sub-services to come' }}
+                    &middot; {{ svc.short }}</span>
                 </button>
               }
               <!-- And beside them, the screens this function keeps itself.
