@@ -779,11 +779,17 @@ class BusinessFunctionSettings(BaseModel):
     once its own records are the real ones: a register emptied on purpose
     stays empty instead of refilling itself with fixtures on the next
     restart.
+
+    `pnl_sample` shows P&L's sample month by itself, for a deployment that keeps
+    `seed_sample` off because its gift register is real. Held in memory and never
+    stored, so it cannot join the firm's records. `COMPASS_PNL_SAMPLE=1` turns it
+    on, and the first real P&L file ends it.
     """
 
     enabled: bool = False
     strict_catalog: bool = False
     seed_sample: bool = True
+    pnl_sample: bool = False
 
 
 class PermissionRule(BaseModel):
@@ -1171,6 +1177,8 @@ def get_settings() -> Settings:
         bf.strict_catalog = flag in ("1", "true", "yes", "on")
     if (flag := os.environ.get("COMPASS_BUSINESS_FUNCTIONS_SEED", "").strip().lower()):
         bf.seed_sample = flag in ("1", "true", "yes", "on")
+    if (flag := os.environ.get("COMPASS_PNL_SAMPLE", "").strip().lower()):
+        bf.pnl_sample = flag in ("1", "true", "yes", "on")
 
     if os.environ.get("COMPASS_MOCK_MODEL", "").lower() in ("1", "true", "yes"):
         settings.mock_model = True

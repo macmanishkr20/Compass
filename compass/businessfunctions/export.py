@@ -303,8 +303,11 @@ def to_excel(fn: FunctionManifest, feature: FeatureManifest, handler: Feature,
             sheet["A1"].font = quiet
             continue
 
+        # The screen's own words for a column, when it says them.
+        labels = {c["key"]: c["label"] for c in handler.columns(scope, tab.key)}
         for column, key in enumerate(keys, start=1):
-            cell = sheet.cell(row=1, column=column, value=_heading(key))
+            cell = sheet.cell(row=1, column=column,
+                              value=labels.get(key) or _heading(key))
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="left", vertical="center")

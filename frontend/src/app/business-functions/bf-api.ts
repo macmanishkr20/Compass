@@ -52,6 +52,10 @@ export interface FeatureCard {
   choices: Record<string, string[]>;
   /** Why the screen is empty until a scope is chosen, in this feature's words. */
   scope_why: string;
+  /** What the entity selector is called here, when not "Entity". */
+  entity_label?: string;
+  /** Where a selector starts, when one value is a fair place to start. */
+  defaults?: Record<string, string>;
   actions: ActionSpec[];
 }
 
@@ -103,6 +107,23 @@ export interface Figure {
 
 /** One bar or wedge, and what it is worth saying about it. */
 /** What a spreadsheet turned out to hold. */
+/** What a picked file turned out to hold, and the token to send back for it. */
+export interface StagedFile {
+  field: string;
+  ok: boolean;
+  said: string;
+  token?: string;
+}
+
+/** One column, for a screen that says its own. */
+export interface ColumnSpec {
+  key: string;
+  label: string;
+  numeric?: boolean;
+  /** How a figure reads: grouped, whole or a percentage. */
+  format?: 'number' | 'whole' | 'pct';
+}
+
 export interface UploadedNames {
   field: string;
   names: string[];
@@ -156,7 +177,7 @@ export interface RuleSpec {
 export interface FormField {
   id: string;
   label: string;
-  kind: 'text' | 'money' | 'date' | 'choice';
+  kind: 'text' | 'money' | 'count' | 'names' | 'date' | 'choice' | 'multi' | 'file';
   help: string;
   required: boolean;
   options: string[];
@@ -219,6 +240,8 @@ export interface FeatureView {
   date_range?: string;
   window?: { since: string; until: string };
   rows?: Record<string, unknown>[];
+  /** This tab's columns, when the handler says them. */
+  columns?: ColumnSpec[];
   rules?: RuleSpec[];
   actions?: ActionSpec[];
   /** Things a person records that did not exist before. */
@@ -346,6 +369,26 @@ export class BusinessFunctionsApi {
     body.append('file', file, file.name);
     return firstValueFrom(
       this.http.post<UploadedNames>(
+        `${ROOT}/${fnId}/features/${featureId}/forms/${formId}/upload`
+        + `?field=${encodeURIComponent(fieldId)}`,
+        body,
+      ),
+    );
+  }
+
+  /** Hand a picked file over to be read and held. Records nothing: the form's
+   *  own button does that, once somebody has seen what was in it. */
+  stageFile(
+    fnId: string,
+    featureId: string,
+    formId: string,
+    fieldId: string,
+    file: File,
+  ): Promise<StagedFile> {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return firstValueFrom(
+      this.http.post<StagedFile>(
         `${ROOT}/${fnId}/features/${featureId}/forms/${formId}/upload`
         + `?field=${encodeURIComponent(fieldId)}`,
         body,

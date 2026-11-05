@@ -139,7 +139,8 @@
           <div class="bf-grid">
             @if (openedService()) {
               @for (f of shown(); track f.id; let first = $first) {
-                <button class="bf-card" type="button" [class.lead]="first"
+                <button class="bf-card" type="button"
+                  [class.lead]="first && f.id === 'oversight'"
                   (click)="openFeature(f.id)">
                   <b>{{ f.name }}</b>
                   <p>{{ f.blurb }}</p>
@@ -193,7 +194,7 @@
           <div class="bf-wctl">
             @if (featureById(v.id)?.scope?.includes('entity')) {
               <label class="bf-sel">
-                <span>Entity</span>
+                <span>{{ featureById(v.id)?.entity_label || 'Entity' }}</span>
                 <select [ngModel]="entity()" (ngModelChange)="setScope('entity', $event)">
                   <option value="">Choose…</option>
                   @for (e of choicesFor(v.id, 'entity'); track e) {
@@ -387,7 +388,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  @for (row of v.rows ?? []; track rowId(row)) {
+                  @for (row of tableRows(); track rowId(row)) {
                     <tr class="bf-row" [class.aimed]="isAimed(row)"
                       [class.open]="viewing() === rowId(row)">
                       @for (c of columns(); track c.key) {
@@ -415,6 +416,10 @@
                   }
                 </tbody>
               </table>
+              @if ((v.rows ?? []).length > rowLimit) {
+                <p class="bf-clear">Showing the first {{ rowLimit }} of
+                  {{ (v.rows ?? []).length }}. Export has every row.</p>
+              }
             } @else {
               <p class="bf-clear">Nothing in this view.</p>
             }
@@ -564,6 +569,13 @@
                         (click)="download(rowId(row))">{{
                           exportingRow() === rowId(row)
                             ? 'Preparing\u2026' : 'Order report' }}</button>
+                    }
+                    @if (row['download']) {
+                      <button class="bf-btn quiet" type="button"
+                        [disabled]="exporting()"
+                        (click)="download(rowId(row))">{{
+                          exportingRow() === rowId(row)
+                            ? 'Preparing\u2026' : row['download'] }}</button>
                     }
                     @for (f of formsFor(row); track f.id) {
                       <button class="bf-btn quiet" type="button"
@@ -774,6 +786,33 @@
                           <span class="bf-uploaded">{{ uploaded() }}</span>
                         }
                       </div>
+                    }
+                    @case ('file') {
+                      <!-- The file goes up when it is picked and comes back as
+                           a count of what is in it. Nothing is recorded until
+                           the form's own button is pressed. -->
+                      <div class="bf-names">
+                        <span class="bf-upload">
+                          <input type="file" accept=".xlsx,.xlsm,.csv"
+                            [disabled]="uploading()"
+                            (change)="uploadFile(field.id, $event)">
+                          <span class="bf-btn quiet">{{ uploading()
+                            ? 'Reading\u2026' : 'Choose a spreadsheet' }}</span>
+                        </span>
+                        @if (uploaded()) {
+                          <span class="bf-uploaded">{{ uploaded() }}</span>
+                        }
+                      </div>
+                    }
+                    @case ('multi') {
+                      <span class="bf-multi" role="group" [attr.aria-label]="field.label">
+                        @for (o of field.options; track o) {
+                          <button class="bf-chip" type="button"
+                            [class.on]="picked(field.id).includes(o)"
+                            [attr.aria-pressed]="picked(field.id).includes(o)"
+                            (click)="togglePicked(field.id, o)">{{ o }}</button>
+                        }
+                      </span>
                     }
                     @default {
                       <input type="text" [ngModel]="entered()[field.id] ?? ''"

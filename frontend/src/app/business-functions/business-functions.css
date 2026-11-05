@@ -1119,6 +1119,23 @@
   border: 0;
 }
 .bf-upload .bf-btn { pointer-events: none; }
+/* Several of a list. Buttons rather than checkboxes, because the whole field
+   is a <label> and a label forwards its clicks to the first control inside. */
+.bf-multi { display: flex; flex-wrap: wrap; gap: 6px; }
+.bf-chip {
+  padding: 6px 11px;
+  min-height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 11.8px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.bf-chip:hover { border-color: var(--accent); }
+.bf-chip.on { border-color: var(--accent); background: var(--accent-tint); }
 .bf-uploaded {
   font-size: 11px;
   line-height: 1.5;

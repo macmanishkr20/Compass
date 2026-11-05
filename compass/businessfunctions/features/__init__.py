@@ -19,6 +19,7 @@ from compass.businessfunctions.features import (  # noqa: F401
     giftrequests,
     lms,
     oversight,
+    pnl,
     rewardlens,
 )
 from compass.businessfunctions.features.base import (  # noqa: F401

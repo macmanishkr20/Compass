@@ -50,6 +50,7 @@ from compass.businessfunctions import (
     ledger,
     notices,
     people,
+    pnl,
     policy,
     registry,
     reports,
@@ -106,6 +107,8 @@ def _feature_card(fn_id: str, feature, roles: frozenset[str] = frozenset(),
         "scope": feature.scope,
         "choices": feature.choices,
         "scope_why": feature.scope_why,
+        "entity_label": feature.entity_label,
+        "defaults": feature.defaults,
         "actions": [
             {"id": a.id, "label": a.label, "confirm": a.confirm,
              "reversible": a.reversible, "outward": a.outward,
@@ -127,6 +130,9 @@ def _feature_card(fn_id: str, feature, roles: frozenset[str] = frozenset(),
                  if every_field or not x.roles or (roles & set(x.roles))
              ]}
             for f in feature.forms
+            # A form with nothing in it for this person is not a form for them.
+            if every_field or any(not x.roles or (roles & set(x.roles))
+                                  for x in f.fields)
         ],
     }
 
@@ -311,7 +317,8 @@ async def get_feature(
     # a step — and always empty for somebody who holds none. Leadership
     # opened the request chain onto "Waiting on you: 0" and read it as "no
     # data", with three orders one tab away.
-    chosen = tab or next((t.key for t in tabs if t.count), "") \
+    chosen = tab or handler.opening_tab(scope) \
+        or next((t.key for t in tabs if t.count), "") \
         or (tabs[0].key if tabs else "")
     applies = set(handler.rules(scope))
 
@@ -361,6 +368,9 @@ async def get_feature(
         "date_range": feature.date_range,
         "window": {"since": scope.since, "until": scope.until},
         "rows": handler.rows(scope, chosen),
+        # This tab's columns, for a screen that says its own. Empty means the
+        # surface's own list.
+        "columns": handler.columns(scope, chosen),
         "rules": [
             {"id": r.id, "headline": r.headline, "detail": r.detail, "tone": r.tone}
             for r in feature.rules if r.id in applies
@@ -406,9 +416,11 @@ async def export_feature(
             422, f"Choose {' and '.join(missing)} before exporting {feature.name}.")
     try:
         if row:
-            data = await asyncio.to_thread(
-                export.one_row, fn, feature, handler, scope, row,
-                asked_by=user)
+            data = await asyncio.to_thread(handler.row_workbook, scope, row)
+            if data is None:
+                data = await asyncio.to_thread(
+                    export.one_row, fn, feature, handler, scope, row,
+                    asked_by=user)
         else:
             data = await asyncio.to_thread(
                 export.to_excel, fn, feature, handler, scope, asked_by=user)
@@ -557,11 +569,13 @@ async def _ready() -> None:
     # EMPTY store, which is the right default for a fresh deployment and
     # exactly wrong once somebody has cleared the real records and expects
     # to start from nothing.
-    sample = get_settings().business_functions.seed_sample
+    settings = get_settings().business_functions
+    sample = settings.seed_sample
     await ledger.ready(seed=rewardlens.SEED if sample else None,
                        requests_seed=giftrequests.SEED if sample else None)
     await notices.ready()
     await policy.ready()
+    await pnl.ready(sample=sample or settings.pnl_sample)
 
 
 async def _save() -> None:
@@ -574,6 +588,7 @@ async def _save() -> None:
     try:
         await ledger.flush()
         await policy.flush()
+        await pnl.flush()
         await notices.save()
     except Exception:  # noqa: BLE001 — a decision is not undone by a slow store
         logger.warning("business functions: could not store what just "
@@ -738,12 +753,27 @@ async def read_recipient_file(
     if form is None:
         raise HTTPException(status_code=404, detail="No such form.")
     wanted = next((x for x in form.fields if x.id == field), None)
-    if wanted is None or wanted.kind != "names":
+    if wanted is None or wanted.kind not in ("names", "file"):
         raise HTTPException(status_code=404,
                             detail="That field does not take a list.")
     roles = people.roles_of(user)
     if wanted.roles and not (roles & set(wanted.roles)):
         raise HTTPException(status_code=403, detail="That field is not yours.")
+
+    if wanted.kind == "file":
+        # Held rather than recorded, like a list of names: what it turned out
+        # to hold comes back for the person to read before anything is kept.
+        await _ready()
+        limit = handler.upload_limit()
+        raw = await file.read(limit + 1)
+        if len(raw) > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"That file is over {limit // (1024 * 1024)}MB.")
+        outcome = await asyncio.to_thread(
+            handler.stage_file, _scope(user, "", "", feature), form_id, field,
+            file.filename or "the file", raw)
+        return {"field": field, **outcome}
 
     raw = await file.read(UPLOAD_MAX_BYTES + 1)
     if len(raw) > UPLOAD_MAX_BYTES:

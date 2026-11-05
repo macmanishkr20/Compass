@@ -33,10 +33,10 @@ services:
       for a gift; each desk checks what it is theirs to check; the tracker
       follows the order and what it came to. The Dashboard is leadership's
       only view of the whole position.
-  # DECLARED BEFORE THEY ARE BUILT. Two services the function runs and has
-  # no screens for yet: listed so the overview says what Finance does, and
-  # their sub-services land under them as they are built. A service with
-  # nothing in it reveals nothing, so it is shown to everybody.
+  # DECLARED BEFORE IT IS BUILT. A service the function runs and has no
+  # screens for yet: listed so the overview says what Finance does, and its
+  # sub-services land under it as they are built. A service with nothing in it
+  # reveals nothing, so it is shown to everybody.
   - id: ope_billing
     name: OPE Billing
     short: Out-of-pocket expense billing
@@ -47,8 +47,10 @@ services:
     name: P&L
     short: Profit and loss by service line
     blurb: >-
-      The organisation's profit and loss, service line by service line,
-      across PAN GDS.
+      The monthly P&L across PAN GDS, from the FR files arriving to the file
+      leadership reads. Compass consolidates, reconciles and reports what
+      breaches Finance's rules. It alters no figure; investigating and
+      correcting stay with Finance.
 
 starters:
   - Which entities have unmatched credits?
@@ -963,3 +965,436 @@ features:
       - read_rows
       - explain_row
 
+  # ── P&L ────────────────────────────────────────────────────────────────────
+  # One month, in the order Finance works it. The rules, the locations and the
+  # service lines are all illustrative until Finance confirms its own; a check
+  # keeps these lists equal to the ones in pnl.py.
+  #
+  # Finance's working screens, not an employee's: this is the firm's P&L by
+  # Reporting Segment. Leadership reads the file that is released from it.
+  - id: pnl_intake
+    service: pnl
+    name: Source files
+    short: FR files, mappings, Plan and Forecast
+    blurb: >-
+      What has arrived for the month and what has not. Upload each location
+      and service line's FR file and the inputs it is joined to. Shows what the
+      joins could not find: unmapped segments, segments Compass added from the
+      Plan, and anything shaped differently from last month.
+    handler: pnl_intake
+    scope: [period]
+    choices:
+      period: &pnl_months [Apr 2025, May 2025, Jun 2025, Jul 2025, Aug 2025, Sep 2025,
+                           Oct 2025, Nov 2025, Dec 2025, Jan 2026, Feb 2026, Mar 2026,
+                           Apr 2026, May 2026, Jun 2026, Jul 2026, Aug 2026, Sep 2026,
+                           Oct 2026, Nov 2026, Dec 2026, Jan 2027, Feb 2027, Mar 2027]
+    scope_why: >-
+      Everything here belongs to one reporting month, and a file is filed under
+      the month chosen.
+    visibility: &pnl_desk
+      firm: [finance, admin]
+    actions:
+      - id: remind
+        label: Send a reminder
+        roles: [finance, admin]
+        outward: true
+        confirm: >-
+          Emails Finance that this file has not been uploaded. It says so on
+          this row whether or not a mail server is there to send it.
+      - id: not_required
+        label: Not required this month
+        roles: [finance, admin]
+        note_label: Why is this one not expected?
+        confirm: >-
+          Stops this location and service line counting as missing for this
+          month, with your reason on the record.
+      - id: required_again
+        label: Expect it again
+        roles: [finance, admin]
+        confirm: Counts this location and service line as expected again.
+    forms:
+      - id: upload_fr
+        label: Upload an FR file
+        submit_label: Record the file
+        blurb: >-
+          One location and service line, for the month chosen above. Compass
+          finds the columns by name, so the layout may move. It reads the file
+          when you pick it and tells you what it found before anything is kept.
+        confirm: >-
+          Files this as the month's P&L for that location and service line. If
+          one is already there, this becomes the current version and the old
+          one is kept. The figures are used as uploaded.
+        fields:
+          - id: location
+            label: Location
+            kind: choice
+            options: &pnl_locations [Bengaluru, Hyderabad, Kochi, Noida]
+          - id: service_line
+            label: Service line
+            kind: choice
+            options: &pnl_service_lines [Assurance, Consulting, Tax]
+          - id: file
+            label: FR file
+            kind: file
+            help: >-
+              .xlsx or .csv. A Reporting Segment column, an RS row above each
+              block, or one column per segment all work.
+      - id: upload_master
+        label: Upload an input
+        submit_label: Record the file
+        blurb: >-
+          The Plan database, Forecast, RS mapping, prior-period history, Finance
+          consolidation, charged hours or rate card. A file with a Period column
+          speaks for those months; one without speaks for the month chosen above.
+        confirm: >-
+          Becomes the current version for the months it names. Earlier versions
+          are kept, and months it does not name keep the file they had.
+        fields:
+          - id: kind
+            label: Which input
+            kind: choice
+            options: [Plan database, Forecast, RS mapping, Prior-period history,
+                      Finance consolidation, Charged hours, Rate card]
+          - id: file
+            label: File
+            kind: file
+            help: .xlsx or .csv. Compass will say if a column it needs is missing.
+      - id: line_rule
+        label: Set how this line works
+        on_row: true
+        submit_label: Set the rule
+        blurb: >-
+          MTD is this month's YTD less last month's, and that does not hold for
+          everything. FTE and percentages stay blank until Finance says how
+          their month is worked out.
+        confirm: >-
+          Adds a version of the rules, from now and in every month. No uploaded
+          figure changes.
+        fields:
+          - id: line_class
+            label: How it adds up
+            kind: choice
+            options: [Adds across segments and months,
+                      "Adds across segments only (FTE, headcount)",
+                      Does not add (a percentage or rate)]
+          - id: mtd
+            label: Its month
+            kind: choice
+            options: [Subtract last month (the generic rule), This month's value,
+                      Leave blank until Finance defines it]
+          - id: why
+            label: Why
+            kind: text
+    rules:
+      - &pnl_is_finance
+        id: pnl_is_finance
+        headline: This one is Finance's.
+        detail: >-
+          It is the firm's P&L by Reporting Segment, so it is shown to the
+          people preparing it.
+        tone: limit
+      - &pnl_sample
+        id: sample_data
+        headline: Sample data.
+        detail: >-
+          Every figure and rule here is illustrative, for Sep and Oct 2026, to
+          show what these screens do. Your first real upload removes the figures.
+        tone: notice
+      - &pnl_choose
+        id: choose_a_month
+        headline: Choose a reporting month.
+        detail: A period from another screen does not name a month here.
+        tone: notice
+    starters:
+      - Which FR files are still missing?
+      - Which segments are not mapped?
+      - What changed shape since last month?
+    tools: [read_rows, explain_row]
+
+  - id: pnl_statement
+    service: pnl
+    name: Consolidated P&L
+    short: Location, service line and segment · YTD and MTD
+    blurb: >-
+      The month, consolidated: Pan-GDS or one location, by line, service line
+      and Reporting Segment, against Plan, Forecast and the prior year. Lines
+      are combined by name, so a new one is carried through rather than lost.
+    handler: pnl_statement
+    scope: [period, entity]
+    entity_label: Location
+    defaults:
+      entity: Pan-GDS
+    choices:
+      period: *pnl_months
+      entity: &pnl_views [Pan-GDS, Bengaluru, Hyderabad, Kochi, Noida]
+    scope_why: A consolidation is one month, for all of GDS or for one location.
+    visibility: *pnl_desk
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - &pnl_no_files
+        id: no_files_yet
+        headline: Nothing uploaded for this month.
+        detail: Upload its FR files under Source files.
+        tone: notice
+      - id: no_prior_month
+        headline: Some of this has no MTD.
+        detail: >-
+          MTD subtracts last month, and some slots have no last month to
+          subtract. Those stay blank rather than showing the whole year as one
+          month. Upload the history under Source files.
+        tone: limit
+      - id: mtd_definitions_pending
+        headline: FTE and percentages have no MTD yet.
+        detail: >-
+          Subtracting does not work for them and Finance has not yet defined
+          what does. Set it per line under Source files, on Line rules.
+        tone: notice
+    starters:
+      - Which location is furthest from Plan?
+      - What does Revenue look like against Forecast?
+    tools: [read_rows, explain_row]
+
+  - id: pnl_recon
+    service: pnl
+    name: Reconciliation
+    short: Against Finance's file · release control
+    blurb: >-
+      The consolidated figures against the separate file Finance maintains, by
+      location and service line, parameter by parameter. Also whether each
+      file's segments add up to that file's own totals.
+    handler: pnl_recon
+    scope: [period]
+    choices:
+      period: *pnl_months
+    scope_why: A reconciliation is of one month's figures.
+    visibility: *pnl_desk
+    forms:
+      - id: set_tolerance
+        label: Set the tolerance
+        submit_label: Set it
+        blurb: >-
+          A difference within the larger of these two counts as matched.
+          Leave a box empty to keep what it says now.
+        confirm: Adds a version of the rules, in force for every month from now.
+        fields:
+          - id: recon_abs
+            label: Up to this amount
+            kind: text
+            required: false
+          - id: recon_pct
+            label: Or this % of Finance's figure
+            kind: text
+            required: false
+          - id: why
+            label: Why
+            kind: text
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - *pnl_no_files
+      - id: no_finance_file
+        headline: Nothing to reconcile against yet.
+        detail: Upload Finance's consolidation for this month under Source files.
+        tone: limit
+      - &pnl_illustrative
+        id: rules_illustrative
+        headline: These rules are illustrative.
+        detail: >-
+          Finance has not confirmed them. They come with Compass so the screens
+          can run, and setting your own replaces them.
+        tone: notice
+    starters:
+      - What does not match Finance's file?
+      - Is this month ready to release?
+    tools: [read_rows, explain_row]
+
+  - id: pnl_exceptions
+    service: pnl
+    name: Exceptions
+    short: Only what breaches Finance's rules
+    blurb: >-
+      Scans every Reporting Segment and line so nobody has to, and lists only
+      the movements past the thresholds you choose: against Plan, prior year
+      and Forecast, plus the Revenue, Variable Pay, Employee Benefits and
+      Direct Cost validations. Finance investigates what it finds.
+    handler: pnl_exceptions
+    scope: [period, entity]
+    entity_label: Location
+    defaults:
+      entity: Pan-GDS
+    choices:
+      period: *pnl_months
+      entity: *pnl_views
+    scope_why: An exception report is of one month, for all of GDS or one location.
+    visibility: *pnl_desk
+    actions:
+      - id: mark_reviewed
+        label: Mark as reviewed
+        roles: [finance, admin]
+        note_label: What did you find?
+        confirm: >-
+          Records that you looked at this, with your note. It changes no figure,
+          and if the figures change it comes back to review.
+      - id: reopen
+        label: Back to review
+        roles: [finance, admin]
+        confirm: Puts this back on the list to review.
+    forms:
+      - id: select_thresholds
+        label: Choose thresholds
+        submit_label: Use these
+        blurb: >-
+          For this month's report. Pick a predefined percentage or enter your own.
+          “What would this do?” says how many exceptions it would report.
+        confirm: >-
+          The report for this month is rerun at these thresholds. Every figure
+          stays as it is; only what is listed changes.
+        fields:
+          - id: comparison
+            label: Applies to
+            kind: choice
+            options: [All three, Actual vs Plan, Current Year vs Prior Year,
+                      Actual vs Forecast]
+          - id: preset
+            label: Threshold
+            kind: choice
+            options: ["5%", "10%", "15%", "20%", Custom]
+          - id: custom
+            label: Custom %
+            kind: text
+            required: false
+            help: Only if the threshold above is Custom.
+          - id: floor
+            label: Ignore movements under
+            kind: text
+            required: false
+            help: For money lines. Leave empty to keep the current amount.
+      - id: set_benchmarks
+        label: Set benchmarks
+        submit_label: Set them
+        blurb: >-
+          What the specialized validations measure against, in every month. Leave
+          a box empty to keep what it says now. The Direct Cost definitions are
+          still open with Finance.
+        confirm: Adds a version of the rules, in force for every month from now.
+        fields:
+          - id: vp_pct
+            label: Variable Pay, % of Base
+            kind: text
+            required: false
+          - id: eb_pct
+            label: Benefits, % of Base
+            kind: text
+            required: false
+            help: Used for any location not listed below.
+          - id: eb_by_location
+            label: Benefits by location
+            kind: text
+            required: false
+            help: Bengaluru=12, Kochi=11
+          - id: dc_revenue_pct
+            label: Direct Cost, % of Revenue
+            kind: text
+            required: false
+          - id: dc_per_fte
+            label: Direct Cost per FTE
+            kind: text
+            required: false
+          - id: revenue_tolerance_pct
+            label: Revenue tolerance %
+            kind: text
+            required: false
+          - id: why
+            label: Why
+            kind: text
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - *pnl_no_files
+      - *pnl_illustrative
+    starters:
+      - What are the largest exceptions this month?
+      - Which segments are past their Variable Pay share?
+      - Which checks could not run, and why?
+    tools: [read_rows, explain_row]
+
+  - id: pnl_output
+    service: pnl
+    name: Leadership output
+    short: Chosen sheets · values only · the run's trail
+    blurb: >-
+      Build the file leadership reads from the sheets you choose: values only,
+      with none of the workings or links behind them. Finance decides when it
+      is released, and this keeps which files each one was built from.
+    handler: pnl_output
+    scope: [period]
+    choices:
+      period: *pnl_months
+    scope_why: A leadership file is of one month.
+    # Leadership reads what has been released. Drafts and the trail are the
+    # desk's, which the handler narrows to.
+    visibility:
+      firm: [finance, admin, leadership]
+    actions:
+      - id: release
+        label: Release
+        roles: [finance, admin]
+        note_label: What did you check?
+        reversible: false
+        confirm: >-
+          Records that Finance has released this file, in your name. Leadership
+          can then see it. Compass does not send it.
+      - id: release_despite
+        label: Release despite open items
+        roles: [finance, admin]
+        note_label: Why release with these open?
+        reversible: false
+        confirm: >-
+          Releases this with reconciliation differences or missing files still
+          open. Those go on the record beside your name and your reason.
+    forms:
+      - id: build_pack
+        label: Build a file
+        submit_label: Build it
+        blurb: >-
+          Choose what goes in. What is built never changes afterwards; a
+          correction is a new file.
+        confirm: >-
+          Builds a draft from this month's current figures. Nobody but Finance
+          sees it until it is released.
+        fields:
+          - id: sheets
+            label: Sheets
+            kind: multi
+            options: [Pan-GDS summary, Location summaries, Service line summary,
+                      Reporting Segment analysis, Exception report, Reconciliation]
+            roles: [finance, admin]
+          - id: locations
+            label: Locations
+            kind: multi
+            required: false
+            options: *pnl_locations
+            roles: [finance, admin]
+            help: None chosen means all of them.
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - id: not_ready_to_release
+        headline: This month is not ready to release.
+        detail: >-
+          A file is missing, or the figures differ from Finance's consolidation.
+          See Source files and Reconciliation for what is open.
+        tone: limit
+      - id: nothing_released
+        headline: Nothing released for this month yet.
+        detail: Finance releases each month's file here once it has been checked.
+        tone: notice
+    starters:
+      - What is stopping this month being released?
+      - Which files was this built from?
+    tools: [read_rows, explain_row]

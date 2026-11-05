@@ -51,7 +51,8 @@ import time
 import uuid
 from dataclasses import dataclass, field, replace
 
-from compass.businessfunctions import notices, people, registry
+from compass.businessfunctions import notices, people, pnl, registry
+from compass.common.config import get_settings
 from compass.common.persistence.catalog import Collection
 from compass.businessfunctions.features import rewardlens
 from compass.businessfunctions.features.base import Scope
@@ -385,6 +386,12 @@ async def reports_loop() -> None:
                 # cannot make the same slot fire again on the next tick — a
                 # monthly report retried every minute is a day of mail.
                 await save(await asyncio.to_thread(run, sub))
+            # P&L's reminder that an FR file has not arrived. Here because
+            # this is the loop that runs whether or not anybody is looking.
+            settings = get_settings().business_functions
+            await pnl.ready(sample=settings.seed_sample or settings.pnl_sample)
+            if pnl.send_due_reminders():
+                await pnl.flush()
             if any(n.state == "pending" for n in notices._outbox.values()):
                 await asyncio.to_thread(notices.flush)
         except asyncio.CancelledError:

@@ -213,6 +213,55 @@ class Feature(ABC):
         """
         return step.replace("_", " ").capitalize()
 
+    def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        """This tab's columns, when the screen says them itself.
+
+        Each is {"key", "label"} and, for a figure, "numeric" and "format".
+        Empty means the surface's own list, which is what every feature
+        written before this has. Here so a new screen need not add a branch
+        to the component, and so its workbook can use the same words.
+        """
+        return []
+
+    def row_workbook(self, scope: Scope, row_id: str) -> bytes | None:
+        """One row's own file, when a row is a file somebody takes away.
+
+        None means the ordinary one-row report. Raises KeyError for a row this
+        person may not see, which the route answers as not found.
+        """
+        return None
+
+    def opening_tab(self, scope: Scope) -> str:
+        """Which tab this screen opens on, when that is not simply one with rows.
+
+        Empty means the route's rule. A screen whose first tab is what it is for
+        says so: opening a screen with no packs yet onto its input list leaves
+        somebody who has just built one looking at the wrong table.
+        """
+        return ""
+
+    def held_periods(self) -> list[str] | None:
+        """The periods this screen actually holds, when that is a short list.
+
+        None means every period the manifest offers, which is true of a screen
+        offering three years. A screen offering two years of months would hand
+        the assistant twenty-four empty views to read for the sake of two.
+        """
+        return None
+
+    def upload_limit(self) -> int:
+        """The most a `file` field on this screen may weigh, in bytes."""
+        return 0
+
+    def stage_file(self, scope: Scope, form_id: str, field: str, filename: str,
+                   raw: bytes) -> dict[str, Any]:
+        """A file was picked for a `file` field. Hold it; record nothing.
+
+        Answers {"ok", "said", "token"}. The token is what the form then sends
+        as the field's value, because a form's values are short strings.
+        """
+        return {"ok": False, "said": f"{self.key} takes no files."}
+
     def charts(self, scope: Scope) -> list["Chart"]:
         """Pictures of what this screen holds. None by default.
 

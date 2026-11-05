@@ -136,7 +136,8 @@ def _one_feature(fn_id: str, feature: FeatureManifest, user: str,
         return None
 
     years = [period] if period else []
-    for year in _periods(feature):
+    held = handler.held_periods()
+    for year in (_periods(feature) if held is None else held):
         if year not in years:
             years.append(year)
 

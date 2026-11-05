@@ -266,6 +266,7 @@ export class BusinessFunctions {
       (s) => s.features.some((f) => f.id === featureId));
     if (owner) this.serviceId.set(owner.id);
     const fresh = featureId !== this.featureId();
+    this.fitScope(featureId);
     // Only on a real move. Switching tab on the screen you are already
     // on keeps what you have open, because half-filling a form and then
     // looking at another tab is a thing people do.
@@ -282,6 +283,23 @@ export class BusinessFunctions {
       this.error.set(String(err));
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /** Bring the selectors in line with the screen being opened.
+   *
+   *  They are held across screens, which is right when two screens share a
+   *  year and wrong when they do not: a financial year chosen on the Tracker
+   *  means nothing to a screen read by the month, and sent anyway its selector
+   *  shows blank above figures nobody asked for. A value this screen does not
+   *  offer goes back to where the screen starts, or to asking. */
+  private fitScope(featureId: string): void {
+    const card = this.featureById(featureId);
+    for (const [dim, held] of [['entity', this.entity], ['period', this.period]] as const) {
+      const offered = card?.choices?.[dim] ?? [];
+      if (offered.length && !offered.includes(held())) {
+        held.set(card?.defaults?.[dim] ?? '');
+      }
     }
   }
 
@@ -429,6 +447,14 @@ export class BusinessFunctions {
     if (this.viewing()) this.closeRow();
     else this.closeChart();
   }
+
+  /** How many rows the table draws. A month's segment-and-line view can run
+   *  to tens of thousands, which a browser table does not survive; the
+   *  workbook has them all. */
+  readonly rowLimit = 500;
+
+  readonly tableRows = computed(
+    () => (this.feature()?.rows ?? []).slice(0, this.rowLimit));
 
   /** The id a row is known by, which differs per feature. */
   /** What identifies this row — the value an action is aimed at.
@@ -708,7 +734,8 @@ export class BusinessFunctions {
    *  a number, an amount, a date or a choice are all short.
    */
   fieldWidth(field: { kind?: string }): number {
-    if (field.kind === 'names') return 12;
+    if (field.kind === 'names' || field.kind === 'multi') return 12;
+    if (field.kind === 'file') return 6;
     if (!field.kind || field.kind === 'text') return 6;
     return 3;
   }
@@ -751,6 +778,49 @@ export class BusinessFunctions {
       // So picking the same file twice in a row fires again.
       input.value = '';
     }
+  }
+
+  /** Hand a picked file to the server, and keep the token it gives back.
+   *
+   *  What it found is shown beside the box, so nobody records a month's
+   *  figures they have not seen a count of. A refusal says what is wrong
+   *  with the file and leaves the field empty. */
+  async uploadFile(fieldId: string, event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const fn = this.current();
+    const form = this.openForm();
+    if (!file || !fn || !form) return;
+    this.uploading.set(true);
+    this.uploaded.set('');
+    this.setField(fieldId, '');
+    try {
+      const got = await this.api.stageFile(
+        fn.id, this.featureId(), form.id, fieldId, file);
+      this.uploaded.set(got.said);
+      if (got.ok && got.token) this.setField(fieldId, got.token);
+      else this.notice.error(got.said);
+    } catch (err) {
+      const said = (err as { error?: { detail?: string } })?.error?.detail
+        ?? String(err);
+      this.uploaded.set(said);
+      this.notice.error(said);
+    } finally {
+      this.uploading.set(false);
+      input.value = '';
+    }
+  }
+
+  /** Which options of a `multi` field are picked. Joined by "|" on the wire,
+   *  because a form's values are strings and an option may hold a comma. */
+  picked(fieldId: string): string[] {
+    return (this.entered()[fieldId] ?? '').split('|').filter((o) => o);
+  }
+
+  togglePicked(fieldId: string, option: string): void {
+    const now = this.picked(fieldId);
+    this.setField(fieldId, (now.includes(option)
+      ? now.filter((o) => o !== option) : [...now, option]).join('|'));
   }
 
   closeForm(): void {
@@ -1001,6 +1071,10 @@ export class BusinessFunctions {
    *  same table with different data — they are different tables. When a third
    *  feature arrives this becomes something the server sends. */
   columns(): { key: string; label: string; numeric?: boolean }[] {
+    // A screen that says its own columns is believed. The branches below are
+    // the screens written before they could.
+    const sent = this.feature()?.columns;
+    if (sent?.length) return sent;
     if (this.featureId() === 'form26') {
       return [
         { key: 'line', label: 'Line' },
@@ -1295,6 +1369,14 @@ export class BusinessFunctions {
     // the chain showed ₹NaN. A string has already been formatted by the
     // handler that wrote it, so there is nothing here left to do to it.
     if (typeof value === 'string') return value;
+    // A screen that says its own columns says how its figures read too.
+    const sent = this.feature()?.columns;
+    if (sent?.length && typeof value === 'number') {
+      const format = sent.find((c) => c.key === key)?.format;
+      if (format === 'pct') return `${value.toFixed(1)}%`;
+      if (format === 'whole') return String(value);
+      return value.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    }
     if (key === 'credit' || key === 'ledger' || key === 'difference') {
       return `₹${(Number(value) / 100000).toFixed(1)}L`;
     }

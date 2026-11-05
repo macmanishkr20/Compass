@@ -103,7 +103,12 @@ MAX_FIELDS = 10
 #: `names` is a list of people, drawn as a box you can paste a column of a
 #: spreadsheet into. The firm buys two hundred hampers at a time, and a
 #: single-line input is not where a list of two hundred names goes.
-FIELD_KINDS = frozenset({"text", "money", "count", "names", "date", "choice"})
+#:
+#: `multi` is several of its options, sent joined by "|". `file` is a spreadsheet:
+#: it is read when picked and the form sends back only a token, because a form's
+#: values are short strings and a month's workbook is not.
+FIELD_KINDS = frozenset({"text", "money", "count", "names", "date", "choice",
+                         "multi", "file"})
 
 
 def _unusable(text: str, *, limit: int, what: str) -> str:
@@ -216,11 +221,12 @@ class FormField(BaseModel):
     id: str
     #: The words beside the box. "When you received it", not "date".
     label: str
-    kind: Literal["text", "money", "count", "names", "date", "choice"] = "text"
+    kind: Literal["text", "money", "count", "names", "date", "choice",
+                  "multi", "file"] = "text"
     #: The quiet line under it. Where an example belongs.
     help: str = ""
     required: bool = True
-    #: For `choice` only, and refused on anything else.
+    #: For `choice` and `multi` only, and refused on anything else.
     options: list[str] = Field(default_factory=list)
     #: Who is offered this field. Empty means everybody who can open the
     #: form, which is how every field behaved before this existed.
@@ -240,7 +246,7 @@ class FormField(BaseModel):
             found.append(f"field {self.id!r}: {why}")
         if self.help and (why := _unusable(self.help, limit=TEXT_MAX, what="help")):
             found.append(f"field {self.id!r}: {why}")
-        if self.kind == "choice":
+        if self.kind in ("choice", "multi"):
             if not self.options:
                 found.append(f"field {self.id!r} is a choice with nothing to choose")
             if len(self.options) > MAX_CHOICES:
@@ -346,6 +352,12 @@ class FeatureManifest(BaseModel):
     #: not said, and the selector then has nothing to offer — which is
     #: visible, where a wrong default would not be.
     choices: dict[str, list[str]] = Field(default_factory=dict)
+    #: What the `entity` selector is called here. Empty means "Entity"; to P&L
+    #: the same dimension is a location, and the word on the screen should say so.
+    entity_label: str = ""
+    #: What a selector starts on, when one value is a fair place to start. Must
+    #: be one of `choices`. P&L's whole-firm view needs no choosing to be read.
+    defaults: dict[str, str] = Field(default_factory=dict)
     #: The sentence shown while a scope is still unchosen. Says why the screen
     #: is empty in this feature's own terms.
     scope_why: str = ""
@@ -414,6 +426,9 @@ class FeatureManifest(BaseModel):
         if self.scope_why:
             if why := _unusable(self.scope_why, limit=TEXT_MAX, what="scope_why"):
                 found.append(why)
+        for dim, value in self.defaults.items():
+            if value not in self.choices.get(dim, []):
+                found.append(f"starts {dim} on {value!r}, which is not one of its choices")
 
         if bad := sorted(set(self.visibility) - set(BREADTHS)):
             found.append(

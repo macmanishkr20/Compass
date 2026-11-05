@@ -48,10 +48,12 @@ from compass.businessfunctions import (  # noqa: E402
     ledger,
     notices,
     people,
+    pnl,
+    pnl_files,
     registry,
     reports,
 )
-from compass.businessfunctions.features.base import Scope  # noqa: E402
+from compass.businessfunctions.features.base import Outcome, Scope  # noqa: E402
 from compass.businessfunctions.features import form26 as form26_mod  # noqa: E402
 from compass.businessfunctions.features import lms as lms_mod  # noqa: E402
 from compass.businessfunctions.features import giftrequests as gr_mod  # noqa: E402
@@ -689,7 +691,7 @@ def check_the_surface_answers() -> None:
     body = r.json()
     ok("the overview carries the function and its features",
        r.status_code == 200 and body["name"] == "Finance"
-       and len(body["features"]) == 6, f"{r.status_code}")
+       and len(body["features"]) == 11, f"{r.status_code}")
     ok("the overview's queue is built from live figures",
        any(q["feature"] == "form26" for q in body["queue"]), str(body["queue"]))
     ok("the rail scopes to the function at the overview",
@@ -5291,8 +5293,8 @@ def check_the_firm_has_three_levels() -> None:
        and [f.name for f in feats] == ["Dashboard", "Gift requests", "Tracker",
                                        "Tax & budget", "Audit trail"],
        str([f.name for f in feats]))
-    ok("and the two declared services hold nothing yet",
-       [(s.id, len(fs)) for s, fs in grouped[1:3]] == [("ope_billing", 0), ("pnl", 0)],
+    ok("OPE Billing holds nothing yet, and P&L its five",
+       [(s.id, len(fs)) for s, fs in grouped[1:3]] == [("ope_billing", 0), ("pnl", 5)],
        str([(s.id if s else None, len(fs)) for s, fs in grouped[1:3]]))
     loose_service, loose = grouped[-1]
     ok("and the function's own screen comes last, under no service",
@@ -5354,14 +5356,17 @@ def check_the_firm_has_three_levels() -> None:
                 for who in ("enduser", "nobody_at_all")}
     finally:
         get_settings().auth.enabled = auth
-    ok("an employee is shown the declared services, empty, beside RewardLens",
-       seen["enduser"].get("ope_billing") == 0 and seen["enduser"].get("pnl") == 0
+    ok("an employee is shown the declared service, empty, beside RewardLens",
+       seen["enduser"].get("ope_billing") == 0
        and seen["enduser"].get("rewardlens", 0) > 0, str(seen["enduser"]))
-    ok("and somebody with no part in RewardLens sees the declared services "
+    ok("and somebody with no part in RewardLens sees the declared service "
        "and not RewardLens",
        "rewardlens" not in seen["nobody_at_all"]
-       and {"ope_billing", "pnl"} <= set(seen["nobody_at_all"]),
+       and "ope_billing" in seen["nobody_at_all"],
        str(seen["nobody_at_all"]))
+    ok("and once P&L has screens it is Finance's, listed to neither of them",
+       "pnl" not in seen["enduser"] and "pnl" not in seen["nobody_at_all"],
+       str(seen))
     html = (ROOT / "frontend/src/app/business-functions/business-functions.html").read_text()
     ok("and the card says its sub-services are to come, not \"0 sub-services\"",
        "'Sub-services to come'" in html, "")
@@ -5514,7 +5519,7 @@ def check_the_assistant_answers_from_what_the_reader_may_see() -> None:
     ok("leadership's brief carries every screen",
        {s["screen"] for s in everything["screens"]}
        == {"Form 26", "Dashboard", "Audit trail", "Tax & budget",
-           "Gift requests", "Tracker"},
+           "Gift requests", "Tracker", "Leadership output"},
        str([s["screen"] for s in everything["screens"]]))
 
     theirs = chat.brief("finance", "enduser", period="FY 2026-27")
@@ -5762,8 +5767,9 @@ def check_an_employee_is_not_shown_the_firms_machinery() -> None:
        str(sorted(offered)))
 
     for login, wanted in (
+            # Leadership reads the released P&L file and nothing behind it.
             ("compliance", {"oversight", "audit", "finance", "requests",
-                            "register", "form26"}),
+                            "register", "form26", "pnl_output"}),
             ("enduser", {"requests", "register"}),
             ("procurement", {"requests", "register", "audit"})):
         shown = {f.id for f in registry.get("finance").features
@@ -5833,6 +5839,734 @@ def check_the_queue_names_only_what_you_may_open() -> None:
     ok("while compliance is still told what Form 26 needs",
        any(q["feature"] == "form26" for q in seen["compliance"]["queue"]),
        str(seen["compliance"]["queue"]))
+
+
+def _pnl_fresh(sample: bool = True) -> None:
+    """A P&L with nothing in it but, if asked for, the sample month."""
+    _pnl_store_empty()
+    drive(pnl.ready(sample=sample))
+
+
+def _pnl(user: str, feature: str, period: str = "Oct 2026", entity: str = "Pan-GDS"):
+    """One P&L screen as this person reads it: the handler and their scope."""
+    _, feat, handler = registry.feature_of("finance", feature)
+    return handler, people.scope_for(user, feat, period=period, entity=entity)
+
+
+def _pnl_upload(user: str, form: str, filename: str, raw: bytes, *,
+                period: str = "Oct 2026", **values: str):
+    """Pick a file and record it, the way the screen does. Returns the outcome."""
+    handler, scope = _pnl(user, "pnl_intake", period)
+    staged = handler.stage_file(scope, form, "file", filename, raw)
+    if not staged["ok"]:
+        return Outcome(False, staged["said"])
+    return handler.submit(scope, form, dict(values, file=staged["token"]))
+
+
+def _sheet(rows: list[list]) -> bytes:
+    from openpyxl import Workbook
+
+    book = Workbook()
+    for row in rows:
+        book.active.append(row)
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def check_a_pnl_file_is_read_by_what_its_columns_say() -> None:
+    """The FR report's layout moves, so nothing reads a position."""
+    long_form = _sheet([["FR report, October"], [],
+                        ["Reporting Segment", "P&L line", "YTD Actual", "Plan"],
+                        ["RS-1", "Revenue", 100, 90], ["RS-1", "Direct Cost", 40, None],
+                        ["RS-2", "Revenue", "1,50,000.50", "(10)"],
+                        ["Total", "Revenue", 150100.5, None]])
+    got = pnl_files.read("fr", "a.xlsx", long_form)
+    ok("a long file is read past its title rows", len(got.rows) == 3, str(got.rows))
+    ok("a Total row is the file's total, not a segment",
+       got.totals == {"Revenue": 150100.5}, str(got.totals))
+    ok("Indian grouping and brackets are figures",
+       got.rows[2]["actual"] == 150000.5 and got.rows[2]["plan"] == -10.0, str(got.rows[2]))
+    ok("an empty plan is no plan, not a plan of zero", got.rows[1]["plan"] is None)
+
+    blocks = _sheet([["Reporting Segment: RS-7"], ["P&L line", "YTD"], ["Revenue", 5],
+                     ["Costs"], ["Direct Cost", 2], [],
+                     ["RS: RS-8"], ["P&L line", "YTD"], ["Direct Cost", 3], ["Revenue", 6]])
+    got = pnl_files.read("fr", "b.xlsx", blocks)
+    ok("blocks take their segment from the row above them",
+       [(r["rs"], r["line"]) for r in got.rows] == [
+           ("RS-7", "Revenue"), ("RS-7", "Direct Cost"),
+           ("RS-8", "Direct Cost"), ("RS-8", "Revenue")], str(got.rows))
+
+    crosstab = _sheet([["P&L line", "RS-1", "RS-2", "Total"], ["Revenue", 1, 2, 3]])
+    got = pnl_files.read("fr", "c.xlsx", crosstab)
+    ok("a crosstab's columns are its segments",
+       [(r["rs"], r["actual"]) for r in got.rows] == [("RS-1", 1.0), ("RS-2", 2.0)]
+       and got.totals == {"Revenue": 3.0}, str(got.rows))
+
+    csv_file = b"RS,Line,Actual\nRS-1,Revenue,12\nRS-2,Revenue,13\n"
+    ok("a .csv reads the same",
+       len(pnl_files.read("fr", "d.csv", csv_file).rows) == 2)
+
+    # The data row "RS-1 | Revenue | 12" must not read as an "RS-1" block marker.
+    ok("a segment id in a column is not a block marker",
+       {r["rs"] for r in pnl_files.read("fr", "d.csv", csv_file).rows} == {"RS-1", "RS-2"})
+
+    for name, raw, wants in (
+            ("no line column", _sheet([["Nothing", "Here"], [1, 2]]), "P&L line"),
+            ("no segment anywhere", _sheet([["P&L line", "YTD"], ["Revenue", 1]]),
+             "Reporting Segment")):
+        try:
+            pnl_files.read("fr", "e.xlsx", raw)
+            ok(f"{name}: refused", False)
+        except pnl_files.Unreadable as err:
+            ok(f"{name}: refused, saying so", wants in str(err) or "line" in str(err), str(err))
+
+    twice = _sheet([["RS", "Line", "Actual"], ["RS-1", "Other", 1], ["RS-1", "Other", 2]])
+    try:
+        pnl_files.read("fr", "f.xlsx", twice)
+        ok("a line twice with two figures is refused", False)
+    except pnl_files.Unreadable as err:
+        ok("a line twice with two figures is refused, not added up",
+           "twice" in str(err), str(err))
+    sections = _sheet([["RS", "Section", "Line", "Actual"], ["RS-1", "Direct", "Other", 1],
+                       ["RS-1", "Indirect", "Other", 2], ["RS-1", "Indirect", "Rent", 3]])
+    ok("a Section column settles it, and other lines keep their plain name",
+       {r["line"] for r in pnl_files.read("fr", "g.xlsx", sections).rows}
+       == {"Direct · Other", "Indirect · Other", "Rent"})
+
+    ok("a formula-looking segment name loses its teeth",
+       pnl_files.clean('=HYPERLINK("x")') == 'HYPERLINK("x")')
+    for text, expected in (("Oct 2026", (2026, 10)), ("2026-10", (2026, 10)),
+                           ("October 2026", (2026, 10)), ("Oct-26", (2026, 10)),
+                           (dt.date(2026, 10, 31), (2026, 10))):
+        ok(f"{text!r} is one month",
+           pnl_files.parse_month(text) == pnl_files.month_key(*expected))
+    ok("a financial year is not a month", pnl_files.parse_month("FY 2026-27") is None)
+
+
+def check_pnl_consolidates_by_name_and_says_what_it_added() -> None:
+    _pnl_fresh(sample=False)
+    oct_ = pnl_files.month_key(2026, 10)
+    one = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100], ["A", "Direct Cost", 30],
+                  ["A", "Utilisation %", 80], ["B", "Revenue", 50], ["B", "Utilisation %", 60]])
+    # The same lines, the other way up, one spelled differently, and one new.
+    two = _sheet([["RS", "Line", "Actual"], ["C", "Bonus Pool", 5], ["C", "direct  cost", 20],
+                  ["C", "REVENUE", 70]])
+    outcome = _pnl_upload("finance", "upload_fr", "one.xlsx", one,
+                          location="Bengaluru", service_line="Tax")
+    ok("Finance can file an FR file", outcome.ok, outcome.said)
+    _pnl_upload("finance", "upload_fr", "two.xlsx", two, location="Kochi", service_line="Tax")
+
+    lines = {r["line"]: r for r in pnl.summary(oct_)}
+    ok("lines combine by name wherever they sit in the file",
+       lines["Revenue"]["ytd"] == 220 and lines["Direct Cost"]["ytd"] == 50, str(lines))
+    ok("a line only one location has is carried through",
+       lines["Bonus Pool"]["ytd"] == 5)
+    ok("a percentage does not add up across segments",
+       lines["Utilisation %"]["ytd"] is None, str(lines["Utilisation %"]))
+    ok("one segment's percentage is still shown",
+       pnl.summary(oct_, rs="A", location="Bengaluru")[2]["ytd"] == 80)
+    ok("one location's view is only that location",
+       {r["line"]: r["ytd"] for r in pnl.summary(oct_, location="Kochi")}["Revenue"] == 70)
+    ok("with no plan loaded there is no variance, not a 100% one",
+       lines["Revenue"]["plan"] is None and lines["Revenue"]["vs_plan_pct"] is None)
+
+    plan = _sheet([["Period", "Location", "Service line", "RS", "Line", "Plan"],
+                   ["Oct 2026", "Bengaluru", "Tax", "A", "Revenue", 110],
+                   ["Oct 2026", "Bengaluru", "Tax", "NEW", "Revenue", 9],
+                   ["Feb 2027", "Bengaluru", "Tax", "LATER", "Revenue", 3],
+                   ["Oct 2026", "Noida", "Tax", "NOFILE", "Revenue", 7]])
+    _pnl_upload("finance", "upload_master", "plan.xlsx", plan, kind="Plan database")
+    now = pnl.view(oct_)
+    added = {m["rs"] for m in now["missing"]}
+    ok("a segment in the Plan and not in FR is added", "NEW" in added, str(added))
+    ok("and one planned later in the year", "LATER" in added, str(added))
+    ok("but not for a slot whose file has not arrived", "NOFILE" not in added, str(added))
+    ok("what was added has no actual, rather than an invented one",
+       now["cells"][("Bengaluru", "Tax", "new", "revenue")]["actual"] is None)
+    ok("a plan reaches the line it matches",
+       pnl.summary(oct_, rs="A")[0]["plan"] == 110)
+
+    gaps = _sheet([["RS", "Type", "Rate card"], ["A", "Core", "X"], ["B", "Core", "Y"],
+                   ["B", "Growth", "Y"]])
+    _pnl_upload("finance", "upload_master", "map.xlsx", gaps, kind="RS mapping")
+    now = pnl.view(oct_)
+    ok("a mapped segment takes its attributes",
+       now["cells"][("Bengaluru", "Tax", "a", "revenue")]["type"] == "Core")
+    ok("a segment with no mapping is listed", "C" in now["unmapped"], str(now["unmapped"]))
+    ok("a segment mapped two ways is listed and neither is applied",
+       now["conflicts"] == ["B"]
+       and now["cells"][("Bengaluru", "Tax", "b", "revenue")]["type"] == "", str(now["conflicts"]))
+
+
+def check_mtd_is_a_subtraction_only_where_that_holds() -> None:
+    _pnl_fresh(sample=False)
+    sep, oct_ = pnl_files.month_key(2026, 9), pnl_files.month_key(2026, 10)
+    apr = pnl_files.month_key(2026, 4)
+    sept = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 90], ["A", "FTE", 10]])
+    october = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100], ["A", "FTE", 12],
+                      ["D", "Revenue", 4]])
+    april = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 11]])
+    slot = {"location": "Bengaluru", "service_line": "Tax"}
+
+    _pnl_upload("finance", "upload_fr", "oct.xlsx", october, **slot)
+    ok("with no prior month the MTD is blank, not the whole year",
+       pnl.summary(oct_)[0]["mtd"] is None, str(pnl.summary(oct_)[0]))
+    ok("and the screen knows why", pnl.view(oct_)["no_prior"] == [("Bengaluru", "Tax")])
+
+    _pnl_upload("finance", "upload_fr", "sep.xlsx", sept, period="Sep 2026", **slot)
+    lines = {r["line"]: r for r in pnl.summary(oct_)}
+    ok("MTD is this YTD less last YTD", lines["Revenue"]["mtd"] == 14, str(lines["Revenue"]))
+    ok("a segment new this month brings its whole YTD",
+       pnl.view(oct_)["cells"][("Bengaluru", "Tax", "d", "revenue")]["mtd"] == 4)
+    ok("FTE stays blank until Finance defines it", lines["FTE"]["mtd"] is None)
+    ok("the new segment is reported as a structure change",
+       any(a["change"] == "New Reporting Segment" and a["name"] == "D"
+           for a in pnl.view(oct_)["alerts"]), str(pnl.view(oct_)["alerts"]))
+
+    _pnl_upload("finance", "upload_fr", "apr.xlsx", april, period="Apr 2026", **slot)
+    ok("the year's first month is its YTD",
+       pnl.fy_start(apr) == apr and pnl.summary(apr)[0]["mtd"] == 11, str(pnl.summary(apr)))
+
+    handler, scope = _pnl("finance", "pnl_intake")
+    said = handler.submit(scope, "line_rule", {
+        "line_class": "Adds across segments only (FTE, headcount)",
+        "mtd": "This month's value", "why": "Finance reports closing FTE."}, about="FTE")
+    ok("Finance can say how a line works", said.ok, said.said)
+    ok("and FTE's month is then its closing value",
+       {r["line"]: r for r in pnl.summary(oct_)}["FTE"]["mtd"] == 12)
+    ok("as a new version of the rules", pnl.rules()["version"] == 2 and pnl.rules()["confirmed"])
+    ok("a rule needs a reason", not handler.submit(scope, "line_rule", {
+        "line_class": "Does not add (a percentage or rate)",
+        "mtd": "This month's value", "why": ""}, about="FTE").ok)
+
+
+def check_the_exception_report_finds_only_what_breaches() -> None:
+    _pnl_fresh()
+    handler, scope = _pnl("finance", "pnl_exceptions")
+    oct_ = pnl_files.month_key(2026, 10)
+    rows = handler.rows(scope, "all")
+    def found(check, rs, line=None):
+        return [r for r in rows if r["check"] == check and r["rs"] == rs
+                and (line is None or r["line"] == line)]
+
+    for check, rs, line in (
+            ("plan", "BEN-CON-101", "Indirect Cost"),
+            ("prior_year", "BEN-CON-101", "Indirect Cost"),
+            ("forecast", "BEN-CON-101", "Indirect Cost"),
+            ("revenue", "HYD-TAX-102", "Revenue"),
+            ("variable_pay", "HYD-CON-103", "Variable Pay"),
+            ("benefits", "NOI-CON-101", "Employee Benefits"),
+            ("direct_cost", "KOC-TAX-101", "Direct Cost to Revenue")):
+        ok(f"the planted {pnl.CHECKS[check]} exception is found", found(check, rs, line),
+           f"{check} {rs}")
+    ok("and an ordinary segment raises nothing", not found("plan", "BEN-TAX-101"))
+    every = sum(1 for _ in pnl.view(oct_)["cells"])
+    ok("it is exception-only: far fewer rows than the P&L has cells",
+       0 < len(rows) < every / 4, f"{len(rows)} of {every}")
+
+    untested = handler.rows(scope, "untested")
+    ok("a segment with no rate card is untested, not passed",
+       any(r["rs"] == "KOC-CON-103" and "rate card" in r["why"] for r in untested), str(untested))
+
+    # Thresholds: predefined and custom, and the preview agrees with the result.
+    before = len(rows)
+    tight = {"comparison": "All three", "preset": "Custom", "custom": "3", "floor": "0"}
+    said = handler.preview(scope, "select_thresholds", tight)
+    ok("the preview says how many it would report", said.ok and "would report" in said.said,
+       said.said)
+    ok("and has changed nothing", len(handler.rows(scope, "all")) == before)
+    ok("a custom percentage is taken",
+       handler.submit(scope, "select_thresholds", tight).ok)
+    after = handler.rows(scope, "all")
+    ok("a tighter threshold reports more", len(after) > before, f"{before} -> {len(after)}")
+    ok("and the preview told the truth", str(len(after)) in said.said, said.said)
+    ok("Custom with no percentage is refused", not handler.submit(scope, "select_thresholds", {
+        "comparison": "All three", "preset": "Custom", "custom": "", "floor": ""}).ok)
+    ok("a threshold for one comparison leaves the others",
+       handler.submit(scope, "select_thresholds", {
+           "comparison": "Actual vs Plan", "preset": "20%", "custom": "", "floor": ""}).ok
+       and pnl.selection(oct_)["plan_pct"] == 20 and pnl.selection(oct_)["py_pct"] == 3)
+
+    # A movement against a comparison of zero has no percentage and still counts.
+    _pnl_fresh(sample=False)
+    zero = _sheet([["RS", "Line", "Actual", "Plan"], ["A", "Revenue", 500_000, 0]])
+    _pnl_upload("finance", "upload_fr", "z.xlsx", zero, location="Kochi", service_line="Tax")
+    handler, scope = _pnl("finance", "pnl_exceptions")
+    got = handler.rows(scope, "plan")
+    ok("a movement against a plan of zero is flagged, with no percentage",
+       len(got) == 1 and got[0]["variance_pct"] is None, str(got))
+    ok("and no forecast means no forecast comparison", not handler.rows(scope, "forecast"))
+
+    # It reports. Reviewing changes no figure, and new figures reopen it.
+    _pnl_fresh()
+    handler, scope = _pnl("finance", "pnl_exceptions")
+    first = handler.rows(scope, "all")[0]
+    figures_before = {k: dict(v) for k, v in pnl.view(oct_)["cells"].items()}
+    ok("a review needs a note", not handler.act(scope, "mark_reviewed", [first["id"]]).ok)
+    ok("a review with a note is taken",
+       handler.act(scope, "mark_reviewed", [first["id"]], "One-off vendor true-up.").ok)
+    row = next(r for r in handler.rows(scope, "all") if r["id"] == first["id"])
+    ok("it reads as reviewed, with the note",
+       row["status"] == "Reviewed" and row["note"] == "One-off vendor true-up.", str(row))
+    ok("and no figure changed", {k: dict(v) for k, v in pnl.view(oct_)["cells"].items()}
+       == figures_before)
+    ok("a row offers only what it takes", row["can"] == ["reopen"], str(row["can"]))
+    ok("and what it does not offer is refused",
+       not handler.act(scope, "mark_reviewed", [first["id"]], "again").ok)
+    ok("it can go back", handler.act(scope, "reopen", [first["id"]]).ok)
+
+    for change, expected in (("vp_pct", 99.0),):
+        said = handler.submit(scope, "set_benchmarks", {change: "99", "why": "Finance's figure"})
+        ok("a benchmark is set as a new version", said.ok and pnl.rules()[change] == expected,
+           said.said)
+    ok("and moves what is reported", not handler.rows(scope, "variable_pay"))
+    ok("location benchmarks are read",
+       handler.submit(scope, "set_benchmarks", {
+           "eb_by_location": "Noida=40, Kochi=11", "why": "x"}).ok
+       and not handler.rows(scope, "benefits"))
+    ok("an unknown location is refused", not handler.submit(scope, "set_benchmarks", {
+        "eb_by_location": "Atlantis=4", "why": "x"}).ok)
+    ok("old versions are still there", len(pnl.rule_history()) == 3)
+
+
+def check_a_month_cannot_be_released_past_what_is_open() -> None:
+    _pnl_fresh()
+    oct_ = pnl_files.month_key(2026, 10)
+    recon, scope = _pnl("finance", "pnl_recon")
+    off = recon.rows(scope, "mismatched")
+    ok("the one planted difference is found",
+       [(r["location"], r["service_line"], r["parameter"]) for r in off]
+       == [("Bengaluru", "Tax", "Revenue")], str(off))
+    ok("with its size", off and off[0]["difference"] == -250000.0, str(off))
+    ok("every other parameter matches",
+       sum(r["status"] == "Matched" for r in recon.rows(scope, "all")) == 19)
+    ok("segments add up to each file's own total",
+       all(r["status"] == "Matched" for r in recon.rows(scope, "internal"))
+       and recon.rows(scope, "internal"))
+    said = recon.submit(scope, "set_tolerance", {"recon_abs": "300000", "why": "Test."})
+    ok("a wider tolerance is a recorded decision", said.ok, said.said)
+    ok("and turns that difference into a match", not recon.rows(scope, "mismatched"))
+    ok("it needs a reason", not recon.submit(scope, "set_tolerance", {"recon_abs": "1", "why": ""}).ok)
+
+    _pnl_fresh()
+    out, scope = _pnl("finance", "pnl_output")
+    ok("nothing to build with no sheets", not out.submit(scope, "build_pack", {
+        "sheets": "", "locations": ""}).ok)
+    built = out.submit(scope, "build_pack", {
+        "sheets": "Pan-GDS summary|Exception report", "locations": ""})
+    ok("a file can be built", built.ok, built.said)
+    pack_id = built.touched[0]
+    row = out.rows(scope, "packs")[0]
+    ok("while files are missing, plain release is not offered",
+       row["can"] == ["release_despite"], str(row["can"]))
+    refused = out.act(scope, "release", [pack_id], "Looks fine.")
+    ok("and is refused, saying what is open",
+       not refused.ok and "FR files missing" in refused.said, refused.said)
+
+    # WHAT IS IN THE FILE. This is the requirement's clean output.
+    from openpyxl import load_workbook
+
+    raw = out.row_workbook(scope, pack_id)
+    book = load_workbook(io.BytesIO(raw))
+    ok("only the sheets chosen", book.sheetnames == ["About this file", "Pan-GDS", "Exceptions"],
+       str(book.sheetnames))
+    ok("no formulas anywhere", not any(
+        isinstance(c.value, str) and c.value.startswith("=")
+        for ws in book for r in ws.iter_rows() for c in r))
+    ok("and it says it is a draft", any(
+        c.value == "Draft, not released" for r in book["About this file"].iter_rows() for c in r))
+
+    # Who can see what.
+    lead, lead_scope = _pnl("compliance", "pnl_output")
+    ok("leadership does not see a draft", not lead.rows(lead_scope, "packs"))
+    try:
+        lead.row_workbook(lead_scope, pack_id)
+        ok("nor download one", False)
+    except KeyError:
+        ok("nor download one by its id", True)
+    ok("nor the desk's trail", not lead.tabs(lead_scope))
+    ok("and is told nothing is released yet", "nothing_released" in lead.rules(lead_scope))
+
+    ok("a release needs a reason", not out.act(scope, "release_despite", [pack_id]).ok)
+    done = out.act(scope, "release_despite", [pack_id], "Noida Tax is closed this month.")
+    ok("it can go ahead in somebody's name", done.ok, done.said)
+    row = out.rows(scope, "packs")[0]
+    ok("and what it went past is on the record",
+       row["status"] == "Released" and "FR files missing" in row["released_despite"], str(row))
+    ok("a released file offers nothing more", row["can"] == [], str(row["can"]))
+    ok("leadership now reads it", [r["id"] for r in lead.rows(lead_scope, "packs")] == [pack_id])
+    ok("and only that", [t.key for t in lead.tabs(lead_scope)] == ["packs"])
+    book = load_workbook(io.BytesIO(lead.row_workbook(lead_scope, pack_id)))
+    ok("and it says who released it", any(
+        isinstance(c.value, str) and c.value.startswith("Released by finance")
+        for r in book["About this file"].iter_rows() for c in r))
+    ok("the release is on the trail",
+       any("released" in r["what"] for r in out.rows(scope, "trail")))
+    ok("and which files it came from is kept", row["inputs"].endswith("files"))
+    ok("the month's inputs are listed with fingerprints",
+       all(r["fingerprint"] for r in out.rows(scope, "inputs")))
+
+    pnl.set_skip(oct_, "Noida", "Tax", by="finance", note="closed", on=True)
+    ok("a slot marked not required stops counting as missing",
+       ("Noida", "Tax") not in pnl.missing_slots(oct_))
+
+
+def check_source_files_are_kept_and_checked_on_the_way_in() -> None:
+    _pnl_fresh()
+    oct_ = pnl_files.month_key(2026, 10)
+    handler, scope = _pnl("finance", "pnl_intake")
+    ok("the sample says it is one", "sample_data" in handler.rules(scope))
+    ok("missing files show on the screen",
+       [(r["location"], r["service_line"]) for r in handler.rows(scope, "coverage")
+        if r["status"] == "Missing"] == [("Kochi", "Assurance"), ("Noida", "Tax")])
+    row = next(r for r in handler.rows(scope, "coverage") if r["status"] == "Missing")
+    ok("a missing file offers a reminder", row["can"] == ["remind", "not_required"], str(row["can"]))
+    ok("and a filed one offers nothing",
+       next(r for r in handler.rows(scope, "coverage") if r["status"] == "Uploaded")["can"] == [])
+    notices.clear()
+    ok("the reminder is recorded", handler.act(scope, "remind", [row["id"]]).ok)
+    ok("and says what became of it",
+       next(r for r in handler.rows(scope, "coverage") if r["id"] == row["id"])["reminder"])
+    ok("the sample never sends one by itself", pnl.send_due_reminders() == 0)
+    ok("not required needs a reason", not handler.act(scope, "not_required", [row["id"]]).ok)
+
+    # The sample is not stored, and the first real file ends it.
+    drive(pnl.flush())
+    ok("nothing of the sample reaches the store", not drive(pnl._sources_store.all())
+       and not drive(pnl._records_store.all()))
+    raw = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100]])
+    said = handler.preview(scope, "upload_fr", {
+        "location": "Kochi", "service_line": "Tax",
+        "file": handler.stage_file(scope, "upload_fr", "file", "k.xlsx", raw)["token"]})
+    ok("the preview says the sample will go", said.ok and "sample" in said.said, said.said)
+    ok("and reports what the file holds", "1 Reporting Segments" in said.said, said.said)
+    ok("a preview records nothing", pnl.is_sample())
+    ok("the real file is recorded", _pnl_upload(
+        "finance", "upload_fr", "k.xlsx", raw, location="Kochi", service_line="Tax").ok)
+    ok("and the sample is gone, whole",
+       not pnl.is_sample() and len(pnl.sources()) == 1
+       and not pnl.exceptions(oct_)["found"], str(len(pnl.sources())))
+
+    # Validation on the way in.
+    for name, outcome in (
+            ("the same bytes again", _pnl_upload(
+                "finance", "upload_fr", "k.xlsx", raw, location="Kochi", service_line="Tax")),
+            ("the same bytes under another location", _pnl_upload(
+                "finance", "upload_fr", "k2.xlsx", raw, location="Noida", service_line="Tax")),
+            ("a file that says another location", _pnl_upload(
+                "finance", "upload_fr", "x.xlsx",
+                _sheet([["Location", "RS", "Line", "Actual"], ["Noida", "A", "Revenue", 2]]),
+                location="Kochi", service_line="Tax")),
+            ("a file that says another month", _pnl_upload(
+                "finance", "upload_fr", "y.xlsx",
+                _sheet([["Period", "RS", "Line", "Actual"], ["Sep 2026", "A", "Revenue", 2]]),
+                location="Kochi", service_line="Tax")),
+            ("a slot nobody chose", _pnl_upload(
+                "finance", "upload_fr", "w.xlsx", _sheet([["RS", "Line", "Actual"], ["A", "R", 3]]),
+                location="", service_line="Tax")),
+            ("something that is not a spreadsheet", _pnl_upload(
+                "finance", "upload_fr", "z.pdf", b"%PDF", location="Kochi", service_line="Tax")),
+            ("somebody else's token", handler.submit(
+                _pnl("admin", "pnl_intake")[1], "upload_fr", {
+                    "location": "Kochi", "service_line": "Tax",
+                    "file": handler.stage_file(scope, "upload_fr", "file", "t.xlsx",
+                                               _sheet([["RS", "Line", "Actual"],
+                                                       ["A", "Revenue", 8]]))["token"]})),
+            ("a master missing a column", _pnl_upload(
+                "finance", "upload_master", "p.xlsx",
+                _sheet([["Location", "Line", "Plan"], ["Kochi", "Revenue", 4]]),
+                kind="Plan database"))):
+        ok(f"{name}: refused", not outcome.ok, outcome.said)
+    ok("nothing refused was kept", len(pnl.sources()) == 1, str(len(pnl.sources())))
+
+    # A correction supersedes and keeps.
+    fixed = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 120]])
+    ok("a corrected file is taken", _pnl_upload(
+        "finance", "upload_fr", "k-v2.xlsx", fixed, location="Kochi", service_line="Tax").ok)
+    ok("the new one counts", pnl.summary(oct_)[0]["ytd"] == 120)
+    uploads = handler.rows(scope, "uploads")
+    ok("and the old one is kept, marked replaced",
+       [r["status"] for r in uploads] == ["Current", "Replaced"]
+       and uploads[0]["version"] == 2, str(uploads))
+
+    # A later Plan replaces only the months it names.
+    both = _sheet([["Period", "Location", "Service line", "RS", "Line", "Plan"],
+                   ["Oct 2026", "Kochi", "Tax", "A", "Revenue", 100],
+                   ["Nov 2026", "Kochi", "Tax", "A", "Revenue", 110]])
+    just_oct = _sheet([["Period", "Location", "Service line", "RS", "Line", "Plan"],
+                       ["Oct 2026", "Kochi", "Tax", "A", "Revenue", 105]])
+    _pnl_upload("finance", "upload_master", "plan1.xlsx", both, kind="Plan database")
+    _pnl_upload("finance", "upload_master", "plan2.xlsx", just_oct, kind="Plan database")
+    ok("a later Plan speaks for the month it names",
+       pnl.summary(oct_)[0]["plan"] == 105, str(pnl.summary(oct_)[0]))
+    ok("and the earlier one still speaks for the rest",
+       pnl.active("plan", oct_ + 1)["filename"] == "plan1.xlsx")
+
+    # Across a restart, rows and all, including a file over one chunk.
+    many = _sheet([["RS", "Line", "Actual"]]
+                  + [[f"S{n}", "Revenue", float(n)] for n in range(pnl.CHUNK + 5)])
+    ok("a large file is taken", _pnl_upload(
+        "finance", "upload_fr", "big.xlsx", many, location="Noida", service_line="Tax").ok)
+    built = _pnl("finance", "pnl_output")
+    pack_id = built[0].submit(built[1], "build_pack", {"sheets": "Pan-GDS summary",
+                                                       "locations": ""}).touched[0]
+    total = next(r["ytd"] for r in pnl.summary(oct_) if r["line"] == "Revenue")
+    drive(pnl.flush())
+    ok("everything is written down", pnl.pending() == 0)
+    pnl.forget()
+    drive(pnl.ready(sample=True))
+    ok("after a restart there is no sample", not pnl.is_sample())
+    ok("and the figures came back whole",
+       next(r["ytd"] for r in pnl.summary(oct_) if r["line"] == "Revenue") == total, str(total))
+    ok("as did the replaced version", len(pnl.sources("fr")) == 3)
+    ok("and the kept file can still be read",
+       built[0].row_workbook(built[1], pack_id)[:2] == b"PK")
+
+    # The automatic reminder, once a day and from the rule's day.
+    noon = dt.datetime(2026, 11, 3, 12).timestamp()
+    ok("not before the reminder day", pnl.send_due_reminders(noon) == 0)
+    noon = dt.datetime(2026, 11, 6, 12).timestamp()
+    sent = pnl.send_due_reminders(noon)
+    ok("from it, one per missing file", sent == len(pnl.missing_slots(oct_)) and sent > 0, str(sent))
+    ok("and not twice in one day", pnl.send_due_reminders(noon) == 0)
+    drive(pnl.flush())
+
+    # Switched on and not yet used. This fired on a real server's first start:
+    # twelve reminders about files nobody had ever been asked for.
+    _pnl_fresh(sample=False)
+    ok("nothing is overdue before anybody has filed a first file",
+       pnl.send_due_reminders(noon) == 0 and not pnl.trail())
+
+
+def check_pnl_is_finances_and_nobody_elses() -> None:
+    _pnl_fresh()
+    function = registry.get("finance")
+    screens = [f for f in function.features if f.service == "pnl"]
+    ok("P&L has its five sub-services",
+       [f.id for f in screens] == ["pnl_intake", "pnl_statement", "pnl_recon",
+                                   "pnl_exceptions", "pnl_output"], str([f.id for f in screens]))
+    forms = {form.id: form for f in screens for form in f.forms}
+    fields = {x.id: x for x in forms["upload_fr"].fields}
+    ok("the form's locations are the ones Compass expects",
+       tuple(fields["location"].options) == pnl.LOCATIONS)
+    ok("the form's service lines too",
+       tuple(fields["service_line"].options) == pnl.SERVICE_LINES)
+    ok("the sheets on offer are the ones it can build",
+       tuple(next(x for x in forms["build_pack"].fields if x.id == "sheets").options) == pnl.SHEETS)
+    from compass.businessfunctions.features import pnl as pnl_screens
+    ok("the inputs on offer are the ones it can read",
+       list(next(x for x in forms["upload_master"].fields if x.id == "kind").options)
+       == list(pnl_screens.MASTER_KINDS))
+    for feature in screens:
+        handler = registry.feature_of("finance", feature.id)[2]
+        declared = {r.id for r in feature.rules}
+        for who in ("finance", "enduser", "compliance", "admin"):
+            scope = people.scope_for(who, feature, period="Oct 2026", entity="Pan-GDS")
+            if loose := set(handler.rules(scope)) - declared:
+                ok(f"{feature.id}: {who} is told only declared rules", False, str(loose))
+        scope = people.scope_for("finance", feature, period="Oct 2026", entity="Pan-GDS")
+        for tab in handler.tabs(scope):
+            rows = handler.rows(scope, tab.key)
+            cols = handler.columns(scope, tab.key)
+            ok(f"{feature.id}/{tab.key}: says its columns", bool(cols))
+            ok(f"{feature.id}/{tab.key}: its count is its rows",
+               tab.count == len(rows) or tab.key == "inputs", f"{tab.count} / {len(rows)}")
+            ok(f"{feature.id}/{tab.key}: a row id is unique",
+               len({r["id"] for r in rows}) == len(rows))
+            ok(f"{feature.id}/{tab.key}: every row says what it takes",
+               all(isinstance(r.get("can"), list) for r in rows))
+
+        # A period from another screen is not a month, and nobody is shown one.
+        stray = people.scope_for("finance", feature, period="FY 2026-27", entity="Pan-GDS")
+        ok(f"{feature.id}: a financial year is not a month",
+           not handler.tabs(stray) and "choose_a_month" in handler.rules(stray))
+
+    for who in ("enduser", "procurement", "payroll", "nobody_at_all"):
+        for feature in screens:
+            handler = registry.feature_of("finance", feature.id)[2]
+            scope = people.scope_for(who, feature, period="Oct 2026", entity="Pan-GDS")
+            ok(f"{who} reads nothing on {feature.id}",
+               not handler.figures(scope) and not handler.tabs(scope)
+               and not handler.rows(scope, ""))
+        scope = people.scope_for(who, screens[0], period="Oct 2026")
+        ok(f"{who} cannot act", not registry.feature_of(
+            "finance", "pnl_intake")[2].act(scope, "remind", ["Kochi|Assurance"]).ok)
+    # Whoever administers Compass has to be able to run it, or the person who
+    # installed it can read the service and do nothing with it.
+    h, admin = _pnl("admin", "pnl_intake")
+    ok("the administrator can work these screens",
+       h.tabs(admin) and next(r for r in h.rows(admin, "coverage")
+                              if r["status"] == "Missing")["can"] == ["remind", "not_required"])
+    h, enduser = _pnl("enduser", "pnl_intake")
+    ok("nor upload", not h.stage_file(enduser, "upload_fr", "file", "a.xlsx", b"x")["ok"])
+    ok("nor submit", not h.submit(enduser, "upload_fr", {
+        "location": "Kochi", "service_line": "Tax", "file": "x"}).ok)
+    h, lead = _pnl("compliance", "pnl_intake")
+    ok("leadership reads the output, not the working", not h.tabs(lead))
+    h, lead = _pnl("compliance", "pnl_output")
+    ok("and cannot build a file", not h.submit(lead, "build_pack", {
+        "sheets": "Pan-GDS summary", "locations": ""}).ok)
+    ok("the build form's fields are not even sent to leadership",
+       "build_pack" not in [f["id"] for f in routes._feature_card(
+           "finance", registry.get("finance").feature("pnl_output"), lead.roles,
+           every_field=False)["forms"]])
+
+    # The assistant reads the months that exist, not all twenty-four on offer.
+    brief = chat.brief("finance", "finance")
+    months = {era["period"] for s in brief["screens"] if s["screen"] == "Source files"
+              for era in s.get("periods", [])}
+    ok("the assistant reads the months that hold something", months == {"Sep 2026", "Oct 2026"},
+       str(sorted(months)))
+
+    # The overview's "Needs you" names P&L for Finance and for nobody else.
+    auth = get_settings().auth.enabled
+    get_settings().auth.enabled = True
+    try:
+        seen = {who: asyncio.run(routes.get_function("finance", "", "", user=who))
+                for who in ("finance", "enduser")}
+    finally:
+        get_settings().auth.enabled = auth
+    ok("Finance is told what P&L needs, with no month chosen",
+       {"pnl_intake", "pnl_recon", "pnl_exceptions"}
+       <= {q["feature"] for q in seen["finance"]["queue"]}, str(seen["finance"]["queue"]))
+    ok("an employee is not",
+       not [q for q in seen["enduser"]["queue"] if q["feature"].startswith("pnl_")])
+    ok("and is not listed the service",
+       "pnl" not in {s["id"] for s in seen["enduser"]["services"]})
+
+
+def check_the_pnl_sample_can_be_on_by_itself() -> None:
+    """A real gift register and a P&L sample, on one deployment.
+
+    `seed_sample` fills an empty gift register as well, so a firm whose register
+    is real keeps it off, and until this had no way to look at P&L before
+    filing anything.
+    """
+    bf = get_settings().business_functions
+    was = bf.seed_sample, bf.pnl_sample
+    real_ready = ledger.ready
+    seeds: list[dict] = []
+
+    async def noting(**kwargs):
+        seeds.append(kwargs)
+        return await real_ready(**kwargs)
+
+    # Stored before the sample is asked for: what a deployment that has been
+    # running holds. None of it is a month of figures.
+    _pnl_store_empty()
+    stray = {"id": "log-stray", "type": "log", "kind": "reminded", "by": "Compass",
+             "said": "A stored line.", "month": None, "at": 1.0, "owner": ""}
+    drive(pnl._records_store.put(dict(stray)))
+    try:
+        bf.seed_sample, bf.pnl_sample = False, True
+        ledger.ready = noting
+        drive(routes._ready())
+    finally:
+        ledger.ready = real_ready
+        bf.seed_sample, bf.pnl_sample = was
+    ok("the switch shows the sample with the gift seed off", pnl.is_sample())
+    ok("and does not seed the gift register",
+       seeds and all(s.get("seed") is None and s.get("requests_seed") is None for s in seeds),
+       str(seeds))
+    ok("something stored does not stop the sample loading", len(pnl.sources()) > 0)
+    ok("and stays off the sample's screens", "log-stray" not in pnl._records)
+
+    drive(pnl.flush())
+    ok("nothing of the sample is written",
+       not drive(pnl._sources_store.all()) and not drive(pnl._chunks_store.all())
+       and [r["id"] for r in drive(pnl._records_store.all())] == ["log-stray"])
+    handler, scope = _pnl("finance", "pnl_exceptions")
+    row = handler.rows(scope, "all")[0]
+    handler.act(scope, "mark_reviewed", [row["id"]], "Trying it out.")
+    drive(pnl.flush())
+    ok("nor is anything done to it",
+       [r["id"] for r in drive(pnl._records_store.all())] == ["log-stray"])
+
+    raw = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100]])
+    ok("a real file is taken", _pnl_upload(
+        "finance", "upload_fr", "k.xlsx", raw, location="Kochi", service_line="Tax").ok)
+    ok("which ends the sample", not pnl.is_sample() and len(pnl.sources()) == 1)
+    ok("and what was stored is back", "log-stray" in pnl._records)
+    ok("with nothing of the sample's left among it", not any(
+        r.get("by") == "sample" or r.get("type") == "review" for r in pnl._records.values()))
+    drive(pnl.flush())
+    pnl.forget()
+    bf.pnl_sample = True
+    try:
+        drive(pnl.ready(sample=True))
+        ok("and the switch cannot bring it back over real figures", not pnl.is_sample())
+    finally:
+        bf.pnl_sample = was[1]
+    _pnl_store_empty()
+
+
+def check_a_pnl_file_goes_up_through_the_route() -> None:
+    """The one path the handler checks cannot see: multipart, token, form."""
+    _pnl_fresh()
+    from compass.common.auth import require_user
+
+    c = _client()
+    who = {"user": "finance"}
+    c.app.dependency_overrides[require_user] = lambda: who["user"]
+    base = "/v1/business-functions/finance/features/pnl_intake"
+    auth = get_settings().auth.enabled
+    get_settings().auth.enabled = True
+    try:
+        raw = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100]])
+        files = {"file": ("oct.xlsx", raw, "application/octet-stream")}
+        got = c.post(f"{base}/forms/upload_fr/upload", params={"field": "file"}, files=files)
+        body = got.json()
+        ok("a picked file comes back as a token and a count",
+           got.status_code == 200 and body["ok"] and body["token"] and "1 P&L lines" in body["said"],
+           got.text[:200])
+        form = {"values": {"location": "Kochi", "service_line": "Tax", "file": body["token"]},
+                "period": "Oct 2026"}
+        said = c.post(f"{base}/forms/upload_fr/preview", json=form).json()
+        ok("the preview reads it", said["ok"], str(said))
+        said = c.post(f"{base}/forms/upload_fr", json=form).json()
+        ok("the form records it", said["ok"], str(said))
+        view = c.get(base, params={"period": "Oct 2026", "tab": "coverage"}).json()
+        ok("the screen sends its columns", view["columns"][0]["key"] == "location", str(view["columns"][:1]))
+        ok("and the row is there",
+           next(r for r in view["rows"] if r["location"] == "Kochi"
+                and r["service_line"] == "Tax")["status"] == "Uploaded")
+
+        bad = c.post(f"{base}/forms/upload_fr/upload", params={"field": "location"}, files=files)
+        ok("a field that takes no file is refused", bad.status_code == 404, str(bad.status_code))
+        big = c.post(f"{base}/forms/upload_fr/upload", params={"field": "file"}, files={
+            "file": ("x.xlsx", b"0" * (pnl_screens_limit() + 1), "application/octet-stream")})
+        ok("nor a file over the limit", big.status_code == 413, str(big.status_code))
+
+        out = "/v1/business-functions/finance/features/pnl_output"
+        built = c.post(f"{out}/forms/build_pack", json={
+            "values": {"sheets": "Pan-GDS summary", "locations": ""}, "period": "Oct 2026"}).json()
+        ok("a file is built", built["ok"], str(built))
+        down = c.get(f"{out}/export.xlsx", params={"period": "Oct 2026", "row": built["touched"][0]})
+        ok("and comes down as that file", down.status_code == 200 and down.content[:2] == b"PK",
+           str(down.status_code))
+        who["user"] = "compliance"
+        ok("leadership gets a 404 for a draft", c.get(f"{out}/export.xlsx", params={
+            "period": "Oct 2026", "row": built["touched"][0]}).status_code == 404)
+        who["user"] = "finance"
+        whole = c.get(f"{base}/export.xlsx", params={"period": "Oct 2026"})
+        ok("the ordinary export works too", whole.status_code == 200, whole.text[:120])
+        from openpyxl import load_workbook
+
+        sheet = load_workbook(io.BytesIO(whole.content))["FR files"]
+        ok("with the screen's own headings, and no machinery",
+           [c.value for c in sheet[1]][:3] == ["Location", "Service line", "Status"]
+           and "Can" not in [c.value for c in sheet[1]], str([c.value for c in sheet[1]]))
+    finally:
+        get_settings().auth.enabled = auth
+        c.app.dependency_overrides.pop(require_user, None)
+
+
+def pnl_screens_limit() -> int:
+    from compass.businessfunctions.features import pnl as pnl_screens
+
+    return pnl_screens.UPLOAD_MAX_BYTES
 
 
 def check_a_desk_sees_its_own_work_and_not_the_firms() -> None:
@@ -6504,6 +7238,13 @@ def main() -> int:
         return _checks()
 
 
+def _pnl_store_empty() -> None:
+    """Nothing held and nothing stored. In the run's throwaway folder."""
+    pnl.forget()
+    for store in (pnl._sources_store, pnl._chunks_store, pnl._records_store):
+        drive(store.replace_all([]))
+
+
 def _checks() -> int:
     print("business functions\n")
     check_a_good_manifest_loads()
@@ -6636,6 +7377,24 @@ def _checks() -> int:
         check_an_employee_is_not_shown_the_firms_machinery()
     with fixtures():
         check_the_queue_names_only_what_you_may_open()
+    check_a_pnl_file_is_read_by_what_its_columns_say()
+    with fixtures():
+        check_pnl_consolidates_by_name_and_says_what_it_added()
+    with fixtures():
+        check_mtd_is_a_subtraction_only_where_that_holds()
+    with fixtures():
+        check_the_exception_report_finds_only_what_breaches()
+    with fixtures():
+        check_a_month_cannot_be_released_past_what_is_open()
+    with fixtures():
+        check_source_files_are_kept_and_checked_on_the_way_in()
+    with fixtures():
+        check_pnl_is_finances_and_nobody_elses()
+    with fixtures():
+        check_the_pnl_sample_can_be_on_by_itself()
+    with fixtures():
+        check_a_pnl_file_goes_up_through_the_route()
+    _pnl_store_empty()
     with fixtures():
         check_a_desk_sees_its_own_work_and_not_the_firms()
     with fixtures():
