@@ -32,6 +32,7 @@ Synchronous in memory and flushed by the route, the bargain `ledger` explains.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import datetime as dt
 import hashlib
@@ -46,6 +47,7 @@ from compass.businessfunctions import notices, people
 from compass.businessfunctions.pnl_files import (
     SPECS,
     Parsed,
+    divisor_of,
     month_key,
     month_label,
     norm,
@@ -56,18 +58,33 @@ from compass.common.persistence.catalog import Collection
 
 logger = logging.getLogger("compass.businessfunctions")
 
-#: Who is expected to send a file each month, and the words on the selectors.
-#: Illustrative, like the rules: replace with Finance's own list. The manifest
-#: repeats them because a form's options live there; a check keeps them equal.
-LOCATIONS = ("Bengaluru", "Hyderabad", "Kochi", "Noida")
-SERVICE_LINES = ("Assurance", "Consulting", "Tax")
+#: The location sheets in the Consulting consolidation, and the service lines in
+#: the overall Finance summary. The manifest repeats them because a form's options
+#: live there; a check keeps them equal.
+LOCATIONS = ("India", "Argentina", "Hungary", "Mexico", "Philippines", "Poland",
+             "Spain", "Sri Lanka", "Consulting MENA")
+SERVICE_LINES = ("Assurance", "Client Technology", "Consulting", "EYP", "Tax")
 #: The selector value meaning every location together.
 ALL = "Pan-GDS"
 
 #: What leadership's file may be made of. The backend workings are not on this
 #: list, which is how they stay out of the file.
-SHEETS = ("Pan-GDS summary", "Location summaries", "Service line summary",
-          "Reporting Segment analysis", "Exception report", "Reconciliation")
+SHEETS = ("Consolidated", "Location P&Ls", "MTD P&L", "RS wise analysis",
+          "RS YTD vs Plan", "RS YTD vs PY", "RS YTD vs Forecast",
+          "RS MTD vs Plan", "RS MTD vs PY", "Rate card YTD vs Plan",
+          "Exception report", "Reconciliation")
+
+#: Which measure a comparison reads, at YTD and at MTD.
+SCENARIOS = {"plan": ("plan", "mtd_plan", "Plan"),
+             "prior_year": ("prior_year", "mtd_py", "Prior Year"),
+             "forecast": ("forecast", "mtd_forecast", "Forecast")}
+
+#: Inputs that speak for every month rather than for the months they name.
+PERIODLESS = ("mapping", "rates", "lines")
+#: Inputs filed under a reporting month, which numbers its own versions. A close
+#: can take several Plan or Forecast worksheets, and a later month's must not
+#: reach back and change this one.
+FILED_BY_MONTH = ("plan", "forecast", "finance", "hours")
 
 #: Every comparison and validation an exception can come from, in report order.
 CHECKS = {
@@ -99,32 +116,51 @@ SHIPPED_RULES: dict[str, Any] = {
     "by": "shipped with Compass",
     "why": "Illustrative values, until Finance confirms its own.",
     "presets": [5, 10, 15, 20],
-    "plan_pct": 10.0,
-    "py_pct": 10.0,
-    "forecast_pct": 10.0,
-    # A percentage alone flags ₹500 against a plan of ₹100. Applied to money
-    # lines only: an FTE movement of three is not small because three < 1,00,000.
-    "floor": 100_000.0,
+    # The discovery notes' illustrative plus or minus 5%, which they say is not a
+    # finished universal rule. Finance's own thresholds replace it.
+    "plan_pct": 5.0,
+    "py_pct": 5.0,
+    "forecast_pct": 5.0,
+    # A percentage alone flags 5 against a plan of 1. In the report's own units,
+    # which FR divides by a thousand, and for money lines only: an FTE movement
+    # of three is not small because three is less than this.
+    "floor": 100.0,
     "vp_pct": 20.0,
     "eb_pct": 12.0,
     "eb_by_location": {},
-    "dc_revenue_pct": 15.0,
-    "dc_per_fte": 200_000.0,
+    "dc_revenue_pct": 60.0,
+    "dc_per_fte": 300.0,
     "revenue_tolerance_pct": 2.0,
-    "recon_abs": 1_000.0,
+    "recon_abs": 1.0,
     "recon_pct": 0.5,
     "reminder_day": 5,
-    # The firm's year runs April to March, as RewardLens's does. Setting this
-    # wrong makes the first month's MTD a subtraction it should not be.
-    "fy_first_month": 4,
+    # July, because FY27 August YTD and Sep'26 are both FY27 in the supplied
+    # files and the firm's global year ends in June. The files alone would also
+    # fit April, so Finance confirms this. Wrong, the first month's MTD is a
+    # subtraction it should not be.
+    "fy_first_month": 7,
+    # What a Plan or Forecast month column holds. "monthly": that month's own
+    # amount, so YTD adds the year's months and MTD is the month itself, which
+    # is what Plan 27 Data shows (Base Comp 2,56,373 in October, 1,98,189 in
+    # November). "ytd": the year so far, which an older file might hold.
+    "plan_months": "monthly",
+    # What a Plan or Forecast's money is in. "whole": whole currency, divided by
+    # the FR file's own divisor on the way in, as Plan 27 Data's are (a month's
+    # base pay for one segment reads 1,39,443). "report": already in FR's units.
+    # Hours, FTE and percentages are never divided.
+    "plan_units": "whole",
+    # Consulting is the reference model and the other service lines follow it, so
+    # only its files are expected until Finance says otherwise.
+    "service_lines_in_use": ["Consulting"],
     # What the validations call each line. Matched on the whole name, so that
     # "Other revenue" is never read as Revenue.
     "key_lines": {
-        "revenue": ["revenue", "net revenue", "total revenue"],
+        "revenue": ["total net revenue", "revenue", "net revenue", "total revenue"],
         "base": ["base compensation", "base comp", "base pay"],
         "variable_pay": ["variable pay", "bonus"],
         "benefits": ["employee benefits", "benefits"],
-        "direct_cost": ["direct cost", "direct costs", "total direct cost"],
+        "direct_cost": ["total direct expense", "direct cost", "direct costs",
+                        "total direct cost"],
         "fte": ["fte", "average fte", "fte count"],
     },
     # Finance's answers about individual lines: {name: {"class", "mtd"}}.
@@ -136,11 +172,35 @@ RULE_FIELDS = frozenset({
     "plan_pct", "py_pct", "forecast_pct", "floor", "vp_pct", "eb_pct",
     "eb_by_location", "dc_revenue_pct", "dc_per_fte", "revenue_tolerance_pct",
     "recon_abs", "recon_pct", "line_rules", "fy_first_month", "reminder_day",
+    "service_lines_in_use", "plan_months", "plan_units",
 })
+
+#: The calculated lines whose formulas the process document states. The macro's
+#: Settings sheet holds more (CS Staff Comp & Benefits, Total Direct Expense, the
+#: Total Income GDS and Distributable Income lines, the utilisations): those are
+#: not guessed, and arrive with the P&L line master when Finance uploads it.
+#: A percentage is a fraction, as Excel holds it (`IFERROR(E22/E9,0)` is 0.25),
+#: and is shown as 25.0%; its variance is in points.
+DEFAULT_FORMULAS = {
+    "Gross Margin": "[Total Net Revenue] - [Total Direct Expense]",
+    "Total Indirect Expenses":
+        "[Regional Controllable Indirect Expenses] + [Centrally Controlled Indirect Expenses]",
+    "Total Income": "[Gross Margin] - [Total Indirect Expenses]",
+    "Gross Margin % of TNR": "[Gross Margin] / [Total Net Revenue]",
+}
+
+#: The operating measures on the RS comparison sheets, checked against the RS-level
+#: breakout separately from the money.
+NON_FINANCIAL = ("Over Recovery", "Charged Hours", "FTE", "Full Utilisation",
+                 "Effective Utilisation", "Standard Hours", "Effective Available Hours")
+
+#: What the RS and rate-card comparisons report: the sheets' operating measures,
+#: and the revenue and cost lines somebody reads them beside.
+ANALYSIS_LINES = (*NON_FINANCIAL, "Total Net Revenue", "Total Direct Expense", "Gross Margin")
 
 #: How a line behaves. A `flow` adds up across segments and across months; a
 #: `stock` adds across segments only; a `ratio` adds across neither.
-_RATIO = re.compile(r"%|\bpercent|\butili[sz]ation\b|\bper fte\b|\brate\b|\brecovery\b")
+_RATIO = re.compile(r"%|\bpercent|\butili[sz]ation\b|\bper fte\b|\brate\b")
 _STOCK = re.compile(r"\bfte\b|\bhead ?count\b|\bhc\b|\bspan\b")
 
 _sources: list[dict[str, Any]] = []
@@ -197,8 +257,9 @@ def amount(value: float | None) -> str:
     return f"{sign}{body}" + (f".{part}" if part != "00" else "")
 
 
-def _round(value: float | None) -> float | None:
-    return None if value is None else round(value, 2)
+def _round(value: float | None, ratio: bool = False) -> float | None:
+    """Two places for an amount; six for a fraction, which two would make whole %."""
+    return None if value is None else round(value, 6 if ratio else 2)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -237,13 +298,47 @@ def set_rules(*, by: str, why: str, **changes: Any) -> dict[str, Any]:
     return fresh
 
 
+def _line_master() -> dict[str, dict[str, Any]]:
+    """The governed lines: {"alias": {spoken name: key}, "lines": {key: record}}.
+
+    Descriptions are the row key today, and they change. The master gives a line
+    one identity however it is spelled this month. With none uploaded, a line is
+    simply its own cleaned description, as it is to the macro.
+    """
+    def build():
+        aliases: dict[str, str] = {}
+        lines: dict[str, dict[str, Any]] = {}
+        source = active("lines")
+        for row in (source["rows"] if source else []):
+            key = norm(row["line"])
+            lines[key] = row
+            for alias in re.split(r"[;|]", str(row.get("alias", ""))):
+                if alias.strip():
+                    aliases[norm(alias)] = key
+        return {"alias": aliases, "lines": lines}
+    return _cached(("line_master",), build)
+
+
+def line_key(name: str) -> str:
+    """Which line this description is, whatever it is called this month."""
+    said = norm(name)
+    return _line_master()["alias"].get(said, said)
+
+
+def line_id(name: str) -> str:
+    return _line_master()["lines"].get(line_key(name), {}).get("line_id", "")
+
+
 def line_class(name: str) -> str:
     """Whether this line adds up, and over what. Finance's word overrides."""
-    key = norm(name)
+    key = line_key(name)
     said = rules()["line_rules"].get(key, {})
     if said.get("class"):
         return said["class"]
-    lowered = name.lower()
+    master = norm(_line_master()["lines"].get(key, {}).get("class", ""))
+    if master in ("flow", "stock", "ratio"):
+        return master
+    lowered = str(name).lower()
     if _RATIO.search(lowered):
         return "ratio"
     if _STOCK.search(lowered):
@@ -257,18 +352,142 @@ def mtd_rule(name: str) -> str:
     `subtract` is the requirement's generic rule. It does not hold for a stock
     or a ratio, and the document says Finance must define those, so their
     default is `pending`, which shows nothing rather than a confident wrong
-    figure. `closing` means the month's value is simply this month's value.
+    figure. `closing` means the month's value is simply this month's value. A
+    ratio with a formula needs neither: it is worked out from its month's parts.
     """
-    said = rules()["line_rules"].get(norm(name), {})
+    said = rules()["line_rules"].get(line_key(name), {})
     if said.get("mtd"):
         return said["mtd"]
     return "subtract" if line_class(name) == "flow" else "pending"
+
+
+def category(name: str) -> str:
+    """What an exception is about: revenue, direct cost, indirect cost or other."""
+    master = _line_master()["lines"].get(line_key(name), {}).get("section")
+    if master:
+        return master
+    lowered = str(name).lower()
+    if any(n in lowered for n in NON_FINANCIAL_WORDS):
+        return "Operating measure"
+    if "indirect" in lowered:
+        return "Indirect cost"
+    if any(w in lowered for w in ("direct", "comp", "variable pay", "benefit")):
+        return "Direct cost"
+    if "revenue" in lowered:
+        return "Revenue"
+    if any(w in lowered for w in ("margin", "income")):
+        return "Result"
+    return "Other"
+
+
+NON_FINANCIAL_WORDS = ("hours", "fte", "utilis", "utiliz", "recovery", "headcount")
+
+
+_REFERENCE = re.compile(r"\[([^\]]+)\]")
+
+
+def parse_formula(text: str) -> tuple[ast.Expression, list[str]]:
+    """A formula as a tree, and the lines it reads. ValueError if it is not one.
+
+    Written `[Gross Margin] / [Total Net Revenue] * 100`. Read here rather than
+    evaluated by Python, because it arrives in a spreadsheet: only numbers, the
+    four operators and brackets get through.
+    """
+    refs: list[str] = []
+
+    def swap(found: re.Match) -> str:
+        refs.append(line_key(found[1]))
+        return f"v{len(refs) - 1}"
+
+    try:
+        tree = ast.parse(_REFERENCE.sub(swap, text.strip()), mode="eval")
+    except SyntaxError as err:
+        raise ValueError(f"{text!r} is not a formula Compass can read.") from err
+    allowed = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Add, ast.Sub, ast.Mult, ast.Div,
+               ast.USub, ast.UAdd, ast.Constant, ast.Name, ast.Load)
+    for node in ast.walk(tree):
+        if not isinstance(node, allowed) or (
+                isinstance(node, ast.Constant) and not isinstance(node.value, (int, float))):
+            raise ValueError(f"{text!r} may only use lines, numbers and + - * / ( ).")
+    if not refs:
+        raise ValueError(f"{text!r} names no line. Write them as [Total Net Revenue].")
+    return tree, refs
+
+
+def _evaluate(node: ast.AST, refs: list[str], values: dict[str, float | None]) -> float | None:
+    """The formula's value, or None if any line it reads has none."""
+    if isinstance(node, ast.Expression):
+        return _evaluate(node.body, refs, values)
+    if isinstance(node, ast.Constant):
+        return float(node.value)
+    if isinstance(node, ast.Name):
+        return values.get(refs[int(node.id[1:])])
+    if isinstance(node, ast.UnaryOp):
+        inner = _evaluate(node.operand, refs, values)
+        return None if inner is None else (-inner if isinstance(node.op, ast.USub) else inner)
+    left, right = (_evaluate(node.left, refs, values), _evaluate(node.right, refs, values))
+    if left is None or right is None:
+        return None
+    if isinstance(node.op, ast.Add):
+        return left + right
+    if isinstance(node.op, ast.Sub):
+        return left - right
+    if isinstance(node.op, ast.Mult):
+        return left * right
+    return left / right if right else None
+
+
+def formulas() -> dict[str, tuple[str, ast.Expression, list[str]]]:
+    """Every calculated line: {key: (display name, tree, lines read)}."""
+    def build():
+        said = dict(DEFAULT_FORMULAS)
+        for row in _line_master()["lines"].values():
+            if row.get("formula"):
+                said[row["line"]] = str(row["formula"]).lstrip("=")
+        out = {}
+        for name, text in said.items():
+            try:
+                out[line_key(name)] = (name, *parse_formula(text))
+            except ValueError:
+                logger.warning("P&L: skipping the formula for %s", name)
+        return out
+    return _cached(("formulas",), build)
+
+
+def apply_formulas(values: dict[str, float | None], *, always: bool = False,
+                   only: set[str] | None = None) -> None:
+    """Fill the calculated lines in `values`, the macro's Settings rules.
+
+    Only where there is no figure, unless `always`: a stored value is not
+    overwritten, because that is what is being reconciled. Repeated, because one
+    calculated line can read another: Total Income reads Gross Margin.
+    """
+    table = formulas()
+    for _ in range(len(table) + 1):
+        moved = False
+        for key, (_name, tree, refs) in table.items():
+            if only is not None and key not in only:
+                continue
+            if not always and values.get(key) is not None:
+                continue
+            figure = _evaluate(tree, refs, values)
+            if figure is not None and values.get(key) != figure:
+                values[key] = figure
+                moved = True
+        if not moved:
+            break
 
 
 def fy_start(month: int) -> int:
     """The first month of the financial year this month falls in."""
     first = rules()["fy_first_month"] - 1
     return month - ((month % 12 - first) % 12)
+
+
+def fiscal_label(month: int) -> str:
+    """Which fiscal year this month is in, as the files say it: "27"."""
+    last = fy_start(month) + 11
+    return f"{(last // 12) % 100:02d}"
 
 
 def month_of(period: str) -> int | None:
@@ -301,16 +520,59 @@ def fr_source(month: int, location: str, service_line: str) -> dict[str, Any] | 
     return found[-1] if found else None
 
 
-def active(kind: str, month: int | None = None) -> dict[str, Any] | None:
-    """The newest file of this kind that speaks for this month.
+def _filed(source: dict[str, Any]) -> int:
+    """The month an upload was filed under. 0 for an input that has none."""
+    return source.get("filed_for", 0)
 
-    Per month rather than per file, because a Plan file can name twelve
-    months and a later one only three: the three are replaced and the rest of
-    the first file still stands.
+
+def active(kind: str, month: int | None = None) -> dict[str, Any] | None:
+    """The file of this kind that counts for this month.
+
+    The month's own newest version. Without one, the nearest earlier month's
+    that names it, because a Plan worksheet can name twelve months and need
+    filing only once. A month before anything was filed takes the first month
+    filed that names it. So a file reaches forward and never changes a month
+    that already has an answer.
     """
     found = [s for s in _sources if s["kind"] == kind
-             and (month is None or month in s["months"] or not s["months"])]
-    return found[-1] if found else None
+             and (month is None or month in s["months"] or kind in PERIODLESS)]
+    if not found or month is None:
+        return found[-1] if found else None
+    settled = [s for s in found if _filed(s) <= month]
+    if settled:
+        return sorted(settled, key=_filed)[-1]
+    first = min(_filed(s) for s in found)
+    return [s for s in found if _filed(s) == first][-1]
+
+
+def next_version(kind: str, month: int | None = None, location: str = "",
+                 service_line: str = "") -> int:
+    """The number the next upload would take: each month counts its own."""
+    filed = (month or 0) if kind == "fr" or kind in FILED_BY_MONTH else 0
+    return 1 + sum(1 for s in _sources if s["kind"] == kind and _filed(s) == filed
+                   and s["location"] == location and s["service_line"] == service_line)
+
+
+def version_label(source: dict[str, Any]) -> str:
+    """How a version is named: v3 of Sep 2026, or v2 for an input with no month."""
+    filed = _filed(source)
+    return f"v{source['version']}" + (f" of {month_label(filed)}" if filed else "")
+
+
+def versions(month: int) -> list[dict[str, Any]]:
+    """Every version a month can be asked about: its own, and whatever it is reading.
+
+    Oldest first, each with whether this month reads it.
+    """
+    out = []
+    for source in _sources:
+        kind = source["kind"]
+        counted = (fr_source(month, source["location"], source["service_line"]) is source
+                   if kind == "fr" else active(kind, month) is source)
+        names_it = kind in PERIODLESS or (not _filed(source) and month in source["months"])
+        if _filed(source) == month or names_it or counted:
+            out.append({"source": source, "in_use": counted})
+    return out
 
 
 def is_current(source: dict[str, Any]) -> bool:
@@ -318,16 +580,22 @@ def is_current(source: dict[str, Any]) -> bool:
     if source["kind"] == "fr":
         return fr_source(source["months"][0], source["location"],
                          source["service_line"]) is source
-    if not source["months"]:
+    if source["kind"] in PERIODLESS:
         return active(source["kind"]) is source
-    return any(active(source["kind"], m) is source for m in source["months"])
+    if any(active(source["kind"], m) is source
+           for m in {*source["months"], *filter(None, [_filed(source)])}):
+        return True
+    newer = [s for s in _sources if s["kind"] == source["kind"]
+             and set(s.get("fiscal_years", [])) & set(source.get("fiscal_years", []))]
+    return bool(newer) and newer[-1] is source
 
 
 def _rows_of(kind: str, month: int) -> list[dict[str, Any]]:
     source = active(kind, month)
     if source is None:
         return []
-    return [r for r in source["rows"] if r.get("month", month) == month]
+    return [r for r in source["rows"]
+            if "fiscal_year" not in r and r.get("month", month) == month]
 
 
 def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: str,
@@ -340,8 +608,13 @@ def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: s
     for row in parsed.rows:
         kept = {k: v for k, v in row.items()
                 if k not in ("period", "effective_from") and v not in (None, "")}
+        if "fiscal_year" in row:
+            rows.append(kept)
+            continue
         if "period" in row or kind in ("plan", "forecast", "history", "finance", "hours"):
-            at = parse_month(row.get("period")) if row.get("period") else month
+            raw_period = row.get("period")
+            at = (raw_period if isinstance(raw_period, int)
+                  else parse_month(raw_period) if raw_period else month)
             if at is None:
                 raise ValueError(
                     f"A row in {filename} says its period is "
@@ -353,10 +626,7 @@ def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: s
     months = sorted({r["month"] for r in rows if "month" in r})
     if kind == "fr":
         months = [month]
-    version = 1 + sum(1 for s in _sources if s["kind"] == kind
-                      and s["location"] == location
-                      and s["service_line"] == service_line
-                      and (not months or set(months) & set(s["months"])))
+    version = next_version(kind, month, location, service_line)
     source = {
         "id": f"{kind}-{uuid.uuid4().hex[:10]}",
         "kind": kind,
@@ -364,6 +634,7 @@ def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: s
         "filename": filename,
         "sha256": sha,
         "months": months,
+        "filed_for": (month or 0) if kind == "fr" or kind in FILED_BY_MONTH else 0,
         "location": location,
         "service_line": service_line,
         "version": version,
@@ -372,6 +643,9 @@ def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: s
         "count": len(rows),
         "totals": parsed.totals,
         "skipped": parsed.skipped,
+        "cover": parsed.cover,
+        "errors": parsed.errors,
+        "fiscal_years": sorted({r["fiscal_year"][-2:] for r in rows if "fiscal_year" in r}),
         "owner": "",
         "rows": rows,
     }
@@ -380,10 +654,10 @@ def record_source(kind: str, parsed: Parsed, *, filename: str, raw: bytes, by: s
     _files[f"{sha}{_suffix(filename)}"] = raw
     _unsaved_files.append(f"{sha}{_suffix(filename)}")
     _touch()
-    log("uploaded", by, f"{SPECS[kind].label} v{version}: {filename} "
+    log("uploaded", by, f"{SPECS[kind].label} {version_label(source)}: {filename} "
                         f"({len(rows)} rows)"
                         + (f", {location} · {service_line}" if location else ""),
-        month if kind == "fr" else None)
+        _filed(source) or None)
     return source
 
 
@@ -391,16 +665,21 @@ def _suffix(filename: str) -> str:
     return ".csv" if filename.lower().endswith(".csv") else ".xlsx"
 
 
-def same_file(raw: bytes) -> dict[str, Any] | None:
+def same_file(raw: bytes, kind: str = "", month: int | None = None) -> dict[str, Any] | None:
     """A current upload with these exact bytes, or None.
 
     The same report filed twice under two locations is the mistake this
-    finds: nothing else would notice, because every figure in it is valid.
+    finds: nothing else would notice, because every figure in it is valid. The
+    same Plan worksheet filed for another month is not one: that month has no
+    version of its own until it is.
     """
     sha = hashlib.sha256(raw).hexdigest()
     for source in reversed(_sources):
-        if source["sha256"] == sha and is_current(source):
-            return source
+        if source["sha256"] != sha or not is_current(source):
+            continue
+        if kind in FILED_BY_MONTH and source["kind"] == kind and _filed(source) != month:
+            continue
+        return source
     return None
 
 
@@ -427,7 +706,7 @@ def actuals_at(month: int) -> tuple[dict[tuple, float], set[tuple[str, str]], di
                 for row in source["rows"]:
                     if row.get("actual") is None:
                         continue
-                    key = norm(row["line"])
+                    key = line_key(row["line"])
                     names.setdefault(key, row["line"])
                     names.setdefault(norm(row["rs"]), row["rs"])
                     figures[(location, line_of_service, norm(row["rs"]), key)] = row["actual"]
@@ -435,7 +714,7 @@ def actuals_at(month: int) -> tuple[dict[tuple, float], set[tuple[str, str]], di
             slot = (row["location"], row["service_line"])
             if slot in slots and fr_source(month, *slot) is not None:
                 continue
-            key = norm(row["line"])
+            key = line_key(row["line"])
             names.setdefault(key, row["line"])
             names.setdefault(norm(row["rs"]), row["rs"])
             figures[(*slot, norm(row["rs"]), key)] = row["actual"]
@@ -478,126 +757,483 @@ def view(month: int) -> dict[str, Any]:
     return _cached(("view", month), lambda: _build_view(month))
 
 
+#: Words in a line's name that make it a count, not money: never divided.
+_COUNTS = ("hours", "fte", "headcount", "head count", "utilis", "utiliz", "additions",
+           "resignation", "transfers")
+
+
+def is_money(name: str) -> bool:
+    """Whether a line is an amount of currency, which a divisor applies to."""
+    lowered = str(name).lower()
+    return line_class(name) != "ratio" and not any(w in lowered for w in _COUNTS)
+
+
+def monthly_plans() -> bool:
+    return rules().get("plan_months", "monthly") == "monthly"
+
+
+#: (segment, line key, location, service line): a Plan or Forecast row's key.
+ScenarioKey = tuple[str, str, str, str]
+
+
+def _scenario_months(kind: str, month: int) -> dict[int, dict[ScenarioKey, float]]:
+    """Each month of the year so far, as the Plan or Forecast in use gives it.
+
+    From the version that counts for this month, which a Plan naming twelve
+    months is; a month it does not name comes from the version filed for that
+    month or before, never from one filed later, which this month's own version
+    replaced. Repeated rows are added up, as the macro's aggregation does.
+    """
+    def build():
+        using = active(kind, month)
+        out: dict[int, dict[ScenarioKey, float]] = {}
+        for at in range(fy_start(month), month + 1):
+            source = using if using is not None and at in using["months"] else active(kind, at)
+            if source is None or at not in source["months"]:
+                continue
+            if source is not using and _filed(source) > at:
+                continue
+            found = out.setdefault(at, {})
+            for row in source["rows"]:
+                if "fiscal_year" in row or row.get("month") != at:
+                    continue
+                key = (row["rs"], line_key(row["line"]), row.get("location", ""),
+                       row.get("service_line", ""))
+                found[key] = found.get(key, 0.0) + row[kind]
+        return out
+    return _cached(("scenario_months", kind, month), build)
+
+
+def _scenario(kind: str, month: int) -> dict[ScenarioKey, float]:
+    """A Plan or Forecast as at this month: its YTD, which FR's Actual is compared with.
+
+    Keyed on (segment, line, location, service line), the last two empty when the
+    file does not say: the macro's own key is only the first two. With monthly
+    columns an amount adds up the year's months so far, a count such as FTE is
+    their average, and a percentage is left to its formula.
+    """
+    def build():
+        if not monthly_plans():
+            out: dict[ScenarioKey, float] = {}
+            for row in _rows_of(kind, month):
+                at = (row["rs"], line_key(row["line"]), row.get("location", ""),
+                      row.get("service_line", ""))
+                out[at] = out.get(at, 0.0) + row[kind]
+            return out
+        return _year_so_far(_scenario_months(kind, month).values())
+    return _cached(("scenario", kind, month), build)
+
+
+def _year_so_far(months: Any) -> dict[ScenarioKey, float]:
+    """Months added into one figure per key: a sum, an average for a count, no ratio."""
+    sums: dict[ScenarioKey, float] = {}
+    seen: dict[ScenarioKey, int] = {}
+    for figures in months:
+        for key, figure in figures.items():
+            sums[key] = sums.get(key, 0.0) + figure
+            seen[key] = seen.get(key, 0) + 1
+    out: dict[ScenarioKey, float] = {}
+    for key, total in sums.items():
+        behaves = line_class(_line_name(key[1]))
+        if behaves == "ratio":
+            continue
+        out[key] = total / seen[key] if behaves == "stock" else total
+    return out
+
+
+def _line_name(key: str) -> str:
+    """A line key's governed name, which is what a line's class is read from."""
+    return _line_master()["lines"].get(key, {}).get("line") or key
+
+
+def _scenario_month(kind: str, month: int) -> dict[ScenarioKey, float]:
+    """The month's own Plan or Forecast, which is its MTD when the columns are monthly."""
+    if not monthly_plans():
+        return {}
+    figures = _scenario_months(kind, month).get(month, {})
+    return {k: v for k, v in figures.items() if line_class(_line_name(k[1])) != "ratio"}
+
+
+def _plan_gaps(kind: str, month: int) -> list[int]:
+    """Months of this year so far that no version of a Plan or Forecast names."""
+    if not monthly_plans() or active(kind, month) is None:
+        return []
+    held = _scenario_months(kind, month)
+    return [m for m in range(fy_start(month), month + 1) if m not in held]
+
+
+def _full_year(kind: str, month: int) -> dict[tuple[str, str], float]:
+    """A Plan's whole fiscal year: its fiscal-year column, or else its twelve months.
+
+    The column from the version in use, or else the newest with this year. With
+    no such column, the version in use's own months, when it names all twelve.
+    """
+    label = fiscal_label(month)
+    found = [s for s in _sources if s["kind"] == kind and label in s.get("fiscal_years", [])]
+    using = active(kind, month)
+    chosen = using if using in found else (found[-1] if found else None)
+    out: dict[tuple[str, str], float] = {}
+    for row in (chosen["rows"] if chosen else []):
+        if str(row.get("fiscal_year", ""))[-2:] == label:
+            at = (norm(row["rs"]), line_key(row["line"]))
+            out[at] = out.get(at, 0.0) + row["full_year"]
+    if out or using is None or not monthly_plans():
+        return out
+    year = range(fy_start(month), fy_start(month) + 12)
+    if not all(m in using["months"] for m in year):
+        return out
+    by_month: dict[int, dict[ScenarioKey, float]] = {}
+    for row in using["rows"]:
+        if row.get("month") in year and "fiscal_year" not in row:
+            # Location and service line dropped: the column this stands in for
+            # has neither.
+            key = (norm(row["rs"]), line_key(row["line"]), "", "")
+            figures = by_month.setdefault(row["month"], {})
+            figures[key] = figures.get(key, 0.0) + row[kind]
+    return {k[:2]: v for k, v in _year_so_far(by_month.values()).items()}
+
+
 def _build_view(month: int) -> dict[str, Any]:
     cells: dict[tuple, dict[str, Any]] = {}
     names: dict[str, str] = {}
     slots: set[tuple[str, str]] = set()
-    reported: dict[tuple[str, str], set[str]] = {}
+    reported: dict[str, set[tuple[str, str]]] = {}
+    alerts: list[dict[str, Any]] = []
 
     def cell(location: str, sl: str, rs: str, line: str) -> dict[str, Any]:
-        key = norm(line)
-        names.setdefault(key, line)
+        key = line_key(line)
+        names.setdefault(key, _line_master()["lines"].get(key, {}).get("line") or line)
         at = (location, sl, norm(rs), key)
         if at not in cells:
             cells[at] = {"location": location, "service_line": sl, "rs": rs,
                          "line": names[key], "line_key": key, "actual": None,
                          "plan": None, "forecast": None, "prior_year": None,
-                         "mtd": None, "filled": False}
+                         "full_year_plan": None, "full_year_py": None,
+                         "mtd": None, "mtd_plan": None, "mtd_py": None,
+                         "mtd_forecast": None, "filled": False}
         return cells[at]
 
+    units: dict[str, set[tuple[str, str]]] = {}
+    #: What each slot's FR file divides by, which a Plan in whole currency is
+    #: divided by to meet it.
+    divisors: dict[tuple[str, str], float] = {}
     for location in LOCATIONS:
         for sl in SERVICE_LINES:
             source = fr_source(month, location, sl)
             if source is None:
                 continue
             slots.add((location, sl))
-            reported[(location, sl)] = set()
+            cover = source.get("cover", {})
+            units.setdefault(" · ".join(filter(None, (cover.get("currency"),
+                                                      cover.get("divisor")))),
+                             set()).add((location, sl))
+            divisors[(location, sl)] = divisor_of(cover.get("divisor"))
             for row in source["rows"]:
-                reported[(location, sl)].add(norm(row["rs"]))
+                reported.setdefault(norm(row["rs"]), set()).add((location, sl))
                 got = cell(location, sl, row["rs"], row["line"])
                 got["actual"] = row.get("actual")
-                for measure in ("plan", "forecast", "prior_year"):
+                for measure in ("plan", "forecast", "prior_year", "full_year_plan",
+                                "full_year_py"):
                     if row.get(measure) is not None:
                         got[measure] = row[measure]
+                if row.get("prior_year") is not None:
+                    got["py_from"] = "fr"
 
-    # PLAN AND FORECAST. Macros add these to the FR output today. A segment
-    # that has values here and is absent from FR is what Finance now inserts by
-    # hand; it is inserted with no actual, and listed so somebody can see it
-    # happened. Only for a slot whose file has arrived: for one that has not,
-    # the missing file is the problem to report rather than missing segments.
+    whole = rules().get("plan_units", "whole") == "whole"
+
+    def in_report_units(figure: float, slot: tuple[str, str], key: str) -> float:
+        """A Plan figure in the units its slot's FR file reports in."""
+        if whole and is_money(_line_name(key)):
+            return figure / divisors.get(slot, 1.0)
+        return figure
+
+    #: (cell, field) whose month came straight from a monthly Plan or Forecast,
+    #: so is not worked out again by subtracting last month's.
+    direct: set[tuple[tuple, str]] = set()
+
+    attributes, conflicts = mapping(month)
+
+    def resolve(rs: str, location: str, sl: str) -> tuple[str, str] | None:
+        """Where a segment nobody reported belongs: its file's word, then the mapping's."""
+        attrs = attributes.get(norm(rs), {})
+        where = location or attrs.get("location", "")
+        line = sl or attrs.get("service_line", "")
+        if where and not line:
+            # Only one service line in play for that location settles it.
+            held = [s for w, s in slots if w == where]
+            line = held[0] if len(held) == 1 else ""
+        return (where, line) if where and line else None
+
+    # PLAN AND FORECAST. A segment with values here that FR left out is what
+    # Finance inserts by hand today; it goes in with no actual, and is listed. The
+    # FR file is not the segment master: the population is the union of Actual,
+    # Plan, Forecast, prior year and valid master data.
     missing: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for measure, kind in (("plan", "plan"), ("forecast", "forecast")):
-        for row in _rows_of(kind, month):
-            slot = (row["location"], row["service_line"])
-            if slot not in slots:
+    needs_location: dict[str, dict[str, Any]] = {}
+    spread: set[str] = set()
+
+    def adding(where: tuple[str, str], rs: str, why: str) -> dict[str, Any]:
+        return missing.setdefault((*where, norm(rs)), {
+            "location": where[0], "service_line": where[1], "rs": rs, "why": why, "lines": 0})
+
+    def placed(got: dict[str, Any], slot: tuple[str, str], measure: str, key: str,
+               figure: float, this_month: float | None) -> None:
+        got[measure] = in_report_units(figure, slot, key)
+        field = SCENARIOS[measure][1]
+        if this_month is not None:
+            got[field] = in_report_units(this_month, slot, key)
+        if this_month is not None or monthly_plans():
+            # Monthly columns with no column for this month: no MTD, rather
+            # than this YTD less some other file's last month.
+            direct.add(((*slot, norm(got["rs"]), key), field))
+
+    for measure in ("plan", "forecast"):
+        own_month = _scenario_month(measure, month)
+        for (rs, key, location, sl), figure in _scenario(measure, month).items():
+            this_month = own_month.get((rs, key, location, sl), 0.0 if own_month else None)
+            segment = norm(rs)
+            # The macro's key is segment and line, so a file that does not say
+            # where goes to wherever that segment reported.
+            targets = [t for t in reported.get(segment, set())
+                       if (not location or t[0] == location) and (not sl or t[1] == sl)]
+            if len(targets) > 1:
+                spread.add(rs)
+            if targets:
+                for slot in targets:
+                    placed(cell(*slot, rs, _named(key, measure, month)), slot, measure, key,
+                           figure, this_month)
                 continue
-            got = cell(*slot, row["rs"], row["line"])
-            got[measure] = row[measure]
-            if norm(row["rs"]) not in reported[slot]:
-                got["filled"] = True
-                entry = missing.setdefault((*slot, norm(row["rs"])), {
-                    "location": slot[0], "service_line": slot[1], "rs": row["rs"],
-                    "why": "In the Plan or Forecast this month, absent from FR",
-                    "lines": 0})
-                entry["lines"] += 1
+            where = resolve(rs, location, sl)
+            if where is None:
+                needs_location.setdefault(segment, {
+                    "location": "", "service_line": "", "rs": rs, "lines": 0,
+                    "why": "In the Plan or Forecast, absent from FR, and nothing says "
+                           "which location it belongs to"})["lines"] += 1
+                continue
+            if where not in slots:
+                continue
+            got = cell(*where, rs, _named(key, measure, month))
+            placed(got, where, measure, key, figure, this_month)
+            got["filled"] = True
+            adding(where, rs, "In the Plan or Forecast this month, absent from FR")["lines"] += 1
 
     # A segment with plan only in later months of this year has no actuals yet
     # and still needs its row, or it surprises everybody on the day it starts.
-    source = active("plan", None)
+    source = active("plan", month)
     if source is not None:
         last = fy_start(month) + 11
         for row in source["rows"]:
-            at = row.get("month", month)
-            slot = (row["location"], row["service_line"])
-            if not month < at <= last or slot not in slots:
+            at = row.get("month")
+            if at is None or not month < at <= last:
                 continue
-            if norm(row["rs"]) in reported[slot]:
+            segment = norm(row["rs"])
+            if segment in reported:
                 continue
-            already = (*slot, norm(row["rs"]))
-            got = cell(*slot, row["rs"], row["line"])
-            got["filled"] = True
-            if already not in missing:
-                missing[already] = {
-                    "location": slot[0], "service_line": slot[1], "rs": row["rs"],
-                    "why": f"Planned from {month_label(at)}, nothing to report yet",
-                    "lines": 0}
-                missing[already]["_from"] = at
-            if missing[already].get("_from") == at:
-                missing[already]["lines"] += 1
+            where = resolve(row["rs"], row.get("location", ""), row.get("service_line", ""))
+            if where is None:
+                if segment not in needs_location:
+                    needs_location[segment] = {
+                        "location": "", "service_line": "", "rs": row["rs"], "lines": 0,
+                        "why": f"Planned from {month_label(at)}, and nothing says "
+                               f"which location it belongs to"}
+                continue
+            if where not in slots:
+                continue
+            fresh = (*where, segment, line_key(row["line"])) not in cells
+            cell(*where, row["rs"], row["line"])["filled"] = True
+            entry = adding(where, row["rs"], f"Planned from {month_label(at)}, nothing to report yet")
+            if fresh:
+                entry["lines"] += 1
 
-    # PRIOR YEAR, from what was reported twelve months ago, ahead of any PY
-    # column the FR file carried: the tool's own record is the one it can vouch
-    # for, and the file's column is the fallback for before the tool existed.
-    last_year, _py_slots, _ = actuals_at(month - 12)
-    for at, got in cells.items():
-        if at in last_year:
-            got["prior_year"] = last_year[at]
+    # Full-year Plan comes from the fiscal-year column, or the twelve months.
+    for (segment, key), figure in _full_year("plan", month).items():
+        for at, got in cells.items():
+            if at[2] == segment and at[3] == key:
+                got["full_year_plan"] = in_report_units(figure, at[:2], key)
+
+    # PRIOR YEAR. FR's own "PY at Plan Rate" first: last year restated at this
+    # year's plan rate, which what was reported twelve months ago, at last
+    # year's rate, is not. That record serves where FR carried no PY, and for a
+    # segment only last year had.
+    last_year, _py_slots, py_names = actuals_at(month - 12)
+    for at, figure in last_year.items():
+        location, sl, segment, key = at
+        if at in cells:
+            if cells[at]["prior_year"] is None:
+                cells[at]["prior_year"] = figure
+                cells[at]["py_from"] = "history"
+        elif (location, sl) in slots and segment not in reported:
+            got = cell(location, sl, py_names.get(segment, segment), py_names.get(key, key))
+            got["prior_year"] = figure
+            got["py_from"] = "history"
+            got["filled"] = True
+            adding((location, sl), got["rs"], "In last year's figures, nothing this year")["lines"] += 1
+
+    # Master data is the last of the union: a mapped segment with a location,
+    # and no figure anywhere this month.
+    for segment, attrs in attributes.items():
+        where = resolve(attrs["rs"], "", "")
+        if where in slots and segment not in reported and (*where, segment) not in missing:
+            missing[(*where, segment)] = {
+                "location": where[0], "service_line": where[1], "rs": attrs["rs"], "lines": 0,
+                "why": "In the mapping, no figures this month"}
+
+    # THE CALCULATED LINES. The Plan does not store its subtotals, so they are
+    # worked out per segment for each measure, where nothing was supplied.
+    for measure in ("actual", "plan", "forecast", "prior_year", "full_year_plan", "full_year_py"):
+        _fill_calculated(cells, cell, measure)
 
     # MTD. The first month of the year IS its YTD. Otherwise a slot with no
     # prior month has no MTD, because subtracting nothing would report the
     # whole year as one month and nobody would notice.
     first_month = month == fy_start(month)
     before, before_slots, _ = actuals_at(month - 1)
+    before = dict(before)
+    plan_before = _measure_before("plan", month - 1, cells, in_report_units)
+    forecast_before = _measure_before("forecast", month - 1, cells, in_report_units)
+    # Last month's PY from where this month's came from, so a month is never one
+    # source's YTD less another's.
+    py_from_fr = _measure_before("prior_year", month - 1, cells, in_report_units)
+    py_from_history = actuals_at(month - 13)[0]
     no_prior = sorted(slots - before_slots) if not first_month else []
     for at, got in cells.items():
         rule = mtd_rule(got["line"])
-        if got["actual"] is None or rule == "pending":
-            got["mtd"] = None
-        elif rule == "closing" or first_month:
-            got["mtd"] = got["actual"]
-        elif (got["location"], got["service_line"]) in before_slots:
-            got["mtd"] = got["actual"] - before.get(at, 0.0)
+        slot = (got["location"], got["service_line"])
+        if got["actual"] is not None and rule != "pending":
+            if rule == "closing" or first_month:
+                got["mtd"] = got["actual"]
+            elif slot in before_slots:
+                got["mtd"] = got["actual"] - before.get(at, 0.0)
+        if rule == "subtract":
+            py_before = py_from_fr if got.get("py_from") == "fr" else py_from_history
+            for measure, field, prior in (("plan", "mtd_plan", plan_before),
+                                          ("forecast", "mtd_forecast", forecast_before),
+                                          ("prior_year", "mtd_py", py_before)):
+                if got[measure] is None or (at, field) in direct:
+                    continue
+                # No figure for last month is no MTD. Subtracting nothing would
+                # present the whole year as a month.
+                if first_month:
+                    got[field] = got[measure]
+                elif at in prior:
+                    got[field] = got[measure] - prior[at]
+    # A calculated line's month is its parts' month, whatever its class. Where a
+    # subtraction above already gave one it is the same figure, and a percentage
+    # could never have had one by subtracting.
+    for field in ("mtd", "mtd_plan", "mtd_py", "mtd_forecast"):
+        _fill_calculated(cells, cell, field, always=True)
 
-    attributes, conflicts = mapping(month)
+    # The plain name a segment goes by across locations: "SOX" for each of
+    # FR's "SOX_IN" and "SOX_PH". The mapping's word, else the Plan's, else FR's.
+    plain: dict[str, str] = {}
+    for kind in ("forecast", "plan"):
+        source = active(kind, month)
+        for row in (source["rows"] if source else []):
+            if row.get("rs_name"):
+                plain[norm(row["rs"])] = row["rs_name"]
     for got in cells.values():
         attrs = attributes.get(norm(got["rs"]), {})
-        for field in ("type", "sub_service_line", "rate_card", "span", "competency"):
+        for field in ("type", "sub_service_line", "rate_card", "span", "competency", "mena"):
             got[field] = attrs.get(field, "")
+        got["segment"] = attrs.get("rs_name") or plain.get(norm(got["rs"])) or got["rs"]
     every_rs = {norm(c["rs"]): c["rs"] for c in cells.values()}
+    every_rs.update({k: v["rs"] for k, v in needs_location.items()})
     unmapped = sorted(r for k, r in every_rs.items()
                       if k not in attributes and k not in conflicts)
+
+    if len(units) > 1:
+        for said, where in sorted(units.items()):
+            alerts.append({"id": f"units/{said}", "location": ", ".join(sorted(w[0] for w in where)),
+                           "service_line": "", "change": "Files in different units",
+                           "name": said or "Not stated", "can": []})
+    for rs in sorted(spread):
+        alerts.append({"id": f"spread/{rs}", "location": "", "service_line": "",
+                       "change": "Plan with no location, segment in several",
+                       "name": f"{rs}: its Plan is counted in each, as the macro would",
+                       "can": []})
+    for kind in ("plan", "forecast"):
+        if gaps := _plan_gaps(kind, month):
+            alerts.append({"id": f"gaps/{kind}", "location": "", "service_line": "",
+                           "change": f"{SPECS[kind].label} short of months",
+                           "name": f"No {SPECS[kind].label} names "
+                                   f"{', '.join(month_label(m) for m in gaps)}, so its YTD "
+                                   f"leaves {'it' if len(gaps) == 1 else 'them'} out",
+                           "can": []})
+    said_units = next(iter(units), "") if len(units) == 1 else ""
     return {
         "month": month,
         "cells": cells,
         "names": names,
         "slots": slots,
+        "units": said_units,
+        "divisor": divisor_of(said_units.split(" · ")[-1]) if said_units else 1.0,
         "missing": sorted(missing.values(),
-                          key=lambda m: (m["location"], m["service_line"], m["rs"])),
+                          key=lambda m: (m["location"], m["service_line"], m["rs"]))
+                   + sorted(needs_location.values(), key=lambda m: m["rs"]),
         "unmapped": unmapped,
         "conflicts": sorted(conflicts.values()),
         "no_prior": no_prior,
-        "alerts": _structure_alerts(month, cells, slots, before, before_slots, names),
+        "alerts": alerts + _structure_alerts(month, cells, slots, before, before_slots, names),
     }
+
+
+def _named(key: str, measure: str, month: int) -> str:
+    """A line's words, from whichever row of the input said them."""
+    def build():
+        out: dict[str, str] = {}
+        for row in _rows_of(measure, month):
+            out.setdefault(line_key(row["line"]), row["line"])
+        return out
+    return _cached(("named", measure, month), build).get(key, key)
+
+
+def _measure_before(measure: str, month: int, cells: dict[tuple, dict[str, Any]],
+                    in_report_units: Any) -> dict[tuple, float]:
+    """One measure as it stood last month, keyed the way this month's cells are.
+
+    From last month's FR file, then its Plan or Forecast input, in the order this
+    month's own figure was arrived at. A monthly Plan gives its month directly,
+    so is not needed here.
+    """
+    out: dict[tuple, float] = {}
+    for location, sl in {at[:2] for at in cells}:
+        source = fr_source(month, location, sl)
+        for row in (source["rows"] if source else []):
+            if row.get(measure) is not None:
+                out[(location, sl, norm(row["rs"]), line_key(row["line"]))] = row[measure]
+    if measure in ("plan", "forecast") and not monthly_plans():
+        by_segment: dict[tuple[str, str], float] = {}
+        for (rs, key, _location, _sl), figure in _scenario(measure, month).items():
+            at = (norm(rs), key)
+            by_segment[at] = by_segment.get(at, 0.0) + figure
+        out.update({at: in_report_units(by_segment[at[2:]], at[:2], at[3])
+                    for at in cells if at[2:] in by_segment})
+    return out
+
+
+def _fill_calculated(cells: dict[tuple, dict[str, Any]], cell, measure: str,
+                     *, always: bool = False) -> None:
+    """Work out the calculated lines for one measure, segment by segment."""
+    table = formulas()
+    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for at, got in cells.items():
+        group = groups.setdefault(at[:3], {"rs": got["rs"], "values": {}, "added": True})
+        group["values"][at[3]] = got[measure]
+        group["added"] = group["added"] and got["filled"]
+    for (location, sl, _segment), group in groups.items():
+        values = dict(group["values"])
+        apply_formulas(values, always=always)
+        for key, figure in values.items():
+            if figure is None or key not in table or figure == group["values"].get(key):
+                continue
+            got = cell(location, sl, group["rs"], table[key][0])
+            got[measure] = figure
+            # Worked out, not reported, so its absence from last month's file
+            # is not a change of shape.
+            if measure == "actual":
+                got.setdefault("calculated", True)
+            # A subtotal of a segment Compass added is part of what it added.
+            got["filled"] = got["filled"] or group["added"]
 
 
 def _structure_alerts(month: int, cells: dict[tuple, dict[str, Any]],
@@ -616,7 +1252,7 @@ def _structure_alerts(month: int, cells: dict[tuple, dict[str, Any]],
     now_rs: dict[tuple[str, str], dict[str, str]] = {}
     for got in cells.values():
         slot = (got["location"], got["service_line"])
-        if got["actual"] is not None:
+        if got["actual"] is not None and not got.get("calculated"):
             now_lines.setdefault(slot, set()).add(got["line_key"])
             now_rs.setdefault(slot, {})[norm(got["rs"])] = got["rs"]
     then_lines: dict[tuple[str, str], set[str]] = {}
@@ -643,11 +1279,18 @@ def _structure_alerts(month: int, cells: dict[tuple, dict[str, Any]],
     return out
 
 
-def _variance(actual: float | None, against: float | None) -> tuple[float | None, float | None]:
-    """The difference, and as a percentage of what it is against."""
+def _variance(actual: float | None, against: float | None, ratio: bool = False
+              ) -> tuple[float | None, float | None]:
+    """The difference, and as a percentage of what it is against.
+
+    A percentage line's variance is in points, as the macro's `(D20-E20)*100`
+    gives it: 25.0% against 27.5% is -2.5 pts, not -9.1%.
+    """
     if actual is None or against is None:
         return None, None
     difference = actual - against
+    if ratio:
+        return difference, difference * 100
     return difference, (difference / abs(against) * 100 if against else None)
 
 
@@ -656,7 +1299,7 @@ def in_location(got: dict[str, Any], location: str) -> bool:
 
 
 def summary(month: int, *, location: str = "", service_line: str = "",
-            rs: str = "") -> list[dict[str, Any]]:
+            rs: str = "", reported_only: bool = False) -> list[dict[str, Any]]:
     """The P&L at some level: one row per line, in the order the files give them.
 
     Ratios do not add up across segments, so above one segment they are blank.
@@ -665,43 +1308,166 @@ def summary(month: int, *, location: str = "", service_line: str = "",
     picked = [c for c in view(month)["cells"].values()
               if in_location(c, location)
               and (not service_line or c["service_line"] == service_line)
-              and (not rs or norm(c["rs"]) == norm(rs))]
+              and (not rs or norm(c["rs"]) == norm(rs))
+              and not (reported_only and c["filled"])]
     by_line: dict[str, list[dict[str, Any]]] = {}
     for got in picked:
         by_line.setdefault(got["line_key"], []).append(got)
+    # A percentage above one segment is worked out again from its parts at this
+    # level, where a formula says how. Its parts were added up; it was not.
+    ratios = {k for k, g in by_line.items() if len(g) > 1 and line_class(g[0]["line"]) == "ratio"}
+    levelled: dict[str, dict[str, float | None]] = {}
+    if ratios:
+        for measure in ("actual", "plan", "forecast", "prior_year", "mtd", "full_year_plan",
+                        "full_year_py", "mtd_plan", "mtd_py", "mtd_forecast"):
+            values: dict[str, float | None] = {}
+            for key, group in by_line.items():
+                found = [g[measure] for g in group if g[measure] is not None]
+                values[key] = sum(found) if found and key not in ratios else None
+            apply_formulas(values, only=ratios)
+            levelled[measure] = values
     out = []
     for key, group in by_line.items():
         name = group[0]["line"]
-        single = len(group) == 1
-        adds = single or line_class(name) != "ratio"
+        ratio = line_class(name) == "ratio"
 
         def total(measure: str) -> float | None:
+            if key in ratios:
+                return _round(levelled[measure].get(key), ratio)
             found = [g[measure] for g in group if g[measure] is not None]
-            return _round(sum(found)) if found and adds else None
+            return _round(sum(found), ratio) if found else None
 
         actual, plan, forecast = total("actual"), total("plan"), total("forecast")
         prior = total("prior_year")
-        to_plan, to_plan_pct = _variance(actual, plan)
-        to_forecast, to_forecast_pct = _variance(actual, forecast)
-        to_prior, to_prior_pct = _variance(actual, prior)
+        to_plan, to_plan_pct = _variance(actual, plan, ratio)
+        to_forecast, to_forecast_pct = _variance(actual, forecast, ratio)
+        to_prior, to_prior_pct = _variance(actual, prior, ratio)
         out.append({
             "id": key, "line": name, "class": line_class(name),
             "ytd": actual, "plan": plan,
-            "vs_plan": _round(to_plan), "vs_plan_pct": _round(to_plan_pct),
+            "vs_plan": _round(to_plan, ratio), "vs_plan_pct": _round(to_plan_pct),
             "forecast": forecast,
-            "vs_forecast": _round(to_forecast),
+            "vs_forecast": _round(to_forecast, ratio),
             "vs_forecast_pct": _round(to_forecast_pct),
             "prior_year": prior,
-            "vs_prior_year": _round(to_prior),
+            "vs_prior_year": _round(to_prior, ratio),
             "vs_prior_year_pct": _round(to_prior_pct),
+            "full_year_plan": total("full_year_plan"),
+            "full_year_py": total("full_year_py"),
             "mtd": total("mtd"),
+            "mtd_plan": total("mtd_plan"),
+            "mtd_forecast": total("mtd_forecast"),
+            "mtd_py": total("mtd_py"),
             "can": [],
         })
     return out
 
 
+def consolidated(month: int) -> tuple[list[str], list[dict[str, Any]]]:
+    """Lines down, locations across, then the Pan-GDS total: the console sheet."""
+    locations = [w for w in LOCATIONS if any(s[0] == w for s in view(month)["slots"])]
+    rows = {r["id"]: dict(r, total=r["ytd"]) for r in summary(month)}
+    for location in locations:
+        for row in summary(month, location=location):
+            rows[row["id"]][_at(location)] = row["ytd"]
+    return locations, list(rows.values())
+
+
+def _at(location: str) -> str:
+    return "at_" + norm(location).replace(" ", "_")
+
+
+def comparison(month: int, scenario: str, *, basis: str = "ytd", by: str = "rs"
+               ) -> tuple[list[str], list[dict[str, Any]]]:
+    """The RS or rate-card sheets: each segment's measures, by location, against one view.
+
+    `by` is "rs" or "rate_card". Its location columns and total are this period's;
+    the comparison and its variance are against Plan, prior year or Forecast.
+    """
+    return _cached(("comparison", month, scenario, basis, by),
+                   lambda: _compare(month, scenario, basis, by))
+
+
+def _compare(month: int, scenario: str, basis: str, by: str
+             ) -> tuple[list[str], list[dict[str, Any]]]:
+    field = "actual" if basis == "ytd" else "mtd"
+    other = SCENARIOS[scenario][0 if basis == "ytd" else 1]
+    wanted = [line_key(n) for n in ANALYSIS_LINES]
+    table = {k: f for k, f in formulas().items() if k in wanted}
+    ratios = {k for k in wanted if k in table and line_class(table[k][0]) == "ratio"}
+    now = view(month)
+    locations = [w for w in LOCATIONS if any(s[0] == w for s in now["slots"])]
+
+    groups: dict[str, dict[str, Any]] = {}
+    for got in now["cells"].values():
+        # One row per segment by its plain name, each location a column: FR's
+        # "SOX_IN" and "SOX_PH" are both SOX.
+        name = got["segment"] if by == "rs" else (got["rate_card"] or "Not mapped")
+        group = groups.setdefault(norm(name), {
+            "name": name, "first": got, "here": {}, "there": {}, "names": {}, "cells": {},
+            "mixed": set(), "against": {}})
+        key = got["line_key"]
+        group["names"].setdefault(key, got["line"])
+        group["cells"][key] = got
+        ratio = line_class(got["line"]) == "ratio"
+        # Percentages of several segments do not add, so a rate card's come from
+        # its formula or not at all.
+        if by != "rs" and ratio:
+            continue
+        if got[field] is not None:
+            here = group["here"].setdefault(got["location"], {})
+            if ratio and key in here:
+                group["mixed"].add((got["location"], key))
+            here[key] = here.get(key, 0.0) + got[field]
+        if got[other] is not None:
+            group["there"][key] = group["there"].get(key, 0.0) + got[other]
+            group["against"][key] = group["against"].get(key, 0) + 1
+
+    rows = []
+    for segment, group in sorted(groups.items()):
+        # Two segments' percentages in one place were added above: worked out
+        # again from their parts, or left blank.
+        for location, key in group["mixed"]:
+            group["here"][location].pop(key, None)
+        for figures in group["here"].values():
+            apply_formulas(figures, always=True, only=ratios)
+        totals: dict[str, float | None] = {}
+        for figures in group["here"].values():
+            for key, figure in figures.items():
+                if line_class(group["names"][key]) != "ratio" or len(group["here"]) == 1:
+                    totals[key] = (totals.get(key) or 0.0) + figure
+        apply_formulas(totals, always=True, only=ratios)
+        there = {k: v for k, v in group["there"].items()
+                 if line_class(group["names"][k]) != "ratio" or group["against"][k] == 1}
+        apply_formulas(there, always=True, only=ratios)
+        for key in wanted:
+            if key not in group["names"] and key not in totals:
+                continue
+            total, against = totals.get(key), there.get(key)
+            if total is None and against is None:
+                continue
+            ratio = line_class(group["names"].get(key, key)) == "ratio"
+            variance, pct = _variance(total, against, ratio)
+            row = {"id": f"{segment}/{key}", "metric": group["names"].get(key, key),
+                   "class": "ratio" if ratio else "", "total": _round(total, ratio),
+                   "against": _round(against, ratio), "variance": _round(variance, ratio),
+                   "variance_pct": _round(pct), "can": []}
+            if by == "rs":
+                first = group["first"]
+                row.update(rs=group["name"], type=first["type"],
+                           sub_service_line=first["sub_service_line"],
+                           rate_card=first["rate_card"], span=first["span"],
+                           competency=first["competency"])
+            else:
+                row["rate_card"] = group["name"]
+            for location in locations:
+                row[_at(location)] = _round(group["here"].get(location, {}).get(key), ratio)
+            rows.append(row)
+    return locations, rows
+
+
 def _role_keys() -> dict[str, set[str]]:
-    return {role: {norm(n) for n in names}
+    return {role: {line_key(n) for n in names}
             for role, names in rules()["key_lines"].items()}
 
 
@@ -718,7 +1484,8 @@ def segments(month: int, location: str = "") -> list[dict[str, Any]]:
             "service_line": got["service_line"], "rs": got["rs"],
             "type": got["type"], "sub_service_line": got["sub_service_line"],
             "rate_card": got["rate_card"], "span": got["span"],
-            "competency": got["competency"], "revenue": None, "direct_cost": None,
+            "competency": got["competency"], "mena": got["mena"],
+            "revenue": None, "direct_cost": None,
             "fte": None, "filled": False, "can": []})
         row["filled"] = row["filled"] or got["filled"]
         for role in ("revenue", "direct_cost", "fte"):
@@ -764,9 +1531,12 @@ def detail(month: int, location: str = "") -> list[dict[str, Any]]:
             "id": f"{got['location']}/{got['service_line']}/"
                   f"{norm(got['rs'])}/{got['line_key']}",
             "location": got["location"], "service_line": got["service_line"],
-            "rs": got["rs"], "line": got["line"], "ytd": _round(got["actual"]),
-            "plan": _round(got["plan"]), "forecast": _round(got["forecast"]),
-            "prior_year": _round(got["prior_year"]), "mtd": _round(got["mtd"]),
+            "rs": got["rs"], "line": got["line"], "class": line_class(got["line"]),
+            **{field: _round(got[measure], line_class(got["line"]) == "ratio")
+               for field, measure in (("ytd", "actual"), ("plan", "plan"),
+                                      ("forecast", "forecast"), ("prior_year", "prior_year"),
+                                      ("full_year_plan", "full_year_plan"),
+                                      ("full_year_py", "full_year_py"), ("mtd", "mtd"))},
             "inserted": "yes" if got["filled"] else "", "can": [],
         })
     return out
@@ -794,9 +1564,13 @@ def set_skip(month: int, location: str, sl: str, *, by: str, note: str,
 def coverage(month: int) -> list[dict[str, Any]]:
     """Every location and service line, and where its file has got to."""
     out = []
+    in_use = rules()["service_lines_in_use"]
     for location in LOCATIONS:
         for sl in SERVICE_LINES:
             source = fr_source(month, location, sl)
+            # Only what is expected, and anything that has arrived regardless.
+            if sl not in in_use and source is None:
+                continue
             skip = skipped_slot(month, location, sl)
             about = reminder_about(month, location, sl)
             notice = notices.latest_for(about)
@@ -810,7 +1584,7 @@ def coverage(month: int) -> list[dict[str, Any]]:
                 "id": f"{location}|{sl}", "location": location, "service_line": sl,
                 "status": status,
                 "file": source["filename"] if source else "",
-                "version": source["version"] if source else None,
+                "version": version_label(source) if source else "",
                 "rows": source["count"] if source else None,
                 "by": source["by"] if source else (skip or {}).get("by", ""),
                 "when": _day(source["at"]) if source else "",
@@ -940,9 +1714,15 @@ def exceptions_at(month: int, picked: dict[str, Any]) -> dict[str, list[dict[str
                why: str) -> None:
         found.append({
             "id": _exception_id(check, month, got_location, sl, norm(rs), norm(line)),
-            "check": check, "comparison": CHECKS[check], "location": got_location,
-            "service_line": sl, "rs": rs, "line": line, "value": _round(value),
-            "against": _round(against), "variance": _round(variance),
+            "check": check, "comparison": CHECKS[check], "category": category(line),
+            # Only the standard three compare a line with itself; the others'
+            # figures are shares, already in per cent.
+            "class": line_class(line) if check in SCENARIOS else "",
+            "location": got_location,
+            "service_line": sl, "rs": rs, "line": line,
+            "value": _round(value, line_class(line) == "ratio"),
+            "against": _round(against, line_class(line) == "ratio"),
+            "variance": _round(variance, line_class(line) == "ratio"),
             "variance_pct": _round(pct), "threshold": threshold, "why": why,
         })
 
@@ -965,15 +1745,20 @@ def exceptions_at(month: int, picked: dict[str, Any]) -> dict[str, list[dict[str
             difference = actual - against
             if not difference:
                 continue
-            if line_class(got["line"]) == "flow" and abs(difference) < picked["floor"]:
+            if (line_class(got["line"]) == "flow" and category(got["line"]) != "Operating measure"
+                    and abs(difference) < picked["floor"]):
                 continue
-            pct = difference / abs(against) * 100 if against else None
+            # A percentage line moves in points, as the pack reports it.
+            ratio = line_class(got["line"]) == "ratio"
+            _, pct = _variance(actual, against, ratio)
             if pct is not None and abs(pct) <= limit:
                 continue
             word = "over" if difference > 0 else "under"
+            unit = " pts" if ratio else "%"
             raised(check, got["location"], got["service_line"], got["rs"], got["line"],
-                   actual, against, variance=difference, pct=pct, threshold=f"{limit:g}%",
-                   why=(f"{abs(pct):.1f}% {word}, past the {limit:g}% selected"
+                   actual, against, variance=difference, pct=pct,
+                   threshold=f"{limit:g}{unit}",
+                   why=(f"{abs(pct):.1f}{unit} {word}, past the {limit:g}{unit} selected"
                         if pct is not None else
                         f"{amount(abs(difference))} {word} a comparison figure of zero"))
 
@@ -1000,13 +1785,15 @@ def exceptions_at(month: int, picked: dict[str, Any]) -> dict[str, list[dict[str
         else:
             expected = 0.0
             gap = ""
+            divisor = view(month)["divisor"]
             for grade, count in worked.items():
                 rate = rates.get((norm(rate_card), norm(grade)),
                                  rates.get((norm(rate_card), "")))
                 if rate is None:
                     gap = f"Rate card {rate_card} has no rate for {grade or 'this segment'}"
                     break
-                expected += count * rate
+                # Hours × rate is in whole currency; FR reports in its divisor.
+                expected += count * rate / divisor
             if gap:
                 untried("revenue", location, sl, rs, gap)
             else:
@@ -1105,42 +1892,123 @@ def set_review(row: dict[str, Any], month: int, *, by: str, note: str, on: bool)
 # reconciliation
 # ──────────────────────────────────────────────────────────────────────────
 
-def _within(difference: float, against: float) -> bool:
+def _within(difference: float, against: float, *, money: bool = True) -> bool:
+    """Whether a difference is small enough to call a match.
+
+    The amount is in the report's units, so it means nothing for a count: an FTE
+    short by one is not within a tolerance of one thousand dollars.
+    """
     base = rules()
-    return abs(difference) <= max(base["recon_abs"], abs(against) * base["recon_pct"] / 100)
+    share = abs(against) * base["recon_pct"] / 100
+    return abs(difference) <= (max(base["recon_abs"], share) if money else share)
 
 
 def reconciliation(month: int) -> dict[str, list[dict[str, Any]]]:
     return _cached(("recon", month), lambda: _reconcile(month))
 
 
+#: How a Finance file names a measure, and which figure of ours that is.
+_MEASURE_NAMES = {"": "ytd", "actual": "ytd", "ytd": "ytd", "plan": "plan",
+                  "forecast": "forecast", "projection": "forecast", "py": "prior_year",
+                  "prior year": "prior_year", "full year plan": "full_year_plan",
+                  "fy plan": "full_year_plan", "full year py": "full_year_py",
+                  "fy py": "full_year_py"}
+_TOTAL_FIELDS = {"actual": ("ytd", "Actual"), "plan": ("plan", "Plan"),
+                 "forecast": ("forecast", "Forecast"),
+                 "prior_year": ("prior_year", "Prior Year"),
+                 "full_year_plan": ("full_year_plan", "Full Year Plan"),
+                 "full_year_py": ("full_year_py", "Full Year PY")}
+
+
 def _reconcile(month: int) -> dict[str, list[dict[str, Any]]]:
-    """Against Finance's own file, and against the FR file's own totals."""
+    """The process's four layers, plus whether the calculated lines hold.
+
+      segments      within a location's file, segments against Total Selected
+      location      that file's Total Selected against its Consolidated column,
+                    for every measure
+      non_financial the operating measures against the RS-level breakout
+      finance       selected measures against Finance's own workbook
+      calculated    a subtotal FR reported against what its formula gives
+    """
     now = view(month)
-    totals: dict[tuple[str, str, str], float] = {}
-    has_line: set[tuple[str, str, str]] = set()
-    for got in now["cells"].values():
-        at = (got["location"], got["service_line"], got["line_key"])
-        if got["actual"] is not None:
-            has_line.add(at)
-            totals[at] = totals.get(at, 0.0) + got["actual"]
+    by_slot = {slot: {r["id"]: r for r in summary(month, location=slot[0], service_line=slot[1])}
+               for slot in now["slots"]}
+    # A file's own totals cannot include a segment Compass added to it, so they
+    # are compared with what the file reported. Finance's file is compared with
+    # the whole result.
+    as_reported = {slot: {r["id"]: r for r in summary(month, location=slot[0], service_line=slot[1],
+                                                      reported_only=True)}
+                   for slot in now["slots"]}
+    non_financial = {line_key(n) for n in NON_FINANCIAL}
+
+    segments, operating, location_rows = [], [], []
+    for location, sl in sorted(now["slots"]):
+        source = fr_source(month, location, sl)
+        if source is None:
+            continue
+        ours = as_reported[(location, sl)]
+        tallies: dict[str, list[float]] = {}
+        for line, measures in source.get("totals", {}).items():
+            key = line_key(line)
+            row = ours.get(key)
+            if row is None:
+                continue
+            for measure, figure in measures.items():
+                field, _label = _TOTAL_FIELDS[measure]
+                mine = row.get(field)
+                if mine is None:
+                    continue
+                difference = mine - figure
+                tallies.setdefault(measure, []).append(difference)
+                if line_class(line) == "ratio" and not _within(difference, figure, money=False):
+                    # A fraction is never more than a unit out, so the money
+                    # tolerance below would pass any of them.
+                    tallies.setdefault("_off_" + measure, []).append(difference)
+                if measure != "actual":
+                    continue
+                listed = {
+                    "id": f"{location}|{sl}|{key}", "location": location, "service_line": sl,
+                    "parameter": line, "class": line_class(line),
+                    "segments_total": _round(mine, line_class(line) == "ratio"),
+                    "file_total": _round(figure, line_class(line) == "ratio"),
+                    "difference": _round(difference, line_class(line) == "ratio"),
+                    "status": "Matched" if _within(difference, figure,
+                                                   money=key not in non_financial
+                                                   and line_class(line) != "ratio")
+                    else "Mismatched",
+                    "can": []}
+                (operating if key in non_financial else segments).append(listed)
+        for measure, differences in tallies.items():
+            if measure.startswith("_off_"):
+                continue
+            off = [d for d in differences if abs(d) > rules()["recon_abs"]]
+            off += tallies.get("_off_" + measure, [])
+            location_rows.append({
+                "id": f"{location}|{sl}|{measure}", "location": location, "service_line": sl,
+                "parameter": _TOTAL_FIELDS[measure][1], "lines": len(differences),
+                "differing": len(off),
+                "largest": _round(max(differences, key=abs)),
+                "status": "Matched" if not off else "Mismatched", "can": []})
 
     against_finance = []
     for row in _rows_of("finance", month):
         slot = (row["location"], row["service_line"])
-        key = norm(row["parameter"])
-        ours = totals.get((*slot, key))
+        key = line_key(row["parameter"])
+        word = norm(row.get("scenario", ""))
+        field = _MEASURE_NAMES.get(word, "ytd")
+        ours = by_slot.get(slot, {}).get(key, {}).get(field)
         theirs = row["value"]
         if slot not in now["slots"]:
             status, difference = "No FR file", None
-        elif (*slot, key) not in has_line:
+        elif ours is None:
             status, difference = "Not in the P&L", None
         else:
             difference = ours - theirs
             status = "Matched" if _within(difference, theirs) else "Mismatched"
         against_finance.append({
-            "id": f"{slot[0]}|{slot[1]}|{key}", "location": slot[0],
+            "id": f"{slot[0]}|{slot[1]}|{key}|{field}", "location": slot[0],
             "service_line": slot[1], "parameter": row["parameter"],
+            "measure": row.get("scenario", "") or "Actual",
             "compass": _round(ours), "finance": _round(theirs),
             "difference": _round(difference),
             "difference_pct": _round(difference / abs(theirs) * 100
@@ -1148,31 +2016,41 @@ def _reconcile(month: int) -> dict[str, list[dict[str, Any]]]:
             "status": status, "can": [],
         })
 
-    # "Location-level data should match the RS-level breakup."
-    internal = []
-    for location, sl in sorted(now["slots"]):
-        source = fr_source(month, location, sl)
-        if source is None:
-            continue
-        for line, total in source.get("totals", {}).items():
-            key = norm(line)
-            if line_class(line) == "ratio":
+    # A calculated line as reported, against the same line worked out from what
+    # the file reported for its parts. Finds a formula that has drifted from the
+    # layout, which is the macro's own weakness.
+    calculated = []
+    table = formulas()
+    for slot in sorted(now["slots"]):
+        rows = by_slot[slot]
+        source = fr_source(month, *slot)
+        stated = {line_key(r["line"]) for r in source["rows"]} if source else set()
+        for key, (name, tree, refs) in table.items():
+            if key not in stated or key not in rows:
                 continue
-            ours = totals.get((location, sl, key), 0.0)
-            difference = ours - total
-            internal.append({
-                "id": f"{location}|{sl}|{key}", "location": location,
-                "service_line": sl, "parameter": line, "segments_total": _round(ours),
-                "file_total": _round(total), "difference": _round(difference),
-                "status": "Matched" if _within(difference, total) else "Mismatched",
-                "can": [],
-            })
-    return {"finance": against_finance, "internal": internal}
+            values = {k: r["ytd"] for k, r in rows.items()}
+            figure = _evaluate(tree, refs, values)
+            reported = rows[key]["ytd"]
+            if figure is None or reported is None:
+                continue
+            difference = reported - figure
+            calculated.append({
+                "id": f"{slot[0]}|{slot[1]}|{key}", "location": slot[0], "service_line": slot[1],
+                "parameter": name, "class": line_class(name),
+                "reported": _round(reported, line_class(name) == "ratio"),
+                "calculated": _round(figure, line_class(name) == "ratio"),
+                "difference": _round(difference, line_class(name) == "ratio"),
+                "status": "Matched" if _within(difference, figure,
+                                               money=line_class(name) != "ratio")
+                else "Mismatched",
+                "can": []})
+    return {"finance": against_finance, "segments": segments, "location": location_rows,
+            "non_financial": operating, "calculated": calculated}
 
 
 def recon_problems(month: int) -> int:
-    both = reconciliation(month)
-    return sum(1 for r in both["finance"] + both["internal"] if r["status"] != "Matched")
+    return sum(1 for layer in reconciliation(month).values() for r in layer
+               if r["status"] != "Matched")
 
 
 def blockers(month: int) -> list[str]:
@@ -1221,11 +2099,11 @@ def inputs_of(month: int) -> list[dict[str, Any]]:
     for kind in ("plan", "forecast", "history", "finance", "hours"):
         if source := active(kind, month):
             used.append(source)
-    for kind in ("mapping", "rates"):
+    for kind in PERIODLESS:
         if source := active(kind):
             used.append(source)
     return [{"id": s["id"], "kind": s["label"], "file": s["filename"],
-             "version": s["version"], "by": s["by"], "sha256": s["sha256"]}
+             "version": version_label(s), "by": s["by"], "sha256": s["sha256"]}
             for s in used]
 
 
@@ -1257,6 +2135,7 @@ def build_pack(month: int, *, by: str, sheets: list[str], locations: list[str]) 
         "locations": locations, "by": by, "at": time.time(), "state": "draft",
         "file": key, "inputs": inputs_of(month), "rules_version": rules()["version"],
         "selection": {k: v for k, v in selection(month).items() if k not in ("by", "at")},
+        "units": view(month)["units"],
         "exceptions": len(exceptions(month)["found"]),
         "blockers": blockers(month),
     }
@@ -1278,6 +2157,10 @@ def release_pack(record: dict[str, Any], *, by: str, note: str, past: list[str])
 def pack_is_stale(record: dict[str, Any]) -> bool:
     """Whether the month's files have moved since this was built."""
     return {i["id"] for i in record["inputs"]} != {i["id"] for i in inputs_of(record["month"])}
+
+
+#: A percentage line's differences: fractions apart, so points once multiplied.
+_POINT_GAPS = frozenset({"vs_plan", "vs_forecast", "vs_prior_year", "variance", "difference"})
 
 
 def _workbook(month: int, pack_id: str, by: str, sheets: list[str],
@@ -1312,10 +2195,21 @@ def _workbook(month: int, pack_id: str, by: str, sheets: list[str],
             head.font = Font(color="FFFFFF", bold=True)
             ws.column_dimensions[head.column_letter].width = 16 if c > 1 else 34
         for r, row in enumerate(rows, start=2):
+            ratio = row.get("class") == "ratio"
             for c, (key, _label) in enumerate(columns, start=1):
                 value = row.get(key)
+                # A percentage line keeps Excel's fraction, formatted as one, and
+                # its variance is in points as the pack has it.
+                if ratio and isinstance(value, float) and key in _POINT_GAPS:
+                    value *= 100
                 cell = ws.cell(row=r, column=c, value=value)
-                if isinstance(value, float):
+                if not isinstance(value, float):
+                    continue
+                if ratio and (key.endswith("_pct") or key in _POINT_GAPS):
+                    cell.number_format = '+0.0" pts";-0.0" pts"'
+                elif ratio:
+                    cell.number_format = "0.0%"
+                else:
                     cell.number_format = "#,##0.00"
         ws.freeze_panes = "A2"
 
@@ -1323,26 +2217,48 @@ def _workbook(month: int, pack_id: str, by: str, sheets: list[str],
              ("vs_plan", "vs Plan"), ("vs_plan_pct", "vs Plan %"),
              ("forecast", "YTD Forecast"), ("vs_forecast_pct", "vs Forecast %"),
              ("prior_year", "Prior Year"), ("vs_prior_year_pct", "vs Prior Year %"),
-             ("mtd", "MTD Actual")]
-    if "Pan-GDS summary" in sheets:
-        sheet("Pan-GDS", lines, summary(month))
-    if "Location summaries" in sheets:
+             ("full_year_plan", "Full Year Plan"), ("full_year_py", "Full Year PY")]
+    if "Consolidated" in sheets:
+        where, rows = consolidated(month)
+        chosen = [w for w in where if not locations or w in locations]
+        sheet("Consolidated",
+              [("line", "P&L line"), *[(_at(w), w) for w in chosen], ("total", "Pan-GDS"),
+               ("plan", "YTD Plan"), ("vs_plan_pct", "vs Plan %"),
+               ("prior_year", "Prior Year"), ("vs_prior_year_pct", "vs Prior Year %")], rows)
+    if "Location P&Ls" in sheets:
         for location in locations or list(LOCATIONS):
-            sheet(location, lines, summary(month, location=location))
-    if "Service line summary" in sheets:
-        for sl in SERVICE_LINES:
-            sheet(sl, lines, summary(month, service_line=sl))
-    if "Reporting Segment analysis" in sheets:
-        sheet("Reporting Segments",
-              [("location", "Location"), ("service_line", "Service line"), ("rs", "RS"),
-               ("type", "Type"), ("sub_service_line", "Sub-service line"),
-               ("rate_card", "Rate card"), ("span", "Span"), ("competency", "Competency"),
+            if rows := summary(month, location=location):
+                sheet(location, lines, rows)
+    if "MTD P&L" in sheets:
+        sheet("MTD P&L",
+              [("line", "P&L line"), ("mtd", "MTD Actual"), ("mtd_plan", "MTD Plan"),
+               ("mtd_forecast", "MTD Forecast"), ("mtd_py", "MTD Prior Year")], summary(month))
+    if "RS wise analysis" in sheets:
+        sheet("RS wise analysis",
+              [("type", "Type"), ("sub_service_line", "SSL"), ("rate_card", "Rate Card"),
+               ("rs", "Reporting Segment"), ("span", "Span"), ("competency", "Competencies"),
+               ("location", "Location"), ("service_line", "Service line"),
                ("revenue", "Revenue"), ("direct_cost", "Direct cost"), ("fte", "FTE")],
               [r for r in segments(month)
                if not locations or r["location"] in locations])
+    for title, scenario, basis, by in (
+            ("RS YTD vs Plan", "plan", "ytd", "rs"), ("RS YTD vs PY", "prior_year", "ytd", "rs"),
+            ("RS YTD vs Forecast", "forecast", "ytd", "rs"), ("RS MTD vs Plan", "plan", "mtd", "rs"),
+            ("RS MTD vs PY", "prior_year", "mtd", "rs"),
+            ("Rate card YTD vs Plan", "plan", "ytd", "rate_card")):
+        if title not in sheets:
+            continue
+        where, rows = comparison(month, scenario, basis=basis, by=by)
+        head = ([("type", "Type"), ("sub_service_line", "SSL"), ("rate_card", "Rate Card"),
+                 ("rs", "Reporting Segment"), ("span", "Span"), ("competency", "Competencies")]
+                if by == "rs" else [("rate_card", "Rate Card")])
+        sheet(title, [*head, ("metric", "Measure"),
+                      *[(_at(w), w) for w in where if not locations or w in locations],
+                      ("total", "Total"), ("against", SCENARIOS[scenario][2]),
+                      ("variance", "Variance"), ("variance_pct", "Variance %")], rows)
     if "Exception report" in sheets:
         sheet("Exceptions",
-              [("comparison", "Comparison"), ("location", "Location"),
+              [("comparison", "Comparison"), ("category", "Category"), ("location", "Location"),
                ("service_line", "Service line"), ("rs", "RS"), ("line", "P&L line"),
                ("value", "Value"), ("against", "Against"), ("variance", "Variance"),
                ("variance_pct", "Variance %"), ("threshold", "Threshold"), ("why", "Why")],
@@ -1351,8 +2267,8 @@ def _workbook(month: int, pack_id: str, by: str, sheets: list[str],
     if "Reconciliation" in sheets:
         sheet("Reconciliation",
               [("location", "Location"), ("service_line", "Service line"),
-               ("parameter", "Parameter"), ("compass", "P&L"), ("finance", "Finance"),
-               ("difference", "Difference"), ("status", "Status")],
+               ("parameter", "Parameter"), ("measure", "Measure"), ("compass", "P&L"),
+               ("finance", "Finance"), ("difference", "Difference"), ("status", "Status")],
               reconciliation(month)["finance"])
     buffer = io.BytesIO()
     book.save(buffer)

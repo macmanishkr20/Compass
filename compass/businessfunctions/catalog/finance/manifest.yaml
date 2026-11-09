@@ -984,10 +984,10 @@ features:
     handler: pnl_intake
     scope: [period]
     choices:
-      period: &pnl_months [Apr 2025, May 2025, Jun 2025, Jul 2025, Aug 2025, Sep 2025,
-                           Oct 2025, Nov 2025, Dec 2025, Jan 2026, Feb 2026, Mar 2026,
-                           Apr 2026, May 2026, Jun 2026, Jul 2026, Aug 2026, Sep 2026,
-                           Oct 2026, Nov 2026, Dec 2026, Jan 2027, Feb 2027, Mar 2027]
+      period: &pnl_months [Jul 2025, Aug 2025, Sep 2025, Oct 2025, Nov 2025, Dec 2025,
+                           Jan 2026, Feb 2026, Mar 2026, Apr 2026, May 2026, Jun 2026,
+                           Jul 2026, Aug 2026, Sep 2026, Oct 2026, Nov 2026, Dec 2026,
+                           Jan 2027, Feb 2027, Mar 2027, Apr 2027, May 2027, Jun 2027]
     scope_why: >-
       Everything here belongs to one reporting month, and a file is filed under
       the month chosen.
@@ -1017,9 +1017,10 @@ features:
         label: Upload an FR file
         submit_label: Record the file
         blurb: >-
-          One location and service line, for the month chosen above. Compass
-          finds the columns by name, so the layout may move. It reads the file
-          when you pick it and tells you what it found before anything is kept.
+          One location and service line, for the month chosen above. Compass finds
+          Total Selected and the Reporting Segment blocks by name, so the layout may
+          move, and checks the Cover Sheet says this month. It reads the file when
+          you pick it and says what it found before anything is kept.
         confirm: >-
           Files this as the month's P&L for that location and service line. If
           one is already there, this becomes the current version and the old
@@ -1028,37 +1029,63 @@ features:
           - id: location
             label: Location
             kind: choice
-            options: &pnl_locations [Bengaluru, Hyderabad, Kochi, Noida]
+            options: &pnl_locations [India, Argentina, Hungary, Mexico, Philippines, Poland,
+                                     Spain, Sri Lanka, Consulting MENA]
           - id: service_line
             label: Service line
             kind: choice
-            options: &pnl_service_lines [Assurance, Consulting, Tax]
+            options: &pnl_service_lines [Assurance, Client Technology, Consulting, EYP, Tax]
           - id: file
             label: FR file
             kind: file
             help: >-
-              .xlsx or .csv. A Reporting Segment column, an RS row above each
-              block, or one column per segment all work.
+              .xlsx, .xlsm or .csv. An exported FR report as it comes. Save an .xlsb
+              as .xlsx first.
       - id: upload_master
         label: Upload an input
         submit_label: Record the file
         blurb: >-
-          The Plan database, Forecast, RS mapping, prior-period history, Finance
-          consolidation, charged hours or rate card. A file with a Period column
-          speaks for those months; one without speaks for the month chosen above.
+          The Plan database, Forecast, RS mapping, P&L line master, prior-period
+          history, Finance consolidation, charged hours or rate card. A Plan with a
+          column per month and fiscal year is read as the macro reads it. A file
+          that names no period speaks for the month chosen above. Each month keeps
+          its own versions of the Plan, Forecast, Finance consolidation and charged
+          hours, so upload as many as the close takes.
         confirm: >-
-          Becomes the current version for the months it names. Earlier versions
-          are kept, and months it does not name keep the file they had.
+          Files this as the next version for the month chosen above. It counts for
+          that month, and for later months it names until they have their own.
+          Earlier versions are kept, and earlier months keep the one they had.
         fields:
           - id: kind
             label: Which input
             kind: choice
-            options: [Plan database, Forecast, RS mapping, Prior-period history,
-                      Finance consolidation, Charged hours, Rate card]
+            options: [Plan database, Forecast, RS mapping, P&L line master,
+                      Prior-period history, Finance consolidation, Charged hours, Rate card]
           - id: file
             label: File
             kind: file
             help: .xlsx or .csv. Compass will say if a column it needs is missing.
+      - id: reporting_setup
+        label: Reporting set-up
+        submit_label: Set it
+        blurb: >-
+          Which service lines send files, and when the fiscal year starts. Consulting
+          is the reference model, so it is the only one expected until you add others.
+        confirm: Adds a version of the rules, from now and in every month.
+        fields:
+          - id: service_lines
+            label: Service lines sending files
+            kind: multi
+            options: *pnl_service_lines
+          - id: first_month
+            label: Fiscal year starts in
+            kind: choice
+            required: false
+            options: [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
+            help: Decides which month's MTD is simply its YTD. Set to July for now.
+          - id: why
+            label: Why
+            kind: text
       - id: line_rule
         label: Set how this line works
         on_row: true
@@ -1097,7 +1124,7 @@ features:
         id: sample_data
         headline: Sample data.
         detail: >-
-          Every figure and rule here is illustrative, for Sep and Oct 2026, to
+          Every figure and rule here is illustrative, for Aug and Sep 2026 (FY27), to
           show what these screens do. Your first real upload removes the figures.
         tone: notice
       - &pnl_choose
@@ -1114,11 +1141,11 @@ features:
   - id: pnl_statement
     service: pnl
     name: Consolidated P&L
-    short: Location, service line and segment · YTD and MTD
+    short: Lines by location and service line · YTD and MTD
     blurb: >-
-      The month, consolidated: Pan-GDS or one location, by line, service line
-      and Reporting Segment, against Plan, Forecast and the prior year. Lines
-      are combined by name, so a new one is carried through rather than lost.
+      The month, consolidated: Pan-GDS or one location, by line and service line,
+      against Plan, Forecast and the prior year, YTD and MTD. Lines are combined by
+      name, so a new one is carried through rather than lost.
     handler: pnl_statement
     scope: [period, entity]
     entity_label: Location
@@ -1126,7 +1153,8 @@ features:
       entity: Pan-GDS
     choices:
       period: *pnl_months
-      entity: &pnl_views [Pan-GDS, Bengaluru, Hyderabad, Kochi, Noida]
+      entity: &pnl_views [Pan-GDS, India, Argentina, Hungary, Mexico, Philippines, Poland,
+                          Spain, Sri Lanka, Consulting MENA]
     scope_why: A consolidation is one month, for all of GDS or for one location.
     visibility: *pnl_desk
     rules:
@@ -1156,14 +1184,42 @@ features:
       - What does Revenue look like against Forecast?
     tools: [read_rows, explain_row]
 
+  - id: pnl_analysis
+    service: pnl
+    name: RS analysis
+    short: Segments and rate cards · Plan, PY, Forecast
+    blurb: >-
+      The RS wise analysis and the comparison sheets: each Reporting Segment and rate
+      card's operating measures by location, against Plan, prior year and Forecast,
+      YTD and MTD. Type, SSL, Rate Card, Span and Competency come from the mapping.
+    handler: pnl_analysis
+    scope: [period, entity]
+    entity_label: Location
+    defaults:
+      entity: Pan-GDS
+    choices:
+      period: *pnl_months
+      entity: *pnl_views
+    scope_why: These sheets are of one month, for all of GDS or for one location.
+    visibility: *pnl_desk
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - *pnl_no_files
+    starters:
+      - Which rate card is furthest from Plan on charged hours?
+      - Which segments are short on utilisation?
+    tools: [read_rows, explain_row]
+
   - id: pnl_recon
     service: pnl
     name: Reconciliation
     short: Against Finance's file · release control
     blurb: >-
-      The consolidated figures against the separate file Finance maintains, by
-      location and service line, parameter by parameter. Also whether each
-      file's segments add up to that file's own totals.
+      The process's four checks: segments against each file's Total Selected,
+      each location against Consolidated, the operating measures against the RS
+      breakout, and the result against the separate file Finance maintains.
     handler: pnl_recon
     scope: [period]
     choices:
@@ -1370,8 +1426,10 @@ features:
           - id: sheets
             label: Sheets
             kind: multi
-            options: [Pan-GDS summary, Location summaries, Service line summary,
-                      Reporting Segment analysis, Exception report, Reconciliation]
+            options: [Consolidated, Location P&Ls, MTD P&L, RS wise analysis,
+                      RS YTD vs Plan, RS YTD vs PY, RS YTD vs Forecast,
+                      RS MTD vs Plan, RS MTD vs PY, Rate card YTD vs Plan,
+                      Exception report, Reconciliation]
             roles: [finance, admin]
           - id: locations
             label: Locations

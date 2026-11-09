@@ -3,7 +3,7 @@
     python3 scripts/make_pnl_samples.py <folder>
 
 Writes what `compass/businessfunctions/pnl_sample.py` holds in memory: an FR
-workbook per location and service line for Sep and Oct 2026, and one file per
+workbook per location and service line for Aug and Sep 2026, and one file per
 input. Every figure in them is invented. Stores nothing and reads no settings.
 """
 
@@ -24,11 +24,11 @@ def main() -> int:
         return 2
     folder = Path(sys.argv[1])
     folder.mkdir(parents=True, exist_ok=True)
-    for month in (pnl_sample.SEPTEMBER, pnl_sample.OCTOBER):
+    for month in (pnl_sample.AUGUST, pnl_sample.SEPTEMBER):
         for location, service_line in pnl_sample.FILED:
             name = f"FR {location} {service_line} {month_label(month)}.xlsx"
             (folder / name).write_bytes(pnl_sample.fr_file(month, location, service_line))
-    for name, raw in pnl_sample.files().values():
+    for name, raw in [*pnl_sample.drafts().values(), *pnl_sample.files().values()]:
         (folder / name).write_bytes(raw)
     print(f"Wrote {len(list(folder.iterdir()))} files to {folder}")
     return 0

@@ -1,7 +1,8 @@
-"""P&L's five sub-services: one month, from the files arriving to the file leaving.
+"""P&L's sub-services: one month, from the files arriving to the file leaving.
 
     Source files        what has arrived, what it maps to, what is missing
-    Consolidated P&L    the month at every level, YTD and MTD
+    Consolidated P&L    the month by line and location, YTD and MTD
+    RS analysis         the Reporting Segment and rate-card comparison sheets
     Reconciliation      against Finance's own file, and the release control
     Exceptions          only what breaches, for Finance to investigate
     Leadership output   chosen sheets, values only, and the run's trail
@@ -42,6 +43,7 @@ MASTER_KINDS = {
     "Plan database": "plan",
     "Forecast": "forecast",
     "RS mapping": "mapping",
+    "P&L line master": "lines",
     "Prior-period history": "history",
     "Finance consolidation": "finance",
     "Charged hours": "hours",
@@ -83,7 +85,7 @@ def _held(scope: Scope, token: str) -> dict[str, Any] | None:
     return held if held and held["user"] == scope.user else None
 
 
-def _read_held(held: dict[str, Any], kind: str) -> pnl_files.Parsed:
+def _read_held(held: dict[str, Any], kind: str, month: int | None = None) -> pnl_files.Parsed:
     """What a held file holds, read once per kind.
 
     A form asks twice, to preview and to record, and these handlers run on the
@@ -91,9 +93,16 @@ def _read_held(held: dict[str, Any], kind: str) -> pnl_files.Parsed:
     reading would be everybody's wait.
     """
     read = held.setdefault("parsed", {})
-    if kind not in read:
-        read[kind] = pnl_files.read(kind, held["filename"], held["raw"])
-    return read[kind]
+    if (kind, month) not in read:
+        read[(kind, month)] = pnl_files.read(
+            kind, held["filename"], held["raw"],
+            first_month=pnl.rules()["fy_first_month"], month=month)
+    return read[(kind, month)]
+
+
+def _row_month(row: dict[str, Any]) -> int | None:
+    at = row.get("period")
+    return at if isinstance(at, int) else pnl_files.parse_month(at)
 
 
 def _month(scope: Scope) -> int | None:
@@ -113,6 +122,40 @@ def _col(key: str, label: str, fmt: str = "") -> dict[str, Any]:
 
 
 _WHERE = [_col("location", "Location"), _col("service_line", "Service line")]
+
+#: On a percentage line: figures held as fractions, variances already in points,
+#: and differences of two fractions, which are points once multiplied.
+_FRACTIONS = frozenset({"ytd", "plan", "forecast", "prior_year", "full_year_plan",
+                        "full_year_py", "mtd", "mtd_plan", "mtd_forecast", "mtd_py", "total",
+                        "against", "reported", "calculated", "segments_total", "file_total",
+                        "value"})
+_POINTS = frozenset({"vs_plan_pct", "vs_forecast_pct", "vs_prior_year_pct", "variance_pct"})
+_POINT_GAPS = frozenset({"vs_plan", "vs_forecast", "vs_prior_year", "variance", "difference"})
+
+
+def _as_read(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A percentage line as people read it: 0.25 is 25.0%, and it moves in points.
+
+    The engine keeps the fraction Excel keeps, so its formulas and the FR file
+    agree; this is only how a screen says it.
+    """
+    out = []
+    for row in rows:
+        if row.get("class") != "ratio":
+            out.append(row)
+            continue
+        shown = dict(row)
+        for key, value in row.items():
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                continue
+            if key in _POINTS:
+                shown[key] = f"{value:+.1f} pts"
+            elif key in _POINT_GAPS:
+                shown[key] = f"{value * 100:+.1f} pts"
+            elif key in _FRACTIONS or key.startswith("at_"):
+                shown[key] = f"{value * 100:.1f}%"
+        out.append(shown)
+    return out
 
 
 class PnlScreen(Feature):
@@ -156,11 +199,13 @@ class PnlIntake(PnlScreen):
     FR_FIELDS = frozenset({"location", "service_line", "file"})
     MASTER_FIELDS = frozenset({"kind", "file"})
     LINE_FIELDS = frozenset({"line_class", "mtd", "why"})
+    SETUP_FIELDS = frozenset({"service_lines", "first_month", "why"})
 
     def accepts(self, form_id: str) -> set[str]:
         return {"upload_fr": set(self.FR_FIELDS),
                 "upload_master": set(self.MASTER_FIELDS),
-                "line_rule": set(self.LINE_FIELDS)}.get(form_id, set())
+                "line_rule": set(self.LINE_FIELDS),
+                "reporting_setup": set(self.SETUP_FIELDS)}.get(form_id, set())
 
     def upload_limit(self) -> int:
         return UPLOAD_MAX_BYTES
@@ -174,12 +219,13 @@ class PnlIntake(PnlScreen):
         said = f"{name} is ready. Press “What would this do?” to see what is in it."
         if form_id == "upload_fr":
             try:
-                parsed = pnl_files.read("fr", name, raw)
+                parsed = pnl_files.read("fr", name, raw,
+                                        first_month=pnl.rules()["fy_first_month"])
             except pnl_files.Unreadable as err:
                 return {"ok": False, "said": str(err)}
             said = f"{name}: {_found(parsed)}."
             token = stage(scope.user, name, raw)
-            _staged[token]["parsed"] = {"fr": parsed}
+            _staged[token]["parsed"] = {("fr", None): parsed}
             return {"ok": True, "token": token, "said": said}
         if not name.lower().endswith((".xlsx", ".xlsm", ".csv")):
             return {"ok": False, "said": f"{name} is not a spreadsheet Compass "
@@ -202,9 +248,22 @@ class PnlIntake(PnlScreen):
         if held is None:
             return None, _no("Pick the file again. Compass only holds one for an hour.")
         try:
-            parsed = _read_held(held, "fr")
+            parsed = _read_held(held, "fr", None)
         except pnl_files.Unreadable as err:
             return None, _no(str(err))
+
+        # Its Cover Sheet says what it is. A file of another month or an MTD
+        # view is valid in every cell and would make the whole month wrong.
+        cover = parsed.cover
+        if "ytd" not in pnl_files.norm(cover.get("period_type", "ytd")):
+            return None, _no(f"This file's Cover Sheet says {cover['period_type']}. "
+                             f"Compass works from YTD reports.")
+        said = (pnl_files.parse_month(cover.get("period"))
+                or pnl_files.calendar_month(cover.get("period"), cover.get("fiscal_year"),
+                                            pnl.rules()["fy_first_month"]))
+        if said is not None and said != month:
+            return None, _no(f"This file's Cover Sheet says {month_label(said)}, "
+                             f"and you are filing it under {month_label(month)}.")
 
         # Does the file agree with what it is being filed as? The classic
         # month-end slip is the right report under the wrong location, and
@@ -221,7 +280,7 @@ class PnlIntake(PnlScreen):
                 return None, _no(f"This file says it is for {month_label(at)}, "
                                  f"and you are filing it under {month_label(month)}.")
         return {"month": month, "location": location, "service_line": sl,
-                "held": held, "parsed": parsed}, _refuse_same(held)
+                "held": held, "parsed": parsed}, _refuse_same(held, "fr", month)
 
     def _master_plan(self, scope: Scope, values: dict[str, str]
                      ) -> tuple[dict[str, Any] | None, Outcome | None]:
@@ -232,20 +291,31 @@ class PnlIntake(PnlScreen):
         if held is None:
             return None, _no("Pick the file again. Compass only holds one for an hour.")
         try:
-            parsed = _read_held(held, kind)
+            parsed = _read_held(held, kind, _month(scope))
         except pnl_files.Unreadable as err:
             return None, _no(str(err))
         month = _month(scope)
-        needs_period = kind in ("plan", "forecast", "finance", "hours")
-        if needs_period and month is None and not all(r.get("period") for r in parsed.rows):
-            return None, _no("Some rows name no period, so choose the month they "
-                             "are for first.")
+        if kind in pnl.FILED_BY_MONTH and month is None:
+            return None, _no("Choose the reporting month first. Each month keeps "
+                             "its own versions of this input.")
         bad = next((r["period"] for r in parsed.rows
-                    if r.get("period") and pnl_files.parse_month(r["period"]) is None), None)
+                    if r.get("period") and _row_month(r) is None), None)
         if bad is not None:
             return None, _no(f"A row names its period as {bad!r}. Compass reads "
                              f"Oct 2026, 2026-10 or a date.")
-        return {"kind": kind, "month": month, "held": held, "parsed": parsed}, _refuse_same(held)
+        named = {_row_month(r) for r in parsed.rows if r.get("period")}
+        if kind in pnl.FILED_BY_MONTH and named and month not in named:
+            return None, _no(f"This file has no figures for {month_label(month)}, the "
+                             f"month you are filing it under. Choose a month it names.")
+        if kind == "lines":
+            for row in parsed.rows:
+                try:
+                    if row.get("formula"):
+                        pnl.parse_formula(str(row["formula"]).lstrip("="))
+                except ValueError as err:
+                    return None, _no(f"{row['line']}: {err}")
+        return {"kind": kind, "month": month, "held": held,
+                "parsed": parsed}, _refuse_same(held, kind, month)
 
     def preview(self, scope: Scope, form_id: str, values: dict[str, str],
                 about: str = "") -> Outcome:
@@ -253,6 +323,8 @@ class PnlIntake(PnlScreen):
             return _no("This is Finance's to change.")
         if form_id == "line_rule":
             return self._line_rule(scope, values, about, commit=False)
+        if form_id == "reporting_setup":
+            return self._setup(scope, values, commit=False)
         planned, refusal = (self._fr_plan if form_id == "upload_fr"
                             else self._master_plan)(scope, values)
         if refusal is not None:
@@ -262,13 +334,13 @@ class PnlIntake(PnlScreen):
         parsed = planned["parsed"]
         if form_id == "upload_fr":
             now = pnl.fr_source(planned["month"], planned["location"], planned["service_line"])
-            effect = (f"Replaces v{now['version']} ({now['filename']}), which is kept."
+            effect = (_becomes(now, "fr", planned["month"], planned["location"],
+                               planned["service_line"])
                       if now and not pnl.is_sample() else "First file for this slot.")
             return Outcome(True, f"{planned['location']} · {planned['service_line']}, "
                                  f"{month_label(planned['month'])}: {_found(parsed)}. "
                                  f"{effect}{sample}")
-        months = sorted({pnl_files.parse_month(r["period"]) for r in parsed.rows
-                         if r.get("period")} - {None})
+        months = sorted({_row_month(r) for r in parsed.rows if r.get("period")} - {None})
         covers = (f" covering {month_label(months[0])}"
                   + (f" to {month_label(months[-1])}" if len(months) > 1 else "")
                   if months else
@@ -276,7 +348,14 @@ class PnlIntake(PnlScreen):
         return Outcome(True, f"{pnl_files.SPECS[planned['kind']].label}: "
                              f"{len(parsed.rows)} rows{covers}."
                              + (f" {parsed.skipped} incomplete rows left out."
-                                if parsed.skipped else "") + sample)
+                                if parsed.skipped else "")
+                             + (f" {parsed.errors} cells hold Excel errors and were not read."
+                                if parsed.errors else "")
+                             + "".join(f" {note}" for note in parsed.notes)
+                             + (" " + _becomes(pnl.active(planned["kind"], planned["month"]),
+                                               planned["kind"], planned["month"])
+                                if not pnl.is_sample() else "")
+                             + sample)
 
     def submit(self, scope: Scope, form_id: str, values: dict[str, str],
                about: str = "") -> Outcome:
@@ -284,6 +363,8 @@ class PnlIntake(PnlScreen):
             return _no("This is Finance's to change.")
         if form_id == "line_rule":
             return self._line_rule(scope, values, about, commit=True)
+        if form_id == "reporting_setup":
+            return self._setup(scope, values, commit=True)
         planned, refusal = (self._fr_plan if form_id == "upload_fr"
                             else self._master_plan)(scope, values)
         if refusal is not None:
@@ -302,9 +383,36 @@ class PnlIntake(PnlScreen):
         except ValueError as err:
             return _no(str(err))
         _staged.pop(values.get("file", "").strip(), None)
-        return Outcome(True, f"{source['label']} v{source['version']} recorded: "
-                             f"{source['filename']}, {source['count']} rows.",
+        return Outcome(True, f"{source['label']} {pnl.version_label(source)} recorded: "
+                             f"{source['filename']}, {source['count']} rows."
+                             + "".join(f" {note}" for note in planned["parsed"].notes),
                        touched=[source["id"]])
+
+    def _setup(self, scope: Scope, values: dict[str, str], *, commit: bool) -> Outcome:
+        """Which service lines are expected, and when the fiscal year starts."""
+        lines = [s for s in values.get("service_lines", "").split("|") if s]
+        if unknown := [s for s in lines if s not in pnl.SERVICE_LINES]:
+            return _no(f"Compass has no service line called {unknown[0]!r}.")
+        if not lines:
+            return _no("Choose at least one service line.")
+        changes: dict[str, Any] = {"service_lines_in_use": lines}
+        first = values.get("first_month", "").strip()
+        if first:
+            if first[:3] not in pnl_files.MONTHS:
+                return _no("Choose the month the fiscal year starts in.")
+            changes["fy_first_month"] = pnl_files.MONTHS.index(first[:3]) + 1
+        if not values.get("why", "").strip():
+            return _no("Say why. This decides what counts as missing, and every first month's MTD.")
+        if not commit:
+            month = changes.get("fy_first_month", pnl.rules()["fy_first_month"])
+            return Outcome(True, f"Would expect files from {', '.join(lines)} and start the "
+                                 f"fiscal year in {pnl_files.MONTHS[month - 1]}, from now.")
+        try:
+            fresh = pnl.set_rules(by=scope.user, why=values["why"], **changes)
+        except ValueError as err:
+            return _no(str(err))
+        return Outcome(True, f"Rules v{fresh['version']} are in force.",
+                       touched=[f"v{fresh['version']}"])
 
     def _line_rule(self, scope: Scope, values: dict[str, str], line: str,
                    *, commit: bool) -> Outcome:
@@ -315,7 +423,7 @@ class PnlIntake(PnlScreen):
             return _no("Say how this line adds up and how its month is worked out.")
         if not why:
             return _no("Say why. This changes how the line is calculated from now on.")
-        key = pnl_files.norm(line)
+        key = pnl.line_key(line)
         if not commit:
             return Outcome(True, f"{line} would be calculated this way from now on, "
                                  f"in every month. Figures already uploaded do not change.")
@@ -402,24 +510,29 @@ class PnlIntake(PnlScreen):
             Tab("missing_rs", "Segments added", len(now["missing"])),
             Tab("structure", "Structure changes", len(now["alerts"])),
             Tab("lines", "Line rules", len({c["line_key"] for c in now["cells"].values()})),
-            Tab("uploads", "Every upload", len(pnl.sources())),
+            Tab("uploads", "Versions", len(pnl.versions(month))),
         ]
 
     def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         return {
-            "coverage": [*_WHERE, _col("status", "Status"), _col("file", "File"),
-                         _col("rows", "Rows", "whole"), _col("when", "When")],
-            "inputs": [_col("input", "Input"), _col("status", "Status"), _col("file", "File"),
-                       _col("rows", "Rows", "whole"), _col("when", "When")],
+            "coverage": [*_WHERE, _col("status", "Status"), _col("version", "Version"),
+                         _col("file", "File"), _col("rows", "Rows", "whole"),
+                         _col("when", "When")],
+            "inputs": [_col("input", "Input"), _col("status", "Status"),
+                       _col("version", "Version"), _col("versions", "This month", "whole"),
+                       _col("file", "File"), _col("rows", "Rows", "whole"),
+                       _col("when", "When")],
             "gaps": [_col("rs", "Reporting Segment"), _col("problem", "Problem")],
             "missing_rs": [*_WHERE, _col("rs", "Reporting Segment"),
                            _col("lines", "Lines", "whole"), _col("reason", "Why")],
             "structure": [*_WHERE, _col("change", "Change"), _col("name", "What")],
-            "lines": [_col("line", "P&L line"), _col("behaves", "Adds up"),
-                      _col("mtd", "MTD"), _col("set_by", "Set by")],
-            "uploads": [_col("input", "Input"), _col("file", "File"),
-                        _col("for_what", "For"), _col("status", "Status"),
-                        _col("when", "When")],
+            "lines": [_col("line", "P&L line"), _col("line_id", "Line ID"),
+                      _col("behaves", "Adds up"), _col("mtd", "MTD"),
+                      _col("formula", "Calculated as"), _col("set_by", "Set by")],
+            "uploads": [_col("input", "Input"), _col("for_what", "For"),
+                        _col("version", "Version"), _col("status", "Status"),
+                        _col("file", "File"), _col("rows", "Rows", "whole"),
+                        _col("by", "By"), _col("when", "When")],
         }.get(tab, [])
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
@@ -446,19 +559,27 @@ class PnlIntake(PnlScreen):
         if tab == "lines":
             return self._lines(scope, now)
         if tab == "uploads":
-            return self._uploads()
+            return self._uploads(month)
         return [dict(r, can=self._slot_can(scope, r)) for r in pnl.coverage(month)]
 
     def _inputs(self, month: int) -> list[dict[str, Any]]:
         out = []
+        held = pnl.versions(month)
         for label, kind in MASTER_KINDS.items():
-            source = (pnl.active(kind) if kind in ("mapping", "rates")
+            source = (pnl.active(kind) if kind in pnl.PERIODLESS
                       else pnl.active(kind, month))
+            status = "Not loaded"
+            if source:
+                status = ("Loaded" if source.get("filed_for", 0) in (0, month)
+                          else "From another month")
             out.append({
                 "id": kind, "input": label,
-                "status": "Loaded" if source else "Not loaded",
+                "status": status,
                 "file": source["filename"] if source else "",
-                "version": source["version"] if source else None,
+                "version": pnl.version_label(source) if source else "",
+                "versions": (sum(v["source"]["kind"] == kind
+                                 and v["source"].get("filed_for", 0) == month for v in held)
+                             if kind in pnl.FILED_BY_MONTH else None),
                 "rows": source["count"] if source else None,
                 "by": source["by"] if source else "",
                 "when": pnl._day(source["at"]) if source else "",  # noqa: SLF001
@@ -474,15 +595,30 @@ class PnlIntake(PnlScreen):
         seen: dict[str, str] = {}
         for got in now["cells"].values():
             seen.setdefault(got["line_key"], got["line"])
-        return [{"id": name, "line": name, "behaves": behaves[pnl.line_class(name)],
-                 "mtd": mtd[pnl.mtd_rule(name)],
-                 "set_by": "Finance" if key in said else "Compass's default",
+        table = pnl.formulas()
+        master = pnl._line_master()["lines"]  # noqa: SLF001
+        written = {pnl.line_key(n): t for n, t in pnl.DEFAULT_FORMULAS.items()}
+        written.update({k: str(r["formula"]).lstrip("=") for k, r in master.items()
+                        if r.get("formula")})
+        return [{"id": name, "line": name, "line_id": pnl.line_id(name),
+                 "behaves": behaves[pnl.line_class(name)],
+                 "mtd": ("From its formula" if key in table
+                         and pnl.line_class(name) == "ratio" else mtd[pnl.mtd_rule(name)]),
+                 "formula": written.get(key, ""),
+                 "set_by": ("Finance" if key in said or key in master
+                            else "Compass's default"),
                  "can": ["line_rule"] if _is_desk(scope) else []}
                 for key, name in seen.items()]
 
-    def _uploads(self) -> list[dict[str, Any]]:
+    def _uploads(self, month: int) -> list[dict[str, Any]]:
+        """Each input's versions for this month, newest first, FR files after them."""
+        order = {kind: at for at, kind in enumerate(MASTER_KINDS.values())}
+        held = sorted(pnl.versions(month), key=lambda v: (
+            order.get(v["source"]["kind"], len(order)), v["source"]["location"],
+            v["source"]["service_line"], -v["source"]["at"]))
         out = []
-        for source in reversed(pnl.sources()):
+        for found in held:
+            source = found["source"]
             months = source["months"]
             span = (f"{month_label(months[0])}" + (f" to {month_label(months[-1])}"
                                                    if len(months) > 1 else "")
@@ -491,8 +627,8 @@ class PnlIntake(PnlScreen):
                      if source["location"] else "")
             out.append({"id": source["id"], "input": source["label"],
                         "file": source["filename"], "for_what": where + span,
-                        "version": source["version"], "rows": source["count"],
-                        "status": "Current" if pnl.is_current(source) else "Replaced",
+                        "version": pnl.version_label(source), "rows": source["count"],
+                        "status": "In use" if found["in_use"] else "Replaced",
                         "by": source["by"],
                         "when": pnl._day(source["at"]),  # noqa: SLF001
                         "fingerprint": source["sha256"][:12], "can": []})
@@ -509,11 +645,10 @@ class PnlStatement(PnlScreen):
              _col("forecast", "YTD Forecast", "number"),
              _col("vs_forecast_pct", "vs Forecast", "pct"),
              _col("prior_year", "Prior Year", "number"),
-             _col("vs_prior_year_pct", "vs PY", "pct"), _col("mtd", "MTD Actual", "number")]
+             _col("vs_prior_year_pct", "vs PY", "pct")]
     ROLLUP = [_col("revenue", "Revenue", "number"), _col("revenue_plan", "Plan", "number"),
               _col("vs_plan_pct", "vs Plan", "pct"), _col("direct_cost", "Direct cost", "number"),
               _col("fte", "FTE", "number"), _col("segments", "Segments", "whole")]
-
     def figures(self, scope: Scope) -> list[Figure]:
         month = self._open(scope)
         if month is None:
@@ -525,9 +660,10 @@ class PnlStatement(PnlScreen):
             Figure("segments", str(len({pnl_files.norm(c["rs"]) for c in cells})),
                    "Reporting Segments"),
             Figure("lines", str(len({c["line_key"] for c in cells})), "unique P&L lines"),
-            Figure("no_prior", str(len(now["no_prior"])),
-                   "slots with no prior month, so no MTD",
-                   "bad" if now["no_prior"] else "good"),
+            Figure("units", (now["units"] or "Not stated").split(" · ")[-1],
+                   (now["units"].split(" · ")[0] if " · " in now["units"] else "units")),
+            *([Figure("no_prior", str(len(now["no_prior"])),
+                      "slots with no prior month, so no MTD", "bad")] if now["no_prior"] else []),
         ]
 
     def tabs(self, scope: Scope) -> list[Tab]:
@@ -535,24 +671,30 @@ class PnlStatement(PnlScreen):
         if month is None:
             return []
         lines = pnl.summary(month, location=scope.entity)
-        return [
-            Tab("statement", "P&L", len(lines)),
-            Tab("locations", "By location", len(pnl.slot_rollup(month, "location"))),
-            Tab("service_lines", "By service line", len(pnl.slot_rollup(month, "service_line"))),
-            Tab("segments", "By Reporting Segment", len(pnl.segments(month, scope.entity))),
-            Tab("detail", "Every segment and line", len(pnl.detail(month, scope.entity))),
-        ]
+        tabs = [Tab("statement", "P&L", len(lines)),
+                Tab("consolidated", "Consolidated", len(lines)),
+                Tab("mtd", "MTD P&L", len(lines)),
+                Tab("service_lines", "By service line", len(pnl.slot_rollup(month, "service_line"))),
+                Tab("detail", "Every segment and line", len(pnl.detail(month, scope.entity)))]
+        return tabs
 
     def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        month = self._open(scope)
+        if month is None:
+            return []
+        if tab == "consolidated":
+            where = pnl.consolidated(month)[0]
+            return [_col("line", "P&L line"),
+                    *[_col(pnl._at(w), w, "number") for w in where],  # noqa: SLF001
+                    _col("total", "Pan-GDS", "number"), _col("plan", "YTD Plan", "number"),
+                    _col("vs_plan_pct", "vs Plan", "pct")]
         return {
             "statement": self.LINES,
-            "locations": [_col("location", "Location"), *self.ROLLUP],
+            "mtd": [_col("line", "P&L line"), _col("mtd", "MTD Actual", "number"),
+                    _col("mtd_plan", "MTD Plan", "number"),
+                    _col("mtd_forecast", "MTD Forecast", "number"),
+                    _col("mtd_py", "MTD Prior Year", "number")],
             "service_lines": [_col("service_line", "Service line"), *self.ROLLUP],
-            "segments": [*_WHERE, _col("rs", "Reporting Segment"), _col("type", "Type"),
-                         _col("sub_service_line", "Sub-service line"),
-                         _col("rate_card", "Rate card"), _col("revenue", "Revenue", "number"),
-                         _col("direct_cost", "Direct cost", "number"),
-                         _col("fte", "FTE", "number")],
             "detail": [*_WHERE, _col("rs", "Reporting Segment"), _col("line", "P&L line"),
                        _col("ytd", "YTD Actual", "number"), _col("plan", "YTD Plan", "number"),
                        _col("forecast", "YTD Forecast", "number"),
@@ -564,15 +706,13 @@ class PnlStatement(PnlScreen):
         month = self._open(scope)
         if month is None:
             return []
-        if tab == "locations":
-            return pnl.slot_rollup(month, "location")
+        if tab == "consolidated":
+            return _as_read(pnl.consolidated(month)[1])
         if tab == "service_lines":
             return pnl.slot_rollup(month, "service_line")
-        if tab == "segments":
-            return pnl.segments(month, scope.entity)
         if tab == "detail":
-            return pnl.detail(month, scope.entity)
-        return pnl.summary(month, location=scope.entity)
+            return _as_read(pnl.detail(month, scope.entity))
+        return _as_read(pnl.summary(month, location=scope.entity))
 
     def rules(self, scope: Scope) -> list[str]:
         said = super().rules(scope)
@@ -580,10 +720,93 @@ class PnlStatement(PnlScreen):
         if month is not None and scope.sees == "firm":
             if pnl.view(month)["no_prior"]:
                 said.append("no_prior_month")
-            if any(pnl.mtd_rule(c["line"]) == "pending"
+            if any(c["mtd"] is None and c["actual"] is not None
+                   and pnl.mtd_rule(c["line"]) == "pending"
                    for c in pnl.view(month)["cells"].values()):
                 said.append("mtd_definitions_pending")
         return said
+
+
+class PnlAnalysis(PnlScreen):
+    """The RS and rate-card sheets: what Finance reads the month through.
+
+    Their own screen because there are nine of them, and on the statement's screen
+    they pushed the statement off it. Reads; nothing here decides anything.
+    """
+
+    key = "pnl_analysis"
+
+    #: The RS and rate-card comparison sheets: (tab, label, scenario, basis, by).
+    COMPARISONS = [("rs_plan", "RS vs Plan", "plan", "ytd", "rs"),
+                   ("rs_py", "RS vs PY", "prior_year", "ytd", "rs"),
+                   ("rs_forecast", "RS vs Forecast", "forecast", "ytd", "rs"),
+                   ("rs_mtd_plan", "RS MTD vs Plan", "plan", "mtd", "rs"),
+                   ("rs_mtd_py", "RS MTD vs PY", "prior_year", "mtd", "rs"),
+                   ("rc_plan", "Rate card vs Plan", "plan", "ytd", "rate_card"),
+                   ("rc_py", "Rate card vs PY", "prior_year", "ytd", "rate_card"),
+                   ("rc_forecast", "Rate card vs Forecast", "forecast", "ytd", "rate_card")]
+
+    def _comparison(self, scope: Scope, month: int, tab: str
+                    ) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+        spec = next(c for c in self.COMPARISONS if c[0] == tab)
+        where, rows = pnl.comparison(month, spec[2], basis=spec[3], by=spec[4])
+        if scope.entity in pnl.LOCATIONS:
+            where = [w for w in where if w == scope.entity]
+            at = pnl._at(scope.entity)  # noqa: SLF001
+            rows = [r for r in rows if r.get(at) is not None]
+        return where, rows, {"scenario": spec[2], "by": spec[4]}
+
+    def figures(self, scope: Scope) -> list[Figure]:
+        month = self._open(scope)
+        if month is None:
+            return []
+        rows = pnl.segments(month, scope.entity)
+        now = pnl.view(month)
+        cards = {r["rate_card"] for r in rows if r["rate_card"]}
+        return [
+            Figure("segments", str(len(rows)), "Reporting Segments"),
+            Figure("cards", str(len(cards)), "rate cards"),
+            Figure("unmapped", str(len(now["unmapped"]) + len(now["conflicts"])),
+                   "segments with no single mapping",
+                   "bad" if now["unmapped"] or now["conflicts"] else "good"),
+        ]
+
+    def tabs(self, scope: Scope) -> list[Tab]:
+        month = self._open(scope)
+        if month is None:
+            return []
+        return [Tab("segments", "RS wise analysis", len(pnl.segments(month, scope.entity))),
+                *[Tab(c[0], c[1], len(self._comparison(scope, month, c[0])[1]))
+                  for c in self.COMPARISONS]]
+
+    def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        month = self._open(scope)
+        if month is None:
+            return []
+        if tab not in {c[0] for c in self.COMPARISONS}:
+            return [_col("type", "Type"), _col("sub_service_line", "SSL"),
+                    _col("rate_card", "Rate Card"), _col("rs", "Reporting Segment"),
+                    _col("span", "Span"), _col("competency", "Competencies"),
+                    _col("location", "Location"), _col("revenue", "Revenue", "number"),
+                    _col("direct_cost", "Direct cost", "number"), _col("fte", "FTE", "number")]
+        where, _rows, spec = self._comparison(scope, month, tab)
+        head = ([_col("type", "Type"), _col("sub_service_line", "SSL"),
+                 _col("rate_card", "Rate Card"), _col("rs", "Reporting Segment")]
+                if spec["by"] == "rs" else [_col("rate_card", "Rate Card")])
+        return [*head, _col("metric", "Measure"),
+                *[_col(pnl._at(w), w, "number") for w in where],  # noqa: SLF001
+                _col("total", "Total", "number"),
+                _col("against", pnl.SCENARIOS[spec["scenario"]][2], "number"),
+                _col("variance", "Variance", "number"),
+                _col("variance_pct", "Variance %", "pct")]
+
+    def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
+        month = self._open(scope)
+        if month is None:
+            return []
+        if tab in {c[0] for c in self.COMPARISONS}:
+            return _as_read(self._comparison(scope, month, tab)[1])
+        return pnl.segments(month, scope.entity)
 
 
 class PnlRecon(PnlScreen):
@@ -632,58 +855,84 @@ class PnlRecon(PnlScreen):
         return Outcome(True, f"Rules v{fresh['version']} are in force.",
                        touched=[f"v{fresh['version']}"])
 
+    LAYERS = (("segments", "Segments vs Total Selected", "segments_total", "file_total"),
+              ("location", "Location vs Consolidated", "", ""),
+              ("non_financial", "Non-financial breakout", "segments_total", "file_total"),
+              ("finance", "Against Finance", "compass", "finance"),
+              ("calculated", "Calculated lines", "calculated", "reported"))
+
     def figures(self, scope: Scope) -> list[Figure]:
         if scope.sees != "firm":
             return []
         month = _month(scope) or pnl.latest_month()
         if month is None:
             return []
-        both = pnl.reconciliation(month)
-        rows = both["finance"]
-        off = sum(r["status"] != "Matched" for r in rows)
-        inside = sum(r["status"] != "Matched" for r in both["internal"])
-        return [
-            Figure("compared", str(len(rows)), "parameters compared"),
-            Figure("matched", str(len(rows) - off), "matched", "good" if rows else "plain"),
-            Figure("mismatched", str(off),
-                   f"reconciliation differences in {month_label(month)}",
-                   "warn" if off else "good"),
-            Figure("internal", str(inside), "segments not adding to the file's total",
-                   "bad" if inside else "good"),
-        ]
+        layers = pnl.reconciliation(month)
+        off = sum(r["status"] != "Matched" for rows in layers.values() for r in rows)
+        out = [Figure("mismatched", str(off),
+                      f"reconciliation differences in {month_label(month)}",
+                      "warn" if off else "good")]
+        for key, label, _a, _b in self.LAYERS:
+            rows = layers[key]
+            bad = sum(r["status"] != "Matched" for r in rows)
+            out.append(Figure(key, f"{len(rows) - bad} of {len(rows)}", f"{label}: matched",
+                              "bad" if bad else "good" if rows else "plain"))
+        return out
 
     def tabs(self, scope: Scope) -> list[Tab]:
         month = self._open(scope)
         if month is None:
             return []
-        both = pnl.reconciliation(month)
-        return [
-            Tab("mismatched", "Differences",
-                sum(r["status"] != "Matched" for r in both["finance"])),
-            Tab("all", "Against Finance", len(both["finance"])),
-            Tab("internal", "Segments against file totals", len(both["internal"])),
-        ]
+        layers = pnl.reconciliation(month)
+        return [Tab("mismatched", "Differences", len(self._differences(month))),
+                *[Tab(key, label, len(layers[key])) for key, label, _a, _b in self.LAYERS]]
+
+    def _differences(self, month: int) -> list[dict[str, Any]]:
+        """Everything that does not match, whichever layer found it."""
+        layers = pnl.reconciliation(month)
+        out = []
+        for key, label, ours, theirs in self.LAYERS:
+            for row in layers[key]:
+                if row["status"] != "Matched":
+                    out.append({
+                        "id": f"{key}|{row['id']}", "layer": label, "location": row["location"],
+                        "service_line": row["service_line"], "parameter": row["parameter"],
+                        "ours": row.get(ours) if ours else None,
+                        "theirs": row.get(theirs) if theirs else None,
+                        "difference": row.get("difference", row.get("largest")),
+                        "status": row["status"], "can": []})
+        return out
 
     def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
-        if tab == "internal":
+        if tab == "mismatched":
+            return [_col("layer", "Check"), *_WHERE, _col("parameter", "Parameter"),
+                    _col("ours", "This side", "number"), _col("theirs", "That side", "number"),
+                    _col("difference", "Difference", "number"), _col("status", "Status")]
+        if tab == "location":
+            return [*_WHERE, _col("parameter", "Measure"), _col("lines", "Lines", "whole"),
+                    _col("differing", "Differing", "whole"),
+                    _col("largest", "Largest difference", "number"), _col("status", "Status")]
+        if tab in ("segments", "non_financial"):
             return [*_WHERE, _col("parameter", "Line"),
                     _col("segments_total", "Sum of segments", "number"),
-                    _col("file_total", "File's total", "number"),
+                    _col("file_total", "Total Selected", "number"),
                     _col("difference", "Difference", "number"), _col("status", "Status")]
-        return [*_WHERE, _col("parameter", "Parameter"), _col("compass", "P&L", "number"),
-                _col("finance", "Finance", "number"), _col("difference", "Difference", "number"),
+        if tab == "calculated":
+            return [*_WHERE, _col("parameter", "Line"), _col("reported", "As reported", "number"),
+                    _col("calculated", "From its formula", "number"),
+                    _col("difference", "Difference", "number"), _col("status", "Status")]
+        return [*_WHERE, _col("parameter", "Parameter"), _col("measure", "Measure"),
+                _col("compass", "P&L", "number"), _col("finance", "Finance", "number"),
+                _col("difference", "Difference", "number"),
                 _col("difference_pct", "Difference %", "pct"), _col("status", "Status")]
 
     def rows(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         month = self._open(scope)
         if month is None:
             return []
-        both = pnl.reconciliation(month)
-        if tab == "internal":
-            return both["internal"]
-        if tab == "all":
-            return both["finance"]
-        return [r for r in both["finance"] if r["status"] != "Matched"]
+        if tab == "mismatched" or not tab:
+            return self._differences(month)
+        return _as_read(pnl.reconciliation(month).get(tab, []))
 
     def rules(self, scope: Scope) -> list[str]:
         said = super().rules(scope)
@@ -781,7 +1030,8 @@ class PnlExceptions(PnlScreen):
                     _col("dc_per_fte", "DC per FTE", "number"),
                     _col("revenue_tolerance_pct", "Revenue tolerance", "pct"),
                     _col("by", "Set by"), _col("why", "Why")]
-        return [_col("comparison", "Comparison"), *_WHERE, _col("rs", "Reporting Segment"),
+        return [_col("comparison", "Comparison"), _col("category", "Category"),
+                _col("location", "Location"), _col("rs", "Reporting Segment"),
                 _col("line", "P&L line"), _col("value", "Value", "number"),
                 _col("against", "Against", "number"), _col("variance", "Variance", "number"),
                 _col("variance_pct", "Variance %", "pct"), _col("threshold", "Threshold"),
@@ -801,7 +1051,7 @@ class PnlExceptions(PnlScreen):
                                           "revenue_tolerance_pct", "by", "why")},
                      "can": []}
                     for r in reversed(pnl.rule_history())]
-        rows = self._rows(scope, month)
+        rows = _as_read(self._rows(scope, month))
         return rows if tab == "all" else [r for r in rows if r["check"] == tab]
 
     def rules(self, scope: Scope) -> list[str]:
@@ -1015,7 +1265,7 @@ class PnlOutput(PnlScreen):
     def columns(self, scope: Scope, tab: str) -> list[dict[str, Any]]:
         if tab == "inputs":
             return [_col("input", "Input"), _col("file", "File"),
-                    _col("version", "Version", "whole"), _col("by", "By"),
+                    _col("version", "Version"), _col("by", "By"),
                     _col("fingerprint", "Fingerprint")]
         if tab == "trail":
             return [_col("when", "When"), _col("who", "Who"), _col("what", "What")]
@@ -1137,25 +1387,44 @@ def _found(parsed: pnl_files.Parsed) -> str:
     segments = {pnl_files.norm(r["rs"]) for r in parsed.rows}
     lines = {pnl_files.norm(r["line"]) for r in parsed.rows}
     said = (f"{len(segments)} Reporting Segments, {len(lines)} P&L lines, "
-            f"{len(parsed.rows)} figures")
+            f"{len(parsed.rows)} rows")
+    cover = parsed.cover
+    if cover:
+        said += " (" + ", ".join(filter(None, (
+            cover.get("fiscal_year"), cover.get("period"), cover.get("period_type"),
+            cover.get("currency"), cover.get("divisor")))) + ")"
     if parsed.totals:
-        said += ", and its own totals to check against"
+        said += ", with Total Selected to check against"
     if parsed.skipped:
-        said += f" ({parsed.skipped} incomplete rows left out)"
+        said += f". {parsed.skipped} incomplete rows left out"
+    if parsed.errors:
+        said += f". {parsed.errors} cells hold Excel errors such as #REF! and were not read"
     return said
 
 
-def _refuse_same(held: dict[str, Any]) -> Outcome | None:
+def _refuse_same(held: dict[str, Any], kind: str, month: int | None) -> Outcome | None:
     """The same bytes, already counting for something. Duplicates stop here."""
     if pnl.is_sample():
         return None
-    same = pnl.same_file(held["raw"])
+    same = pnl.same_file(held["raw"], kind, month)
     if same is None:
         return None
     where = (f"{same['location']} · {same['service_line']}, "
              f"{month_label(same['months'][0])}"
-             if same["location"] else same["label"])
+             if same["location"] else f"{same['label']} {pnl.version_label(same)}")
     return _no(f"This exact file is already current as {where} ({same['filename']}).")
+
+
+def _becomes(now: dict[str, Any] | None, kind: str, month: int | None, location: str = "",
+             service_line: str = "") -> str:
+    """What a new upload would be called, and what it stops being read in its place."""
+    number = pnl.next_version(kind, month, location, service_line)
+    filed = kind == "fr" or kind in pnl.FILED_BY_MONTH
+    named = f"v{number}" + (f" of {month_label(month)}" if filed and month else "")
+    if now is None:
+        return f"Becomes {named}."
+    return (f"Becomes {named} and replaces {pnl.version_label(now)} ({now['filename']}), "
+            f"which is kept.")
 
 
 def _numbers(values: dict[str, str], fields: tuple[str, ...]
@@ -1182,6 +1451,7 @@ def _count_at(month: int, chosen: dict[str, float], scope: Scope) -> int:
 
 register(PnlIntake())
 register(PnlStatement())
+register(PnlAnalysis())
 register(PnlRecon())
 register(PnlExceptions())
 register(PnlOutput())
