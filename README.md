@@ -88,6 +88,12 @@ cp .env.example .env   # fill in endpoint, key, deployment (auto-loaded on start
 scripts/run_local.sh        # backend on :8000; COMPASS_PORT=8010 for another port
 ```
 
+On Windows (PowerShell or cmd), from the project folder:
+
+```powershell
+.venv\Scripts\python scripts\run_local.py
+```
+
 Everything stays on this machine: records in the local store under `./data`,
 answers from the scripted mock model, and the P&L sample month on screen.
 Sign-in still comes from `.env`, which the script never changes; it hides
