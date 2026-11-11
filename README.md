@@ -82,6 +82,19 @@ cp .env.example .env   # fill in endpoint, key, deployment (auto-loaded on start
 # permission Allow/Deny buttons, session resume, and cost readout
 ```
 
+### Without Azure
+
+```bash
+scripts/run_local.sh        # backend on :8000; COMPASS_PORT=8010 for another port
+```
+
+Everything stays on this machine: records in the local store under `./data`,
+answers from the scripted mock model, and the P&L sample month on screen.
+Sign-in still comes from `.env`, which the script never changes; it hides
+every Azure endpoint and key for its own process only. The frontend runs as
+usual and proxies to :8000. A fresh local store starts empty, because what
+Compass kept in Cosmos and Blob stays there.
+
 `.env` is loaded automatically (via python-dotenv) — no need to `source` it.
 Real shell variables still override the file. **The endpoint and key must come
 from the same Azure resource**: on the resource's *Keys & Endpoint* page (or
