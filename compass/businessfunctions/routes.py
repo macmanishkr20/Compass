@@ -648,7 +648,8 @@ async def act(
                           body.action, body.targets, body.note)
     await _deliver()
     await _save()
-    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched,
+            "tab": outcome.tab}
 
 
 class FormBody(BaseModel):
@@ -911,7 +912,8 @@ async def submit_form(
     outcome = handler.submit(_scope(user, body.entity, body.period, feature),
                              form_id, values, body.about)
     await _save()
-    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched,
+            "tab": outcome.tab}
 
 
 class AskBody(BaseModel):
@@ -1026,7 +1028,8 @@ async def confirm_plan(
     outcome = assistant.confirm(plan_id, user, handler)
     await _deliver()
     await _save()
-    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched}
+    return {"ok": outcome.ok, "said": outcome.said, "touched": outcome.touched,
+            "tab": outcome.tab}
 
 
 @router.post("/plans/{plan_id}/cancel")

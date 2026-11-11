@@ -533,7 +533,13 @@ export class BusinessFunctions {
       } else {
         this.notice.error(out.said);
       }
-      await this.refresh();
+      // An action that made something says where it is: Start on the P&L run
+      // makes a report, and the report is what the person wants to see next.
+      if (out.ok && out.tab) {
+        await this.pickTab(out.tab);
+      } else {
+        await this.refresh();
+      }
       this.say(out.said);
     } catch (err) {
       this.notice.error(`That did not go through: ${err}`);

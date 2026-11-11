@@ -978,9 +978,10 @@ features:
     short: FR files, mappings, Plan and Forecast
     blurb: >-
       What has arrived for the month and what has not. Upload each location
-      and service line's FR file and the inputs it is joined to. Shows what the
-      joins could not find: unmapped segments, segments Compass added from the
-      Plan, and anything shaped differently from last month.
+      and service line's FR file and the inputs it is joined to. Each file is
+      checked as it arrives; one that fails is listed with the reason and never
+      used. Shows what the joins could not find: unmapped segments, segments
+      Compass added from the Plan, and anything shaped differently from last month.
     handler: pnl_intake
     scope: [period]
     choices:
@@ -1138,6 +1139,60 @@ features:
       - What changed shape since last month?
     tools: [read_rows, explain_row]
 
+  - id: pnl_run
+    service: pnl
+    name: Month-end run
+    short: File checks · Start · each step in turn
+    blurb: >-
+      The preparer runs the month here. Start is offered once every file the month
+      needs has passed its checks. Each step then makes its report and waits for
+      Next: location-wise, consolidated, service line-wise, RS analysis and
+      reconciliation. The exception report is made when you ask for it.
+    handler: pnl_run
+    scope: [period]
+    choices:
+      period: *pnl_months
+    scope_why: A run is of one reporting month's files.
+    visibility: *pnl_desk
+    actions:
+      - id: start
+        label: Start
+        roles: [finance, admin]
+        confirm: >-
+          Starts this month's run from the files that have passed their checks
+          and makes the location-wise P&L. Each later step waits for you.
+      - id: run
+        label: Next
+        roles: [finance, admin]
+        confirm: Makes this step's report from the files the run started with.
+      - id: generate
+        label: Generate the exception report
+        roles: [finance, admin]
+        confirm: >-
+          Makes the exception report at this month's thresholds. You can make it
+          again after changing them.
+    rules:
+      - *pnl_is_finance
+      - *pnl_sample
+      - *pnl_choose
+      - id: files_not_ready
+        headline: Start waits for every file to pass its checks.
+        detail: >-
+          See File checks for what is missing or failed. A failed file is not
+          used; upload a corrected one under Source files.
+        tone: notice
+      - id: run_out_of_date
+        headline: A file changed after this run started.
+        detail: >-
+          Its reports were made from the files before it, so they are put away.
+          Start again to run the month on the files in use now.
+        tone: limit
+    starters:
+      - What is stopping Start?
+      - Which step is next?
+      - Which files failed their checks, and why?
+    tools: [read_rows, explain_row]
+
   - id: pnl_statement
     service: pnl
     name: Consolidated P&L
@@ -1165,6 +1220,13 @@ features:
         id: no_files_yet
         headline: Nothing uploaded for this month.
         detail: Upload its FR files under Source files.
+        tone: notice
+      - &pnl_not_run
+        id: not_run_yet
+        headline: Not run yet.
+        detail: >-
+          This report is made when the month-end run reaches its step. Start the
+          run and go through the steps under Month-end run.
         tone: notice
       - id: no_prior_month
         headline: Some of this has no MTD.
@@ -1207,6 +1269,7 @@ features:
       - *pnl_sample
       - *pnl_choose
       - *pnl_no_files
+      - *pnl_not_run
     starters:
       - Which rate card is furthest from Plan on charged hours?
       - Which segments are short on utilisation?
@@ -1251,6 +1314,7 @@ features:
       - *pnl_sample
       - *pnl_choose
       - *pnl_no_files
+      - *pnl_not_run
       - id: no_finance_file
         headline: Nothing to reconcile against yet.
         detail: Upload Finance's consolidation for this month under Source files.
@@ -1371,6 +1435,7 @@ features:
       - *pnl_sample
       - *pnl_choose
       - *pnl_no_files
+      - *pnl_not_run
       - *pnl_illustrative
     starters:
       - What are the largest exceptions this month?

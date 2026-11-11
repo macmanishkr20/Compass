@@ -274,6 +274,8 @@ export interface ActResult {
   ok: boolean;
   said: string;
   touched?: string[];
+  /** The tab that shows what was done, when it is not the one open. */
+  tab?: string;
 }
 
 const ROOT = '/v1/business-functions';

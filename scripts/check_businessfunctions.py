@@ -692,7 +692,7 @@ def check_the_surface_answers() -> None:
     body = r.json()
     ok("the overview carries the function and its features",
        r.status_code == 200 and body["name"] == "Finance"
-       and len(body["features"]) == 12, f"{r.status_code}")
+       and len(body["features"]) == 13, f"{r.status_code}")
     ok("the overview's queue is built from live figures",
        any(q["feature"] == "form26" for q in body["queue"]), str(body["queue"]))
     ok("the rail scopes to the function at the overview",
@@ -2497,6 +2497,9 @@ def check_every_row_can_be_pointed_at() -> None:
             key = h.row_key
             ok(f"{fn.id}/{feat.id}: declares which field names a row",
                bool(key), repr(key))
+            # A P&L report shows nothing until its month has been run.
+            if feat.id.startswith("pnl_") and s.period:
+                _pnl_ran(s.period)
             for tab in h.tabs(s):
                 rows = h.rows(s, tab.key)
                 # A tab may hold a different kind of thing and name its own key.
@@ -5294,8 +5297,8 @@ def check_the_firm_has_three_levels() -> None:
        and [f.name for f in feats] == ["Dashboard", "Gift requests", "Tracker",
                                        "Tax & budget", "Audit trail"],
        str([f.name for f in feats]))
-    ok("OPE Billing holds nothing yet, and P&L its six",
-       [(s.id, len(fs)) for s, fs in grouped[1:3]] == [("ope_billing", 0), ("pnl", 6)],
+    ok("OPE Billing holds nothing yet, and P&L its seven",
+       [(s.id, len(fs)) for s, fs in grouped[1:3]] == [("ope_billing", 0), ("pnl", 7)],
        str([(s.id if s else None, len(fs)) for s, fs in grouped[1:3]]))
     loose_service, loose = grouped[-1]
     ok("and the function's own screen comes last, under no service",
@@ -5854,6 +5857,21 @@ def _pnl(user: str, feature: str, period: str = "Sep 2026", entity: str = "Pan-G
     return handler, people.scope_for(user, feat, period=period, entity=entity)
 
 
+def _pnl_ran(period: str = "Sep 2026") -> None:
+    """The month as if its preparer had gone through every step, on the files now.
+
+    For the checks of what the report screens show. The gate itself, files
+    checked and Start then Next, has a check of its own, which goes through
+    the screen; here only the record of a finished run is made.
+    """
+    month = pnl.month_of(period)
+    steps = [key for key, _name, _what in pnl.STEPS] + [pnl.EXCEPTIONS_STEP[0]]
+    pnl._put_record({  # noqa: SLF001
+        "id": f"run-{month}-{time.time_ns()}", "type": "run", "month": month, "by": "check",
+        "at": time.time(), "inputs": pnl._inputs_of_run(month),  # noqa: SLF001
+        "steps": {key: {"by": "check", "at": time.time(), "said": ""} for key in steps}})
+
+
 def _pnl_upload(user: str, form: str, filename: str, raw: bytes, *,
                 period: str = "Sep 2026", **values: str):
     """Pick a file and record it, the way the screen does. Returns the outcome."""
@@ -6198,6 +6216,129 @@ def check_the_real_plan_layout_is_read() -> None:
            "none of them" in str(err), str(err))
 
 
+def check_the_preparer_runs_the_month_step_by_step() -> None:
+    """Files checked as they arrive, Start once all have passed, then Next."""
+    print("\nP&L: the preparer runs the month, one step at a time")
+    _pnl_fresh()
+    sep = pnl_files.month_key(2026, 9)
+    run, scope = _pnl("finance", "pnl_run")
+    files = {r["for_what"] if r["kind"] == "fr" else r["kind"]: r
+             for r in run.rows(scope, "files")}
+    ok("a file that failed its checks is listed with why, and not used",
+       files["Hungary · Consulting"]["status"] == "Failed checks"
+       and "Cover Sheet" in files["Hungary · Consulting"]["why"]
+       and pnl.fr_source(sep, "Hungary", "Consulting") is None, str(files["Hungary · Consulting"]))
+    ok("one not uploaded says so", files["Consulting MENA · Consulting"]["status"] == "Not uploaded")
+    ok("the Plan, Forecast and mapping passed",
+       all(files[k]["status"] == "Passed checks" for k in ("plan", "forecast", "mapping")))
+    steps = {r["id"]: r for r in run.rows(scope, "steps")}
+    ok("Start is not offered while a file is missing or failed",
+       steps["locations"]["can"] == [] and steps["locations"]["status"] == "Waiting for files",
+       str(steps["locations"]))
+    refused = run.act(scope, "start", ["locations"])
+    ok("and pressing it anyway says what is open",
+       not refused.ok and "failed" in refused.said and "not uploaded" in refused.said,
+       refused.said)
+    statement, at_gds = _pnl("finance", "pnl_statement")
+    ok("no report is made before the run",
+       statement.tabs(at_gds) == [] and "not_run_yet" in statement.rules(at_gds))
+    recon, recon_scope = _pnl("finance", "pnl_recon")
+    ok("not even reconciliation", recon.tabs(recon_scope) == [] and not recon.figures(recon_scope))
+    out, out_scope = _pnl("finance", "pnl_output")
+    ok("nor can leadership's file be built",
+       not out.submit(out_scope, "build_pack", {"sheets": "Consolidated", "locations": ""}).ok)
+
+    intake, intake_scope = _pnl("finance", "pnl_intake")
+    for slot in ("Hungary|Consulting", "Consulting MENA|Consulting"):
+        intake.act(intake_scope, "not_required", [slot], "Closed this month.")
+    steps = {r["id"]: r for r in run.rows(scope, "steps")}
+    ok("once every file has passed, Start is offered", steps["locations"]["can"] == ["start"])
+    reader, reader_scope = _pnl("compliance", "pnl_run")
+    ok("only to the desk", not reader.rows(reader_scope, "steps")
+       or all(not r["can"] for r in reader.rows(reader_scope, "steps")))
+
+    started = run.act(scope, "start", ["locations"])
+    ok("Start makes the location-wise P&L and stops there",
+       started.ok and "Location-wise P&L made" in started.said
+       and "Next: Consolidated P&L" in started.said, started.said)
+    grid = run.rows(scope, "locations")
+    ok("and opens on what it made: a grid of every location's lines",
+       started.tab == "locations" and "locations" in [t.key for t in run.tabs(scope)]
+       and grid and {r["location"] for r in grid} >= {"India", "Poland"}
+       and run.columns(scope, "locations")[0]["key"] == "location"
+       and len({r["id"] for r in grid}) == len(grid), started.tab)
+    ok("a later step has no grid yet", "consolidated" not in [t.key for t in run.tabs(scope)]
+       and run.rows(scope, "consolidated") == [])
+    steps = {r["id"]: r for r in run.rows(scope, "steps")}
+    ok("the next step waits for Next",
+       steps["locations"]["status"] == "Done" and steps["consolidated"]["can"] == ["run"]
+       and steps["analysis"]["can"] == [], str(steps["consolidated"]))
+    ok("a later step cannot be run out of turn",
+       not run.act(scope, "run", ["analysis"]).ok)
+    statement, at_india = _pnl("finance", "pnl_statement", entity="India")
+    ok("a location's P&L is there now", "statement" in [t.key for t in statement.tabs(at_india)]
+       and statement.rows(at_india, "statement"))
+    ok("Pan-GDS is not, until it is consolidated",
+       "statement" not in [t.key for t in statement.tabs(at_gds)]
+       and "not_run_yet" in statement.rules(at_gds))
+    exceptions, exc_scope = _pnl("finance", "pnl_exceptions")
+    ok("the exception report is made only when asked for",
+       exceptions.rows(exc_scope, "all") == [] and steps["exceptions"]["can"] == ["generate"])
+
+    for step in ("consolidated", "service_lines", "analysis", "reconciliation"):
+        done = run.act(scope, "run", [step])
+        ok(f"Next makes the {pnl.STEP_NAMES[step]}, and opens its grid",
+           done.ok and done.tab == step and run.rows(scope, step)
+           and run.columns(scope, step), done.said)
+    ok("then Pan-GDS, the service lines, the RS sheets and reconciliation are there",
+       statement.rows(at_gds, "statement") and statement.rows(at_gds, "service_lines")
+       and recon.tabs(recon_scope))
+    ok("and leadership's file can be built",
+       out.submit(out_scope, "build_pack", {"sheets": "Consolidated", "locations": ""}).ok)
+    ok("though not with an exception report nobody has made",
+       not out.submit(out_scope, "build_pack",
+                      {"sheets": "Exception report", "locations": ""}).ok)
+    made = run.act(scope, "generate", ["exceptions"])
+    ok("Generate makes it, and opens it",
+       made.ok and made.tab == "exceptions" and exceptions.rows(exc_scope, "all")
+       and run.rows(scope, "exceptions"), made.said)
+    ok("the run is on the trail",
+       sum("Month-end run" in r["said"] or r["kind"] == "run_step"
+           for r in pnl.trail(sep)) >= 6)
+
+    # A file arriving after Start, and a correction that fails its checks.
+    _pnl_fresh(sample=False)
+    pnl.set_rules(by="finance", why="Only the FR files for this check.", required_inputs=[])
+    for location in pnl.LOCATIONS[1:]:
+        pnl.set_skip(sep, location, "Consulting", by="finance", note="closed", on=True)
+    slot = {"location": "India", "service_line": "Consulting"}
+    good = _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 100]])
+    _pnl_upload("finance", "upload_fr", "india.xlsx", good, **slot)
+    ok("one file is all this month needs", run.act(scope, "start", ["locations"]).ok)
+    _pnl_upload("finance", "upload_fr", "india v2.xlsx",
+                _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 120]]), **slot)
+    steps = {r["id"]: r for r in run.rows(scope, "steps")}
+    ok("a file after Start puts the run out of date, and Start back",
+       "run_out_of_date" in run.rules(scope) and steps["locations"]["can"] == ["start"]
+       and statement.tabs(at_india) == [], str(steps["locations"]))
+    broken = _pnl_upload("finance", "upload_fr", "india v3.xlsx", _sheet(
+        [["RS", "Line", "Actual"], ["A", "Revenue", "#REF!"], ["A", "Cost", 3]]), **slot)
+    ok("a file with Excel errors is not accepted, and says how to put it right",
+       not broken.ok and "#REF!" in broken.said and "upload it again" in broken.said,
+       broken.said)
+    check = pnl.file_check("fr", sep, "India", "Consulting")
+    ok("it is listed as failed, though a good one came before it",
+       check["status"] == "Failed checks" and check["file"] == "india v3.xlsx", str(check))
+    ok("its figures are not used", pnl.fr_source(sep, "India", "Consulting")["filename"]
+       == "india v2.xlsx")
+    ok("and Start waits for a corrected one",
+       {r["id"]: r for r in run.rows(scope, "steps")}["locations"]["can"] == [])
+    _pnl_upload("finance", "upload_fr", "india v4.xlsx",
+                _sheet([["RS", "Line", "Actual"], ["A", "Revenue", 130]]), **slot)
+    ok("which brings it back",
+       {r["id"]: r for r in run.rows(scope, "steps")}["locations"]["can"] == ["start"])
+
+
 def check_calculated_lines_follow_finances_rules() -> None:
     _pnl_fresh(sample=False)
     sep = pnl_files.month_key(2026, 9)
@@ -6228,6 +6369,7 @@ def check_calculated_lines_follow_finances_rules() -> None:
     ok("a percentage is Excel's fraction, and its variance is in points",
        lines["Gross Margin % of TNR"]["vs_plan_pct"] == 12.5, str(lines["Gross Margin % of TNR"]))
     statement, scope = _pnl("finance", "pnl_statement")
+    _pnl_ran()
     shown = {r["line"]: r for r in statement.rows(scope, "statement")}["Gross Margin % of TNR"]
     ok("and reads as one on screen",
        (shown["ytd"], shown["plan"], shown["vs_plan_pct"]) == ("75.0%", "62.5%", "+12.5 pts"),
@@ -6235,11 +6377,13 @@ def check_calculated_lines_follow_finances_rules() -> None:
 
     # A formula that disagrees with what was reported is found, not repaired.
     recon, scope = _pnl("finance", "pnl_recon")
+    _pnl_ran()
     ok("calculated lines that hold are matched", {r["status"] for r in recon.rows(scope, "calculated")}
        == {"Matched"}, str(recon.rows(scope, "calculated")))
     _pnl_upload("finance", "upload_fr", "fr2.xlsx", _sheet([
         ["RS", "Line", "Actual"], ["A", "Total Net Revenue", 100], ["A", "Total Direct Expense", 40],
         ["A", "Gross Margin", 70]]), **slot)
+    _pnl_ran()
     off = [r for r in recon.rows(scope, "calculated") if r["status"] != "Matched"]
     ok("a subtotal that disagrees with its formula is reported",
        [(r["parameter"], r["reported"], r["calculated"]) for r in off] == [("Gross Margin", 70.0, 60.0)],
@@ -6440,6 +6584,7 @@ def check_the_comparison_sheets_are_built() -> None:
        "Not mapped" in {r["rate_card"] for r in cards})
 
     handler, scope = _pnl("finance", "pnl_analysis", entity="India")
+    _pnl_ran()
     india = handler.rows(scope, "rs_plan")
     ok("one location's view holds only its segments",
        india and {r["rs"] for r in india} <= set(pnl_sample.PLAIN.values()),
@@ -6451,6 +6596,7 @@ def check_the_comparison_sheets_are_built() -> None:
 def check_the_exception_report_finds_only_what_breaches() -> None:
     _pnl_fresh()
     handler, scope = _pnl("finance", "pnl_exceptions")
+    _pnl_ran()
     sep = pnl_files.month_key(2026, 9)
     rows = handler.rows(scope, "all")
     def found(check, rs, line=None):
@@ -6509,6 +6655,7 @@ def check_the_exception_report_finds_only_what_breaches() -> None:
     zero = _sheet([["RS", "Line", "Actual", "Plan"], ["A", "Revenue", 500, 0]])
     _pnl_upload("finance", "upload_fr", "z.xlsx", zero, location="Poland", service_line="Consulting")
     handler, scope = _pnl("finance", "pnl_exceptions")
+    _pnl_ran()
     got = handler.rows(scope, "plan")
     ok("a movement against a plan of zero is flagged, with no percentage",
        len(got) == 1 and got[0]["variance_pct"] is None, str(got))
@@ -6517,6 +6664,7 @@ def check_the_exception_report_finds_only_what_breaches() -> None:
     # It reports. Reviewing changes no figure, and new figures reopen it.
     _pnl_fresh()
     handler, scope = _pnl("finance", "pnl_exceptions")
+    _pnl_ran()
     first = handler.rows(scope, "all")[0]
     figures_before = {k: dict(v) for k, v in pnl.view(sep)["cells"].items()}
     ok("a review needs a note", not handler.act(scope, "mark_reviewed", [first["id"]]).ok)
@@ -6547,6 +6695,7 @@ def check_the_exception_report_finds_only_what_breaches() -> None:
 def check_a_month_cannot_be_released_past_what_is_open() -> None:
     _pnl_fresh()
     recon, scope = _pnl("finance", "pnl_recon")
+    _pnl_ran()
     off = recon.rows(scope, "finance")
     wrong = [r for r in off if r["status"] != "Matched"]
     ok("the one planted difference against Finance is found",
@@ -6588,6 +6737,7 @@ def check_a_month_cannot_be_released_past_what_is_open() -> None:
         ["Total Selected", "Revenue", 25, 10], ["A", "FTE", 3, None],
         ["Total Selected", "FTE", 4, None]]), location="India", service_line="Consulting")
     recon, scope = _pnl("finance", "pnl_recon")
+    _pnl_ran()
     ok("segments not adding to Total Selected are found",
        [(r["parameter"], r["difference"]) for r in recon.rows(scope, "segments")
         if r["status"] != "Matched"] == [("Revenue", -5.0)], str(recon.rows(scope, "segments")))
@@ -6597,6 +6747,7 @@ def check_a_month_cannot_be_released_past_what_is_open() -> None:
 
     _pnl_fresh()
     out, scope = _pnl("finance", "pnl_output")
+    _pnl_ran()
     ok("nothing to build with no sheets", not out.submit(scope, "build_pack", {
         "sheets": "", "locations": ""}).ok)
     built = out.submit(scope, "build_pack", {
@@ -6609,7 +6760,7 @@ def check_a_month_cannot_be_released_past_what_is_open() -> None:
        row["can"] == ["release_despite"], str(row["can"]))
     refused = out.act(scope, "release", [pack_id], "Looks fine.")
     ok("and is refused, saying what is open",
-       not refused.ok and "FR files missing" in refused.said, refused.said)
+       not refused.ok and "FR file missing" in refused.said, refused.said)
 
     # WHAT IS IN THE FILE. This is the requirement's clean output.
     from openpyxl import load_workbook
@@ -6627,6 +6778,7 @@ def check_a_month_cannot_be_released_past_what_is_open() -> None:
 
     # Who can see what.
     lead, lead_scope = _pnl("compliance", "pnl_output")
+    _pnl_ran()
     ok("leadership does not see a draft", not lead.rows(lead_scope, "packs"))
     try:
         lead.row_workbook(lead_scope, pack_id)
@@ -6641,7 +6793,7 @@ def check_a_month_cannot_be_released_past_what_is_open() -> None:
     ok("it can go ahead in somebody's name", done.ok, done.said)
     row = out.rows(scope, "packs")[0]
     ok("and what it went past is on the record",
-       row["status"] == "Released" and "FR files missing" in row["released_despite"], str(row))
+       row["status"] == "Released" and "FR file missing" in row["released_despite"], str(row))
     ok("a released file offers nothing more", row["can"] == [], str(row["can"]))
     ok("leadership now reads it", [r["id"] for r in lead.rows(lead_scope, "packs")] == [pack_id])
     ok("and only that", [t.key for t in lead.tabs(lead_scope)] == ["packs"])
@@ -6671,7 +6823,10 @@ def check_source_files_are_kept_and_checked_on_the_way_in() -> None:
        and {r["service_line"] for r in handler.rows(scope, "coverage")} == {"Consulting"})
     ok("missing files show on the screen",
        [r["location"] for r in handler.rows(scope, "coverage") if r["status"] == "Missing"]
-       == ["Hungary", "Consulting MENA"])
+       == ["Consulting MENA"])
+    ok("and one that failed its checks shows as that, not as filed",
+       [r["location"] for r in handler.rows(scope, "coverage")
+        if r["status"] == "Failed checks"] == ["Hungary"])
     row = next(r for r in handler.rows(scope, "coverage") if r["status"] == "Missing")
     ok("a missing file offers a reminder", row["can"] == ["remind", "not_required"], str(row["can"]))
     ok("and a filed one offers nothing",
@@ -6752,6 +6907,7 @@ def check_source_files_are_kept_and_checked_on_the_way_in() -> None:
     ok("a large file is taken", _pnl_upload(
         "finance", "upload_fr", "big.xlsx", many, location="Mexico", service_line="Consulting").ok)
     built = _pnl("finance", "pnl_output")
+    _pnl_ran()
     pack_id = built[0].submit(built[1], "build_pack", {"sheets": "Consolidated",
                                                        "locations": ""}).touched[0]
     total = next(r["ytd"] for r in pnl.summary(sep) if r["line"] == "Revenue")
@@ -6885,6 +7041,7 @@ def check_each_month_keeps_its_own_versions() -> None:
     ok("FR versions are named the same way",
        any(r["version"] == "v1 of Sep 2026" for r in handler.rows(scope, "coverage")))
     output, shown = _pnl("finance", "pnl_output")
+    _pnl_ran()
     ok("the file's inputs name the version they used",
        any(r["input"] == "Plan database" and r["version"] == "v6 of Sep 2026"
            for r in output.rows(shown, "inputs")))
@@ -6910,8 +7067,9 @@ def check_pnl_is_finances_and_nobody_elses() -> None:
     function = registry.get("finance")
     screens = [f for f in function.features if f.service == "pnl"]
     ok("P&L has its six sub-services",
-       [f.id for f in screens] == ["pnl_intake", "pnl_statement", "pnl_analysis", "pnl_recon",
-                                   "pnl_exceptions", "pnl_output"], str([f.id for f in screens]))
+       [f.id for f in screens] == ["pnl_intake", "pnl_run", "pnl_statement", "pnl_analysis",
+                                   "pnl_recon", "pnl_exceptions", "pnl_output"],
+       str([f.id for f in screens]))
     forms = {form.id: form for f in screens for form in f.forms}
     fields = {x.id: x for x in forms["upload_fr"].fields}
     ok("the form's locations are the ones Compass expects",
@@ -6924,6 +7082,7 @@ def check_pnl_is_finances_and_nobody_elses() -> None:
     ok("the inputs on offer are the ones it can read",
        list(next(x for x in forms["upload_master"].fields if x.id == "kind").options)
        == list(pnl_screens.MASTER_KINDS))
+    _pnl_ran()
     for feature in screens:
         handler = registry.feature_of("finance", feature.id)[2]
         declared = {r.id for r in feature.rules}
@@ -6971,6 +7130,7 @@ def check_pnl_is_finances_and_nobody_elses() -> None:
     h, lead = _pnl("compliance", "pnl_intake")
     ok("leadership reads the output, not the working", not h.tabs(lead))
     h, lead = _pnl("compliance", "pnl_output")
+    _pnl_ran()
     ok("and cannot build a file", not h.submit(lead, "build_pack", {
         "sheets": "Consolidated", "locations": ""}).ok)
     ok("the build form's fields are not even sent to leadership",
@@ -7043,6 +7203,7 @@ def check_the_pnl_sample_can_be_on_by_itself() -> None:
        not drive(pnl._sources_store.all()) and not drive(pnl._chunks_store.all())
        and [r["id"] for r in drive(pnl._records_store.all())] == ["log-stray"])
     handler, scope = _pnl("finance", "pnl_exceptions")
+    _pnl_ran()
     row = handler.rows(scope, "all")[0]
     handler.act(scope, "mark_reviewed", [row["id"]], "Trying it out.")
     drive(pnl.flush())
@@ -7104,6 +7265,7 @@ def check_a_pnl_file_goes_up_through_the_route() -> None:
         ok("nor a file over the limit", big.status_code == 413, str(big.status_code))
 
         out = "/v1/business-functions/finance/features/pnl_output"
+        _pnl_ran()
         built = c.post(f"{out}/forms/build_pack", json={
             "values": {"sheets": "Consolidated", "locations": ""}, "period": "Sep 2026"}).json()
         ok("a file is built", built["ok"], str(built))
@@ -7946,6 +8108,7 @@ def _checks() -> int:
     with fixtures():
         check_the_plan_is_read_the_way_the_macro_reads_it()
         check_the_real_plan_layout_is_read()
+        check_the_preparer_runs_the_month_step_by_step()
     with fixtures():
         check_calculated_lines_follow_finances_rules()
     with fixtures():

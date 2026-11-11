@@ -152,6 +152,9 @@ SHIPPED_RULES: dict[str, Any] = {
     # Consulting is the reference model and the other service lines follow it, so
     # only its files are expected until Finance says otherwise.
     "service_lines_in_use": ["Consulting"],
+    # What the month-end run waits for besides every expected FR file. Each has
+    # to have passed its checks before Start is offered.
+    "required_inputs": ["plan", "forecast", "mapping"],
     # What the validations call each line. Matched on the whole name, so that
     # "Other revenue" is never read as Revenue.
     "key_lines": {
@@ -172,7 +175,7 @@ RULE_FIELDS = frozenset({
     "plan_pct", "py_pct", "forecast_pct", "floor", "vp_pct", "eb_pct",
     "eb_by_location", "dc_revenue_pct", "dc_per_fte", "revenue_tolerance_pct",
     "recon_abs", "recon_pct", "line_rules", "fy_first_month", "reminder_day",
-    "service_lines_in_use", "plan_months", "plan_units",
+    "service_lines_in_use", "plan_months", "plan_units", "required_inputs",
 })
 
 #: The calculated lines whose formulas the process document states. The macro's
@@ -1580,6 +1583,12 @@ def coverage(month: int) -> list[dict[str, Any]]:
                 status = "Not required"
             else:
                 status = "Missing"
+            # The latest upload decides: a correction that failed its checks
+            # leaves the slot waiting, whatever was there before.
+            failed = _rejection("fr", month, location, sl)
+            if status != "Not required" and failed and (
+                    source is None or failed["at"] > source["at"]):
+                status = "Failed checks"
             out.append({
                 "id": f"{location}|{sl}", "location": location, "service_line": sl,
                 "status": status,
@@ -2058,11 +2067,245 @@ def blockers(month: int) -> list[str]:
     out = []
     if missing := missing_slots(month):
         out.append(f"{len(missing)} FR file{'' if len(missing) == 1 else 's'} missing")
+    if failed := [r for r in coverage(month) if r["status"] == "Failed checks"]:
+        out.append(f"{len(failed)} FR file{'' if len(failed) == 1 else 's'} failed "
+                   f"{'its' if len(failed) == 1 else 'their'} checks")
     if active("finance", month) is None:
         out.append("no Finance consolidation to reconcile against")
     if problems := recon_problems(month):
         out.append(f"{problems} reconciliation difference{'' if problems == 1 else 's'}")
+    if not step_done(month, "reconciliation"):
+        out.append("the month-end run has not reached Reconciliation")
     return out
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# the month-end run
+# ──────────────────────────────────────────────────────────────────────────
+#
+# The preparer runs the month, not a schedule. Every file is checked as it
+# arrives and one that fails is never used. Start is offered once every file
+# the month needs has passed, and each step then works out its report and
+# waits for Next. A file uploaded after Start puts the run out of date, because
+# its reports were made from the files before it.
+
+#: The steps, in the order the preparer goes through them: (id, name, what it makes).
+STEPS = (
+    ("locations", "Location-wise P&L",
+     "Each location's P&L against Plan, Forecast and PY, YTD and MTD"),
+    ("consolidated", "Consolidated P&L",
+     "The locations consolidated into the Pan-GDS P&L"),
+    ("service_lines", "Service line-wise P&L",
+     "The month by service line"),
+    ("analysis", "RS and rate card analysis",
+     "Each segment and rate card against Plan, PY and Forecast"),
+    ("reconciliation", "Reconciliation",
+     "Segments, locations and operating measures against their totals and Finance's file"),
+)
+#: Made when somebody asks for it, once the locations have run.
+EXCEPTIONS_STEP = ("exceptions", "Exception report",
+                   "What breaches the thresholds, and the checks that could not run")
+STEP_NAMES = {key: name for key, name, _ in (*STEPS, EXCEPTIONS_STEP)}
+#: Inputs a month may also use. Not waited for, but one that failed its checks
+#: still stops the run: a failed file is never quietly left out.
+OPTIONAL_INPUTS = ("finance", "hours", "rates", "lines")
+
+
+def record_rejection(kind: str, *, filename: str, raw: bytes, by: str, why: str,
+                     month: int | None = None, location: str = "",
+                     service_line: str = "") -> dict[str, Any]:
+    """Keep the fact that a file failed its checks. Its figures are not kept.
+
+    So the slot shows red with the reason until a corrected file arrives,
+    rather than quietly carrying on with whatever was there before.
+    """
+    record = {
+        "id": f"rejected-{uuid.uuid4().hex[:12]}", "type": "rejected", "kind": kind,
+        "filed_for": (month or 0) if kind == "fr" or kind in FILED_BY_MONTH else 0,
+        "location": location, "service_line": service_line, "filename": filename,
+        "sha256": hashlib.sha256(raw).hexdigest(), "by": by, "at": time.time(), "why": why,
+    }
+    _put_record(record)
+    log("rejected", by, f"{SPECS[kind].label} {filename} failed its checks: {why}",
+        record["filed_for"] or month)
+    return record
+
+
+def _rejection(kind: str, month: int, location: str = "",
+               service_line: str = "") -> dict[str, Any] | None:
+    filed = month if kind == "fr" or kind in FILED_BY_MONTH else 0
+    found = [r for r in _records.values() if r.get("type") == "rejected"
+             and r["kind"] == kind and r["filed_for"] == filed
+             and r["location"] == location and r["service_line"] == service_line]
+    return max(found, key=lambda r: r["at"]) if found else None
+
+
+def _in_use(kind: str, month: int, location: str = "",
+            service_line: str = "") -> dict[str, Any] | None:
+    if kind == "fr":
+        return fr_source(month, location, service_line)
+    return active(kind) if kind in PERIODLESS else active(kind, month)
+
+
+def file_check(kind: str, month: int, location: str = "",
+               service_line: str = "") -> dict[str, Any]:
+    """Where one input stands for the month: passed, failed, or not there.
+
+    The latest upload decides. A failure after a good file is a correction
+    that did not work, so the slot waits for one that does.
+    """
+    source = _in_use(kind, month, location, service_line)
+    failed = _rejection(kind, month, location, service_line)
+    if failed and (source is None or failed["at"] > source["at"]):
+        return {"status": "Failed checks", "why": failed["why"], "file": failed["filename"],
+                "version": "", "by": failed["by"], "when": _day(failed["at"]), "passed": False}
+    if source:
+        return {"status": "Passed checks", "why": "", "file": source["filename"],
+                "version": version_label(source), "by": source["by"],
+                "when": _day(source["at"]), "passed": True}
+    return {"status": "Not uploaded", "why": "", "file": "", "version": "", "by": "",
+            "when": "", "passed": False}
+
+
+def readiness(month: int) -> list[dict[str, Any]]:
+    """Every file the month runs on, and whether it has passed its checks."""
+    out = []
+    for slot in coverage(month):
+        where = (slot["location"], slot["service_line"])
+        if slot["status"] == "Not required":
+            check = {"status": "Not required", "why": slot["note"], "file": "", "version": "",
+                     "by": slot["by"], "when": "", "passed": True}
+        else:
+            check = file_check("fr", month, *where)
+        out.append({"id": f"fr|{where[0]}|{where[1]}", "input": "FR file",
+                    "for_what": f"{where[0]} · {where[1]}", "required": "Required",
+                    "kind": "fr", **check})
+    wanted = rules().get("required_inputs", [])
+    for kind in (*wanted, *(k for k in OPTIONAL_INPUTS if k not in wanted)):
+        check = file_check(kind, month)
+        needed = kind in wanted
+        if not needed and check["status"] == "Not uploaded":
+            check = dict(check, status="Optional, not uploaded", passed=True)
+        out.append({"id": kind, "input": SPECS[kind].label, "for_what": month_label(month)
+                    if kind in FILED_BY_MONTH else "Every month",
+                    "required": "Required" if needed else "Optional", "kind": kind, **check})
+    return out
+
+
+def start_blockers(month: int) -> list[str]:
+    """Why Start is not offered yet, in words. Empty when it is."""
+    rows = readiness(month)
+    out = []
+    if failed := [r for r in rows if r["status"] == "Failed checks"]:
+        out.append(f"{len(failed)} file{'' if len(failed) == 1 else 's'} failed "
+                   f"{'its' if len(failed) == 1 else 'their'} checks: "
+                   + ", ".join(r["for_what"] if r["kind"] == "fr" else r["input"]
+                               for r in failed[:4]) + ("…" if len(failed) > 4 else ""))
+    if absent := [r for r in rows if r["status"] == "Not uploaded"]:
+        out.append(f"{len(absent)} not uploaded: "
+                   + ", ".join(r["for_what"] if r["kind"] == "fr" else r["input"]
+                               for r in absent[:4]) + ("…" if len(absent) > 4 else ""))
+    return out
+
+
+def _inputs_of_run(month: int) -> list[str]:
+    """What a run is made from: the version of every input it reads."""
+    ids = [r["id"] for r in (fr_source(month, s["location"], s["service_line"])
+                             for s in coverage(month)) if r]
+    for kind in (*rules().get("required_inputs", []), *OPTIONAL_INPUTS, "history"):
+        if source := _in_use(kind, month):
+            ids.append(source["id"])
+    return sorted(set(ids))
+
+
+def current_run(month: int) -> dict[str, Any] | None:
+    runs = [r for r in _records.values() if r.get("type") == "run" and r["month"] == month]
+    return max(runs, key=lambda r: r["at"]) if runs else None
+
+
+def run_is_stale(month: int) -> bool:
+    """Whether a file arrived after Start, so the reports are of files no longer used."""
+    run = current_run(month)
+    return run is not None and run["inputs"] != _inputs_of_run(month)
+
+
+def step_done(month: int, step: str) -> bool:
+    """Whether this month's run has made this report, from the files in use now."""
+    run = current_run(month)
+    return run is not None and step in run["steps"] and not run_is_stale(month)
+
+
+def next_step(month: int) -> str | None:
+    """The step Next would run, once a run has started. None when they have all run."""
+    run = current_run(month)
+    if run is None or run_is_stale(month):
+        return None
+    return next((key for key, _name, _what in STEPS if key not in run["steps"]), None)
+
+
+def start_run(month: int, *, by: str) -> dict[str, Any]:
+    """Start the month: check the files once more, then make the first report."""
+    if blocked := start_blockers(month):
+        raise ValueError("Not every file has passed its checks yet. " + "; ".join(blocked) + ".")
+    run = {"id": f"run-{month}-{time.time_ns()}", "type": "run", "month": month,
+           "by": by, "at": time.time(), "inputs": _inputs_of_run(month), "steps": {}}
+    _put_record(run)
+    log("run_started", by, f"Month-end run started for {month_label(month)}", month)
+    return run_step(month, STEPS[0][0], by=by)
+
+
+def run_step(month: int, step: str, *, by: str) -> dict[str, Any]:
+    """Make one step's report. Only the next one, and only from the files Start used."""
+    run = current_run(month)
+    if run is None or run_is_stale(month):
+        raise ValueError("Start the month-end run first: "
+                         + ("a file has changed since it started." if run else
+                            "nothing has been run for this month."))
+    if step == EXCEPTIONS_STEP[0]:
+        if STEPS[0][0] not in run["steps"]:
+            raise ValueError(f"The exception report needs the {STEPS[0][1]} first.")
+    elif step != next_step(month):
+        expected = next_step(month)
+        raise ValueError(f"{STEP_NAMES.get(step, step)} is not next. "
+                         + (f"Next is {STEP_NAMES[expected]}." if expected else
+                            "Every step has run."))
+    said = _make(month, step)
+    fresh = dict(run, steps=dict(run["steps"], **{step: {"by": by, "at": time.time(),
+                                                         "said": said}}))
+    _put_record(fresh)
+    log("run_step", by, f"{STEP_NAMES[step]}, {month_label(month)}: {said}", month)
+    return fresh
+
+
+def _make(month: int, step: str) -> str:
+    """Work out one step's report now, and say what it came to."""
+    now = view(month)
+    if step == "locations":
+        places = sorted({w for w, _sl in now["slots"]})
+        lines = max((len(summary(month, location=w)) for w in places), default=0)
+        return f"{len(places)} location P&Ls, up to {lines} lines each"
+    if step == "consolidated":
+        places, rows = consolidated(month)
+        return f"Pan-GDS from {len(places)} locations, {len(rows)} lines"
+    if step == "service_lines":
+        rows = slot_rollup(month, "service_line")
+        return f"{len(rows)} service line{'' if len(rows) == 1 else 's'}"
+    if step == "analysis":
+        for scenario in SCENARIOS:
+            comparison(month, scenario)
+            comparison(month, scenario, by="rate_card")
+        segments_seen = {r["rs"] for r in comparison(month, "plan")[1]}
+        cards = {r["rate_card"] for r in comparison(month, "plan", by="rate_card")[1]}
+        return f"{len(segments_seen)} segments, {len(cards)} rate cards"
+    if step == "reconciliation":
+        problems = recon_problems(month)
+        return ("Everything matched" if not problems else
+                f"{problems} difference{'' if problems == 1 else 's'} to look at")
+    if step == "exceptions":
+        found = exceptions(month)
+        return (f"{len(found['found'])} exceptions, {len(found['untested'])} checks "
+                f"could not run")
+    raise ValueError(f"No step called {step!r}.")
 
 
 # ──────────────────────────────────────────────────────────────────────────

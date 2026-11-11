@@ -377,3 +377,12 @@ def load() -> None:
     for kind, (name, raw) in [*drafts().items(), *files().items()]:
         pnl.record_source(kind, pnl_files.read(kind, name, raw, first_month=first, month=SEPTEMBER),
                           filename=name, raw=raw, by="sample", month=SEPTEMBER)
+    # Hungary sent last month's report, so it failed its checks and is not
+    # used: the month waits for a corrected one, or for Finance to say it is
+    # not required, before Start is offered.
+    name = "FR Hungary Consulting Sep 2026.xlsx"
+    pnl.record_rejection("fr", filename=name, raw=fr_file(AUGUST, "Hungary", "Consulting"),
+                         by="sample", month=SEPTEMBER, location="Hungary",
+                         service_line="Consulting",
+                         why="This file's Cover Sheet says Aug 2026, and you are filing it "
+                             "under Sep 2026.")

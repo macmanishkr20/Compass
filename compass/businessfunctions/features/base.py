@@ -177,6 +177,9 @@ class Outcome:
     said: str
     #: The rows that changed, so a surface can repaint just those.
     touched: list[str] = field(default_factory=list)
+    #: The tab that shows what this did, when that is not the one being read.
+    #: A step that makes a report opens on the report, not on the button.
+    tab: str = ""
 
 
 class Feature(ABC):
