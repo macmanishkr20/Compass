@@ -160,8 +160,8 @@ class DesignStore:
         return await _projects.get(project_id)
 
     async def touch(self, project_id: str) -> dict | None:
-        """Record that the project was opened — the table sorts on this, the way
-        claude.ai's "Last viewed" column does."""
+        """Record that the project was opened — its "Last viewed"
+        column sorts on this."""
         row = await self._filled(project_id)
         if row is None:
             return None

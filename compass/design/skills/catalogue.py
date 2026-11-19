@@ -7,7 +7,7 @@ The brief itself is the matching file beside this one.
 
 from __future__ import annotations
 
-# The templates Claude Design offers on its landing screen.
+# The templates Design offers on its landing screen.
 TEMPLATES = [
     {"id": "blank", "name": "Blank", "hint": "Start from nothing", "stem": ""},
     {

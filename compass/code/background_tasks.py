@@ -1,6 +1,6 @@
 """Background tasks — long-running processes the agent spawns and forgets.
 
-The analog of Claude Code's "Background tasks" panel: when the agent runs a dev
+The "Background tasks" panel: when the agent runs a dev
 server (or any long-lived command) with `run_in_background`, we spawn it
 detached, keep a handle, and surface it as a task the user can watch and stop.
 A task is Running until its process exits, then Finished (with an exit code) or
@@ -168,7 +168,7 @@ class BackgroundTaskRegistry:
     ) -> BackgroundTask:
         """Register/refresh the agent's live browser session as a visible entry
         (no subprocess) so the Background tasks panel shows it with an
-        Open/Preview URL — like claude.ai's browser session. Keyed per session."""
+        Open/Preview URL. Keyed per session."""
         tid = f"browser-{session_id}"
         task = self._tasks.get(tid)
         if task is None:
@@ -208,8 +208,8 @@ class BackgroundTaskRegistry:
         return list(t._log) if t else []
 
     def read_new(self, task_id: str) -> list[str]:
-        """Lines produced since the last read_new() for this task (the analog of
-        Claude Code's BashOutput). Handles the deque's line-cap: if old lines
+        """Lines produced since the last read_new() for this task (what the
+        BashOutput tool reads). Handles the deque's line-cap: if old lines
         were dropped, it returns from the oldest still-buffered line."""
         t = self._tasks.get(task_id)
         if t is None:

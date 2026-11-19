@@ -43,7 +43,7 @@
   white-space: nowrap;
 }
 
-/* Preview / Code segmented control on its own bar, like Claude's. */
+/* Preview / Code segmented control on its own bar. */
 .ap-tabbar {
   display: flex;
   padding: 8px 12px;
@@ -94,7 +94,7 @@
 .ap-body { flex: 1; min-height: 0; position: relative; display: flex; }
 
 /* Inline editing — "Edit this" pill on a selection, then a small popover to
-   describe the change (claude.ai edits the artifact right where you marked). */
+   describe the change, applied right where you marked. */
 .ap-editpill {
   position: absolute; left: 50%; transform: translateX(-50%);
   bottom: 18px; z-index: 12;
@@ -169,7 +169,7 @@
     var(--surface);
 }
 /* In-panel diagram viewport: fit-to-view + drag-to-pan + wheel-to-zoom, so the
-   diagram is fully visible and interactive right here (like claude.ai) — no
+   diagram is fully visible and interactive right here — no
    need to pop out. The host is absolutely positioned and driven by a transform. */
 .ap-dstage {
   flex: 1; min-height: 0; position: relative; overflow: hidden;

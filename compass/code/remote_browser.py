@@ -2,7 +2,7 @@
 frames stream to the client and whose input (mouse, keyboard, scroll) is driven
 by the client.
 
-This is what lets the Compass browser pane behave like claude.ai's: every site
+This is what lets the Compass browser pane behave like a real browser: every site
 renders live and is fully interactive, including sites that refuse to be framed
 (X-Frame-Options / CSP frame-ancestors) — because Chromium navigates to them
 directly instead of embedding them in an <iframe>.
@@ -354,7 +354,7 @@ class RemoteBrowserSession:
             with contextlib.suppress(Exception):
                 await self._page.keyboard.press(key)
 
-    # -- Select / inspect (element picker, like claude.ai's Select tool) -----
+    # -- Select / inspect (element picker) -----------------------------------
     # Headless Chromium won't paint the native DevTools overlay into a
     # screencast, so we read the element's box + identity via page JS and let
     # the client draw the highlight + info card over the frame.
@@ -364,7 +364,7 @@ class RemoteBrowserSession:
         return
 
     # Shared element probe: role/name/focusable computed the way DevTools shows
-    # them, so the hover card matches claude.ai's Select tool.
+    # them, so the hover card says what DevTools would.
     _INSPECT_JS = """
     (() => {
       const el = document.elementFromPoint(__X__, __Y__);

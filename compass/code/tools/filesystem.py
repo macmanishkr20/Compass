@@ -1,6 +1,6 @@
 """file_read / file_write / file_edit — ports of FileRead/FileWrite/FileEdit.
 
-The edit tool enforces the same two invariants as Claude Code:
+The edit tool enforces two invariants:
   * you must have read the file this session before editing it
   * the file must not have changed on disk since that read (staleness)
 Both are tracked in ToolUseContext.file_state (the fileStateCache analog).

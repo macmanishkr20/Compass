@@ -168,7 +168,7 @@ async def take_screenshot(
 @router.get("/v1/customize")
 async def get_customize(user: str = Depends(require_user)) -> dict:
     """One place listing what Compass can do and what it's connected to —
-    the port of Claude's Customize section (skills / plugins / connectors)."""
+    the Customize section (skills / plugins / connectors)."""
     # This route is the one place that reports on all of Compass at once, so
     # it is also the one place in common that reaches into a section. Deferred,
     # so importing common cannot pull the agent in behind it.

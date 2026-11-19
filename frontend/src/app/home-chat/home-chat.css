@@ -113,7 +113,7 @@
 .cwrap.mine { align-items: flex-end; }
 .cwrap .cbubble { max-width: 100%; }
 
-/* message actions (Copy / Retry / Edit) — revealed on row hover, like claude.ai */
+/* message actions (Copy / Retry / Edit) — revealed on row hover */
 .cmsg-actions {
   display: flex; gap: 2px;
   margin: 4px 2px 0;
@@ -388,7 +388,7 @@ a.wiq-source:hover { color: var(--accent-strong); border-color: var(--accent-lin
   box-shadow: 0 0 6px var(--success);
 }
 
-/* Voice-mode button (matches claude.ai's waveform "Use voice mode"). */
+/* Voice-mode button (waveform, "Use voice mode"). */
 .home-voice {
   flex: 0 0 auto;
   display: inline-grid; place-items: center;

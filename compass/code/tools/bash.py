@@ -1,7 +1,7 @@
 """bash — the port of BashTool, with per-input concurrency classification.
 
-Claude Code's deepest permission machinery lives on its Bash tool; this port
-keeps the essential pieces: a read-only command classifier (drives both
+The deepest permission machinery lives on the Bash tool. It keeps the
+essential pieces: a read-only command classifier (drives both
 parallel scheduling and the plan-mode/read-only permission default), streaming
 stdout as progress, timeouts, and a persistent working directory — a `cd` in
 one call is visible to the next (see shell_session.ShellSession).
@@ -155,8 +155,8 @@ class BashOutputInput(BaseModel):
 
 
 class BashOutputTool(Tool):
-    """Read new stdout from a background task — the port of Claude Code's
-    BashOutput. Returns only the output printed since the last check, plus the
+    """Read new stdout from a background task.
+    Returns only the output printed since the last check, plus the
     task's current status, so the agent can monitor a dev server, build, or
     watcher it started with run_in_background."""
 

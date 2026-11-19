@@ -1,5 +1,5 @@
 /**
- * Smooth streaming text — the technique claude.ai uses to make token streams
+ * Smooth streaming text — the technique that makes token streams
  * flow instead of jumping. Network deltas arrive in irregular bursts; rendering
  * each one immediately looks chunky. Instead we buffer the received text and
  * reveal it on a requestAnimationFrame loop at a steady, self-tuning pace:

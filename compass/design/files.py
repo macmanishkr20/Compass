@@ -1,6 +1,6 @@
 """A design project's own files.
 
-Claude Design gives a project a folder: assets it was given, scraps it made
+Design gives a project a folder: assets it was given, scraps it made
 along the way, uploads dropped onto it, and the pages themselves. This is that
 folder — one directory per project under the data dir, with the three
 subfolders created on first use so the browser has somewhere to put things.

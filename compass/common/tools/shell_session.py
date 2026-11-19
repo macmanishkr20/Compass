@@ -1,6 +1,6 @@
 """Persistent shell session — port of utils/Shell.ts's cwd-tracking model.
 
-Claude Code does NOT keep a long-lived shell process. It spawns a fresh child
+Compass does NOT keep a long-lived shell process. It spawns a fresh child
 per command but appends `pwd -P` to a temp file, then reads that file back and
 updates a tracked working directory. So `cd` persists across separate Bash
 calls, while each command stays its own isolated process — which is also why

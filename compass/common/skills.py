@@ -41,7 +41,7 @@ from pathlib import Path
 logger = logging.getLogger("compass.skills")
 
 #: Where skills live, relative to the workspace and to the home directory.
-#: Two places for the same reason Claude Code has two: some skills belong to a
+#: Two places, because some skills belong to a
 #: project and travel with it, others belong to the person.
 PROJECT_DIR = ".compass/skills"
 PERSONAL_DIR = ".compass/skills"
@@ -52,7 +52,7 @@ DESCRIPTION_MAX = 1024
 _NAME_OK = re.compile(r"^[a-z0-9-]+$")
 #: Reserved because a skill claiming to be from the vendor is exactly the
 #: shape a misleading one would take.
-_RESERVED = ("anthropic", "claude")
+_RESERVED = ("anthropic",)
 #: Anything that could be read as markup. The guidance forbids it in both
 #: fields; here it is also the mitigation that matters, since these strings go
 #: into the system prompt and a description full of tags is an injection

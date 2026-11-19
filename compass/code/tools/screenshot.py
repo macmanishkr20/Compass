@@ -1,7 +1,7 @@
 """screenshot — capture a running app/page and post it into the chat.
 
-Lets the agent see a frontend/preview and share it for verification, the way
-Claude Code screenshots its browser preview. The image is cached server-side
+Lets the agent see a frontend/preview and share it for verification.
+The image is cached server-side
 and referenced by a short `screenshot://<id>` token so the model's context
 stays small; the surface renders it inline."""
 

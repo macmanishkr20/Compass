@@ -30,8 +30,8 @@
   color: var(--ink);
 }
 
-/* The composer card holds the prompt and the template picker, the way
-   claude.ai nests them in one raised surface. */
+/* The composer card holds the prompt and the template picker
+   in one raised surface. */
 .dz-prompt-card {
   max-width: 820px;
   margin: 0 auto;
@@ -446,7 +446,7 @@
 
 .dz-card:hover { border-color: var(--border-strong); }
 
-/* Nothing rendered yet: the row still gets a tile, the way claude.ai shows a
+/* Nothing rendered yet: the row still gets a tile, showing a
    page glyph rather than a broken image while a project waits on an answer. */
 .dz-thumb.blank,
 .dz-page-thumb.blank,
@@ -704,7 +704,7 @@
 
 .dz-asst-text { margin: 0; }
 
-/* The step and file rows claude.ai shows above a reply. */
+/* The step and file rows shown above a reply. */
 .dz-step,
 .dz-file {
   display: flex;
@@ -2035,7 +2035,7 @@
 }
 
 /* ===================== the laptop, while it works ===================== */
-/* The laptop card, as Claude Design draws it: the line above, then a panel
+/* The laptop card: the line above, then a panel
    holding a dark-bezelled laptop with the design itself on the screen. */
 .dz-making {
   display: flex;
@@ -2060,7 +2060,7 @@
   overflow: hidden;
 }
 
-/* The card's own select box, top right — claude.ai puts one on every card. */
+/* The card's own select box, top right — every card has one. */
 .dz-lapcard-pick {
   position: absolute;
   right: 14px;
@@ -2105,7 +2105,7 @@
   border-radius: 11px 11px 4px 4px;
   padding: 7px 7px 8px;
   transform-origin: bottom center;
-  /* The lid collapses onto the base and is gone — Claude Design closes it in
+  /* The lid collapses onto the base and is gone — it closes in
      about a fifth of a second, and what is left is the body, not a dark slab
      lying on top of it. */
   transform: scaleY(1);
@@ -2198,7 +2198,7 @@
   background: rgba(0, 0, 0, 0.14);
 }
 
-/* While it thinks, the canvas holds the tip claude.ai shows there. */
+/* While it thinks, the canvas holds a tip. */
 .dz-title.idle { font-style: normal; color: var(--muted); }
 
 .dz-tip { text-align: center; }
@@ -3120,8 +3120,8 @@
   white-space: nowrap;
 }
 
-/* An attached picture shows itself in the composer, the way Claude Design
-   previews one, with the name over the foot of it. */
+/* An attached picture shows itself in the composer
+   as a preview, with the name over the foot of it. */
 .dz-chip.shot {
   position: relative;
   width: 132px;
@@ -3155,7 +3155,7 @@
 
 .dz-chip.shot .dz-chip-x:hover { background: rgba(20, 20, 22, 0.8); color: #fff; }
 
-/* A filled-in form comes back as a card, the way Claude Design shows one. */
+/* A filled-in form comes back as a card. */
 .dz-answered {
   border: 1px solid var(--border);
   border-radius: 12px;

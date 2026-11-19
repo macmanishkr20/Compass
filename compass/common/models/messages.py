@@ -1,9 +1,9 @@
 """Internal message model.
 
-Claude Code wraps Anthropic API messages in an internal envelope carrying a
-uuid, timestamps, and orchestration metadata (compact boundaries, source tool
-attribution). We do the same over Azure OpenAI chat-completion shapes: the
-envelope is ours, `to_openai()` produces the wire format.
+Azure OpenAI chat-completion messages are wrapped in an internal envelope
+carrying a uuid, timestamps, and orchestration metadata (compact boundaries,
+source tool attribution): the envelope is ours, `to_openai()` produces the
+wire format.
 """
 
 from __future__ import annotations

@@ -512,7 +512,7 @@ export interface Recap {
 }
 
 /** One thing Compass remembers about the user, shown in Settings → Memory
- *  grouped by category (Claude's memory model: individual categorized entries
+ *  grouped by category (individual categorized entries
  *  the model reads and updates while you chat). */
 export interface MemoryEntry {
   id: string;
@@ -526,7 +526,7 @@ export interface MemoryEntry {
 
 /** A browser-preview card the agent produced (the `browser` tool) — the app
  *  screenshot plus a header with the page title, its URL, and an Open button
- *  that opens the live page in the Compass browser pane (like claude.ai). */
+ *  that opens the live page in the Compass browser pane. */
 export interface PreviewCardVM {
   kind: 'preview';
   id: string;

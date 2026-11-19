@@ -3,7 +3,7 @@ import { Injectable, signal } from '@angular/core';
 /** An element picked from the Compass browser's Select tool. `label` is the
  *  compact chip text (e.g. `<h1 class="home-greeting">`); `detail` is the full
  *  context block (opening tag, selector, size, text, CSS) attached to the
- *  prompt when the message is sent — like claude.ai's element references. */
+ *  prompt when the message is sent. */
 export interface PickedElement {
   id: string;
   label: string;

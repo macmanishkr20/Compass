@@ -2,8 +2,8 @@
 
 Uses Azure OpenAI's audio/speech model (gpt-4o-mini-tts) with a natural-
 language `instructions` prompt that gives the voice warmth, expression, and
-pacing — the difference between the flat browser speechSynthesis and the way
-Claude reads a response. Markdown is stripped and code blocks are summarized
+pacing — the difference between the flat browser speechSynthesis and a
+voice that reads a response well. Markdown is stripped and code blocks are summarized
 so the narration stays clean, and over-long text is trimmed to the model's
 input limit at a sentence boundary.
 """

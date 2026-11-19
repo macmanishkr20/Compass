@@ -1,6 +1,6 @@
 """macOS: Seatbelt, through `sandbox-exec`.
 
-Built into every Mac, which is why Claude Code needs nothing installed on this
+Built into every Mac, which is why nothing needs installing on this
 platform. `sandbox-exec` is formally deprecated and has been for years; it is
 also what the sandboxing in current tools uses, because the replacement
 (App Sandbox entitlements) applies to signed applications rather than to

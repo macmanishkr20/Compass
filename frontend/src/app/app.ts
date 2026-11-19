@@ -89,8 +89,7 @@ const EFFORTS = ['low', 'medium', 'high'] as const;
 
 /** A rendered timeline block: either a standalone item (user/assistant bubble,
  * permission card, meaningful notice) or a collapsed "activity" group folding
- * the background tool work — the analog of Claude's "Ran a command, used a
- * tool ⌄" caret. */
+ * the background tool work behind a "Ran a command, used a tool ⌄" caret. */
 type RenderBlock =
   | { kind: 'single'; item: TimelineItem }
   | {
@@ -188,17 +187,17 @@ export class App {
 
   readonly sectionTitle = computed(() => App.TITLES[this.section()]);
 
-  // In-app browser ("Compass's own browser", like Claude's preview pane).
+  // In-app browser ("Compass's own browser").
   readonly browserOpen = signal(false);
   readonly browserAddr = signal('');
-  // Maximize the browser pane in-app (float it over the chat), like claude.ai's
-  // ⤢ — not a separate OS window. A shrink button restores the docked size.
+  // Maximize the browser pane in-app (float it over the chat) with ⤢ — not a
+  // separate OS window. A shrink button restores the docked size.
   readonly browserExpanded = signal(false);
   // Live JPEG frame from the server-side Chromium (data: URI) + last error.
   readonly rbFrame = signal<string>('');
   readonly rbError = signal<string>('');
   // Select/inspect tool (arrow): Chromium's DevTools element overlay follows
-  // the cursor. Viewport tool (device): render at a device size like claude.ai.
+  // the cursor. Viewport tool (device): render at a device size.
   readonly browserSelect = signal(false);
   readonly browserViewport = signal<ViewportName>('responsive');
   readonly cbViewMenuOpen = signal(false);
@@ -471,7 +470,7 @@ export class App {
   });
   readonly homeGroups = computed<{ label: string; cards: ChatCard[] }[]>(() => {
     const all = this.sortedHome();
-    // Starred (pinned) chats float to a section at the top, like claude.ai.
+    // Starred (pinned) chats float to a section at the top.
     const pinned = all.filter((c) => c.pinned);
     const rest = all.filter((c) => !c.pinned);
     const groups: { label: string; cards: ChatCard[] }[] = [];
@@ -572,7 +571,7 @@ export class App {
     }
   }
 
-  // -- Home chat-row menu: Rename / Star / Delete (like claude.ai + Code) ----
+  // -- Home chat-row menu: Rename / Star / Delete (as in Code) ------------
   readonly homeMenuOpenId = signal<string | null>(null);
   readonly homeRenamingId = signal<string | null>(null);
 
@@ -632,7 +631,7 @@ export class App {
 
   // -- Background tasks panel (long-running processes the agent spawned).
   readonly bgOpen = signal(false);
-  readonly bgExpanded = signal(false); // widen the panel (like claude.ai's expand)
+  readonly bgExpanded = signal(false); // widen the panel
   readonly bgTasks = signal<BackgroundTask[]>([]);
   readonly bgFinishedOpen = signal(false);
   toggleBgExpand(): void {
@@ -738,7 +737,7 @@ export class App {
    *  while a shell command ran. */
   private readonly turnStatus = new TurnStatus();
   readonly thinkingMsg = this.turnStatus.label;
-  // Live turn meters (Claude-style): elapsed wall-clock and output tokens so
+  // Live turn meters: elapsed wall-clock and output tokens so
   // far, shown next to the radar while the whole turn streams. Tokens are
   // derived from the streaming assistant text (~4 chars/token) so the count
   // tracks visible output live; after the turn it reflects the real usage.
@@ -878,7 +877,7 @@ export class App {
   // -- sidebar / history
   readonly sidebarOpen = signal(true);
   readonly cards = signal<SessionCard[]>([]);
-  // Default to date-grouping so both lists open in claude.ai's Today/Yesterday/
+  // Default to date-grouping so both lists open in Today/Yesterday/
   // Previous 7 days sections; the Group control can still switch it.
   readonly groupBy = signal<GroupBy>('date');
   readonly sortBy = signal<SortBy>('recent');
@@ -1047,8 +1046,8 @@ export class App {
       // machinery they have no use for — the question and the answer are the
       // whole story.
       if (it.kind === 'tool' && (it as ToolCardVM).name === 'ask_user') continue;
-      // File writes/edits surface as their own "Edited file +N −M" row (like
-      // Claude), not folded into the collapsed background-activity group.
+      // File writes/edits surface as their own "Edited file +N −M" row,
+      // not folded into the collapsed background-activity group.
       const isFileEdit =
         it.kind === 'tool' &&
         ((it as ToolCardVM).name === 'file_edit' ||
@@ -1067,7 +1066,7 @@ export class App {
     return blocks;
   });
 
-  /** Parse a file_edit/file_write tool into a Claude-style edit row + diff. */
+  /** Parse a file_edit/file_write tool into an edit row + diff. */
   /** A one-line, readable account of a tool call — the thing on the row.
    *
    *  The card used to print the raw arguments JSON into the transcript, and
@@ -1235,7 +1234,7 @@ export class App {
   }
   isActivityExpanded = (id: string): boolean => this.expandedActivities().has(id);
 
-  /** claude.ai-style activity summary: comma-joined natural phrases, the first
+  /** Activity summary: comma-joined natural phrases, the first
    *  capitalised, filenames included for reads — e.g. "Ran a command, read
    *  app.ts", "Ran 2 commands", "Ran a command, used 2 tools". */
   private summarizeActivity(tools: ToolCardVM[]): string {
@@ -1296,7 +1295,7 @@ export class App {
     return (p || '').split(/[\\/]/).pop() || p;
   }
 
-  /** Human label for one tool step — claude.ai shows the command's description
+  /** Human label for one tool step — shows the command's description
    *  or a derived action ("Read app.ts", "Interacted with the page"), not the
    *  raw tool name + args. */
   stepLabel(t: ToolCardVM): string {
@@ -1358,8 +1357,8 @@ export class App {
     }
   }
   /** Minimal shell highlighting for an expanded bash step: the command word in
-   *  each segment, quoted strings, and flags — the way Claude colours the
-   *  command it ran. Escaped first, so the output is safe to bind as HTML. */
+   *  each segment, quoted strings, and flags — the way a terminal colours
+   *  a command. Escaped first, so the output is safe to bind as HTML. */
   shellHtml(cmd: string): SafeHtml {
     const esc = (s: string) =>
       s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1830,8 +1829,8 @@ export class App {
     this.navActive.set(id);
   }
   // Auto-follow streaming output ONLY while the user is parked near the bottom.
-  // The moment they scroll up to read, we stop yanking them back down (claude.ai
-  // behaviour); scrolling back to the bottom re-arms the follow.
+  // The moment they scroll up to read, we stop yanking them back down;
+  // scrolling back to the bottom re-arms the follow.
   private stickBottom = true;
 
   /** Auto-follow state. Detaching is driven by scroll DIRECTION rather than a
@@ -1875,7 +1874,7 @@ export class App {
     this.navActive.set(current);
   }
 
-  // -- permission card (Claude-style approval dialog) ---------------------
+  // -- permission card (approval dialog) ---------------------------------
   private permBasename(p: PermissionVM): string {
     try {
       const a = JSON.parse(p.args);
@@ -2004,7 +2003,7 @@ export class App {
     if (p.toolName === 'screenshot') return 'Allow Compass to take a screenshot?';
     return `Allow Compass to use ${p.toolName}?`;
   }
-  /** One line explaining WHY approval is needed (the risk), Claude-style. */
+  /** One line explaining WHY approval is needed (the risk). */
   permWhy(p: PermissionVM): string {
     const r = (p.reason || '').toLowerCase();
     if (r.includes('destructive')) return 'This command can delete or overwrite data.';
@@ -2050,7 +2049,7 @@ export class App {
     return '';
   }
 
-  // -- repo / branch context menus (like Claude) --------------------------
+  // -- repo / branch context menus ----------------------------------------
   private async copy(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
@@ -2112,7 +2111,7 @@ export class App {
     }
   }
 
-  /** Show the working-tree diff (like Claude's inline diff view). */
+  /** Show the working-tree diff inline. */
   // -- working copy rail ----------------------------------------------------
   //
   // The same changes the diff modal shows, kept open beside the conversation
@@ -2301,7 +2300,7 @@ export class App {
   }
 
   /** Open the active workspace in VS Code. Preferred: the backend launches
-   * `code <path>` on its host (same as the Claude Code CLI). Falls back to the
+   * `code <path>` on its host. Falls back to the
    * vscode:// URI if the backend host has no VS Code CLI. */
   async openInVsCode(): Promise<void> {
     this.userMenuOpen.set(false);
@@ -2364,7 +2363,7 @@ export class App {
   }
 
   /** Select / inspect tool (arrow) — Chromium's own element overlay follows the
-   *  cursor (like claude.ai). Clicking still interacts with the page. */
+   *  cursor. Clicking still interacts with the page. */
   setSelect(on: boolean): void {
     if (this.browserSelect() === on) return;
     this.browserSelect.set(on);
@@ -2376,7 +2375,7 @@ export class App {
     this.setSelect(!this.browserSelect());
   }
 
-  /** Viewport tool (device) — render the page at a device size, like claude.ai's
+  /** Viewport tool (device) — render the page at a device size:
    *  Responsive / Mobile 375×812 / Tablet 768×1024. */
   setViewport(v: ViewportName): void {
     this.browserViewport.set(v);
@@ -2434,8 +2433,8 @@ export class App {
   }
 
   /** Post the CURRENT frame with the annotation drawing baked in — this is what
-   *  "Screenshot → chat" does in annotate mode, so the marks are included
-   *  (exactly like claude.ai), rather than a fresh clean re-render. */
+   *  "Screenshot → chat" does in annotate mode, so the marks are included,
+   *  rather than a fresh clean re-render. */
   captureAnnotatedShot(): void {
     const img = this.cbImg()?.nativeElement;
     if (!img || !img.naturalWidth) {
@@ -2692,7 +2691,7 @@ export class App {
     if (this.annotateOn()) return;
     this.cbView()?.nativeElement.focus();
     // In Select mode a click PICKS the element (adds it to the prompt) rather
-    // than interacting with the page — same as claude.ai's Select tool.
+    // than interacting with the page.
     if (this.browserSelect() && e.button === 0) {
       const p = this.rbNorm(e);
       this.rbSend({ t: 'pick', x: p.x, y: p.y });
@@ -2770,8 +2769,8 @@ export class App {
     if (u) window.open(u, '_blank', 'noopener');
   }
 
-  /** Maximize the browser pane in-app (float over the chat), like claude.ai's
-   *  expand — a shrink press restores the docked size. Opening it in a real OS
+  /** Maximize the browser pane in-app (float over the chat) —
+   *  a shrink press restores the docked size. Opening it in a real OS
    *  window stays available via the "…" menu (Export / open externally). */
   expandBrowser(): void {
     this.browserExpanded.update((v) => !v);
@@ -2789,7 +2788,7 @@ export class App {
     if (this.bgLogsOpenId()) void this.loadBgLogs(this.bgLogsOpenId()!);
   }
 
-  // -- background task log/output viewer (like Claude's task output) --------
+  // -- background task log/output viewer -----------------------------------
   readonly bgLogsOpenId = signal<string | null>(null);
   readonly bgLogs = signal<string[]>([]);
   toggleBgLogs(t: BackgroundTask): void {
@@ -3866,7 +3865,7 @@ export class App {
 
   /** Branch the conversation at this message — everything up to and including
    *  it is copied into a new thread, so you can explore a different direction
-   *  without losing the original (Claude's per-message branch action). */
+   *  without losing the original. */
   async forkFromMessage(b: ChatBubble): Promise<void> {
     const sid = this.sessionId();
     if (!sid || this.streaming()) return;
@@ -3970,8 +3969,8 @@ export class App {
 
   // -- The composer's + menu -------------------------------------------------
   //
-  // Three entries, because Compass has three things to put there. Claude Code
-  // also offers slash commands and plugins; Compass has neither — nothing
+  // Three entries, because Compass has three things to put there. Other
+  // tools also offer slash commands and plugins; Compass has neither — nothing
   // reads "/" in the composer and there is no plugin loader — and a menu that
   // lists what does not exist is worse than a shorter one that is true.
 
@@ -4238,7 +4237,7 @@ export class App {
     }
   }
 
-  // -- next-step suggestion pre-filled in the composer (claude.ai style) -----
+  // -- next-step suggestion pre-filled in the composer ----------------------
   readonly nextSuggestion = signal('');
   /** Ask the model for the single most likely follow-up, shown as ghost text
    *  in the composer; Tab (or clicking it) accepts. */
@@ -4262,8 +4261,8 @@ export class App {
     this.nextSuggestion.set('');
   }
 
-  /** When a completed response contains an artifact, open it in the panel —
-   * the way Claude reveals an artifact as soon as it's produced. */
+  /** When a completed response contains an artifact, open it in the panel
+   * as soon as it's produced. */
   private autoOpenArtifact(): void {
     // Use the authoritative full reply text (the smoother may still be animating
     // the bubble's last characters, which would truncate a closing code fence).
@@ -4353,7 +4352,7 @@ export class App {
     return null;
   });
 
-  /** 1 = Deny, 2 / ⌘↵ = Allow once — mirrors Claude's approval shortcuts. */
+  /** Approval shortcuts: 1 = Deny, 2 / ⌘↵ = Allow once. */
   onGlobalKeydown(ev: KeyboardEvent): void {
     // ⌘K / Ctrl+K toggles conversation search from anywhere.
     if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && (ev.key === 'f' || ev.key === 'F')) {
@@ -4407,7 +4406,7 @@ export class App {
   }
 
   onKeydown(ev: KeyboardEvent): void {
-    // Tab accepts the pre-filled next-step suggestion (claude.ai behaviour).
+    // Tab accepts the pre-filled next-step suggestion.
     if (ev.key === 'Tab' && !this.draft().trim() && this.nextSuggestion()) {
       ev.preventDefault();
       this.acceptSuggestion();
@@ -4637,7 +4636,7 @@ export class App {
           const imageUrl = '/v1/screenshot-cache/' + shot[1];
           if ((ev['tool_name'] as string) === 'browser') {
             // Render a browser-preview card (app screenshot + Open button),
-            // like claude.ai — not a bare inline image.
+            // not a bare inline image.
             const pageUrl = (/Now at (https?:\/\/[^\s]+)/.exec(content)?.[1] ?? '')
               .replace(/[.\s]+$/, '');
             const title = (/Title:\s*(.+?)\.\s*Now at/.exec(content)?.[1] ?? '').trim();
@@ -4700,7 +4699,7 @@ export class App {
         break;
       case 'turn_complete': {
         // Attach per-response duration + output-token count to the last
-        // assistant bubble (Claude shows these under the message).
+        // assistant bubble, shown under the message.
         const ms = Math.round(performance.now() - this.turnStartMs);
         const tokens = Math.max(
           0,
@@ -4909,8 +4908,8 @@ export class App {
   }
 
   /** "2:14 PM" for a hover timestamp. */
-  /** Relative age ("just now", "7 hours ago", "3 days ago") — Claude labels
-   *  messages by how long ago they were sent, not the wall-clock time. */
+  /** Relative age ("just now", "7 hours ago", "3 days ago") — messages are
+   *  labelled by how long ago they were sent, not the wall-clock time. */
   formatTime(ms: number | undefined): string {
     if (!ms) return '';
     const secs = Math.max(0, Math.round((this.nowTick() - ms) / 1000));

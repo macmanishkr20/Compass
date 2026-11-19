@@ -104,7 +104,7 @@ async def _think_through(
 
     if settings.thinking.reasons(deployment):
         try:
-            # Research while writing, the way Claude does: the tool is
+            # Research while writing: the tool is
             # offered, and the model decides per document whether the content
             # needs facts it does not have. A document about the conversation
             # above searches nothing; one about a library's current release

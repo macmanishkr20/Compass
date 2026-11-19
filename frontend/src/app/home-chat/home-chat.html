@@ -164,7 +164,7 @@
                 </div>
               } @else {
                 <!-- Attachments render as their own cards, separate from the
-                     text bubble (like claude.ai). -->
+                     text bubble. -->
                 @if (m.atts?.length) {
                   <div class="cbubble-atts">
                     @for (a of m.atts!; track a.id) {

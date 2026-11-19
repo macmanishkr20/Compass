@@ -1,6 +1,6 @@
 """Routines — templated automations that run on a schedule, by API, or webhook.
 
-The analog of Claude Code's Routines: a routine bundles instructions, one or more
+Routines: a routine bundles instructions, one or more
 triggers (schedule / api / webhook), a target (local or cloud), the connectors it
 may use, behavior/notification options, and a history of runs. Definitions persist
 as JSON registries (data/routines.json, data/routine_runs.json).
@@ -274,7 +274,7 @@ SUGGESTIONS: list[str] = [
     "Draft release notes whenever a PR merges",
 ]
 
-CONNECTOR_OPTIONS = ["Claude_Code_Remote", "GitHub", "Gmail", "Slack", "Linear", "Google Calendar"]
+CONNECTOR_OPTIONS = ["GitHub", "Gmail", "Slack", "Linear", "Google Calendar"]
 
 
 # --------------------------------------------------------------------------- stores

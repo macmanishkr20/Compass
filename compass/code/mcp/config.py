@@ -2,7 +2,7 @@
 
 Sources, merged in order (later wins on name clash):
   1. `.compass/mcp.json` in the workspace (or COMPASS_MCP_CONFIG path).
-     Accepts either a bare mapping or Claude Code's {"mcpServers": {...}}.
+     Accepts either a bare mapping or the common {"mcpServers": {...}} wrapper.
   2. COMPASS_MCP_SERVERS env var — inline JSON, same shape.
 
 Every string value supports ${VAR} expansion against the process

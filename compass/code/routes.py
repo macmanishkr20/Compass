@@ -638,7 +638,7 @@ async def suggest_next(session_id: str, user: str = Depends(require_user)) -> di
 async def browser_ws(ws: WebSocket) -> None:
     """Interactive remote browser: streams a live server-side Chromium into the
     Compass browser pane and drives it from the client's mouse/keyboard — so any
-    site renders and is interactive, like claude.ai (no iframe embedding limits).
+    site renders and is interactive (no iframe embedding limits).
 
     Client → server JSON: nav/reload/back/forward, move/down/up/wheel, type/key,
     resize. Server → client JSON: {t:'frame',data} JPEG frames and {t:'nav',...}.

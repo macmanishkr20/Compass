@@ -15,12 +15,10 @@ import { Artifact, ArtifactKind } from '../models';
 import { ThemeService } from '../theme.service';
 
 /**
- * Live artifact preview beside the chat — the Compass take on Claude's
- * Artifacts panel.
+ * Live artifact preview beside the chat — the Artifacts panel.
  *   - html / svg: rendered in a sandboxed iframe (no allow-same-origin).
  *   - mermaid:    rendered via Mermaid's auto-layout engine to an SVG, so a
- *                 diagram's nodes and edges can never overlap — the mechanism
- *                 claude.ai uses for clean diagrams.
+ *                 diagram's nodes and edges can never overlap.
  * Preview / Code tabs, copy, open-in-new-tab, refresh, close.
  */
 @Component({
@@ -147,7 +145,7 @@ import { ThemeService } from '../theme.service';
         }
 
         <!-- Inline editing: highlight part of the artifact, then describe the
-             change and Claude edits it right where you marked it. -->
+             change and Compass edits it right where you marked it. -->
         @if (selText() && !editOpen()) {
           <button class="ap-editpill" (click)="openEdit()">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16.5 3.5l4 4L8 20l-4.5 1L4.5 16.5z" stroke-linejoin="round"/></svg>
@@ -188,7 +186,7 @@ export class ArtifactPanel {
   private readonly azureHost =
     viewChild<ElementRef<HTMLDivElement>>('azureHost');
 
-  // -- in-panel diagram zoom/pan (fit-to-view by default, like claude.ai) ----
+  // -- in-panel diagram zoom/pan (fit-to-view by default) ------------------
   readonly dgScale = signal(1);
   readonly dgX = signal(0);
   readonly dgY = signal(0);
@@ -249,7 +247,7 @@ export class ArtifactPanel {
   }
 
   /** Center the diagram and scale it to fit the panel — the whole diagram is
-   *  visible, filling the space, exactly like claude.ai's artifact viewer. */
+   *  visible, filling the space. */
   fitDiagram(): void {
     const host = this.mermaidHost()?.nativeElement;
     const stage = host?.parentElement;
@@ -422,7 +420,7 @@ export class ArtifactPanel {
     const host = this.mermaidHost()?.nativeElement;
     if (host) {
       host.innerHTML = this.mermaidSvg;
-      // Fit-to-view + centre in the panel (claude.ai behaviour); the user can
+      // Fit-to-view + centre in the panel; the user can
       // then zoom/pan right here without popping out.
       this.dgScale.set(1);
       this.dgX.set(0);
@@ -639,7 +637,7 @@ svg{max-width:100%;height:auto}</style></head><body>${this.mermaidSvg}</body></h
   stage.addEventListener('pointerdown',function(e){pan=true;px=e.clientX;py=e.clientY;pl=stage.scrollLeft;pt=stage.scrollTop;stage.classList.add('grabbing');});
   addEventListener('pointerup',function(){pan=false;stage.classList.remove('grabbing');});
   stage.addEventListener('pointermove',function(e){if(!pan)return;stage.scrollLeft=pl-(e.clientX-px);stage.scrollTop=pt-(e.clientY-py);});
-  // Auto-fit on open so the diagram fills the view (like claude.ai) instead of
+  // Auto-fit on open so the diagram fills the view instead of
   // opening at 100% with a tiny diagram in a large canvas.
   function autofit(){try{fit();}catch(e){}}
   requestAnimationFrame(function(){requestAnimationFrame(autofit);});

@@ -1,4 +1,4 @@
-"""Model gateway — the port of services/api/claude.ts, for Azure OpenAI.
+"""Model gateway, for Azure OpenAI.
 
 One place in the codebase talks to the model. Responsibilities:
   * streaming chat completions with tool (function) calling

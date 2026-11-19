@@ -62,7 +62,7 @@ const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5];
 const LANDING_ROWS = 4;
 
 /**
- * Design — the port of Claude Design. Two screens live here:
+ * Design. Two screens live here:
  *
  *   landing   hero prompt + template picker, then the library
  *             (Projects / Design systems / Templates)
@@ -982,8 +982,8 @@ export class Design {
    *  a form that is not a design would be theatre. */
   readonly hasDesign = computed(() => !!this.open()?.html?.trim());
 
-  /** What the laptop shows while it works: the design as it stands, the way
-   *  claude.ai keeps the current version on the screen. Nothing yet, nothing
+  /** What the laptop shows while it works: the design as it stands,
+   *  so the current version stays on the screen. Nothing yet, nothing
    *  to show — the skeleton stands in. */
   lastShot(): string {
     const project = this.open();
@@ -1010,7 +1010,7 @@ export class Design {
 
   // ===================== creating =====================
 
-  /** Picking a template opens the sentence for you — claude.ai seeds the
+  /** Picking a template opens the sentence for you — it seeds the
    *  composer with the template's own words and leaves the caret at the end. */
   pickTemplate(id: string): void {
     this.template.set(id);
@@ -1040,8 +1040,8 @@ export class Design {
     if (!prompt || this.creating() || this.checking()) return;
     // Whether to ask is decided here, not after a round trip: a template's own
     // opening words with nothing added is the case worth asking about, and
-    // waiting on the landing page for that answer is the thing claude.ai
-    // does not do. Open the project, then think inside it.
+    // waiting on the landing page for that answer is the thing to
+    // avoid. Open the project, then think inside it.
     if (this.thinBrief(prompt)) {
       await this.askInProject(prompt);
       return;
@@ -2021,7 +2021,7 @@ export class Design {
     }
   }
 
-  /** Cancel — the button in the corner of the card, as Claude Design has it.
+  /** Cancel — the button in the corner of the card.
    *  It stops the request, not just the waiting. */
   cancelRun(): void {
     if (!this.runAbort) return;

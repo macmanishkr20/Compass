@@ -1,7 +1,7 @@
 """Memory — individual, categorized entries the model reads and updates while
-you chat (the port of Claude's memory).
+you chat.
 
-Shape, matching Claude's Settings → Memory panel:
+Shape, as the Settings → Memory panel shows it:
   * memory is a set of **individual entries**, each with a `category`, a short
     `summary`, and longer `details`;
   * entries are **scoped**: Home chat shares one scope, and each Code workspace
@@ -27,7 +27,7 @@ from compass.common.config import get_settings
 
 logger = logging.getLogger("compass.memory")
 
-# The categories Claude groups entries under in the Memory panel.
+# The categories the Memory panel groups entries under.
 CATEGORIES = [
     "Profile",
     "Preferences",

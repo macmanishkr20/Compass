@@ -1,6 +1,6 @@
 """Central configuration.
 
-Mirrors Claude Code's settings cascade in miniature: environment variables
+A settings cascade in miniature: environment variables
 (deployment concern) override the project file `.compass/settings.json`
 (checked-in policy), which overrides built-in defaults.
 """
@@ -40,7 +40,7 @@ class AzureOpenAISettings(BaseModel):
     # Selectable deployments shown in the model picker. Defaults to just the
     # primary deployment; set AZURE_OPENAI_DEPLOYMENTS="gpt-5,gpt-4o,o3-mini".
     deployments: list[str] = []
-    # Capacity/availability fallback, same role as Claude Code's fallbackModel.
+    # Capacity/availability fallback when the main deployment is busy or down.
     fallback_deployment: str | None = None
     # Small/cheap deployment used for compaction summaries (queryHaiku analog).
     utility_deployment: str | None = None
@@ -408,7 +408,7 @@ class ThinkingSettings(BaseModel):
 
         Off the ladder becomes the nearest rung on it rather than None, which
         would drop the field and hand the turn the deployment's own default:
-        `xhigh` and `max` are Claude's names for the top and land on `high`
+        `xhigh` and `max` are other models' names for the top and land on `high`
         where there is nothing above it, and `minimal` lands on `low` where
         there is nothing below. Both keep the intent — the most thinking
         available, or the least — which is what the level was chosen for.
@@ -679,7 +679,7 @@ class LoopSettings(BaseModel):
     max_turns: int = 50
     max_output_tokens_recovery_limit: int = 3  # same constant as query.ts
     max_subagent_depth: int = 2
-    max_tool_concurrency: int = 10  # CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY
+    max_tool_concurrency: int = 10
     permission_timeout_seconds: float = 300.0
     tool_timeout_seconds: float = 300.0
 

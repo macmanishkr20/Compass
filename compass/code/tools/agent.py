@@ -48,8 +48,7 @@ class AgentTool(Tool):
             )
             return
 
-        # Local imports break the tools -> core -> tools cycle, the same job
-        # Claude Code's lazy require() does in AgentTool.
+        # Local imports break the tools -> core -> tools cycle.
         from compass.common.agent.query_loop import query
         from compass.code.system_prompt import build_system_prompt
         from compass.common.models.messages import user_message

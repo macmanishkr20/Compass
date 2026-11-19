@@ -121,7 +121,7 @@ class PermissionBroker:
     def allow_always(self, request_id: str) -> bool:
         """Grant this request AND remember the choice for the session: future
         calls to the same tool (for bash, the same command prefix) auto-allow —
-        claude.ai's 'Yes, and don't ask again' option."""
+        the 'Yes, and don't ask again' option."""
         from compass.common.config import PermissionRule
 
         tool_name, primary = self._meta.get(request_id, ("", ""))
@@ -160,7 +160,7 @@ class QuestionBroker:
     on a future, a surface shows the question, and an endpoint resolves it.
     Kept apart from permissions because they are different acts — one asks may
     I, the other asks which — and a surface may well want to render them
-    differently, as claude.ai does.
+    differently.
 
     `policy` is what to do when nobody is watching. A headless run cannot
     answer, and the honest response there is to say so rather than to invent a
@@ -304,7 +304,7 @@ class Tool(ABC):
         return False
 
     def is_concurrency_safe(self, inp: BaseModel) -> bool:
-        # Same default as Claude Code: read-only implies parallelizable;
+        # Default: read-only implies parallelizable;
         # tools override for finer grain (bash inspects the command).
         try:
             return self.is_read_only(inp)

@@ -1,5 +1,5 @@
-"""Recap — "how you've been working with Compass" (the port of Claude's
-Settings → Reflect monthly recap).
+"""Recap — "how you've been working with Compass", the monthly recap in
+Settings → Reflect.
 
 Everything here is derived from data Compass already keeps — agent session
 metadata and Home chat cards — so no extra tracking is introduced: how many

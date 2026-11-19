@@ -20,7 +20,7 @@ already worked out what the choices are.
 The mechanism is the permission gate's, because the shape is the same: the
 loop stops on a future, a surface renders the question, an endpoint resolves
 it. The difference is what is being asked — may I, versus which — and the two
-are kept apart so a surface can render them differently, as claude.ai does.
+are kept apart so a surface can render them differently.
 """
 
 from __future__ import annotations

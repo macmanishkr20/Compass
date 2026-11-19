@@ -1306,7 +1306,7 @@ export class HomeChat {
         // Instant follow: with rAF-paced text the content grows every frame, so
         // a competing 'smooth' scroll animation would stutter — 'auto' tracks it.
         // Only while the user is parked at the bottom; if they scrolled up to
-        // read, don't yank them back down (claude.ai behaviour).
+        // read, don't yank them back down.
         if (!el) return;
         // Live geometry, not a cached flag — see App: this microtask beats the
         // browser's `scroll` event, so a flag set there would still be stale.
@@ -1752,7 +1752,7 @@ export class HomeChat {
     }
   }
 
-  // -- message actions (Copy / Retry / Edit), like claude.ai ----------------
+  // -- message actions (Copy / Retry / Edit) ----------------------------
   readonly copiedId = signal<string | null>(null);
   readonly editingId = signal<string | null>(null);
   readonly editDraft = signal('');

@@ -1,10 +1,9 @@
-"""memory — save, update or remove what Claude remembers about the user.
+"""memory — save, update or remove what Compass remembers about the user.
 
 The write side of Compass's memory (services/memory.py owns the store, and the
 read side is injected into the system prompt each turn). The model calls this
 mid-conversation the moment it learns something durable — a preference, a fact
-about the project, how the user likes to work — exactly like Claude updating a
-memory entry while you chat.
+about the project, how the user likes to work.
 """
 
 from __future__ import annotations

@@ -421,8 +421,8 @@ class ChatSession:
         """Home carries three tools, and the bar they clear is the same one:
         nothing on this machine is readable or runnable through them.
 
-        `memory`, so Compass can save what it learns while you chat (Claude's
-        memory behaviour). And `web_fetch`, because Home can already search the
+        `memory`, so Compass can save what it learns while you chat.
+        And `web_fetch`, because Home can already search the
         web — server tools ride on the request rather than on this list — and
         without it a link you paste is the one thing on the internet Home
         cannot read. Searching for a page you have the address of is a poor
@@ -528,7 +528,7 @@ class ChatEngine:
     async def regenerate(
         self, session: ChatSession, work_iq: bool = False
     ) -> AsyncIterator[events.Event]:
-        """Re-answer the last user turn (claude.ai's Retry): drop the trailing
+        """Re-answer the last user turn (Retry): drop the trailing
         assistant reply, then run the model again on the same prompt."""
         async with session.turn_lock:
             session.abort_event.clear()
@@ -557,7 +557,7 @@ class ChatEngine:
         new_text: str,
         work_iq: bool = False,
     ) -> AsyncIterator[events.Event]:
-        """Edit a prior user message and resend (claude.ai's Edit): truncate the
+        """Edit a prior user message and resend (Edit): truncate the
         thread at that message, replace it, and re-answer from there. `index` is
         the message's position — Home chat is strictly alternating user/assistant
         so the client's bubble order maps 1:1 onto the stored messages."""
@@ -613,7 +613,7 @@ class ChatEngine:
 
         # Memory: appended last so it survives the Work IQ prompt swap above.
         # Home reads the global scope — what the user tells Compass here is
-        # remembered across chats (Claude's memory behaviour).
+        # remembered across chats.
         from compass.common.memory import GLOBAL_SCOPE, memory_prompt
 
         mem = await memory_prompt(GLOBAL_SCOPE)

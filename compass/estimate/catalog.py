@@ -257,8 +257,6 @@ class ModelPrice(TypedDict):
 MODEL_CATALOG: dict[str, ModelPrice] = {
     "gpt-4o": {"provider": "Azure OpenAI", "in_per_1m": 2.5, "out_per_1m": 10},
     "gpt-4o-mini": {"provider": "Azure OpenAI", "in_per_1m": 0.15, "out_per_1m": 0.6},
-    "claude-sonnet-4": {"provider": "Anthropic", "in_per_1m": 3, "out_per_1m": 15},
-    "claude-haiku": {"provider": "Anthropic", "in_per_1m": 0.8, "out_per_1m": 4},
     "gemini-2-pro": {"provider": "Google", "in_per_1m": 1.25, "out_per_1m": 5},
     "gemini-2-flash": {"provider": "Google", "in_per_1m": 0.075, "out_per_1m": 0.3},
 }
@@ -278,7 +276,7 @@ class TaskProfile(TypedDict):
 TASK_PROFILES: dict[str, TaskProfile] = {
     "text_classification": {"in_tokens": 800, "out_tokens": 80, "model": "gpt-4o-mini", "ai_n": 55, "agentic": 20, "trad": 70, "minutes_per_call": 1},
     "summarization": {"in_tokens": 4000, "out_tokens": 600, "model": "gpt-4o-mini", "ai_n": 66, "agentic": 25, "trad": 45, "minutes_per_call": 4},
-    "code_generation": {"in_tokens": 2500, "out_tokens": 1200, "model": "claude-sonnet-4", "ai_n": 80, "agentic": 55, "trad": 25, "minutes_per_call": 20},
+    "code_generation": {"in_tokens": 2500, "out_tokens": 1200, "model": "gpt-4o", "ai_n": 80, "agentic": 55, "trad": 25, "minutes_per_call": 20},
     "conversational_agent": {"in_tokens": 1500, "out_tokens": 500, "model": "gpt-4o", "ai_n": 80, "agentic": 72, "trad": 25, "minutes_per_call": 6},
     "rag_qa": {"in_tokens": 3500, "out_tokens": 700, "model": "gpt-4o-mini", "ai_n": 78, "agentic": 55, "trad": 30, "minutes_per_call": 6},
     "multi_agent_orchestration": {"in_tokens": 6000, "out_tokens": 2500, "model": "gpt-4o", "ai_n": 88, "agentic": 92, "trad": 15, "minutes_per_call": 25},

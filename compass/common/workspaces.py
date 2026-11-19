@@ -439,8 +439,8 @@ def open_in_terminal(path: Path) -> str:
 
 
 def open_in_vscode(path: Path) -> str:
-    """Launch VS Code on `path` from the host running this backend — the same
-    thing the Claude Code CLI does. Only meaningful when the backend and the
+    """Launch VS Code on `path` from the host running this backend.
+    Only meaningful when the backend and the
     user's VS Code are on the same machine (the normal local setup). Returns the
     command used; raises RuntimeError if VS Code can't be found/launched."""
     import platform

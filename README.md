@@ -1,10 +1,9 @@
 # Compass
 
-A Python / FastAPI port of the **Claude Code agent architecture**, backed by
-**Azure OpenAI**. Same skeleton, same invariants: an async-generator streaming
-chain end-to-end, a typed agent-loop state machine, one permission choke point
-for every tool call, a graduated context-compaction pipeline, and subagents as
-plain recursion.
+A Python / FastAPI agent platform backed by **Azure OpenAI**: an
+async-generator streaming chain end-to-end, a typed agent-loop state machine,
+one permission choke point for every tool call, a graduated
+context-compaction pipeline, and subagents as plain recursion.
 
 ```
 surfaces        web UI at / + SSE + REST permission bridge      api/server.py, api/static/index.html
@@ -29,43 +28,40 @@ in and the capability switches on with no code changes. Persistence is
 backend for an append-only JSON transcript) with local JSONL as the
 zero-config default.
 
-## Architecture mapping
+## Where things live
 
-| Claude Code | Compass | Notes |
+| Piece | Module | Notes |
 |---|---|---|
-| `QueryEngine.ts ask()` | `core/query_engine.py` | session turn: hooks, system prompt, transcript |
-| `query.ts queryLoop()` | `core/query_loop.py` | `while True` with typed `Continue`/`Terminal` transitions |
-| `toolOrchestration.ts runTools()` | `core/tool_orchestration.py` | identical partition algorithm; ≤10 parallel reads |
-| `toolExecution.ts runToolUse()` | `core/tool_execution.py` | 9-gate pipeline; denials are `tool_result` errors, never exceptions |
-| `Tool.ts` interface | `tools/base.py` | Pydantic schema, per-input `is_concurrency_safe`, streaming `call()` |
-| `useCanUseTool` / permission bridge | `PermissionBroker` | ask verdicts stream as SSE events, resolved via REST |
-| `utils/hooks.ts` | `policy/hooks.py` | matchers (exact/pipe/regex) + per-hook timeouts; exit code 2 blocks |
-| `services/compact/*` | `context/compaction.py` | four stages; threshold uses usage-anchored token count |
-| `utils/tokens.ts tokenCountWithEstimation` | `context/compaction.py count_context_tokens` | real API usage of last response + estimate of the tail |
-| `utils/Shell.ts` cwd tracking | `tools/shell_session.py` | persistent working directory; `cd` carries between bash calls |
-| `services/api/claude.ts` | `gateway/azure_client.py` | Anthropic `tool_use` ⇢ OpenAI function calling |
-| Anthropic cache breakpoints | Azure automatic prompt caching | keep the message prefix byte-stable; cached tokens tracked |
-| `AgentTool` + fork subagents | `tools/agent.py` | recursive `query()`; inherited broker/abort/cost tracker |
-| `sessionStorage.ts` JSONL | `persistence/session_store.py` | the transcript is the database; sidechains tagged by `agent_id` |
-| `CLAUDE.md` memory | `COMPASS.md` | loaded into the system prompt when present |
+| Session turn | `core/query_engine.py` | hooks, system prompt, transcript |
+| Agent loop | `core/query_loop.py` | `while True` with typed `Continue`/`Terminal` transitions |
+| Tool orchestration | `core/tool_orchestration.py` | read-only calls run in parallel (≤10), writes run one at a time |
+| Tool execution | `core/tool_execution.py` | 9-gate pipeline; denials are `tool_result` errors, never exceptions |
+| Tool interface | `tools/base.py` | Pydantic schema, per-input `is_concurrency_safe`, streaming `call()` |
+| Permission bridge | `PermissionBroker` | ask verdicts stream as SSE events, resolved via REST |
+| Hooks | `policy/hooks.py` | matchers (exact/pipe/regex) + per-hook timeouts; exit code 2 blocks |
+| Compaction | `context/compaction.py` | four stages; threshold uses usage-anchored token count |
+| Token counting | `context/compaction.py count_context_tokens` | real API usage of last response + estimate of the tail |
+| Shell | `tools/shell_session.py` | persistent working directory; `cd` carries between bash calls |
+| Model gateway | `gateway/azure_client.py` | Azure OpenAI streaming with function calling |
+| Prompt caching | Azure automatic prompt caching | keep the message prefix byte-stable; cached tokens tracked |
+| Subagents | `tools/agent.py` | recursive `query()`; inherited broker/abort/cost tracker |
+| Transcript | `persistence/session_store.py` | the transcript is the database; sidechains tagged by `agent_id` |
+| Project memory | `COMPASS.md` | loaded into the system prompt when present |
 
-### Fidelity notes
-
-Three mechanisms were brought to parity with the original after the first pass:
+### Implementation notes
 
 - **Token counting** — the autocompact threshold reads the *real* prompt+output
   tokens of the last API response (stamped on the assistant message) and only
-  char-estimates the tool-results appended since, matching
-  `tokenCountWithEstimation`. The earlier char-only estimate under-counted a
-  40k-token context as ~330 tokens and would never have fired.
+  char-estimates the tool-results appended since. The earlier char-only
+  estimate under-counted a 40k-token context as ~330 tokens and would never
+  have fired.
 - **Hooks** — each hook carries a matcher (tested against the tool name:
   `bash`, `file_write|file_edit`, or a regex) and its own timeout; both the
-  flat and Claude-Code-nested config shapes and CamelCase event keys are
-  accepted.
-- **Persistent shell** — bash tracks a per-session working directory the same
-  way `Shell.ts` does (fresh process per command, `pwd -P` captured and fed
-  forward), so `cd` persists across calls while each command stays isolated.
-  Like the original, `export` does not persist; only the cwd does.
+  flat and nested config shapes and CamelCase event keys are accepted.
+- **Persistent shell** — bash tracks a per-session working directory (fresh
+  process per command, `pwd -P` captured and fed forward), so `cd` persists
+  across calls while each command stays isolated. `export` does not persist;
+  only the cwd does.
 
 ## Run it
 

@@ -35,7 +35,7 @@
 .shell.right-open { grid-template-columns: 272px minmax(360px, 1fr) minmax(420px, 1.15fr); }
 .shell.right-open.sidebar-collapsed { grid-template-columns: 0px minmax(360px, 1fr) minmax(420px, 1.15fr); }
 /* Expanded dock panel (Background tasks or the in-app Browser): it FLOATS OVER
-   the chat (like claude.ai) rather than reflowing the grid. The underlying grid
+   the chat rather than reflowing the grid. The underlying grid
    returns to its normal two-column layout so the chat stays fully intact
    underneath, and the dock is lifted out of flow as an absolute overlay beside
    the sidebar. */
@@ -908,7 +908,7 @@
 }
 .cb-view.interact { cursor: default; touch-action: none; overscroll-behavior: contain; }
 .cb-view.selecting { cursor: crosshair; }
-/* Select tool — DevTools-style element highlight + info card (like claude.ai).
+/* Select tool — DevTools-style element highlight + info card.
    pointer-events:none so clicks still reach the page underneath. */
 .cb-inspect {
   position: absolute;
@@ -917,7 +917,7 @@
   background: rgba(111, 168, 220, 0.30);
   outline: 1px solid rgba(64, 128, 208, 0.9);
 }
-/* DevTools-style white info card, matching claude.ai's Select tool. */
+/* DevTools-style white info card. */
 .cb-inspect-card {
   position: absolute;
   z-index: 7;
@@ -958,7 +958,7 @@
 .cb-card-ico.yes { color: #1a8a4a; }
 .cb-card-ico.no { color: #b0b6bd; }
 /* Device viewport (Mobile/Tablet): centre the frame on a neutral backdrop so
-   it reads as a device preview, like claude.ai's Responsive/Mobile/Tablet. */
+   it reads as a device preview (Responsive/Mobile/Tablet). */
 .cb-view.device {
   align-items: center;
   justify-content: center;
@@ -1290,7 +1290,7 @@
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
-/* Timestamp (user prompts) — reveal on hover, like Claude. */
+/* Timestamp (user prompts) — reveal on hover. */
 .msg-time {
   font-family: var(--mono);
   font-size: 0.66rem;
@@ -1362,13 +1362,13 @@
   font-size: 0.92rem;
 }
 .bubble.user {
-  /* very light neutral bubble (claude-style), not the accent colour */
+  /* very light neutral bubble, not the accent colour */
   background: var(--bg-2);
   border: 1px solid var(--border);
   color: var(--ink);
   border-bottom-right-radius: 4px;
 }
-/* Assistant replies are plain text, not a bubble (like claude.ai) — no
+/* Assistant replies are plain text, not a bubble — no
    background, border, or padding box; the markdown flows on the page. */
 .bubble.assistant {
   width: auto;
@@ -1395,7 +1395,7 @@
   align-self: stretch;
   max-width: min(78ch, 94%);
 }
-/* Minimal, borderless tool-run row — like claude.ai's "Ran a command, used N
+/* Minimal, borderless tool-run row — "Ran a command, used N
    tools" (no boxed pill; just a subtle text row that expands to the steps). */
 .activity-head {
   display: flex;
@@ -1443,7 +1443,7 @@
   padding: 8px 0 2px;
 }
 
-/* claude.ai-style step list: a rounded bordered box of collapsible rows, each
+/* Step list: a rounded bordered box of collapsible rows, each
    labelled by what the tool DID (not its raw name/args). */
 .steps {
   border: 1px solid var(--border);
@@ -1476,8 +1476,8 @@
   border-top-color: var(--accent);
   animation: spin 0.7s linear infinite;
 }
-/* Marks a step that ran inside a subagent sidechain (Claude Code shows
-   delegated work as visually distinct from the main agent's steps). */
+/* Marks a step that ran inside a subagent sidechain, so delegated
+   work reads as distinct from the main agent's steps. */
 .step-agent {
   flex-shrink: 0;
   font-family: var(--mono);
@@ -1508,7 +1508,7 @@
    same short name, and the generic one won. */
 
 /* While the group is still working: shimmer the summary text and sweep a soft
- * highlight across the collapsed bar, Claude-style. */
+ * highlight across the collapsed bar. */
 .activity.running .activity-summary {
   background: linear-gradient(
     90deg,
@@ -1658,7 +1658,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .z-lift { transform: translateZ(24px); }
 
 /* Permission card — attention without alarm */
-/* Claude-style "Edited file +N −M ›" row with expandable diff */
+/* "Edited file +N −M ›" row with expandable diff */
 .fileedit { margin: 6px 0; }
 .fileedit-head {
   display: flex;
@@ -1702,7 +1702,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .fe-diff .dl-del { background: color-mix(in oklab, var(--danger) 14%, transparent); color: var(--muted); }
 .fe-diff .dl-sign { display: inline-block; width: 1em; color: var(--faint); user-select: none; }
 
-/* Claude-style approval dialog (see Image 5) */
+/* Approval dialog */
 /* ===================== Create-PR dialog ===================== */
 .pr-modal {
   width: min(600px, 94vw);
@@ -2067,7 +2067,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 .notice.complete { color: var(--accent); }
 
 /* Browser-preview card (the `browser` tool): app screenshot + a header with the
-   page title, URL and an Open button — like claude.ai's "Opened in Browser". */
+   page title, URL and an Open button ("Opened in Browser"). */
 .preview-card {
   min-width: 0; max-width: 640px;
   border: 1px solid var(--border);
@@ -2128,7 +2128,7 @@ pre.output { background: var(--bg-2); border: 1px solid var(--border); max-heigh
 }
 .composer-spacer { flex: 1; }
 
-/* ================= Composer — Claude-style status/input/toolbar ================= */
+/* ================= Composer — status/input/toolbar ================= */
 .cmp-status {
   display: flex;
   align-items: center;
@@ -2443,7 +2443,7 @@ a.cmp-note.ok:hover { background: color-mix(in oklab, var(--success) 22%, transp
 }
 .cmp-pick-x:hover { background: var(--surface); color: var(--ink); }
 
-/* attachments sit ABOVE the user bubble, separate from it (like claude.ai) */
+/* attachments sit ABOVE the user bubble, separate from it */
 .bubble-atts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
 .bubble-att-img {
   display: block;

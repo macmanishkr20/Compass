@@ -109,7 +109,7 @@ class BrowserTool(Tool):
         title = await b.title()
         shot = f" screenshot://{sid}" if sid else ""
         # `Title:` and `Now at` are parsed by the UI to render a browser-preview
-        # card (app screenshot + Open button), like claude.ai.
+        # card (app screenshot + Open button).
         yield ToolOutput(
             f"Done: {inp.action}. Title: {title}. Now at {url}.{shot}\n"
             "Look at the screenshot before deciding the next action."
@@ -117,7 +117,7 @@ class BrowserTool(Tool):
 
     def _register_session(self, ctx: ToolUseContext, url: str) -> None:
         """Surface the live browser session in the Background tasks panel with an
-        Open/Preview URL (claude.ai's browser-session card)."""
+        Open/Preview URL."""
         if not url:
             return
         try:

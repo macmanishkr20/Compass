@@ -2,7 +2,7 @@
 
 Built from parts, in a stable order, because the prompt is the prompt-cache
 prefix: identity, behavior, tool guidance, then the environment block, then
-project memory (COMPASS.md — the CLAUDE.md analog). Anything volatile stays
+project memory (COMPASS.md). Anything volatile stays
 OUT of the system prompt so the cache prefix survives across iterations.
 """
 

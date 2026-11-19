@@ -1,6 +1,6 @@
 """Permission rules and modes — the port of the checkPermissions layer.
 
-Order of authority (same as Claude Code): deny rules beat everything, then
+Order of authority: deny rules beat everything, then
 explicit allow/ask rules, then the permission mode's default stance. A tool's
 own `check_permissions` can pre-empt with a hard deny (e.g. path escapes the
 workspace) before rules are even consulted.

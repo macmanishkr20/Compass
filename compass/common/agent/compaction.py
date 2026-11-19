@@ -251,8 +251,7 @@ def _cap_images(messages: list[Message], keep: int) -> tuple[list[Message], int]
 
 def _protected_tail(visible: list[Message]) -> list[Message]:
     """Last user message onward, kept verbatim past the boundary. Walks
-    backward past any tool results so a tool_call/tool pair is never split
-    (the same invariant Claude Code protects)."""
+    backward past any tool results so a tool_call/tool pair is never split."""
     idx = len(visible) - 1
     while idx > 0 and visible[idx].role == "tool":
         idx -= 1

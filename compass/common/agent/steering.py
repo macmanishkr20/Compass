@@ -69,7 +69,7 @@ def budget_note(used: int, budget: int) -> str:
     """What to tell the model about the room it has left, or "" while there is
     plenty.
 
-    Claude's models get this injected by the API — a token budget in the
+    Some model APIs inject this themselves — a token budget in the
     system prompt and a running `<system_warning>` after each tool call — so
     that a long task can be paced against the space that remains instead of
     running until it stops. Nothing injects it here, so Compass says it.

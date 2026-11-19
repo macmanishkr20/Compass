@@ -1,6 +1,6 @@
 """A design system, rendered as a project you can browse.
 
-Claude Design turns a system into files: one token sheet, a written guide, a
+Design turns a system into files: one token sheet, a written guide, a
 machine-readable record of the parameters, and a page per foundation,
 component and template. This module builds that set.
 

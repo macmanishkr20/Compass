@@ -72,7 +72,7 @@ async def _merge(
     generators: list[AsyncIterator[ToolRunItem]],
 ) -> AsyncIterator[ToolRunItem]:
     """Drain several tool generators into one stream, first-come order —
-    the `all()` generator-merge utility Claude Code uses for parallel reads."""
+    the generator merge that parallel reads use."""
     queue: asyncio.Queue[object] = asyncio.Queue()
     sentinel = object()
 

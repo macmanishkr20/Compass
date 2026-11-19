@@ -1,6 +1,6 @@
 """Lifecycle hook bus — port of utils/hooks.ts.
 
-Two kinds of hooks, same contract as Claude Code:
+Two kinds of hooks:
   * Python callables registered in-process (the SDK path)
   * shell commands from `.compass/hooks.json`, which receive the event
     payload as JSON on stdin. Exit code 2 blocks; stdout JSON may return
@@ -19,7 +19,7 @@ Config (.compass/hooks.json) accepts three shapes per event, all supported:
   1. ["cmd1", "cmd2"]                                   (matcher "*", default timeout)
   2. [{"matcher": "bash", "command": "x", "timeout": 30}]
   3. [{"matcher": "bash", "hooks": [{"type": "command",
-        "command": "x", "timeout": 30}]}]               (Claude Code settings shape)
+        "command": "x", "timeout": 30}]}]               (nested settings shape)
 Event keys accept snake_case ("pre_tool_use") or CamelCase ("PreToolUse").
 
 Events: session_start, user_prompt_submit, pre_tool_use, post_tool_use,
@@ -55,7 +55,7 @@ class HookEvent(str, Enum):
     SUBAGENT_STOP = "subagent_stop"
 
 
-# Accept CamelCase event keys (Claude Code settings convention) in addition to
+# Accept CamelCase event keys (a common settings convention) in addition to
 # the native snake_case, so existing hook configs port over unchanged.
 _CAMEL_ALIASES = {
     "SessionStart": HookEvent.SESSION_START,
@@ -161,7 +161,7 @@ class HookRegistry:
             logger.warning("ignoring malformed hook entry: %r", entry)
             return []
         matcher = entry.get("matcher", "*")
-        # Claude Code settings shape: {matcher, hooks: [{type, command, timeout}]}
+        # Nested settings shape: {matcher, hooks: [{type, command, timeout}]}
         if "hooks" in entry and isinstance(entry["hooks"], list):
             out: list[tuple[str, str, float]] = []
             for h in entry["hooks"]:
